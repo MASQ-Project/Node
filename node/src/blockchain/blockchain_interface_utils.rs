@@ -32,6 +32,7 @@ use web3::types::{
 use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
 use web3::api::{Accounts, Namespace};
+use web3::contract::{Contract, Options};
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 
@@ -501,18 +502,33 @@ pub fn request_block_number(
     )
 }
 
-fn get_transaction_fee_balance(
+pub fn get_transaction_fee_balance(
     web3: Web3<Http>,
-    wallet: &Wallet,
+    address: Address,
 ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
     // TODO: GH-744: We could accept an wallet address instead of the wallet so this function wouldn't panic.
     Box::new(
         web3.eth()
-            .balance(wallet.address(), None)
+            .balance(address, None)
             .map_err(|e| QueryFailed(e.to_string())),
     )
 }
 
+pub fn get_token_balance(
+    contract: Contract<Http>,
+    address: Address,
+) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    Box::new(
+        contract.query(
+            "balanceOf",
+            address,
+            None,
+            Options::default(),
+            None,
+            )
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
+    )
+}
 
 
 #[cfg(test)]
@@ -1451,37 +1467,16 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0x23".to_string(),1 )
             .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        ).unwrap();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
         let web3 = blockchain_interface_web3.get_web3();
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
 
-        let result = get_transaction_fee_balance(web3, wallet).wait();
+        let result = get_transaction_fee_balance(web3, wallet.address()).wait();
 
         assert_eq!(
             result,
             Ok(35.into())
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn get_transaction_fee_balance_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet()
-    {
-        let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        ).unwrap();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let _ = get_transaction_fee_balance(web3, &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ")).wait();
     }
 
     #[test]
@@ -1491,16 +1486,10 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0xFFFQ".to_string(),0 )
             .start();
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        )).unwrap();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
         let web3 = blockchain_interface_web3.get_web3();
 
-        let result = get_transaction_fee_balance(web3, &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap()).wait();
+        let result = get_transaction_fee_balance(web3, Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address()).wait();
 
         match result {
             Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
@@ -1510,39 +1499,46 @@ mod tests {
         };
     }
 
-    fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str) // TODO GH-744: Might be able to delete this.
-        where
-            F: FnOnce(&BlockchainInterfaceWeb3, &Wallet) -> ResultForBalance,
-    {
+    #[test]
+    fn get_token_balance_can_retrieve_token_balance_of_a_wallet() {
         let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
-        ]);
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),0 )
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let contract = blockchain_interface_web3.get_contract();
 
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
+        let result = get_token_balance(contract, Wallet::from_str( "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address() )
+            .wait()
             .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
-        let result = act(
-            &subject,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
+        assert_eq!(result, U256::from(65_535));
+    }
+
+    #[test]
+    fn get_token_balance_returns_error_for_unintelligible_response_to_token_balance() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x000000000000000000000000000000000000000000000000000000000000FFFQ".to_string(),0 )
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let contract = blockchain_interface_web3.get_contract();
+        let expected_err_msg = "Invalid hex";
+
+        let result = get_token_balance(contract, Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address()).wait();
 
         let err_msg = match result {
             Err(BlockchainError::QueryFailed(msg)) => msg,
             x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
         };
         assert!(
-            err_msg.contains(expected_err_msg_fragment),
+            err_msg.contains(expected_err_msg),
             "Expected this fragment {} in this err msg: {}",
-            expected_err_msg_fragment,
+            expected_err_msg,
             err_msg
         )
     }
+
 
     fn assert_that_signed_transactions_agrees_with_template(
         chain: Chain,

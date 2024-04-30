@@ -329,10 +329,11 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         // )
     }
 
-    fn get_token_balance(
+    fn get_token_balance( // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        todo!("Code migrated to Blockchain_interface_utils");
         Box::new(
             self.get_contract()
                 .query(
@@ -1039,24 +1040,6 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_can_retrieve_token_balance_of_a_wallet() {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFF"}"#.to_vec()
-        ]);
-        let subject = make_blockchain_interface(Some(port));
-
-        let result = subject
-            .get_token_balance(
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-            )
-            .wait()
-            .unwrap();
-
-        assert_eq!(result, U256::from(65_535));
-    }
-
-    #[test]
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         // TODO "GH-744: Come back to this - testing build_blockchain_agent"
         // let transaction_fee_balance = U256::from(123_456_789);
@@ -1074,26 +1057,6 @@ mod tests {
         //     lower_interface,
         //     expected_err_factory,
         // )
-    }
-
-    #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_web3_returns_an_error_when_requesting_token_balance_of_an_invalid_wallet(
-    ) {
-        let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
-        let result = subject
-            .get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
-            .wait();
-
-        assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
@@ -1118,49 +1081,6 @@ mod tests {
         // );
     }
 
-    #[test]
-    fn blockchain_interface_web3_returns_error_for_unintelligible_response_to_token_balance() {
-        let act = |subject: &BlockchainInterfaceWeb3, wallet: &Wallet| {
-            subject.get_token_balance(wallet).wait()
-        };
-
-        assert_error_during_requesting_balance(act, "Invalid hex");
-    }
-
-    // TODO:: GH-744: Delete this - has been moved to blockchain_interface_utils
-    fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str)
-    where
-        F: FnOnce(&BlockchainInterfaceWeb3, &Wallet) -> ResultForBalance,
-    {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
-        ]);
-
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
-        let result = act(
-            &subject,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
-
-        let err_msg = match result {
-            Err(BlockchainError::QueryFailed(msg)) => msg,
-            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
-        };
-        assert!(
-            err_msg.contains(expected_err_msg_fragment),
-            "Expected this fragment {} in this err msg: {}",
-            expected_err_msg_fragment,
-            err_msg
-        )
-    }
 
     // TODO: GH-744 - We had removed this test, but master has some changes, so its been brought back
     // #[test]

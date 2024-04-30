@@ -18,7 +18,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 };
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
+use crate::blockchain::blockchain_interface_utils::{get_token_balance, get_transaction_fee_balance, send_payables_within_batch};
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
@@ -29,7 +29,7 @@ use crate::sub_lib::blockchain_bridge::{
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
-use crate::sub_lib::wallet::Wallet;
+use crate::sub_lib::wallet::{Wallet, WalletKind};
 use actix::Actor;
 use actix::Context;
 use actix::Handler;
@@ -308,8 +308,9 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
-            Some(wallet) => wallet,
+        // TODO: GH-744: Need to test for panic on wallet address
+        let consuming_wallet_address = match self.consuming_wallet_opt.clone() {
+            Some(wallet) => wallet.address(),
             None => {
                 return Box::new(err(
                     "Cannot inspect available balances for payables while consuming wallet \
@@ -318,8 +319,8 @@ impl BlockchainBridge {
                 ))
             }
         };
-        //TODO rewrite this into a batch call as soon as GH-629 gets into master
 
+        //TODO rewrite this into a batch call as soon as GH-629 gets into master
         // TODO: GH-744 This is from Master
 
         //     let agent = self
@@ -340,27 +341,20 @@ impl BlockchainBridge {
         //         .expect("Accountant is dead");
 
         // let balances_and_payables_sub_opt = self.balances_and_payables_sub_opt.clone();
-        let get_transaction_fee_balance = self
-            .blockchain_interface
-            .get_transaction_fee_balance(consuming_wallet)
-            .map_err(|e| {
-                format!(
-                    "Did not find out gas balance of the consuming wallet: {:?}",
-                    e
-                )
-            });
+        let web3 = self.blockchain_interface.get_web3();
+        let contract = self.blockchain_interface.get_contract();
 
         return Box::new(
-            self.blockchain_interface
-                .get_token_balance(consuming_wallet)
+           get_token_balance(contract, consuming_wallet_address)
                 .map_err(|e| {
-                    format!(
-                        "Did not find out token balance of the consuming wallet: {:?}",
-                        e
-                    )
+                    format!("Did not find out token balance of the consuming wallet: {:?}", e )
                 })
                 .and_then(move |token_balance| {
-                    get_transaction_fee_balance.and_then(move |gas_balance| {
+                    get_transaction_fee_balance(web3, consuming_wallet_address)
+                        .map_err(|e| {
+                            format!("Did not find out gas balance of the consuming wallet: {:?}", e)
+                        })
+                        .and_then(move |gas_balance| {
                         let consuming_wallet_balances = {
                             ConsumingWalletBalances {
                                 transaction_fee_balance_in_minor_units: gas_balance,
