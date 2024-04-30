@@ -1774,42 +1774,48 @@ pub fn try_making_guaranteed_qualified_payables(
     now: SystemTime,
     should_panic: bool,
 ) -> Vec<QualifiedPayableAccount> {
-    fn panic(
-        payable: &PayableAccount,
-        payment_thresholds: &PaymentThresholds,
-        now: SystemTime,
-    ) -> ! {
-        panic!(
-            "You intend to create qualified payables but their parameters not always make them qualify \
-        as in: {:?} where the balance needs to get over {}",
-            payable,
-            PayableThresholdsGaugeReal::default().calculate_payout_threshold_in_gwei(
-                payment_thresholds,
-                SystemTime::now().duration_since(now).unwrap().as_secs()
-            )
-        )
-    }
-
     let payable_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
     payables
         .into_iter()
         .flat_map(|payable| {
-            match payable_inspector.payable_exceeded_threshold(&payable, payment_thresholds, now) {
-                Some(payment_threshold_intercept) => Some(QualifiedPayableAccount::new(
-                    payable,
-                    payment_threshold_intercept,
-                    CreditorThresholds::new(gwei_to_wei(
-                        payment_thresholds.permanent_debt_allowed_gwei,
-                    )),
-                )),
-                None => {
-                    if should_panic {
-                        panic(&payable, &payment_thresholds, now)
-                    } else {
-                        None
-                    }
-                }
-            }
+            make_single_qualified_payable_opt(
+                payable,
+                &payable_inspector,
+                payment_thresholds,
+                should_panic,
+                now,
+            )
         })
         .collect()
+}
+
+pub fn make_single_qualified_payable_opt(
+    payable: PayableAccount,
+    payable_inspector: &PayableInspector,
+    payment_thresholds: &PaymentThresholds,
+    should_panic: bool,
+    now: SystemTime,
+) -> Option<QualifiedPayableAccount> {
+    match payable_inspector.payable_exceeded_threshold(&payable, payment_thresholds, now) {
+        Some(payment_threshold_intercept) => Some(QualifiedPayableAccount::new(
+            payable,
+            payment_threshold_intercept,
+            CreditorThresholds::new(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)),
+        )),
+        None => {
+            if should_panic {
+                panic!(
+                    "You intend to create qualified payables but their parameters not always make \
+                    them qualify as in: {:?} where the balance needs to get over {}",
+                    payable,
+                    PayableThresholdsGaugeReal::default().calculate_payout_threshold_in_gwei(
+                        payment_thresholds,
+                        SystemTime::now().duration_since(now).unwrap().as_secs()
+                    )
+                )
+            } else {
+                None
+            }
+        }
+    }
 }
