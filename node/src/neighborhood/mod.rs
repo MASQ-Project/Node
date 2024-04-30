@@ -77,6 +77,7 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
+use crate::neighborhood::node_location::get_node_location;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -536,10 +537,18 @@ impl Neighborhood {
             .expectv("Root node")
             .ip_addr();
         self.neighborhood_database.new_public_ip(new_public_ip);
+        self.handle_new_ip_location(new_public_ip);
         info!(
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
+    }
+
+    fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
+        let node_location = get_node_location(Some(new_public_ip));
+        self.neighborhood_database.root_mut().metadata.node_location = node_location.clone();
+        self.neighborhood_database.root_mut().inner.free_world_bit = node_location.as_ref().expect("expected Node location").free_world;
+        self.neighborhood_database.root_mut().inner.country_code = node_location.expect("expected Node location").country;
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -4318,6 +4327,8 @@ mod tests {
             new_ip: new_public_ip,
         });
 
+        assert_eq!(subject.neighborhood_database.root().inner.free_world_bit, subject.neighborhood_database.root().metadata.node_location.as_ref().unwrap().free_world);
+        assert_eq!(subject.neighborhood_database.root().inner.country_code, subject.neighborhood_database.root().metadata.node_location.as_ref().unwrap().country);
         assert_eq!(
             subject
                 .neighborhood_database

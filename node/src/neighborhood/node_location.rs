@@ -7,14 +7,13 @@ use ip_country_lib::dbip_country;
 
 #[derive(Clone, Debug, Default)]
 pub struct NodeLocation {
-    id: u8,
     pub(crate) country: String,
     pub(crate) free_world: bool
 }
 
 impl PartialEq<Self> for NodeLocation {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.country == other.country
     }
 }
 
@@ -26,7 +25,7 @@ pub fn get_node_location(ip: Option<IpAddr>) -> Option<NodeLocation> {
             let country = country_finder(dbip_country::ipv4_country_data, dbip_country::ipv6_country_data, ip_addr);
             match country {
                 Some(country) => {
-                    Some( NodeLocation { id: country.index as u8, country: country.iso3166.to_string(), free_world: country.free_world } )
+                    Some( NodeLocation { country: country.iso3166.to_string(), free_world: country.free_world } )
                 },
                 None => None
             }
@@ -41,7 +40,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::node_location::{get_node_location, NodeLocation};
-    use crate::neighborhood::node_record::NodeRecordMetadata;
+    use crate::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 
     #[test]
@@ -49,7 +48,6 @@ mod tests {
         let node_location = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(125, 125, 125, 1)))).unwrap();
 
         assert_eq!(node_location.country, "CN");
-        assert_eq!(node_location.id, 46);
         assert_eq!(node_location.free_world, false);
     }
 
@@ -59,24 +57,21 @@ mod tests {
             get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))))
         );
 
-        assert_eq!(metadata.node_location.as_ref().unwrap(), &NodeLocation { id: 14, country: "AU".to_string(), free_world: true });
-        assert_eq!(metadata.free_world, metadata.node_location.as_ref().unwrap().free_world);
+        assert_eq!(metadata.node_location.as_ref().unwrap(), &NodeLocation { country: "AU".to_string(), free_world: true });
         assert_eq!(metadata.node_location.as_ref().unwrap().free_world, true);
         assert_eq!(metadata.node_location.as_ref().unwrap().country, "AU");
-        assert_eq!(metadata.node_location.as_ref().unwrap().id, 14);
     }
 
     #[test]
     fn construct_node_record_for_test() {
         let node_record = make_node_record(1111, true);
 
-        assert_eq!(node_record.metadata.free_world, true);
-        assert_eq!(node_record.metadata.node_location, Some(NodeLocation { id: 14, country: "AU".to_string(), free_world: true }))
+        assert_eq!(node_record.metadata.node_location, Some(NodeLocation { country: "AU".to_string(), free_world: true }))
     }
 
     #[test]
     fn create_gossip_node_with_addr_and_country_code_reveal_results_in_node_with_addr_adn_free_world_bit() {
-        let node = make_node_record(1111, true);
+        let node = make_node_record(2222, true);
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -84,19 +79,19 @@ mod tests {
 
         let mut gossip = builder.build();
         let gossip_result = gossip.node_records.remove(0);
+        let node_record = NodeRecord::try_from(&gossip_result).unwrap();
 
-        println!("gossip_result {:?}", &gossip_result);
         assert_eq!(
             gossip_result.node_addr_opt.unwrap(),
             node.node_addr_opt().unwrap()
         );
         assert_eq!(
-            gossip_result.free_world_bit,
+            node_record.inner.free_world_bit,
             true
         );
         assert_eq!(
-            gossip_result.country_code,
-            "AU"
+            node_record.inner.country_code,
+            "FR"
         )
     }
 }

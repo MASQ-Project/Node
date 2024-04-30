@@ -72,6 +72,15 @@ impl NodeRecord {
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
         location: Option<NodeLocation>,
     ) -> NodeRecord {
+        let mut free_world = false;
+        let mut country = String::default();
+        match location.as_ref() {
+            Some(node_location) => {
+                free_world = node_location.free_world;
+                country = node_location.country.clone();
+            },
+            None => {  },
+        };
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(location),
             inner: NodeRecordInner_0v1 {
@@ -82,6 +91,8 @@ impl NodeRecord {
                 routes_data,
                 neighbors: BTreeSet::new(),
                 version,
+                free_world_bit: free_world,
+                country_code: country
             },
             signed_gossip: PlainData::new(&[]),
             signature: CryptData::new(&[]),
@@ -285,9 +296,13 @@ impl NodeRecord {
 
 impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
+        let ip_add_opt = match agr.node_addr_opt.as_ref() {
+            Some(node_rec) => Some(node_rec.ip_addr),
+            None => None
+        };
         let mut node_record = NodeRecord {
             inner: agr.inner,
-            metadata: NodeRecordMetadata::new(get_node_location(Some(agr.node_addr_opt.as_ref().expect("expect ip add").ip_addr))),
+            metadata: NodeRecordMetadata::new(get_node_location(ip_add_opt)),
             signed_gossip: agr.signed_gossip,
             signature: agr.signature,
         };
@@ -308,9 +323,13 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 
     fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
         let inner = NodeRecordInner_0v1::try_from(gnr)?;
+        let ip_addr = match &gnr.node_addr_opt {
+            Some(node_addr) => Some(node_addr.ip_addr),
+            None => None
+        };
         let mut node_record = NodeRecord {
             inner,
-            metadata: NodeRecordMetadata::new(get_node_location(None)),
+            metadata: NodeRecordMetadata::new(get_node_location(ip_addr)),
             signed_gossip: gnr.signed_data.clone(),
             signature: gnr.signature.clone(),
         };
@@ -325,19 +344,18 @@ pub struct NodeRecordMetadata {
     pub last_update: u32,
     pub node_addr_opt: Option<NodeAddr>,
     pub unreachable_hosts: HashSet<String>,
-    pub free_world: bool,
     pub node_location: Option<NodeLocation>,
+    pub node_trust_score: u32,
 }
 
 impl NodeRecordMetadata {
     pub fn new(node_location: Option<NodeLocation>) -> NodeRecordMetadata {
-        let free_world = &node_location.as_ref().expect("expected NodeLocation data");
         NodeRecordMetadata {
             last_update: time_t_timestamp(),
             node_addr_opt: None,
             unreachable_hosts: Default::default(),
-            free_world: free_world.free_world,
             node_location,
+            node_trust_score: Default::default(),
         }
     }
 }
@@ -363,11 +381,15 @@ mod tests {
         let mut db = db_from_node(&make_node_record(2345, true));
         db.add_node(expected_node_record.clone()).unwrap();
         let builder = GossipBuilder::new(&db).node(expected_node_record.public_key(), true);
+        let before = time_t_timestamp();
 
         let actual_node_record =
             NodeRecord::try_from(builder.build().node_records.first().unwrap()).unwrap();
 
-        assert_eq!(expected_node_record, actual_node_record);
+        let after = time_t_timestamp();
+        assert!(before <= actual_node_record.metadata.last_update && actual_node_record.metadata.last_update <= after);
+        expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
+        assert_eq!(actual_node_record, expected_node_record);
     }
 
     #[test]
@@ -944,8 +966,6 @@ mod tests {
             signed_data: PlainData::new(&[1, 2, 3, 4]),
             signature: CryptData::new(&[]),
             node_addr_opt: None,
-            free_world_bit: false,
-            country_code: "".to_string()
         };
 
         let result = NodeRecordInner_0v1::try_from(corrupt_gnr);
