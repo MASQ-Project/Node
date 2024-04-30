@@ -316,17 +316,17 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn get_transaction_fee_balance(
+    fn get_transaction_fee_balance( // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        Box::new(
-            // self.web3
-            self.get_web3()
-                .eth()
-                .balance(wallet.address(), None)
-                .map_err(|e| QueryFailed(e.to_string())),
-        )
+            todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
+        // Box::new(
+        //     // self.get_web3()
+        //     //     .eth()
+        //     //     .balance(wallet.address(), None)
+        //     //     .map_err(|e| QueryFailed(e.to_string())),
+        // )
     }
 
     fn get_token_balance(
@@ -344,8 +344,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 )
                 .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
         )
-        // .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-        // .wait()
     }
 
     fn  get_transaction_count(
@@ -858,25 +856,25 @@ mod tests {
             })
         );
     }
-    #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_web3_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet()
-    {
-        let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
-        let result = subject
-            .get_transaction_fee_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
-            .wait();
-
-        assert_eq!(result, Err(BlockchainError::InvalidAddress));
-    }
+    // #[test]
+    // #[should_panic(expected = "No address for an uninitialized wallet!")]
+    // fn blockchain_interface_web3_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet()
+    // {
+    //     let port = 8545;
+    //     let (event_loop_handle, transport) = Http::with_max_parallel(
+    //         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+    //         REQUESTS_IN_PARALLEL,
+    //     )
+    //     .unwrap();
+    //     let subject =
+    //         BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+    //
+    //     let result = subject
+    //         .get_transaction_fee_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"))
+    //         .wait();
+    //
+    //     assert_eq!(result, Err(BlockchainError::InvalidAddress));
+    // }
 
     // pub fn make_blockchain_interface(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
     //     //TODO: GH-744: Turn this into a builder patten.
@@ -943,37 +941,37 @@ mod tests {
         )
     }
 
-    #[test]
-    fn blockchain_interface_web3_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
-    ) {
-        let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
-        );
-
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
-        .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-
-        let result = subject
-            .get_transaction_fee_balance(
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-            )
-            .wait();
-
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
-                ()
-            }
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        };
-    }
+    // #[test]
+    // fn blockchain_interface_web3_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
+    // ) {
+    //     let port = find_free_port();
+    //     let _test_server = TestServer::start(
+    //         port,
+    //         vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
+    //     );
+    //
+    //     let (event_loop_handle, transport) = Http::new(&format!(
+    //         "http://{}:{}",
+    //         &Ipv4Addr::LOCALHOST.to_string(),
+    //         port
+    //     ))
+    //     .unwrap();
+    //     let subject =
+    //         BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+    //
+    //     let result = subject
+    //         .get_transaction_fee_balance(
+    //             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+    //         )
+    //         .wait();
+    //
+    //     match result {
+    //         Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+    //             ()
+    //         }
+    //         x => panic!("Expected complaint about hex character, but got {:?}", x),
+    //     };
+    // }
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
@@ -997,14 +995,7 @@ mod tests {
         // assert_eq!(err, expected_err)
     }
 
-    #[test]
-    fn blockchain_interface_web3_returns_error_for_unintelligible_response_to_gas_balance() {
-        let act = |subject: &BlockchainInterfaceWeb3, wallet: &Wallet| {
-            subject.get_transaction_fee_balance(wallet).wait()
-        };
 
-        assert_error_during_requesting_balance(act, "invalid hex character");
-    }
 
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(
         lower_blockchain_interface: LowBlockchainIntMock,
@@ -1136,6 +1127,7 @@ mod tests {
         assert_error_during_requesting_balance(act, "Invalid hex");
     }
 
+    // TODO:: GH-744: Delete this - has been moved to blockchain_interface_utils
     fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str)
     where
         F: FnOnce(&BlockchainInterfaceWeb3, &Wallet) -> ResultForBalance,
@@ -1618,34 +1610,6 @@ mod tests {
     //     );
     // }
 
-    #[test]
-    fn send_batch_of_payables_fails_on_badly_prepared_consuming_wallet_without_secret() {
-        todo!("GH-744: Come back to this, using send_batch_of_payables");
-        // let transport = TestTransport::default();
-        // let incomplete_consuming_wallet =
-        //     Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        // let chain = TEST_DEFAULT_CHAIN;
-        // let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
-        // let system = System::new("test");
-        // let (accountant, _, accountant_recording_arc) = make_recorder();
-        // let recipient = accountant.start().recipient();
-        // let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-        //     make_wallet("blah123"),
-        //     9000,
-        //     None,
-        // );
-        // let agent = make_initialized_agent(123, incomplete_consuming_wallet, U256::from(1));
-        //
-        // let result = subject.send_batch_of_payables(agent, &recipient, &vec![account]);
-        //
-        // System::current().stop();
-        // system.run();
-        // assert_eq!(result,
-        // Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
-        // );
-        // let accountant_recording = accountant_recording_arc.lock().unwrap();
-        // assert_eq!(accountant_recording.len(), 0)
-    }
 
     const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
     const TEST_GAS_PRICE_ETH: u64 = 110;

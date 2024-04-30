@@ -26,6 +26,9 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, H256};
 use web3::{BatchTransport, Web3};
 
+// TODO: GH-744: Fix this trait - before submitting this code for review.
+// Create some tools for each blockchain and pass these tool in every function of this trait.
+// Example Web3 tools for Web3 based blockchains.
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
 

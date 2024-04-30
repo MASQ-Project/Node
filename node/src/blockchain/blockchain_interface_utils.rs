@@ -7,7 +7,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     REQUESTS_IN_PARALLEL, TRANSFER_METHOD_ID,
 };
 
-use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -33,6 +33,7 @@ use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
 use web3::api::{Accounts, Namespace};
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
@@ -500,6 +501,20 @@ pub fn request_block_number(
     )
 }
 
+fn get_transaction_fee_balance(
+    web3: Web3<Http>,
+    wallet: &Wallet,
+) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    // TODO: GH-744: We could accept an wallet address instead of the wallet so this function wouldn't panic.
+    Box::new(
+        web3.eth()
+            .balance(wallet.address(), None)
+            .map_err(|e| QueryFailed(e.to_string())),
+    )
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,7 +550,7 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
     use crate::accountant::db_access_objects::utils::from_time_t;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL, ResultForBalance};
     use crate::blockchain::blockchain_interface::BlockchainInterface;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::Sending;
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{Correct, Failed};
@@ -1428,6 +1443,105 @@ mod tests {
     #[test]
     fn gas_limit_for_eth_mainnet_lies_within_limits_for_raw_transaction() {
         test_gas_limit_is_between_limits(Chain::EthMainnet)
+    }
+
+    #[test]
+    fn get_transaction_fee_balance_works() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x23".to_string(),1 )
+            .start();
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let blockchain_interface_web3 =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3 = blockchain_interface_web3.get_web3();
+        let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+
+        let result = get_transaction_fee_balance(web3, wallet).wait();
+
+        assert_eq!(
+            result,
+            Ok(35.into())
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
+    fn get_transaction_fee_balance_returns_an_error_when_requesting_eth_balance_of_an_invalid_wallet()
+    {
+        let port = 8545;
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let blockchain_interface_web3 =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let _ = get_transaction_fee_balance(web3, &Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ")).wait();
+    }
+
+    #[test]
+    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
+    ) {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0xFFFQ".to_string(),0 )
+            .start();
+        let (event_loop_handle, transport) = Http::new(&format!(
+            "http://{}:{}",
+            &Ipv4Addr::LOCALHOST.to_string(),
+            port
+        )).unwrap();
+        let blockchain_interface_web3 =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let result = get_transaction_fee_balance(web3, &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap()).wait();
+
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+                ()
+            }
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        };
+    }
+
+    fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str) // TODO GH-744: Might be able to delete this.
+        where
+            F: FnOnce(&BlockchainInterfaceWeb3, &Wallet) -> ResultForBalance,
+    {
+        let port = find_free_port();
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
+        ]);
+
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
+        let subject =
+            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+
+        let result = act(
+            &subject,
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
+
+        let err_msg = match result {
+            Err(BlockchainError::QueryFailed(msg)) => msg,
+            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
+        };
+        assert!(
+            err_msg.contains(expected_err_msg_fragment),
+            "Expected this fragment {} in this err msg: {}",
+            expected_err_msg_fragment,
+            err_msg
+        )
     }
 
     fn assert_that_signed_transactions_agrees_with_template(
