@@ -605,8 +605,12 @@ fn render_results_to_file_and_attempt_basic_assertions(
 fn introduction(file: &mut File) {
     write_thick_dividing_line(file);
     write_thick_dividing_line(file);
-    file.write(b"A short summary can be found at the tail\n")
-        .unwrap();
+    let page_width = PAGE_WIDTH;
+    file.write_fmt(format_args!(
+        "{:^page_width$}",
+        "A short summary can be found at the tail\n"
+    ))
+    .unwrap();
     write_thick_dividing_line(file);
     write_thick_dividing_line(file)
 }
@@ -836,14 +840,14 @@ fn single_account_output(
     let starting_gap = STARTING_GAP;
     let _ = file
         .write_fmt(format_args!(
-            "{:<starting_gap$}{}{:>first_column_width$} wei | {:>age_width$} s | {}\n",
-            "",
+            "{}{:<starting_gap$}{:>first_column_width$} wei | {:>age_width$} s | {}\n",
             individual_thresholds_opt
                 .map(|thresholds| format!(
                     "{:<starting_gap$}Thresholds: {:>first_column_width$}\n",
                     "", thresholds
                 ))
                 .unwrap_or("".to_string()),
+            "",
             balance_minor.separate_with_commas(),
             age_s.separate_with_commas(),
             resolve_account_ending_status_graphically(bill_coverage_in_percentage_opt),
@@ -1221,9 +1225,15 @@ fn try_make_qualified_payables_by_applied_thresholds(
                 .as_ref()
                 .left()
                 .expect("should be Vec at this stage");
-            assert_eq!(payable_accounts.len(), vec_of_thresholds.len(), "The number of generated \
+            assert_eq!(
+                payable_accounts.len(),
+                vec_of_thresholds.len(),
+                "The number of generated \
             payables {} differs from their sets of thresholds {}, but one should've been derived \
-            from the other", payable_accounts.len(), vec_of_thresholds.len());
+            from the other",
+                payable_accounts.len(),
+                vec_of_thresholds.len()
+            );
             let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
             zipped.fold(
                 (vec![], vec![]),
