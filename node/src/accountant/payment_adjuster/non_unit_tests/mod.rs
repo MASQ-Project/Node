@@ -607,8 +607,8 @@ fn introduction(file: &mut File) {
     write_thick_dividing_line(file);
     let page_width = PAGE_WIDTH;
     file.write_fmt(format_args!(
-        "{:^page_width$}",
-        "A short summary can be found at the tail\n"
+        "{:^page_width$}\n",
+        "A short summary can be found at the tail"
     ))
     .unwrap();
     write_thick_dividing_line(file);
@@ -722,40 +722,29 @@ fn render_scenario_header(
         "CW service fee balance: {} wei\n\
          Portion of CW balance used: {}%\n\
          Maximal txt count due to CW txt fee balance: {}\n\
-         Used PaymentThresholds:\n",
+         Used PaymentThresholds: {}\n",
         scenario_common
             .cw_service_fee_balance_minor
             .separate_with_commas(),
         portion_of_cw_used_percents,
-        resolve_affordable_transaction_count(&scenario_common.required_adjustment)
+        resolve_affordable_transaction_count(&scenario_common.required_adjustment),
+        resolve_comment_on_thresholds(&scenario_common.used_thresholds)
     ))
     .unwrap();
-    let _ = match &scenario_common.used_thresholds {
-        AppliedThresholds::Defaulted | AppliedThresholds::SingleButRandomized { .. } => {
-            if let AppliedThresholds::SingleButRandomized { common_thresholds } =
-                &scenario_common.used_thresholds
-            {
-                write_fully_described_thresholds(file, common_thresholds);
-            } else {
-                file.write(b"Defaulted\n").unwrap();
-            }
-        }
-        AppliedThresholds::RandomizedForEachAccount { .. } => {
-            file.write(b"Individual for each account\n").unwrap();
-        }
-    };
 }
 
-fn write_fully_described_thresholds(
-    file: &mut File,
-    randomized_thresholds: &PaymentThresholds,
-) -> usize {
-    file.write(
-        format!("{:?}\n", randomized_thresholds)
-            .replace(",", ",\n")
-            .as_bytes(),
-    )
-    .unwrap()
+fn resolve_comment_on_thresholds(applied_thresholds: &AppliedThresholds) -> String {
+    match applied_thresholds {
+        AppliedThresholds::Defaulted | AppliedThresholds::SingleButRandomized { .. } => {
+            if let AppliedThresholds::SingleButRandomized { common_thresholds } = applied_thresholds
+            {
+                format!("SHARED BUT CUSTOM\n{}", common_thresholds)
+            } else {
+                format!("DEFAULTED\n{}", PRESERVED_TEST_PAYMENT_THRESHOLDS)
+            }
+        }
+        AppliedThresholds::RandomizedForEachAccount { .. } => "INDIVIDUAL".to_string(),
+    }
 }
 
 fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
@@ -843,7 +832,7 @@ fn single_account_output(
             "{}{:<starting_gap$}{:>first_column_width$} wei | {:>age_width$} s | {}\n",
             individual_thresholds_opt
                 .map(|thresholds| format!(
-                    "{:<starting_gap$}Thresholds: {:>first_column_width$}\n",
+                    "{:<starting_gap$}This account thresholds: {:>first_column_width$}\n",
                     "", thresholds
                 ))
                 .unwrap_or("".to_string()),
@@ -904,7 +893,7 @@ fn write_error(file: &mut File, error: PaymentAdjusterError) {
 
 fn resolve_affordable_transaction_count(adjustment: &Adjustment) -> String {
     match adjustment {
-        Adjustment::ByServiceFee => "Unlimited".to_string(),
+        Adjustment::ByServiceFee => "UNLIMITED".to_string(),
         Adjustment::TransactionFeeInPriority {
             affordable_transaction_count,
         } => affordable_transaction_count.to_string(),
