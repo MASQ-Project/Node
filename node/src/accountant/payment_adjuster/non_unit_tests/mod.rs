@@ -50,46 +50,58 @@ fn loading_test_with_randomized_params() {
     // the PaymentAdjuster down and potentially the whole Node with it; on contrary, it should
     // always give some reasonable results and live up to its original purpose with account
     // adjustments. That said, a smaller amount of these attempts are expected to end up vain,
-    // legitimately, though, because of so defined error cases.
+    // legitimately, though, because of some error cases.
 
-    // When the test finishes, it writes some key figures of each pseudo-randomly invented scenario,
-    // and a summary of the whole test set with some useful statistics that can help to evaluate
-    // the behavior to better understand this feature in the Node or consider some enhancement to be
-    // implemented.
+    // When the test finishes, it fills in a file with some key figures for each of those exercised
+    // scenarios and a summary of the whole experiment with some useful statistics that can help
+    // with an evaluation of the thought behavior, to better understand this Node's feature or
+    // consider new implementations for its enhancement.
 
-    // For somebody not so familiar with the used algorithms, there might emerge results (they tend
-    // to be rare but absolutely valid and wanted - the more their observation can be interesting)
-    // that can bring one into confusion.
+    // For somebody not so familiar with this algorithm, there might be results (they seem rare
+    // but absolutely valid and wanted - the more their observation can be interesting) that can
+    // make one feel puzzled.
 
     // The scenario generator is designed to provide as random and wide variety of situations as
-    // possible, but it has plenty of limitations despite. The following is an example of tricky-
-    // -to-understand scenario output, where the statistics, the percents, might seem to have no
-    // reason and feel like something could be broken. Let's make a hint. These percents represent
-    // the initial debt coverage and in this case they might strike by their perhaps surprisingly
-    // inadequate proportionality with the trend that can be seen next to them, in the ascending
-    // balances. It needn't be that intuitive, though, because the final adjustment depends heavily
-    // on a so-called disqualification limit. That usually allows not to pay the entire balance but
-    // only such portion that will inherently suffice for us to stay unbanned. For a huge account,
-    // that forgiven part makes just a little fraction of a whole. Small accounts, however, if it
-    // can be applied (and not have to be disqualified), might be missing a big portion of
-    // themselves. This is what the numbers 63% and 94% illustrates, despite the former account
-    // comes across as it should take precedence and gain at the expanse of the latter.
+    // possible, but it has definitely plenty of limitations too. The following is an example of
+    // a tricky-to-understand scenario output, where the statistics, those percents, might seem to
+    // have no reason and rise a question if something could be broken. Let's clear it up. These
+    // percents represent the initial debt coverage. Here, they might strike by their perhaps
+    // surprisingly inadequate proportionality with the trend that can be seen just next to them,
+    // at the ascending balances. It doesn't need to be as intuitive as you think, though, as
+    // the final adjustment depends heavily on a so-called "disqualification limit". That usually
+    // allows to avoid paying the entire amount but only such portion that will inherently suffice
+    // for the payer to stay unbanned.
+    // For a huge account, this forgiven part makes just a little fraction of a whole (a few
+    // percents). Small accounts, however, if it can be applied (as opposed to getting disqualified),
+    // might be missing a big portion of themselves, reporting a loss of many percents. This is what
+    // the numbers like 99% and 90% illustrates, despite the letter account comes across as it
+    // should take precedence because of its expected larger weight, and gain at the expanse of
+    // the other.
 
-    // CW service fee balance: 35,592,800,367,641,272 wei
+    // CW service fee balance: 32,041,461,894,055,482 wei
     // Portion of CW balance used: 100%
-    // Maximal txt count due to CW txt fee balance: Unlimited
-    // ____________________________________________________________________________________________
-    // 1,000,494,243,602,844 wei | 567,037 s | 100 %
-    // 1,505,465,842,696,120 wei | 540,217 s | 100 %
-    // 1,626,173,874,954,904 wei | 349,872 s | 100 %
-    // 20,688,283,645,189,616 wei | 472,661 s | 99 %                         # # # # # # # #
-    // 4,735,196,705,072,789 wei | 399,335 s | 96 %                          # # # # # # # #
-    // 6,770,347,763,782,591 wei | 245,857 s | 92 %                          # # # # # # # #
+    // Maximal txt count due to CW txt fee balance: UNLIMITED
+    // Used PaymentThresholds: DEFAULTED
+    // 2000000|1000|1000|1000000|500000|1000000
+    // _____________________________________________________________________________________________
+    //   1,988,742,049,305,843 wei |  236,766 s | 100 %
+    //  21,971,010,542,100,729 wei |  472,884 s | 99 %                         # # # # # # # #
+    //   4,726,030,753,976,563 wei |  395,377 s | 95 %                         # # # # # # # #
+    //   3,995,577,830,314,875 wei |  313,396 s | 90 %                         # # # # # # # #
+    // 129,594,971,536,673,815 wei |  343,511 s | X
+
+    // Let's think over a possible belief that if an account is said to take higher gains it should
+    // be reflected in these percents. It doesn't necessarily have to be true: in the code, we first
+    // carefully propose a variety, as wide as possible, of partially - but enough - pre-adjusted
+    // accounts. The disqualification limit is where we leave each account at for that moment, and
+    // therefore, only if we have some more money when the maximized set of accounts to keep are
+    // determined we can still iterate over, with them sorted by descending weights, and give them
+    // some more one by one, the maximum they can absorb, until our wallet's balance meets zero.
 
     let now = SystemTime::now();
     let mut gn = thread_rng();
     let mut subject = PaymentAdjusterReal::new();
-    let number_of_requested_scenarios = 1000;
+    let number_of_requested_scenarios = 2000;
     let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
     let invalidly_generated_scenarios = number_of_requested_scenarios - scenarios.len();
     let test_overall_output_collector =
@@ -225,8 +237,6 @@ fn try_making_single_valid_scenario(
 fn make_payable_account(
     idx: usize,
     thresholds: &PaymentThresholds,
-    // threshold_limit: u128,
-    // guarantee_age: u64,
     now: SystemTime,
     gn: &mut ThreadRng,
 ) -> PayableAccount {
@@ -252,19 +262,23 @@ fn make_payable_account(
         let parameter_b = generate_u128();
         let parameter_c = generate_u128();
         let parameter_d = generate_u128();
+        let parameter_e = generate_u128();
+        let parameter_f = generate_u128();
         let mut use_variable_exponent = |parameter: u128, up_to: usize| {
             parameter.pow(generate_non_zero_usize(gn, up_to) as u32)
         };
-        let a_b_c = use_variable_exponent(parameter_a, 3)
-            * use_variable_exponent(parameter_b, 4)
-            * use_variable_exponent(parameter_c, 5)
-            * parameter_d;
-        let addition = (0..6).fold(a_b_c, |so_far, subtrahend| {
-            if so_far != a_b_c {
+        let a_b_c_d_e =
+            parameter_a
+            * use_variable_exponent(parameter_b, 2)
+            * use_variable_exponent(parameter_c, 3)
+            * use_variable_exponent(parameter_d, 4)
+            * use_variable_exponent(parameter_e,5);
+        let addition = (0..6).fold(a_b_c_d_e, |so_far, subtrahend| {
+            if so_far != a_b_c_d_e {
                 so_far
             } else {
                 if let Some(num) =
-                    a_b_c.checked_sub(use_variable_exponent(parameter_c, 6 - subtrahend))
+                    a_b_c_d_e.checked_sub(use_variable_exponent(parameter_f, 6 - subtrahend))
                 {
                     num
                 } else {
