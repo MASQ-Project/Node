@@ -39,44 +39,43 @@ use thousands::Separable;
 use web3::types::U256;
 
 #[test]
-//#[ignore]
+// TODO If an option for "occasional tests" is added, this is a good adept
+#[ignore]
 fn loading_test_with_randomized_params() {
-    // This test needs to be understood as a fuzz test, a generator of possibly an overwhelming
-    // amount of scenarios that the PaymentAdjuster might happen to be asked to sort them out while
-    // there might be many and many combinations that a human would be having a hard time imagining;
-    // now we ought to ponder that some of them might be corner cases of which there was no
-    // awareness when it was being designed. So, the main purpose of this test is to prove that even
-    // a huge number of goes with as-much-as-possible variable inputs will not shoot
-    // the PaymentAdjuster down and potentially the whole Node with it; on contrary, it should
-    // always give some reasonable results and live up to its original purpose with account
-    // adjustments. That said, a smaller amount of these attempts are expected to end up vain,
-    // legitimately, though, because of some error cases.
+    // This is a fuzz test, a generator of possibly an overwhelming amount of scenarios that could
+    // get the PaymentAdjuster to be asked to sort them out even in real situations while there
+    // might be many and many combinations that a human is having a hard time just imagining; of
+    // them some might be corner cases whose threatening wasn't known when this was being designed.
+    // This test is to prove that even a huge number of runs, with hopefully highly variable inputs,
+    // will not shoot the PaymentAdjuster down and the Node with it; on the contrary, it should
+    // be able to give reasonable results and live up to its original purpose of adjustments.
 
-    // When the test finishes, it fills in a file with some key figures for each of those exercised
-    // scenarios and a summary of the whole experiment with some useful statistics that can help
-    // with an evaluation of the thought behavior, to better understand this Node's feature or
-    // consider new implementations for its enhancement.
+    // Part of the requested count is rejected before the test begins as there are generated
+    // scenarios with such parameters that don't fit to a variety of conditions. It's easier to keep
+    // it this way than setting up an algorithm with enough "tamed" randomness. Other bunch of them
+    // will likely be marked as legitimate errors that the PaymentAdjuster can detect.
+    // When the test reaches its end, a text file is filled in with some key figures of the performed
+    // exercises and finally also an overall summary with useful statistics that can serve to
+    // evaluate the actual behavior against the desired.
 
-    // For somebody not so familiar with this algorithm, there might be results (they seem rare
-    // but absolutely valid and wanted - the more their observation can be interesting) that can
-    // make one feel puzzled.
+    // If you are new to this algorithm, there might be results (maybe rare, but absolutely valid
+    // and wanted, and so deserving some interest) that can have one puzzled, though.
 
-    // The scenario generator is designed to provide as random and wide variety of situations as
-    // possible, but it has definitely plenty of limitations too. The following is an example of
-    // a tricky-to-understand scenario output, where the statistics, those percents, might seem to
-    // have no reason and rise a question if something could be broken. Let's clear it up. These
-    // percents represent the initial debt coverage. Here, they might strike by their perhaps
-    // surprisingly inadequate proportionality with the trend that can be seen just next to them,
-    // at the ascending balances. It doesn't need to be as intuitive as you think, though, as
-    // the final adjustment depends heavily on a so-called "disqualification limit". That usually
-    // allows to avoid paying the entire amount but only such portion that will inherently suffice
-    // for the payer to stay unbanned.
-    // For a huge account, this forgiven part makes just a little fraction of a whole (a few
-    // percents). Small accounts, however, if it can be applied (as opposed to getting disqualified),
-    // might be missing a big portion of themselves, reporting a loss of many percents. This is what
-    // the numbers like 99% and 90% illustrates, despite the letter account comes across as it
-    // should take precedence because of its expected larger weight, and gain at the expanse of
-    // the other.
+    // The example further below presents a tricky-to-understand output belonging to one set of
+    // payables. See those percentages. They may not excel at explaining themselves when it comes to
+    // their inconsistent proportionality towards the balances. These percents represent a payment
+    // coverage of the initial debts. But why don't they correspond with ascending balances? There's
+    // a principle to equip accounts low balances with the biggest weights. True. However, it doesn't
+    // need to be reflected so clearly, though. The adjustment depends heavily on a so-called
+    // "disqualification limit". Besides other purposes, this value affects that the payment won't
+    // require the entire amount but only its portion. That inherently will do for the payer to stay
+    // unbanned. In bulky accounts, this until-some-time forgiven portion stands only as a fraction
+    // of a whole. Small accounts, however, if it can be applied (as opposed to the account having
+    // to be excluded) might get shrunk a lot, and therefore many percents are to be reported as
+    // missing. This is what the numbers like 99% and 90% illustrates. That said, the letter account
+    // comes across as it should take precedence for its expectedly larger weight, and gain at the
+    // expanse of the other, but the percents speak otherwise. Yet, it's correct. The interpretation
+    // is the key. (Caution: this test displays its output with those accounts sorted).
 
     // CW service fee balance: 32,041,461,894,055,482 wei
     // Portion of CW balance used: 100%
@@ -90,13 +89,11 @@ fn loading_test_with_randomized_params() {
     //   3,995,577,830,314,875 wei |  313,396 s | 90 %                         # # # # # # # #
     // 129,594,971,536,673,815 wei |  343,511 s | X
 
-    // Let's think over a possible belief that if an account is said to take higher gains it should
-    // be reflected in these percents. It doesn't necessarily have to be true: in the code, we first
-    // carefully propose a variety, as wide as possible, of partially - but enough - pre-adjusted
-    // accounts. The disqualification limit is where we leave each account at for that moment, and
-    // therefore, only if we have some more money when the maximized set of accounts to keep are
-    // determined we can still iterate over, with them sorted by descending weights, and give them
-    // some more one by one, the maximum they can absorb, until our wallet's balance meets zero.
+    // In the code, we select and pale up accounts so that the picked balance isn't the full range,
+    // but still enough. The disqualification limit draws the cut. Only if the wallet isn't all
+    // dried up, after the accounts to keep are determined, while iterated over again, accounts
+    // sorted by descending weights are given more of it one by one, the maximum they can absorb,
+    // until there is still something to spend.
 
     let now = SystemTime::now();
     let mut gn = thread_rng();
@@ -240,14 +237,17 @@ fn make_payable_account(
     now: SystemTime,
     gn: &mut ThreadRng,
 ) -> PayableAccount {
-    // Why is this construction so complicated? Well, I wanted to get the test showing partial
-    // adjustments where the final accounts can be paid enough but still not all up to their
-    // formerly claimed balance. It turned out it is very difficult to achieve that, I couldn't
-    // really come up with parameters that would certainly bring this condition. I ended up
-    // experimenting and looking for an algorithm that would make the parameters as random as
-    // possible because the generator alone is not much good at it. This isn't optimal either,
-    // but it allows to observe some of those partial adjustments, however, with a rate of maybe
-    // 0.5 % out of those all attempts to create a proper test scenario.
+    // Why is this construction so complicated? Well, I wanted to get the test showing partially
+    // fulfilling adjustments where the final accounts can be paid enough but still not all up to
+    // their formerly claimed balance. It turned out it is very difficult to achieve with the use of
+    // randomized ranges, I couldn't really come up with parameters that would promise this condition.
+    // I ended up experimenting and looking for an algorithm that would make the parameters as random
+    // as possible because the generator alone is not much good at it, using gradually, but
+    // individually generated parameters that I put together for better chances of randomness. Many
+    // produced accounts will not make it through into the actual test, filtered out when attempted
+    // to be converted into a proper QualifiedPayableAccount. This isn't optimal, sure, but it allows
+    // to observe some of those partial adjustments, however, with rather a low rate of occurrence
+    // among those all attempts of acceptable scenarios.
     let wallet = make_wallet(&format!("wallet{}", idx));
     let mut generate_age_segment = || {
         generate_non_zero_usize(
@@ -267,12 +267,11 @@ fn make_payable_account(
         let mut use_variable_exponent = |parameter: u128, up_to: usize| {
             parameter.pow(generate_non_zero_usize(gn, up_to) as u32)
         };
-        let a_b_c_d_e =
-            parameter_a
+        let a_b_c_d_e = parameter_a
             * use_variable_exponent(parameter_b, 2)
             * use_variable_exponent(parameter_c, 3)
             * use_variable_exponent(parameter_d, 4)
-            * use_variable_exponent(parameter_e,5);
+            * use_variable_exponent(parameter_e, 5);
         let addition = (0..6).fold(a_b_c_d_e, |so_far, subtrahend| {
             if so_far != a_b_c_d_e {
                 so_far
@@ -587,13 +586,15 @@ fn render_results_to_file_and_attempt_basic_assertions(
         "All handled scenarios including those invalid ones ({}) != requested scenarios count ({})",
         total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios
     );
-    // The next assertions depend heavily on the setup for the scenario generator!! It rather
-    // indicates how well the setting is so that you can adjust it eventually, to see more relevant
-    // results
+    // Only some of the generated scenarios are acceptable, don't be surprised by the waste. That's
+    // anticipated given the nature of the generator and the requirements on the payable accounts
+    // so that they are picked up and let in the PaymentAdjuster. We'll be better off truly faithful
+    // to the use case and the expected conditions. Therefore, we insist on making "guaranteed"
+    // QualifiedPayableAccounts out of PayableAccount which is where we take the losses.
     let entry_check_pass_rate = 100
         - ((test_overall_output_collector.scenarios_denied_before_adjustment_started * 100)
             / total_scenarios_evaluated);
-    let required_pass_rate = 70;
+    let required_pass_rate = 50;
     assert!(
         entry_check_pass_rate >= required_pass_rate,
         "Not at least {}% from those {} scenarios \
