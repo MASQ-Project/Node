@@ -4787,6 +4787,11 @@ mod tests {
         };
         let temp_db = db_from_node(&this_node);
         let expected_gnr = GossipNodeRecord::from((&temp_db, this_node.public_key(), true));
+        //let node_record = NodeRecord::try_from(&gossip.node_records.remove(0)).unwrap();
+
+        println!("gossip: {:?}", &gossip);
+        // this_node.metadata.last_update = node_record.metadata.last_update;
+        // assert_contains(vec![node_record].as_slice(), &this_node);
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
         TestLogHandler::new().exists_log_containing(&format!(

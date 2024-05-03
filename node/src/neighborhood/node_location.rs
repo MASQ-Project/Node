@@ -38,10 +38,27 @@ pub fn get_node_location(ip: Option<IpAddr>) -> Option<NodeLocation> {
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
+    use lazy_static::lazy_static;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::node_location::{get_node_location, NodeLocation};
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+
+    lazy_static! {
+        pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
+                ( IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)), "FR".to_string(), true),
+                ( IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)), "CN".to_string(), false),
+                ( IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)), "US".to_string(), true),
+                ( IpAddr::V4(Ipv4Addr::new(180, 223, 223, 123)), "AU".to_string(), true),
+                ( IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)), "CZ".to_string(), true),
+                ( IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)), "CA".to_string(), true),
+        ];
+    }
+
+    fn pick_country_code_record(n: u32) -> (IpAddr, String, bool) {
+        COUNTRY_CODE_DIGEST[n as usize % COUNTRY_CODE_DIGEST.len()].clone()
+    }
 
     #[test]
     fn test_node_location() {
@@ -71,7 +88,13 @@ mod tests {
 
     #[test]
     fn create_gossip_node_with_addr_and_country_code_reveal_results_in_node_with_addr_adn_free_world_bit() {
-        let node = make_node_record(2222, true);
+        let mut node = make_node_record(2222, true);
+        let country_record = pick_country_code_record(2222);
+        println!("node: {:?}", node);
+        node.metadata.node_location = Some(NodeLocation { country: country_record.1.clone(), free_world: country_record.2 });
+        node.metadata.node_addr_opt = Some(NodeAddr::new(&country_record.0, &[8000 % 10000]));
+        node.inner.country_code = country_record.1;
+        node.inner.free_world_bit = country_record.2;
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -81,6 +104,7 @@ mod tests {
         let gossip_result = gossip.node_records.remove(0);
         let node_record = NodeRecord::try_from(&gossip_result).unwrap();
 
+        println!("node_record: {:?}", node_record);
         assert_eq!(
             gossip_result.node_addr_opt.unwrap(),
             node.node_addr_opt().unwrap()
@@ -91,7 +115,7 @@ mod tests {
         );
         assert_eq!(
             node_record.inner.country_code,
-            "FR"
+            "US"
         )
     }
 }

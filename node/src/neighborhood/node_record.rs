@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use crate::neighborhood::node_location::{get_node_location, NodeLocation};
 
+//TODO create special serializer for NodeRecordInner_0v1 to simplify public_key, earning_wallet, rate_pack and neighbors
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct NodeRecordInner_0v1 {
@@ -323,13 +324,13 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 
     fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
         let inner = NodeRecordInner_0v1::try_from(gnr)?;
-        let ip_addr = match &gnr.node_addr_opt {
+        let ip_addr_opt = match &gnr.node_addr_opt {
             Some(node_addr) => Some(node_addr.ip_addr),
             None => None
         };
         let mut node_record = NodeRecord {
             inner,
-            metadata: NodeRecordMetadata::new(get_node_location(ip_addr)),
+            metadata: NodeRecordMetadata::new(get_node_location(ip_addr_opt)),
             signed_gossip: gnr.signed_data.clone(),
             signature: gnr.signature.clone(),
         };
@@ -388,7 +389,7 @@ mod tests {
 
         let after = time_t_timestamp();
         assert!(before <= actual_node_record.metadata.last_update && actual_node_record.metadata.last_update <= after);
-        expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
+        //expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
         assert_eq!(actual_node_record, expected_node_record);
     }
 
