@@ -878,6 +878,9 @@ impl GossipHandler for StandardGossipHandler {
         let root_node = database.root();
         if root_node.accepts_connections() {
             if let Some(impostor) = agrs_next_door.iter().find(|agr| {
+                // TODO Somewhere here we should also check that the AGR really is an immediate neighbor.
+                // If it isn't, the Gossipping Node is telling tales and needs to be Malefactor banned
+                // with a Qualification::Malformed.
                 Self::ip_of(agr)
                     == root_node
                         .node_addr_opt()
@@ -1064,7 +1067,6 @@ impl StandardGossipHandler {
             .collect::<HashSet<PublicKey>>();
         agrs.iter()
             .filter(|agr| !all_keys.contains(&agr.inner.public_key))
-            // TODO: A node that tells us the IP Address of the node that isn't in our database should be malefactor banned
             .filter(|agr| match &agr.node_addr_opt {
                 None => true,
                 Some(node_addr) => {
