@@ -654,13 +654,13 @@ impl GossipHandler for IntroductionHandler {
                     ));
                 }
             }
-            let connection_progess_message = ConnectionProgressMessage {
+            let connection_progress_message = ConnectionProgressMessage {
                 peer_addr: introducer_ip_addr,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
             neighborhood_metadata
                 .cpm_recipient
-                .try_send(connection_progess_message)
+                .try_send(connection_progress_message)
                 .expect("Neighborhood is dead");
             let (debut, target_key, target_node_addr) =
                 GossipAcceptorReal::make_debut_triple(database, &introducee)

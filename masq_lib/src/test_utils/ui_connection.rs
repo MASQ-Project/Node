@@ -1,65 +1,58 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::io;
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
 use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::net::{SocketAddr};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD;
-use rand::random;
+use workflow_websocket::client::{WebSocket, ConnectOptions};
+use workflow_websocket::server::{Message};
 use crate::test_utils::utils::make_rt;
-
-type MessageWriter = dyn SinkExt<Message, Error = io::Error> + Unpin;
 
 pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
-    // sink: Box<dyn SinkExt<Message, Error = io::Error> + Unpin>,
-    // stream: Box<dyn StreamExt<Item = Message>>,
+    websocket: WebSocket,
 }
 
 impl UiConnection {
     pub async fn make(port: u16, protocol: &str) -> Result<UiConnection, String> {
-        let request = Self::make_initial_http_request(port, protocol);
-        let local_addr = SocketAddr::new(localhost(), port);
-        let client = match connect_async(request).await {
-            Ok((client, _)) => client,
-            Err(e) => return Err(format!("Couldn't connect to WebSocket server: {:?}", e))
+        let ws = match WebSocket::new(Some(format!("ws://localhost:{}", port).as_str()), None) {
+            Err(e) => Err(format!("{:?}", e)),
+            Ok(ws) => ws,
         };
-        let (sink, stream) = client.split();
-        // let sink_ext = sink.with (|x| Ok(x));
-
+        match ws.connect(ConnectOptions::default()).await {
+            Err(e) => Err(format!("{:?}", e)),
+            Ok(_) => (),
+        };
         Ok(UiConnection {
             context_id: 0,
-            local_addr,
-            // sink: Box::new(sink_ext),
-            // stream: Box::new(stream),
+            local_addr: SocketAddr::new(localhost(), port),
+            websocket: ws,
         })
     }
-
-    fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
-        let url = format!("ws://{}:{}", localhost(), port);
-        let websocket_key = (0..16)
-            .into_iter()
-            .map (|_| ((random::<u8>() % 95) + 32) as char)
-            .collect::<String>();
-        let mut websocket_key_encoded = String::new();
-        BASE64_STANDARD.encode_string(websocket_key, &mut websocket_key_encoded);
-        Builder::new()
-            .method(Method::GET)
-            .uri(url)
-            .version(Version::HTTP_11)
-            .header("Connection", "Upgrade")
-            .header("Upgrade", "websocket")
-            .header("Sec-Websocket-Key", websocket_key_encoded)
-            .header("Sec-Websocket-Protocol", protocol)
-            .header("Sec-Websocket-Version", "13")
-            .body(())
-            .unwrap()
-    }
+    //
+    // fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
+    //     let url = format!("ws://{}:{}", localhost(), port);
+    //     let websocket_key = (0..16)
+    //         .into_iter()
+    //         .map (|_| ((random::<u8>() % 95) + 32) as char)
+    //         .collect::<String>();
+    //     let mut websocket_key_encoded = String::new();
+    //     BASE64_STANDARD.encode_string(websocket_key, &mut websocket_key_encoded);
+    //     Builder::new()
+    //         .method(Method::GET)
+    //         .uri(url)
+    //         .version(Version::HTTP_11)
+    //         .header("Connection", "Upgrade")
+    //         .header("Upgrade", "websocket")
+    //         .header("Sec-Websocket-Key", websocket_key_encoded)
+    //         .header("Sec-Websocket-Protocol", protocol)
+    //         .header("Sec-Websocket-Version", "13")
+    //         .body(())
+    //         .unwrap()
+    // }
 
     pub fn new(port: u16, protocol: &str) -> UiConnection {
         let future = Self::make(port, protocol);
@@ -87,14 +80,8 @@ impl UiConnection {
     }
 
     pub fn send_message(&mut self, message: &Message) {
-        todo!()
-        // let future = self.sink.send(message);
-        // make_rt().block_on(future).unwrap()
+        self.websocket.send(message.clone()); // TODO Consume this message, and eliminate the clone.
     }
-    //
-    // pub fn writer(&mut self) -> &mut dyn Write {
-    //     self.client.writer_mut()
-    // }
 
     fn receive_main<T: FromMessageBody>(&mut self, context_id: Option<u64>) -> ReceiveResult<T> {
         todo!()

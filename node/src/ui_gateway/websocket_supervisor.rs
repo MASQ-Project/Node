@@ -81,7 +81,7 @@ impl WebSocketSupervisorReal {
     async fn listen_for_connections_on(
         socket_addr: SocketAddr,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
-        mut connections_to_accept: usize
+        mut connections_to_accept: usize // TODO: Figure a way to bring this back into service
     ) -> WWResult<()> {
         let handler = MasqNodeUiv2Handler::new(socket_addr.port(), from_ui_message_sub);
         let server = WebSocketServer::new(Arc::new(handler), None);
@@ -545,74 +545,24 @@ mod tests {
     use std::task::{Context, Poll};
     use std::thread;
     use std::time::Duration;
+    use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
     use workflow_websocket::client::{ConnectOptions, WebSocket};
     use masq_lib::test_utils::utils::make_rt;
 
     impl WebSocketSupervisorReal {
-        fn inject_mock_client(&self, webSocketSink: WebSocketSink) -> u64 {
+        fn inject_client(&self, web_socket_sink: WebSocketSink) -> u64 {
             let mut locked_inner = self.inner_arc.lock().unwrap();
             let client_id = locked_inner.next_client_id;
             locked_inner.next_client_id += 1;
             locked_inner
                 .client_by_id
-                .insert(client_id, webSocketSink);
+                .insert(client_id, web_socket_sink);
             client_id
         }
-
-        fn get_mock_client(&self, client_id: u64) -> MessageWriterMock {
-            let locked_inner = self.inner_arc.lock().unwrap();
-            let mock_client_box = match locked_inner.client_by_id.get(&client_id) {
-                Some(mcb) => mcb,
-                None => panic!("Did not find mock client for id: {}", client_id),
-            };
-            let any = mock_client_box.as_any();
-            let result = any
-                .downcast_ref::<MessageWriterMock>()
-                .expect("couldn't downcast");
-            result.clone()
-        }
     }
 
-    #[derive(Clone)]
-    struct MessageWriterMock {
-        send_params: Arc<Mutex<Vec<Message>>>,
-        send_results: RefCell<Vec<Result<(), io::Error>>>,
-    }
-
-    impl Sink<Message> for MessageWriterMock {
-        type Error = io::Error;
-        fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> { unimplemented!() }
-        fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> { unimplemented!() }
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> { unimplemented!() }
-        fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> { unimplemented!() }
-    }
-
-    impl SinkExt<Message> for MessageWriterMock {
-        fn send(&mut self, item: Message) -> futures_util::sink::Send<'_, Self, Message> where Self: Unpin {
-            self.send_params.lock().unwrap().push(item.clone());
-            todo!()
-        }
-    }
-
-    impl Unpin for MessageWriterMock {}
-
-    impl MessageWriterMock {
-        fn new() -> MessageWriterMock {
-            MessageWriterMock {
-                send_params: Arc::new(Mutex::new(vec![])),
-                send_results: RefCell::new(vec![]),
-            }
-        }
-
-        fn send_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
-            self.send_params = params.clone();
-            self
-        }
-
-        fn send_result(self, result: Result<(), io::Error>) -> Self {
-            self.send_results.borrow_mut().push(result);
-            self
-        }
+    fn make_websocket_sink_pair() -> (WebSocketSink, UnboundedReceiver<Message>) {
+        unbounded_channel::<Message>()
     }
 
     /*
@@ -872,11 +822,8 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             inner_arc: Arc::new(Mutex::new(subject_inner)),
         };
         let socket_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
-        let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let client = MessageWriterMock::new()
-            .send_params(&send_params_arc)
-            .send_result(Ok(()));
-        let client_id = subject.inject_mock_client(client);
+        let (client, mut client_rx) = make_websocket_sink_pair();
+        let client_id = subject.inject_client(client);
         let mut inner = subject.inner_arc.lock().unwrap();
         inner
             .client_id_by_socket_addr
@@ -904,8 +851,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             )
             .as_str(),
         );
-        let mut send_params = send_params_arc.lock().unwrap();
-        let actual_json = match send_params.remove(0) {
+        let actual_json = match client_rx.recv().unwrap() {
             Message::Text(s) => s,
             x => panic!("Expected OwnedMessage::Text, got {:?}", x),
         };
@@ -941,11 +887,8 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             inner_arc: Arc::new(Mutex::new(subject_inner)),
         };
         let socket_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
-        let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let client = MessageWriterMock::new()
-            .send_params(&send_params_arc)
-            .send_result(Ok(()));
-        let client_id = subject.inject_mock_client(client);
+        let (client, mut client_rx) = make_websocket_sink_pair();
+        let client_id = subject.inject_client(client);
         {
             let mut inner = subject.inner_arc.lock().unwrap();
             inner
@@ -975,8 +918,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             )
             .as_str(),
         );
-        let mut send_params = send_params_arc.lock().unwrap();
-        let actual_json = match send_params.remove(0) {
+        let actual_json = match client_rx.recv().unwrap() {
             Message::Text(s) => s,
             x => panic!("Expected OwnedMessage::Text, got {:?}", x),
         };
@@ -1000,11 +942,8 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             inner_arc: Arc::new(Mutex::new(subject_inner)),
         };
         let socket_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
-        let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let client = MessageWriterMock::new()
-            .send_params(&send_params_arc)
-            .send_result(Ok(()));
-        let client_id = subject.inject_mock_client(client);
+        let (client, mut client_rx) = make_websocket_sink_pair();
+        let client_id = subject.inject_client(client);
         {
             let mut inner = subject.inner_arc.lock().unwrap();
             inner
@@ -1034,8 +973,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             )
             .as_str(),
         );
-        let mut send_params = send_params_arc.lock().unwrap();
-        let actual_json = match send_params.remove(0) {
+        let actual_json = match client_rx.recv().unwrap() {
             Message::Text(s) => s,
             x => panic!("Expected OwnedMessage::Text, got {:?}", x),
         };
@@ -1054,26 +992,23 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         );
     }
 
-    fn flush_failure_assertion(flush_error: io::Error, client_is_retained_after_error: bool) {
-        let client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        sink_failure_test_body(client, client_is_retained_after_error)
-    }
-
-    fn send_failure_assertion(send_error: io::Error) {
-        let client = MessageWriterMock::new().send_result(Err(send_error));
+    fn transmit_failure_assertion() {
+        let client = {
+            let (client, _client_rx) = make_websocket_sink_pair();
+            client
+        };
         sink_failure_test_body(client, false)
     }
 
     fn sink_failure_test_body(
-        client_mock: MessageWriterMock,
+        client_mock: WebSocketSink,
         client_is_retained_after_error: bool,
     ) {
         let (ui_gateway, _, _) = make_recorder();
         let from_ui_message_sub = subs(ui_gateway);
         let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from([1, 2, 4, 5])), 4455);
-        let mut client_by_id: HashMap<u64, Box<MessageWriter>> = HashMap::new();
-        client_by_id.insert(123, Box::new(client_mock));
+        let mut client_by_id: HashMap<u64, WebSocketSink> = HashMap::new();
+        client_by_id.insert(123, client_mock);
         let mut client_id_by_socket_addr: HashMap<SocketAddr, u64> = HashMap::new();
         client_id_by_socket_addr.insert(socket_addr, 123);
         let mut socket_addr_by_client_id: HashMap<u64, SocketAddr> = HashMap::new();
@@ -1118,32 +1053,11 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
     }
 
     #[test]
-    fn can_handle_non_fatal_flush_failure() {
+    fn can_handle_transmit_failure() {
         init_test_logging();
-        let flush_error = io::Error::from(ErrorKind::BrokenPipe);
-        flush_failure_assertion(flush_error, true);
-        TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: 'NoDataAvailable' occurred when flushing msg for Client 123",
-        );
-    }
-
-    #[test]
-    fn can_handle_broken_pipe_flush_failure() {
-        init_test_logging();
-        let flush_error = io::Error::from(ErrorKind::BrokenPipe);
-        flush_failure_assertion(flush_error, false);
+        transmit_failure_assertion();
         TestLogHandler::new().exists_log_containing(
             "WARN: WebSocketSupervisor: Client 123 hit a fatal flush error: BrokenPipe, dropping the client",
-        );
-    }
-
-    #[test]
-    fn can_handle_connection_aborted_flush_failure() {
-        init_test_logging();
-        let flush_error = io::Error::from(ErrorKind::BrokenPipe);
-        flush_failure_assertion(flush_error, false);
-        TestLogHandler::new().exists_log_containing(
-            "WARN: WebSocketSupervisor: Client 123 hit a fatal flush error: ConnectionReset, dropping the client",
         );
     }
 
@@ -1207,17 +1121,25 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         assert_eq!(ui_gateway_recording.len(), 1);
     }
 
+    fn msg_received_assertion(mut client_rx: UnboundedReceiver<Message>, expected_target: MessageTarget) -> NodeToUiMessage {
+        match client_rx.recv() {
+            Some(Message::Text(json)) =>
+                UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), expected_target).unwrap(),
+            Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
+            None => panic! ("send should have been called, but wasn't"),
+        }
+    }
+
     #[test]
     fn send_msg_with_a_client_id_sends_a_message_to_the_client() {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
-        let one_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let another_mock_client = MessageWriterMock::new();
-        let one_client_id = subject.inject_mock_client(one_mock_client);
-        let another_client_id = subject.inject_mock_client(another_mock_client);
+        let (one_mock_client, mut one_mock_client_rx) = make_websocket_sink_pair();
+        let (another_mock_client, mut another_mock_client_rx) = make_websocket_sink_pair();
+        let one_client_id = subject.inject_client(one_mock_client);
+        let another_client_id = subject.inject_client(another_mock_client);
         let msg = NodeToUiMessage {
             target: ClientId(one_client_id),
             body: MessageBody {
@@ -1229,16 +1151,9 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
 
         subject.send_msg(msg.clone());
 
-        let one_mock_client_ref = subject.get_mock_client(one_client_id);
-        let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
-            Some(Message::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::ClientId(one_client_id)).unwrap(),
-            Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
-            None => panic! ("send should have been called, but wasn't"),
-        };
+        let actual_message = msg_received_assertion(one_mock_client_rx, ClientId(one_client_id));
         assert_eq!(actual_message, msg);
-        let another_mock_client_ref = subject.get_mock_client(another_client_id);
-        assert_eq!(another_mock_client_ref.send_params.lock().unwrap().len(), 0);
-        Ok(())
+        assert_eq!(another_mock_client_rx.recv(), None);
     }
 
     #[test]
@@ -1247,14 +1162,12 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
-        let one_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let another_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let one_client_id = subject.inject_mock_client(one_mock_client);
-        let another_client_id = subject.inject_mock_client(another_mock_client);
+        let (one_mock_client, mut one_mock_client_rx) = make_websocket_sink_pair();
+        let (another_mock_client, mut another_mock_client_rx) = make_websocket_sink_pair();
+        let one_client_id = subject.inject_client(one_mock_client);
+        let another_client_id = subject.inject_client(another_mock_client);
         let msg = NodeToUiMessage {
-            target: MessageTarget::AllExcept(another_client_id),
+            target: AllExcept(another_client_id),
             body: MessageBody {
                 opcode: "booga".to_string(),
                 path: FireAndForget,
@@ -1264,15 +1177,9 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
 
         subject.send_msg(msg.clone());
 
-        let one_mock_client_ref = subject.get_mock_client(one_client_id);
-        let actual_message = match one_mock_client_ref.send_params.lock().unwrap().get(0) {
-            Some(Message::Text(json)) => UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllExcept(another_client_id)).unwrap(),
-            Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
-            None => panic! ("send should have been called, but wasn't"),
-        };
+        let actual_message = msg_received_assertion(one_mock_client_rx, AllExcept(another_client_id));
         assert_eq!(actual_message, msg);
-        let another_mock_client_ref = subject.get_mock_client(another_client_id);
-        assert_eq!(another_mock_client_ref.send_params.lock().unwrap().len(), 0);
+        assert_eq!(another_mock_client_rx.recv(), None);
     }
 
     #[test]
@@ -1281,12 +1188,10 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
-        let one_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let another_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let one_client_id = subject.inject_mock_client(one_mock_client);
-        let another_client_id = subject.inject_mock_client(another_mock_client);
+        let (one_mock_client, mut one_mock_client_rx) = make_websocket_sink_pair();
+        let (another_mock_client, mut another_mock_client_rx) = make_websocket_sink_pair();
+        let one_client_id = subject.inject_client(one_mock_client);
+        let another_client_id = subject.inject_client(another_mock_client);
         let msg = NodeToUiMessage {
             target: MessageTarget::AllClients,
             body: MessageBody {
@@ -1299,18 +1204,9 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         subject.send_msg(msg.clone());
 
         let one_mock_client_ref = subject.get_mock_client(one_client_id);
-        let msg_received_assertion = |mock_client_ref: MessageWriterMock| {
-            match mock_client_ref.send_params.lock().unwrap().get(0) {
-                Some(Message::Text(json)) =>
-                    UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), MessageTarget::AllClients).unwrap(),
-                Some(x) => panic! ("send should have been called with OwnedMessage::Text, but was called with {:?} instead", x),
-                None => panic! ("send should have been called, but wasn't"),
-            }
-        };
-        let actual_message = msg_received_assertion(one_mock_client_ref);
+        let actual_message = msg_received_assertion(one_mock_client_rx, AllClients);
         assert_eq!(actual_message, msg);
-        let another_mock_client_ref = subject.get_mock_client(another_client_id);
-        let actual_message = msg_received_assertion(another_mock_client_ref);
+        let actual_message = msg_received_assertion(another_mock_client_rx, AllClients);
         assert_eq!(actual_message, msg);
     }
 
@@ -1318,7 +1214,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
     fn send_msg_fails_on_send_and_so_logs_and_removes_the_client() {
         init_test_logging();
 
-        send_failure_assertion(io::Error::from(ErrorKind::BrokenPipe));
+        transmit_failure_assertion();
 
         TestLogHandler::new().exists_log_containing(
             "ERROR: WebSocketSupervisor: Error sending to client 123: BrokenPipe, dropping the client",
