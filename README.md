@@ -1,6 +1,12 @@
 # MASQ Node ![masq-logo](images/masq-logo-sm.png)
 
+<div align="center">
+
 ![ci-matrix](https://github.com/MASQ-Project/Node/workflows/ci-matrix/badge.svg)
+[![GitHub Release](https://img.shields.io/github/v/release/MASQ-Project/Node?display_name=release&color=green)](https://github.com/MASQ-Project/Node/releases/latest)
+[![Discord](https://badgen.net/badge/icon/discord?icon=discord&label)](https://discord.gg/masq)
+
+</div>
 
 MASQ Node combines the benefits of VPN and Tor technology, to create superior next-generation privacy software, where 
 users are rewarded for supporting an uncensored, global Web.  Users gain privacy and anonymity, while helping promote 
@@ -43,7 +49,7 @@ A [Knowledge Base](https://docs.masq.ai/masq) and testing resources are being re
 levels of technical ability.
 
 There you can find further information, guides and configuration examples for running MASQ Node from:
-- MASQ app - v0.2 (formerly called "GEMINI")
+- [MASQ Browser](https://masqbrowser.com)
 - CLI
 - Docker image
 
@@ -66,7 +72,7 @@ To help navigate the codebase, here are the README.md links for all documented c
 
 ### Downloading Official Releases
 
-We haven't set up any official releases yet; but when we do, instructions will appear here.
+Releases will appear on our GitHub page - click on the badge above for the latest stable beta build, or go to our [Releases page](https://github.com/MASQ-Project/Node/releases/latest)
 
 ### Downloading the Latest Build
 

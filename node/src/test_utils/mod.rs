@@ -52,11 +52,13 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fmt::Debug;
+
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
+
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -516,7 +518,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     assert_eq!(a_str, b_str);
 }
 
-//must stay without cfg(test) -- used in another crate
+// Must stay without cfg(test) -- used in another crate
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,
@@ -1221,18 +1223,17 @@ pub mod unshared_test_utils {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::BorrowMut;
-    use std::iter;
-    use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
-
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::{
         ArbitraryIdStamp, FirstTraitMock, SecondTraitMock, TestSubject,
     };
+    use std::borrow::BorrowMut;
+    use std::iter;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
 
     use super::*;
 

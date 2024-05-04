@@ -63,7 +63,7 @@ impl Default for NodeConfiguratorStandardPrivileged {
 impl NodeConfiguratorStandardPrivileged {
     pub fn new() -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal {}),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
@@ -376,7 +376,6 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
-    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
@@ -597,8 +596,12 @@ mod tests {
         )
         .unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut bootstrapper_config)
-            .unwrap();
+        privileged_parse_args(
+            &DirsWrapperReal::default(),
+            &multi_config,
+            &mut bootstrapper_config,
+        )
+        .unwrap();
         let node_parse_args_configurator = UnprivilegedParseArgsConfigurationDaoNull {};
         node_parse_args_configurator
             .unprivileged_parse_args(
@@ -660,13 +663,13 @@ mod tests {
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
             .param("--real-user", "999:999:/home/booga")
-            .param("--chain", "polygon-mumbai");
+            .param("--chain", "polygon-amoy");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(
             value_m!(multi_config, "config-file", PathBuf),
@@ -711,7 +714,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(None, value_m!(multi_config, "config-file", PathBuf));
         assert_eq!(
@@ -723,7 +726,7 @@ mod tests {
         assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
         );
     }
 
@@ -739,7 +742,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -765,7 +768,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(None, value_m!(multi_config, "config-file", PathBuf));
         assert_eq!(
@@ -777,7 +780,7 @@ mod tests {
         assert!(config.main_cryptde_null_opt.is_none());
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
         );
     }
 
@@ -789,7 +792,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::None);
     }
@@ -802,7 +805,7 @@ mod tests {
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
@@ -1020,8 +1023,8 @@ mod tests {
         );
         let home_dir = canonicalize(home_dir).unwrap();
         let data_dir = &home_dir.join("data_dir");
-        let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
-        fill_up_config_file(config_file_relative);
+        let config_file = File::create(home_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file);
         let env_vec_array = vec![
             (
                 "MASQ_CONFIG_FILE",
@@ -1071,14 +1074,16 @@ mod tests {
     }
 
     #[test]
-    fn server_initializer_collected_params_handle_tilde_in_path_config_file_from_commandline_and_real_user_from_config_file(
-    ) {
+    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
         running_test();
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let home_dir = home_dir().expect("expectexd home dir");
-        let data_dir = &home_dir.join("masqhome");
-        let _create_data_dir = create_dir_all(data_dir);
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
+        );
+        let data_dir = home_dir.join("masqhome");
+        let _dir = create_dir_all(&data_dir);
         let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
         fill_up_config_file(config_file_relative);
         let env_vec_array = vec![
@@ -1101,16 +1106,30 @@ mod tests {
             .param("--config-file", "~\\masqhome\\config.toml")
             .param("--data-directory", "~\\masqhome");
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.to_path_buf()))
-            .data_dir_result(Some(data_dir.to_path_buf()));
+        let dir_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&home_dir))),
+        };
 
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
         let multiconfig = result.unwrap();
 
         assert_eq!(
             value_m!(multiconfig, "data-directory", String).unwrap(),
-            data_dir.to_string_lossy().to_string()
+            current_dir()
+                .unwrap()
+                .join(&data_dir)
+                .to_string_lossy()
+                .to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            current_dir()
+                .unwrap()
+                .join(data_dir)
+                .join(PathBuf::from("config.toml"))
+                .to_string_lossy()
+                .to_string()
         );
         #[cfg(not(target_os = "windows"))]
         {
@@ -1119,13 +1138,6 @@ mod tests {
                 "9999:9999:booga"
             );
         }
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            data_dir
-                .join(PathBuf::from("config.toml"))
-                .to_string_lossy()
-                .to_string()
-        );
         assert_eq!(
             value_m!(multiconfig, "blockchain-service-url", String).unwrap(),
             "https://www.mainnet1.com"
@@ -1185,7 +1197,6 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory");
-
         let data_dir = &home_dir.join("data_dir");
         vec![("MASQ_CONFIG_FILE", "config/config.toml")]
             .into_iter()
@@ -1210,9 +1221,7 @@ mod tests {
         );
         let data_dir = &home_dir.join("data_dir");
         let config_file = File::create(&home_dir.join("booga.toml")).unwrap();
-        let current_directory = current_dir().unwrap();
         fill_up_config_file(config_file);
-
         let env_vec_array = vec![
             ("MASQ_CONFIG_FILE", "booga.toml"),
             ("MASQ_CLANDESTINE_PORT", "8888"),
@@ -1229,7 +1238,10 @@ mod tests {
             .home_dir_result(Some(home_dir.clone()))
             .data_dir_result(Some(data_dir.to_path_buf()));
         let args = ArgsBuilder::new()
-            .param("--data-directory", current_directory.join(Path::new("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home")).to_string_lossy().to_string().as_str())
+            .param(
+                "--data-directory",
+                home_dir.to_string_lossy().to_string().as_str(),
+            )
             .param("--clandestine-port", "1111")
             .param("--real-user", "1001:1001:cooga");
         let args_vec: Vec<String> = args.into();
@@ -1249,22 +1261,17 @@ mod tests {
             value_m!(multiconfig, "ip", String).unwrap(),
             "6.6.6.6".to_string()
         );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            home_dir.join("booga.toml").as_os_str().to_str().unwrap()
+        );
         #[cfg(not(target_os = "windows"))]
         {
-            assert_eq!(
-                value_m!(multiconfig, "config-file", String).unwrap(),
-                current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home/booga.toml").to_string_lossy().to_string()
-            );
             assert_eq!(
                 value_m!(multiconfig, "real-user", String).unwrap(),
                 "1001:1001:cooga".to_string()
             );
         }
-        #[cfg(target_os = "windows")]
-        assert_eq!(
-            value_m!(multiconfig, "config-file", String).unwrap(),
-            current_directory.join("generated/test/node_configurator_standard/server_initializer_collected_params_combine_vcls_properly/home\\booga.toml").to_string_lossy().to_string()
-        );
     }
 
     #[test]
@@ -1611,30 +1618,30 @@ mod tests {
         running_test();
         let home_dir = Path::new("/home/cooga");
         let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
-        let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");
+        let home_dir_poly_amoy = home_dir.join(".local").join("MASQ").join("polygon-amoy");
         vec![
             (None, None, Some(home_dir_poly_main.to_str().unwrap())),
             (
-                Some("polygon-mumbai"),
+                Some("polygon-amoy"),
                 None,
-                Some(home_dir_poly_mumbai.to_str().unwrap()),
+                Some(home_dir_poly_amoy.to_str().unwrap()),
             ),
             (None, Some("/cooga"), Some("/cooga")),
-            (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga")),
+            (Some("polygon-amoy"), Some("/cooga"), Some("/cooga")),
             (
                 None,
-                Some("/cooga/polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
             ),
             (
                 None,
-                Some("/cooga/polygon-mumbai/polygon-mainnet"),
-                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/polygon-mainnet"),
             ),
             (
-                Some("polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
+                Some("polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
             ),
         ]
         .iter()
