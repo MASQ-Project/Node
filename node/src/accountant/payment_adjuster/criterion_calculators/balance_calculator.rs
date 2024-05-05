@@ -5,9 +5,9 @@ use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
 use crate::accountant::QualifiedPayableAccount;
 
 #[derive(Default)]
-pub struct BalanceAndAgeCriterionCalculator {}
+pub struct BalanceCriterionCalculator {}
 
-impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
+impl CriterionCalculator for BalanceCriterionCalculator {
     fn calculate(
         &self,
         account: &QualifiedPayableAccount,
@@ -24,13 +24,13 @@ impl CriterionCalculator for BalanceAndAgeCriterionCalculator {
     }
 
     fn parameter_name(&self) -> &'static str {
-        "BALANCE AND AGE"
+        "BALANCE"
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
+    use crate::accountant::payment_adjuster::criterion_calculators::balance_calculator::BalanceCriterionCalculator;
     use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
@@ -40,15 +40,15 @@ mod tests {
 
     #[test]
     fn calculator_knows_its_name() {
-        let subject = BalanceAndAgeCriterionCalculator::default();
+        let subject = BalanceCriterionCalculator::default();
 
         let result = subject.parameter_name();
 
-        assert_eq!(result, "BALANCE AND AGE")
+        assert_eq!(result, "BALANCE")
     }
 
     #[test]
-    fn balance_and_age_criterion_calculator_works() {
+    fn balance_criterion_calculator_works() {
         let now = SystemTime::now();
         let analyzed_accounts = [50, 100, 2_222]
             .into_iter()
@@ -66,7 +66,7 @@ mod tests {
         let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
         let payment_adjuster_inner =
             PaymentAdjusterInnerReal::new(now, None, 123456789, largest_exceeding_balance);
-        let subject = BalanceAndAgeCriterionCalculator::default();
+        let subject = BalanceCriterionCalculator::default();
 
         let computed_criteria = analyzed_accounts
             .iter()

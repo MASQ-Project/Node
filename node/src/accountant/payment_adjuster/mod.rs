@@ -18,7 +18,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
     AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
 };
-use crate::accountant::payment_adjuster::criterion_calculators::balance_and_age_calculator::BalanceAndAgeCriterionCalculator;
+use crate::accountant::payment_adjuster::criterion_calculators::balance_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::calculated_criterion_and_weight_diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::{collection_diagnostics, diagnostics};
@@ -156,7 +156,7 @@ impl PaymentAdjusterReal {
             analyzer: PreparatoryAnalyzer::new(),
             disqualification_arbiter: DisqualificationArbiter::default(),
             service_fee_adjuster: Box::new(ServiceFeeAdjusterReal::default()),
-            calculators: vec![Box::new(BalanceAndAgeCriterionCalculator::default())],
+            calculators: vec![Box::new(BalanceCriterionCalculator::default())],
             inner: Box::new(PaymentAdjusterInnerNull::default()),
             logger: Logger::new("PaymentAdjuster"),
         }
@@ -1950,7 +1950,7 @@ mod tests {
         let input_matrix: InputMatrixConfigurator =
             |(nominal_account_1, nominal_account_2, _now)| {
                 vec![
-                    // First test case: BalanceAndAgeCalculator
+                    // First test case: BalanceCalculator
                     {
                         let mut account_1 = nominal_account_1;
                         account_1.bare_account.balance_wei += 123_456_789;

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod balance_and_age_calculator;
+pub mod balance_calculator;
 
 use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
 use crate::accountant::QualifiedPayableAccount;
