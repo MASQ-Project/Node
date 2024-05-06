@@ -547,8 +547,7 @@ impl Neighborhood {
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
         let node_location = get_node_location(Some(new_public_ip));
         self.neighborhood_database.root_mut().metadata.node_location = node_location.clone();
-        self.neighborhood_database.root_mut().inner.free_world_bit = node_location.as_ref().expect("expected Node location").free_world;
-        self.neighborhood_database.root_mut().inner.country_code = node_location.expect("expected Node location").country;
+        self.neighborhood_database.root_mut().inner.country_code = node_location.expect("expected Node location").country_code;
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -4327,8 +4326,7 @@ mod tests {
             new_ip: new_public_ip,
         });
 
-        assert_eq!(subject.neighborhood_database.root().inner.free_world_bit, subject.neighborhood_database.root().metadata.node_location.as_ref().unwrap().free_world);
-        assert_eq!(subject.neighborhood_database.root().inner.country_code, subject.neighborhood_database.root().metadata.node_location.as_ref().unwrap().country);
+        assert_eq!(subject.neighborhood_database.root().inner.country_code, subject.neighborhood_database.root().metadata.node_location.as_ref().unwrap().country_code);
         assert_eq!(
             subject
                 .neighborhood_database

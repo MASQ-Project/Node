@@ -26,7 +26,6 @@ pub struct NodeRecordInner_0v1 {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
-    pub free_world_bit: bool,
     pub country_code: String,
 }
 
@@ -73,12 +72,10 @@ impl NodeRecord {
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
         location: Option<NodeLocation>,
     ) -> NodeRecord {
-        let mut free_world = false;
         let mut country = String::default();
         match location.as_ref() {
             Some(node_location) => {
-                free_world = node_location.free_world;
-                country = node_location.country.clone();
+                country = node_location.country_code.clone();
             },
             None => {  },
         };
@@ -92,7 +89,6 @@ impl NodeRecord {
                 routes_data,
                 neighbors: BTreeSet::new(),
                 version,
-                free_world_bit: free_world,
                 country_code: country
             },
             signed_gossip: PlainData::new(&[]),

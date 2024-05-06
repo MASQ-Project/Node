@@ -372,6 +372,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
+    use crate::neighborhood::node_location::NodeLocation;
 
     #[test]
     fn constants_have_correct_values() {
@@ -380,17 +381,20 @@ mod tests {
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
-        let this_node = make_node_record(1234, true);
+        let mut this_node = make_node_record(1234, true);
+        this_node.inner.country_code = "AU".to_string();
 
         let subject = db_from_node(&this_node);
 
+        let node_from_db = subject.root().clone();
+        this_node.metadata.last_update = node_from_db.metadata.last_update;
+        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.resign();
+
         assert_eq!(subject.this_node, this_node.public_key().clone());
         assert_eq!(
-            subject.by_public_key,
-            [(this_node.public_key().clone(), this_node.clone())]
-                .iter()
-                .cloned()
-                .collect()
+            node_from_db,
+            this_node
         );
         assert_eq!(
             subject.by_ip_addr,

@@ -7,13 +7,13 @@ use ip_country_lib::dbip_country;
 
 #[derive(Clone, Debug, Default)]
 pub struct NodeLocation {
-    pub(crate) country: String,
-    pub(crate) free_world: bool
+    pub(crate) country_code: String,
+    pub(crate) free_world_bit: bool
 }
 
 impl PartialEq<Self> for NodeLocation {
     fn eq(&self, other: &Self) -> bool {
-        self.country == other.country
+        self.country_code == other.country_code
     }
 }
 
@@ -25,7 +25,7 @@ pub fn get_node_location(ip: Option<IpAddr>) -> Option<NodeLocation> {
             let country = country_finder(dbip_country::ipv4_country_data, dbip_country::ipv6_country_data, ip_addr);
             match country {
                 Some(country) => {
-                    Some( NodeLocation { country: country.iso3166.to_string(), free_world: country.free_world } )
+                    Some( NodeLocation { country_code: country.iso3166.to_string(), free_world_bit: country.free_world } )
                 },
                 None => None
             }
@@ -64,8 +64,8 @@ mod tests {
     fn test_node_location() {
         let node_location = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(125, 125, 125, 1)))).unwrap();
 
-        assert_eq!(node_location.country, "CN");
-        assert_eq!(node_location.free_world, false);
+        assert_eq!(node_location.country_code, "CN");
+        assert_eq!(node_location.free_world_bit, false);
     }
 
     #[test]
@@ -74,16 +74,20 @@ mod tests {
             get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))))
         );
 
-        assert_eq!(metadata.node_location.as_ref().unwrap(), &NodeLocation { country: "AU".to_string(), free_world: true });
-        assert_eq!(metadata.node_location.as_ref().unwrap().free_world, true);
-        assert_eq!(metadata.node_location.as_ref().unwrap().country, "AU");
+        assert_eq!(metadata.node_location.as_ref().unwrap(), &NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        assert_eq!(metadata.node_location.as_ref().unwrap().free_world_bit, true);
+        assert_eq!(metadata.node_location.as_ref().unwrap().country_code, "AU");
     }
 
     #[test]
     fn construct_node_record_for_test() {
-        let node_record = make_node_record(1111, true);
+        let mut node_record = make_node_record(1111, true);
+        let country_record = pick_country_code_record(3333);
+        node_record.metadata.node_location = Some(NodeLocation { country_code: country_record.1.clone(), free_world_bit: country_record.2 });
+        node_record.metadata.node_addr_opt = Some(NodeAddr::new(&country_record.0, &[8000 % 10000]));
+        node_record.inner.country_code = country_record.1;
 
-        assert_eq!(node_record.metadata.node_location, Some(NodeLocation { country: "AU".to_string(), free_world: true }))
+        assert_eq!(node_record.metadata.node_location, Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true }))
     }
 
     #[test]
@@ -91,10 +95,9 @@ mod tests {
         let mut node = make_node_record(2222, true);
         let country_record = pick_country_code_record(2222);
         println!("node: {:?}", node);
-        node.metadata.node_location = Some(NodeLocation { country: country_record.1.clone(), free_world: country_record.2 });
+        node.metadata.node_location = Some(NodeLocation { country_code: country_record.1.clone(), free_world_bit: country_record.2 });
         node.metadata.node_addr_opt = Some(NodeAddr::new(&country_record.0, &[8000 % 10000]));
         node.inner.country_code = country_record.1;
-        node.inner.free_world_bit = country_record.2;
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -108,10 +111,6 @@ mod tests {
         assert_eq!(
             gossip_result.node_addr_opt.unwrap(),
             node.node_addr_opt().unwrap()
-        );
-        assert_eq!(
-            node_record.inner.free_world_bit,
-            true
         );
         assert_eq!(
             node_record.inner.country_code,
@@ -135,7 +134,7 @@ mod test_ip_country_performance {
             println!("ip: {}", &address);
             let node_location = get_node_location(Some(address));
             match node_location {
-                Some(node_location) => println!("fwb: {}", node_location.free_world),
+                Some(node_location) => println!("fwb: {}", node_location.free_world_bit),
                 None => println!("ip does not exists: {}", address)
             }
         });
@@ -155,7 +154,7 @@ mod test_ip_country_performance {
             println!("ip: {}", &address);
             let node_location = get_node_location(Some(address));
             match node_location {
-                Some(node_location) => println!("fwb: {}", node_location.free_world),
+                Some(node_location) => println!("fwb: {}", node_location.free_world_bit),
                 None => println!("ip does not exists: {}", address)
             }
         });
@@ -174,7 +173,7 @@ mod test_ip_country_performance {
             println!("ip: {}", &address);
             let node_location = get_node_location(Some(address));
             match node_location {
-                Some(node_location) => println!("fwb: {}", node_location.free_world),
+                Some(node_location) => println!("fwb: {}", node_location.free_world_bit),
                 None => println!("ip does not exists: {}", address)
             }
         });
