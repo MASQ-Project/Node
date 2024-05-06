@@ -2556,9 +2556,6 @@ mod tests {
     #[test]
     fn calculate_fundamentals_with_setup_and_no_environment() {
         let _guard = EnvironmentGuard::new();
-        vec![]
-            .into_iter()
-            .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
             ("data-directory", "setup_dir", Default),
@@ -2583,9 +2580,6 @@ mod tests {
     #[test]
     fn calculate_fundamentals_with_neither_setup_nor_environment() {
         let _guard = EnvironmentGuard::new();
-        vec![]
-            .into_iter()
-            .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain) =
@@ -2703,6 +2697,7 @@ mod tests {
 
     #[test]
     fn config_file_not_specified_but_exists() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_not_specified_but_exists",
@@ -2735,6 +2730,7 @@ mod tests {
 
     #[test]
     fn config_file_has_relative_directory_that_exists_in_data_directory() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_relative_directory_that_exists_in_data_directory",
