@@ -140,17 +140,12 @@ fn loading_test_with_randomized_params() {
                     };
                     Some(scenario)
                 }
-                Err(
-                    PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                        ..
-                    },
-                ) => {
+                Err(_) => {
                     output_collector
                         .test_overall_output_collector
                         .scenarios_denied_before_adjustment_started += 1;
                     None
                 }
-                _e => Some(scenario),
             };
 
             match allowed_scenario_opt {
@@ -572,7 +567,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
         .scenarios_denied_before_adjustment_started
         + test_overall_output_collector.oks
         + test_overall_output_collector.all_accounts_eliminated
-        + test_overall_output_collector.insufficient_service_fee_balance;
+        + test_overall_output_collector.late_immoderately_insufficient_service_fee_balance;
     write_brief_test_summary_into_file(
         &mut file,
         &test_overall_output_collector,
@@ -674,7 +669,7 @@ fn write_brief_test_summary_into_file(
             .render_in_two_lines(),
         overall_output_collector.scenarios_denied_before_adjustment_started,
         overall_output_collector.all_accounts_eliminated,
-        overall_output_collector.insufficient_service_fee_balance,
+        overall_output_collector.late_immoderately_insufficient_service_fee_balance,
         NON_EXHAUSTED_ACCOUNT_MARKER
     ))
     .unwrap()
@@ -711,12 +706,12 @@ fn do_final_processing_of_single_scenario(
         }
         Err(negative) => {
             match negative.adjuster_error {
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => {
-                    panic!("impossible in this kind of test without the tx fee initial check")
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction { .. } => {
+                    panic!("Such errors should be already filtered out")
                 }
-                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                    ..
-                } => test_overall_output.insufficient_service_fee_balance += 1,
+                PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction { .. } => {
+                    test_overall_output.late_immoderately_insufficient_service_fee_balance += 1
+                }
                 PaymentAdjusterError::AllAccountsEliminated => {
                     test_overall_output.all_accounts_eliminated += 1
                 }
@@ -1027,7 +1022,7 @@ struct TestOverallOutputCollector {
     fulfillment_distribution_for_service_fee_adjustments: PercentageFulfillmentDistribution,
     // Errors
     all_accounts_eliminated: usize,
-    insufficient_service_fee_balance: usize,
+    late_immoderately_insufficient_service_fee_balance: usize,
 }
 
 impl TestOverallOutputCollector {
@@ -1040,7 +1035,7 @@ impl TestOverallOutputCollector {
             fulfillment_distribution_for_transaction_fee_adjustments: Default::default(),
             fulfillment_distribution_for_service_fee_adjustments: Default::default(),
             all_accounts_eliminated: 0,
-            insufficient_service_fee_balance: 0,
+            late_immoderately_insufficient_service_fee_balance: 0,
         }
     }
 }

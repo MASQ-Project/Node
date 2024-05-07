@@ -34,13 +34,13 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
     LowGainingAccountEliminated, SomeAccountsProcessed,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, AdjustmentPossibilityErrorBuilder, RecursionResults, TransactionFeeLimitation, TransactionFeePastCheckContext, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, WeightedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
     sum_as, zero_affordable_accounts_found,
 };
-use crate::accountant::payment_adjuster::preparatory_analyser::PreparatoryAnalyzer;
+use crate::accountant::payment_adjuster::preparatory_analyser::{LateServiceFeeSingleTxErrorFactory, PreparatoryAnalyzer};
 use crate::accountant::payment_adjuster::service_fee_adjuster::{
     ServiceFeeAdjuster, ServiceFeeAdjusterReal,
 };
@@ -242,9 +242,7 @@ impl PaymentAdjusterReal {
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
-        let error_builder = AdjustmentPossibilityErrorBuilder::default().context(
-            TransactionFeePastCheckContext::accounts_dumped(&weighted_accounts),
-        );
+        let error_factory = LateServiceFeeSingleTxErrorFactory::new(&weighted_accounts);
 
         let weighted_accounts_affordable_by_transaction_fee =
             dump_unaffordable_accounts_by_transaction_fee(
@@ -257,7 +255,7 @@ impl PaymentAdjusterReal {
         if self.analyzer.recheck_if_service_fee_adjustment_is_needed(
             &weighted_accounts_affordable_by_transaction_fee,
             cw_service_fee_balance_minor,
-            error_builder,
+            error_factory,
             &self.logger,
         )? {
             diagnostics!("STILL NECESSARY TO CONTINUE BY ADJUSTMENT IN BALANCES");
@@ -444,33 +442,43 @@ impl AdjustmentAnalysis {
 
 #[derive(Debug, PartialEq, Eq, VariantCount)]
 pub enum PaymentAdjusterError {
-    NotEnoughTransactionFeeBalanceForSingleTx {
+    EarlyNotEnoughFeeForSingleTransaction {
         number_of_accounts: usize,
-        per_transaction_requirement_minor: u128,
-        cw_transaction_fee_balance_minor: U256,
+        transaction_fee_opt: Option<TransactionFeeImmoderateInsufficiency>,
+        service_fee_opt: Option<ServiceFeeImmoderateInsufficiency>,
     },
-    NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+    LateNotEnoughFeeForSingleTransaction {
+        original_number_of_accounts: usize,
         number_of_accounts: usize,
-        total_service_fee_required_minor: u128,
+        original_service_fee_required_total_minor: u128,
         cw_service_fee_balance_minor: u128,
-        transaction_fee_appendix_opt: Option<TransactionFeeLimitation>,
     },
     AllAccountsEliminated,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TransactionFeeImmoderateInsufficiency {
+    pub per_transaction_requirement_minor: u128,
+    pub cw_transaction_fee_balance_minor: U256,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ServiceFeeImmoderateInsufficiency {
+    pub total_service_fee_required_minor: u128,
+    pub cw_service_fee_balance_minor: u128,
 }
 
 impl PaymentAdjusterError {
     pub fn insolvency_detected(&self) -> bool {
         match self {
-            PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx { .. } => true,
-            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                ..
-            } => true,
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction { .. } => true,
+            PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction { .. } => true,
             PaymentAdjusterError::AllAccountsEliminated => true,
-            // So far, we don't have to worry much, but adding an error, that doesn't imply at the
-            // same time that an insolvency was proved before it, might become relevant in
-            // the future. Then, it'll be important to check for those consequences (Hint: It is
-            // anticipated to affect the wording of error announcements that take place back nearer
-            // to the Accountant's general area)
+            // We haven't needed to worry so yet, but adding an error not implying that
+            // an insolvency was found out, might become relevant in the future. Then, it'll
+            // be important to check for those consequences (Hint: It is anticipated to affect
+            // the wording of error announcements that take place back nearer to the Accountant's
+            // general area)
         }
     }
 }
@@ -478,45 +486,60 @@ impl PaymentAdjusterError {
 impl Display for PaymentAdjusterError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                 number_of_accounts,
-                per_transaction_requirement_minor,
-                cw_transaction_fee_balance_minor,
-            } => write!(
-                f,
-                "Found transaction fee balance that is not enough for a single payment. Number of \
-                canceled payments: {}. Transaction fee per payment: {} wei, while in wallet: {} wei",
+                transaction_fee_opt,
+                service_fee_opt,
+            } => {
+                match (transaction_fee_opt, service_fee_opt) {
+                    (Some(transaction_fee_check_summary), None) =>
+                        write!(
+                        f,
+                        "Current transaction fee balance is not enough to pay a single payment. \
+                        Number of canceled payments: {}. Transaction fee per payment: {} wei, while \
+                        the wallet contains: {} wei",
+                        number_of_accounts,
+                        transaction_fee_check_summary.per_transaction_requirement_minor.separate_with_commas(),
+                        transaction_fee_check_summary.cw_transaction_fee_balance_minor.separate_with_commas()
+                    ),
+                    (None, Some(service_fee_check_summary)) =>
+                        write!(
+                        f,
+                        "Current service fee balance is not enough to pay a single payment. \
+                        Number of canceled payments: {}. Total amount required: {} wei, while the wallet \
+                        contains: {} wei",
+                        number_of_accounts,
+                        service_fee_check_summary.total_service_fee_required_minor.separate_with_commas(),
+                        service_fee_check_summary.cw_service_fee_balance_minor.separate_with_commas()),
+                    (Some(transaction_fee_check_summary), Some(service_fee_check_summary)) =>
+                        write!(
+                        f,
+                        "Neither transaction fee or service fee balance is enough to pay a single payment. \
+                        Number of payments considered: {}. Transaction fee per payment: {} wei, while in \
+                        wallet: {} wei. Total service fee required: {} wei, while in wallet: {} wei",
+                        number_of_accounts,
+                        transaction_fee_check_summary.per_transaction_requirement_minor.separate_with_commas(),
+                        transaction_fee_check_summary.cw_transaction_fee_balance_minor.separate_with_commas(),
+                        service_fee_check_summary.total_service_fee_required_minor.separate_with_commas(),
+                        service_fee_check_summary.cw_service_fee_balance_minor.separate_with_commas()
+                ),
+                    (None, None) => unreachable!("This error contains no specifications")
+                }
+            },
+            PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+                original_number_of_accounts,
                 number_of_accounts,
-                per_transaction_requirement_minor.separate_with_commas(),
-                cw_transaction_fee_balance_minor.separate_with_commas()
-            ),
-            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                number_of_accounts,
-                total_service_fee_required_minor,
+                original_service_fee_required_total_minor,
                 cw_service_fee_balance_minor,
-                transaction_fee_appendix_opt,
-            } => match transaction_fee_appendix_opt{
-                None => write!(
-                f,
-                "Found service fee balance that is not enough for a single payment. Number of \
-                canceled payments: {}. Total amount required: {} wei, while in wallet: {} wei",
+            } => write!(f, "The original set with {} accounts was adjusted down to {} due to \
+                transaction fee. The new set was tested on service fee later again and did not \
+                pass. Original required amount of service fee: {} wei, while the wallet \
+                contains {} wei.",
+                original_number_of_accounts,
                 number_of_accounts,
-                total_service_fee_required_minor.separate_with_commas(),
-                cw_service_fee_balance_minor.separate_with_commas()),
-                Some(limitation) => write!(
-                f,
-                "Both transaction fee and service fee balances are not enough. Number of payments \
-                considered: {}. Current transaction fee balance can cover {} payments only. Transaction \
-                fee per payment: {} wei, while in wallet: {} wei. Neither does the service fee balance \
-                allow a single payment. Total amount required: {} wei, while in wallet: {} wei",
-                number_of_accounts,
-                limitation.count_limit,
-                limitation.per_transaction_required_fee_minor.separate_with_commas(),
-                limitation.cw_transaction_fee_balance_minor.separate_with_commas(),
-                total_service_fee_required_minor.separate_with_commas(),
+                original_service_fee_required_total_minor.separate_with_commas(),
                 cw_service_fee_balance_minor.separate_with_commas()
-                    )
-                },
+            ),
             PaymentAdjusterError::AllAccountsEliminated => write!(
                 f,
                 "The adjustment algorithm had to eliminate each payable from the recently urged \
@@ -535,7 +558,7 @@ mod tests {
     use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::SomeAccountsProcessed;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustmentIterationResult, TransactionFeeLimitation, WeightedPayable,
+        AdjustmentIterationResult, WeightedPayable,
     };
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
@@ -547,6 +570,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
+        ServiceFeeImmoderateInsufficiency, TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
@@ -729,8 +753,8 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Your transaction fee balance 16,499,999,000,000,000 wei is not \
-            going to cover the anticipated fees to send 3 transactions, with 6,325,000,000,000,000 \
+            "WARN: {test_name}: Transaction fee balance of 16,499,999,000,000,000 wei is not \
+            going to cover the anticipated fee to send 3 transactions, with 6,325,000,000,000,000 \
             wei required per one. Maximum count is set to 2. Adjustment must be performed."
         ));
         log_handler.exists_log_containing(&format!(
@@ -780,6 +804,43 @@ mod tests {
     }
 
     #[test]
+    fn transaction_fee_balance_is_unbearably_low_but_service_fee_balance_is_fine() {
+        let subject = PaymentAdjusterReal::new();
+        let number_of_accounts = 3;
+        let (qualified_payables, agent) = make_input_for_initial_check_tests(
+            Some(TestConfigForServiceFeeBalances {
+                account_balances: Either::Left(vec![123]),
+                cw_balance_minor: gwei_to_wei::<u128, u64>(444),
+            }),
+            Some(TestConfigForTransactionFees {
+                agreed_transaction_fee_per_computed_unit_major: 100,
+                number_of_accounts,
+                estimated_transaction_fee_units_per_transaction: 55_000,
+                cw_transaction_fee_balance_major: 54_000 * 100,
+            }),
+        );
+
+        let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
+
+        let per_transaction_requirement_minor =
+            TRANSACTION_FEE_MARGIN.add_percent_to(55_000 * gwei_to_wei::<u128, u64>(100));
+        let cw_transaction_fee_balance_minor = U256::from(54_000 * gwei_to_wei::<u128, u64>(100));
+        assert_eq!(
+            result,
+            Err(
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                    number_of_accounts,
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor,
+                        cw_transaction_fee_balance_minor,
+                    }),
+                    service_fee_opt: None
+                }
+            )
+        );
+    }
+
+    #[test]
     fn checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_is_unbearably_low()
     {
         let test_name = "checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_is_unbearably_low";
@@ -798,44 +859,52 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 3,
-                    total_service_fee_required_minor: 920_000_000_000,
-                    cw_service_fee_balance_minor,
-                    transaction_fee_appendix_opt: None,
+                    transaction_fee_opt: None,
+                    service_fee_opt: Some(ServiceFeeImmoderateInsufficiency {
+                        total_service_fee_required_minor: 920_000_000_000,
+                        cw_service_fee_balance_minor
+                    })
                 }
             )
         );
     }
 
     #[test]
-    fn not_enough_transaction_fee_balance_for_even_a_single_transaction() {
+    fn both_balances_are_unbearably_low() {
         let subject = PaymentAdjusterReal::new();
-        let number_of_accounts = 3;
+        let number_of_accounts = 2;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                account_balances: Either::Left(vec![123]),
-                cw_balance_minor: gwei_to_wei::<u128, u64>(444),
+                account_balances: Either::Left(vec![200, 300]),
+                cw_balance_minor: 0,
             }),
             Some(TestConfigForTransactionFees {
-                agreed_transaction_fee_per_computed_unit_major: 100,
+                agreed_transaction_fee_per_computed_unit_major: 123,
                 number_of_accounts,
                 estimated_transaction_fee_units_per_transaction: 55_000,
-                cw_transaction_fee_balance_major: 54_000 * 100,
+                cw_transaction_fee_balance_major: 0,
             }),
         );
 
         let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
 
+        let per_transaction_requirement_minor =
+            TRANSACTION_FEE_MARGIN.add_percent_to(55_000 * gwei_to_wei::<u128, u64>(123));
         assert_eq!(
             result,
             Err(
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts,
-                    per_transaction_requirement_minor: TRANSACTION_FEE_MARGIN
-                        .add_percent_to(55_000 * gwei_to_wei::<u128, u64>(100)),
-                    cw_transaction_fee_balance_minor: U256::from(54_000)
-                        * gwei_to_wei::<U256, u64>(100)
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor,
+                        cw_transaction_fee_balance_minor: U256::zero(),
+                    }),
+                    service_fee_opt: Some(ServiceFeeImmoderateInsufficiency {
+                        total_service_fee_required_minor: multiple_by_billion(500),
+                        cw_service_fee_balance_minor: 0
+                    })
                 }
             )
         );
@@ -845,43 +914,59 @@ mod tests {
     fn payment_adjuster_error_implements_display() {
         let inputs = vec![
             (
-                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                    number_of_accounts: 5,
-                    total_service_fee_required_minor: 6_000_000_000,
-                    cw_service_fee_balance_minor: 333_000_000,
-                    transaction_fee_appendix_opt: None,
-                },
-                "Found service fee balance that is not enough for a single payment. Number of \
-                canceled payments: 5. Total amount required: 6,000,000,000 wei, while in wallet: \
-                333,000,000 wei",
-            ),
-            (
-                PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                    number_of_accounts: 5,
-                    total_service_fee_required_minor: 7_000_000_000,
-                    cw_service_fee_balance_minor: 100_000_000,
-                    transaction_fee_appendix_opt: Some(TransactionFeeLimitation {
-                        count_limit: 3,
-                        cw_transaction_fee_balance_minor: 3_000_000_000,
-                        per_transaction_required_fee_minor: 5_000_000_000,
-                    }),
-                },
-                "Both transaction fee and service fee balances are not enough. Number of payments \
-                considered: 5. Current transaction fee balance can cover 3 payments only. \
-                Transaction fee per payment: 5,000,000,000 wei, while in wallet: 3,000,000,000 \
-                wei. Neither does the service fee balance allow a single payment. Total amount \
-                required: 7,000,000,000 wei, while in wallet: 100,000,000 wei",
-            ),
-            (
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 4,
-                    per_transaction_requirement_minor: 70_000_000_000_000,
-                    cw_transaction_fee_balance_minor: U256::from(90_000),
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency{
+                        per_transaction_requirement_minor: 70_000_000_000_000,
+                        cw_transaction_fee_balance_minor: U256::from(90_000),
+                    }),
+                    service_fee_opt: None
                 },
-                "Found transaction fee balance that is not enough for a single payment. Number of \
-                canceled payments: 4. Transaction fee per payment: 70,000,000,000,000 wei, while in \
-                wallet: 90,000 wei",
+                "Current transaction fee balance is not enough to pay a single payment. Number of \
+                canceled payments: 4. Transaction fee per payment: 70,000,000,000,000 wei, while \
+                the wallet contains: 90,000 wei",
             ),
+            (
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                    number_of_accounts: 5,
+                    transaction_fee_opt: None,
+                    service_fee_opt: Some(ServiceFeeImmoderateInsufficiency{
+                        total_service_fee_required_minor: 6_000_000_000,
+                        cw_service_fee_balance_minor: 333_000_000,
+                    })
+                },
+                "Current service fee balance is not enough to pay a single payment. Number of \
+                canceled payments: 5. Total amount required: 6,000,000,000 wei, while the wallet \
+                contains: 333,000,000 wei",
+            ),
+            (
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                    number_of_accounts: 5,
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency{
+                        per_transaction_requirement_minor:  5_000_000_000,
+                        cw_transaction_fee_balance_minor: U256::from(3_000_000_000_u64)
+                    }),
+                    service_fee_opt: Some(ServiceFeeImmoderateInsufficiency{
+                        total_service_fee_required_minor: 7_000_000_000,
+                        cw_service_fee_balance_minor: 100_000_000
+                    })
+                },
+                "Neither transaction fee or service fee balance is enough to pay a single payment. \
+                 Number of payments considered: 5. Transaction fee per payment: 5,000,000,000 wei, \
+                 while in wallet: 3,000,000,000 wei. Total service fee required: 7,000,000,000 wei, \
+                 while in wallet: 100,000,000 wei",
+            ),
+            (
+                PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+                    original_number_of_accounts: 6,
+                    number_of_accounts: 3,
+                    original_service_fee_required_total_minor: 1234567891011,
+                    cw_service_fee_balance_minor: 333333,
+                },
+                "The original set with 6 accounts was adjusted down to 3 due to transaction fee. \
+                The new set was tested on service fee later again and did not pass. Original \
+                required amount of service fee: 1,234,567,891,011 wei, while the wallet contains \
+                333,333 wei."),
             (
                 PaymentAdjusterError::AllAccountsEliminated,
                 "The adjustment algorithm had to eliminate each payable from the recently urged \
@@ -892,23 +977,59 @@ mod tests {
         inputs
             .into_iter()
             .for_each(|(error, expected_msg)| assert_eq!(error.to_string(), expected_msg));
-        assert_eq!(inputs_count, PaymentAdjusterError::VARIANT_COUNT + 1)
+        assert_eq!(inputs_count, PaymentAdjusterError::VARIANT_COUNT + 2)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: This error contains no \
+    specifications"
+    )]
+    fn error_message_for_input_referring_to_no_issues_cannot_be_made() {
+        let _ = PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+            number_of_accounts: 0,
+            transaction_fee_opt: None,
+            service_fee_opt: None,
+        }
+        .to_string();
     }
 
     #[test]
     fn we_can_say_if_error_occurred_after_insolvency_was_detected() {
         let inputs = vec![
             PaymentAdjusterError::AllAccountsEliminated,
-            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                 number_of_accounts: 0,
-                total_service_fee_required_minor: 0,
-                cw_service_fee_balance_minor: 0,
-                transaction_fee_appendix_opt: None,
+                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                    per_transaction_requirement_minor: 0,
+                    cw_transaction_fee_balance_minor: Default::default(),
+                }),
+                service_fee_opt: None,
             },
-            PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                 number_of_accounts: 0,
-                per_transaction_requirement_minor: 0,
-                cw_transaction_fee_balance_minor: Default::default(),
+                transaction_fee_opt: None,
+                service_fee_opt: Some(ServiceFeeImmoderateInsufficiency {
+                    total_service_fee_required_minor: 0,
+                    cw_service_fee_balance_minor: 0,
+                }),
+            },
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                number_of_accounts: 0,
+                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                    per_transaction_requirement_minor: 0,
+                    cw_transaction_fee_balance_minor: Default::default(),
+                }),
+                service_fee_opt: Some(ServiceFeeImmoderateInsufficiency {
+                    total_service_fee_required_minor: 0,
+                    cw_service_fee_balance_minor: 0,
+                }),
+            },
+            PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+                original_number_of_accounts: 0,
+                number_of_accounts: 0,
+                original_service_fee_required_total_minor: 0,
+                cw_service_fee_balance_minor: 0,
             },
         ];
         let inputs_count = inputs.len();
@@ -916,8 +1037,8 @@ mod tests {
             .into_iter()
             .map(|err| err.insolvency_detected())
             .collect::<Vec<_>>();
-        assert_eq!(results, vec![true, true, true]);
-        assert_eq!(inputs_count, PaymentAdjusterError::VARIANT_COUNT)
+        assert_eq!(results, vec![true, true, true, true, true]);
+        assert_eq!(inputs_count, PaymentAdjusterError::VARIANT_COUNT + 2)
     }
 
     #[test]
@@ -1701,11 +1822,11 @@ mod tests {
         let disqualification_limit_2 =
             disqualification_arbiter.calculate_disqualification_edge(&account_2);
         // This is exactly the amount which will provoke an error
-        let service_fee_balance_in_minor_units = disqualification_limit_2 - 1;
+        let cw_service_fee_balance_minor = disqualification_limit_2 - 1;
         let qualified_payables = vec![account_1, account_2, account_3];
         let analyzed_payables = convert_collection(qualified_payables);
         let agent = BlockchainAgentMock::default()
-            .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
+            .service_fee_balance_minor_result(cw_service_fee_balance_minor);
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
             adjustment_analysis: AdjustmentAnalysis::new(
@@ -1725,11 +1846,11 @@ mod tests {
         };
         assert_eq!(
             err,
-            PaymentAdjusterError::NotEnoughServiceFeeBalanceEvenForTheSmallestTransaction {
-                number_of_accounts: 3,
-                total_service_fee_required_minor: balance_1 + balance_2 + balance_3,
-                cw_service_fee_balance_minor: service_fee_balance_in_minor_units,
-                transaction_fee_appendix_opt: None,
+            PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+                original_number_of_accounts: 3,
+                number_of_accounts: 2,
+                original_service_fee_required_total_minor: balance_1 + balance_2 + balance_3,
+                cw_service_fee_balance_minor
             }
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![

@@ -160,7 +160,7 @@ pub fn log_insufficient_transaction_fee_balance(
 ) {
     warning!(
         logger,
-        "Your transaction fee balance {} wei is not going to cover the anticipated fees to send {} \
+        "Transaction fee balance of {} wei is not going to cover the anticipated fee to send {} \
         transactions, with {} wei required per one. Maximum count is set to {}. Adjustment must be \
         performed.",
         transaction_fee_minor.separate_with_commas(),

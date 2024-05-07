@@ -1068,7 +1068,7 @@ mod tests {
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysis, PaymentAdjusterError,
+        Adjustment, AdjustmentAnalysis, PaymentAdjusterError, TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
@@ -1744,10 +1744,13 @@ mod tests {
         let test_name = "payment_adjuster_throws_out_an_error_from_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Err(
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 1,
-                    per_transaction_requirement_minor: 60 * 55_000,
-                    cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor: 60 * 55_000,
+                        cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                    }),
+                    service_fee_opt: None,
                 },
             ));
 
@@ -1760,9 +1763,9 @@ mod tests {
             your balances can cover neither reasonable portion of any of those payables recently \
             qualified for an imminent payment. You must add more funds into your consuming wallet \
             in order to stay off delinquency bans that your creditors may apply against you \
-            otherwise. Details: Found transaction fee balance that is not enough for a single \
+            otherwise. Details: Current transaction fee balance is not enough to pay a single \
             payment. Number of canceled payments: 1. Transaction fee per payment: 3,300,000 wei, \
-            while in wallet: 123,000,000,000 wei."
+            while the wallet contains: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
@@ -1809,10 +1812,13 @@ mod tests {
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Err(
-                PaymentAdjusterError::NotEnoughTransactionFeeBalanceForSingleTx {
+                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 20,
-                    per_transaction_requirement_minor: 40_000_000_000,
-                    cw_transaction_fee_balance_minor: U256::from(123),
+                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                        per_transaction_requirement_minor: 40_000_000_000,
+                        cw_transaction_fee_balance_minor: U256::from(123),
+                    }),
+                    service_fee_opt: None,
                 },
             ));
         let payable_scanner = PayableScannerBuilder::new()
