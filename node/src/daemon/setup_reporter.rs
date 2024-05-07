@@ -2556,6 +2556,9 @@ mod tests {
     #[test]
     fn calculate_fundamentals_with_setup_and_no_environment() {
         let _guard = EnvironmentGuard::new();
+        vec![]
+            .into_iter()
+            .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
             ("data-directory", "setup_dir", Default),
@@ -2580,6 +2583,9 @@ mod tests {
     #[test]
     fn calculate_fundamentals_with_neither_setup_nor_environment() {
         let _guard = EnvironmentGuard::new();
+        vec![]
+            .into_iter()
+            .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain) =
