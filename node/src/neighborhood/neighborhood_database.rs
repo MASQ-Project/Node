@@ -383,18 +383,25 @@ mod tests {
     fn a_brand_new_database_has_the_expected_contents() {
         let mut this_node = make_node_record(1234, true);
         this_node.inner.country_code = "AU".to_string();
-
-        let subject = db_from_node(&this_node);
-
-        let node_from_db = subject.root().clone();
-        this_node.metadata.last_update = node_from_db.metadata.last_update;
         this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
         this_node.resign();
 
+        let subject = db_from_node(&this_node);
+
+        let this_pubkey = this_node.public_key();
+        let last_update = subject.by_public_key.iter().map(|(pubkey, node_record)| match pubkey == this_pubkey {
+            true => node_record.metadata.last_update,
+            false => todo!("implement me")
+        }).exactly_one().unwrap();
+        this_node.metadata.last_update = last_update;
+
         assert_eq!(subject.this_node, this_node.public_key().clone());
         assert_eq!(
-            node_from_db,
-            this_node
+            subject.by_public_key,
+            [(this_node.public_key().clone(), this_node.clone())]
+                .iter()
+                .cloned()
+                .collect()
         );
         assert_eq!(
             subject.by_ip_addr,
@@ -412,7 +419,10 @@ mod tests {
 
     #[test]
     fn can_get_mutable_root() {
-        let this_node = make_node_record(1234, true);
+        let mut this_node = make_node_record(1234, true);
+        this_node.inner.country_code = "AU".to_string();
+        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.resign();
 
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
@@ -420,6 +430,13 @@ mod tests {
             this_node.earning_wallet(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
+
+        let this_pubkey = this_node.public_key();
+        let last_update = subject.by_public_key.iter().map(|(pubkey, node_record)| match pubkey == this_pubkey {
+            true => node_record.metadata.last_update,
+            false => todo!("implement me")
+        }).exactly_one().unwrap();
+        this_node.metadata.last_update = last_update;
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
         assert_eq!(
@@ -479,7 +496,11 @@ mod tests {
 
     #[test]
     fn node_by_key_works() {
-        let this_node = make_node_record(1234, true);
+        let mut this_node = make_node_record(1234, true);
+        this_node.inner.country_code = "AU".to_string();
+        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.resign();
+
         let one_node = make_node_record(4567, true);
         let another_node = make_node_record(5678, true);
         let mut subject = NeighborhoodDatabase::new(
@@ -488,8 +509,13 @@ mod tests {
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
-
+        //TODO spike about add_node fn - should it create metadata and country_code in inner?
         subject.add_node(one_node.clone()).unwrap();
+
+        let this_pubkey = this_node.public_key();
+        let updated_record = subject.by_public_key.iter().filter(|(pubkey, _node_record)|
+            *pubkey == this_pubkey).exactly_one().unwrap();
+        this_node.metadata.last_update = updated_record.1.metadata.last_update;
 
         assert_eq!(
             subject.node_by_key(this_node.public_key()).unwrap().clone(),
