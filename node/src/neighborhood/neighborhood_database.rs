@@ -509,7 +509,7 @@ mod tests {
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
-        //TODO spike about add_node fn - should it create metadata and country_code in inner?
+
         subject.add_node(one_node.clone()).unwrap();
 
         let this_pubkey = this_node.public_key();
@@ -530,12 +530,20 @@ mod tests {
 
     #[test]
     fn node_by_ip_works() {
-        let this_node = make_node_record(1234, true);
+        let mut this_node = make_node_record(1234, true);
+        this_node.inner.country_code = "AU".to_string();
+        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.resign();
         let one_node = make_node_record(4567, true);
         let another_node = make_node_record(5678, true);
         let mut subject = db_from_node(&this_node);
 
         subject.add_node(one_node.clone()).unwrap();
+
+        let this_pubkey = this_node.public_key();
+        let updated_record = subject.by_public_key.iter().filter(|(pubkey, _node_record)|
+            *pubkey == this_pubkey).exactly_one().unwrap();
+        this_node.metadata.last_update = updated_record.1.metadata.last_update;
 
         assert_eq!(
             subject
@@ -815,7 +823,11 @@ mod tests {
     #[test]
     fn new_public_ip_replaces_ip_address_and_nothing_else() {
         let this_node = make_node_record(1234, true);
-        let old_node = this_node.clone();
+        let mut old_node = this_node.clone();
+        old_node.inner.country_code = "AU".to_string();
+        old_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        old_node.resign();
+
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
             (&this_node).into(),
@@ -825,6 +837,11 @@ mod tests {
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.new_public_ip(new_public_ip);
+
+        let this_pubkey = this_node.public_key();
+        let updated_record = subject.by_public_key.iter().filter(|(pubkey, _node_record)|
+            *pubkey == this_pubkey).exactly_one().unwrap();
+        old_node.metadata.last_update = updated_record.1.metadata.last_update;
 
         let mut new_node = subject.root().clone();
         assert_eq!(subject.node_by_ip(&new_public_ip), Some(&new_node));
