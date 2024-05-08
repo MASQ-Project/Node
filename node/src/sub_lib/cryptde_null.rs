@@ -6,6 +6,8 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PrivateKey;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, SymmetricKey};
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::ExpectValue;
 use rand::prelude::*;
@@ -13,8 +15,6 @@ use rustc_hex::ToHex;
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]

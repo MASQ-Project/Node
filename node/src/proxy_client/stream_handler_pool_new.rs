@@ -1,28 +1,30 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
 
-use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFactory, ResolverWrapperFactoryReal};
-use crate::proxy_client::stream_establisher::{StreamEstablisherFactory};
+use crate::proxy_client::resolver_wrapper::{
+    ResolverWrapper, ResolverWrapperFactory, ResolverWrapperFactoryReal,
+};
+use crate::proxy_client::stream_establisher::StreamEstablisherFactory;
+use crate::stream_messages::PoolBindMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
+use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, Recipient};
+use futures::{AsyncRead, AsyncWrite};
+use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::lookup_ip::LookupIp;
+use itertools::Itertools;
 use masq_lib::logger::Logger;
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::{Arc};
-use futures::{AsyncRead, AsyncWrite};
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
-use hickory_resolver::lookup_ip::LookupIp;
-use itertools::Itertools;
+use std::sync::Arc;
 use tokio::net::TcpStream;
-use crate::stream_messages::PoolBindMessage;
-use crate::sub_lib::peer_actors::BindMessage;
 
 #[derive(Message, Debug, Clone)]
 #[rtype(result = "()")]
@@ -70,7 +72,7 @@ struct AddStreamPair {
     stream_key: StreamKey,
     peer_addr: SocketAddr,
     writer: Box<dyn AsyncWrite>,
-    reader: Box<dyn AsyncRead>
+    reader: Box<dyn AsyncRead>,
 }
 
 #[derive(Message, Debug)]
@@ -83,14 +85,14 @@ struct StreamCreationError {
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 struct KillStream {
-    stream_key: StreamKey
+    stream_key: StreamKey,
 }
 
 struct StreamPair {
     peer_addr: SocketAddr,
     pending_data: VecDeque<ProcessPackageMessage>,
     writer_opt: Option<Box<dyn AsyncWrite>>,
-    reader_opt: Option<Box<dyn AsyncRead>>
+    reader_opt: Option<Box<dyn AsyncRead>>,
 }
 
 struct PrivateStreamHandlerPoolSubs {
@@ -100,7 +102,7 @@ struct PrivateStreamHandlerPoolSubs {
     data_read_error_sub: Recipient<DataReadError>,
     add_stream_pair_sub: Recipient<AddStreamPair>,
     stream_creation_error_sub: Recipient<StreamCreationError>,
-    kill_stream_sub: Recipient<KillStream>
+    kill_stream_sub: Recipient<KillStream>,
 }
 
 struct ExternalSubs {
@@ -230,14 +232,14 @@ impl StreamHandlerPool {
     ) -> StreamHandlerPool {
         StreamHandlerPool {
             dns_servers,
-            async_pair_factory: Box::new(AsyncPairFactoryReal{}),
+            async_pair_factory: Box::new(AsyncPairFactoryReal {}),
             stream_pairs: HashMap::new(),
-            resolver_factory: Box::new(ResolverWrapperFactoryReal{}),
+            resolver_factory: Box::new(ResolverWrapperFactoryReal {}),
             logger: Logger::new("ProxyClient"),
             exit_service_rate,
             exit_byte_rate,
             private_subs_opt: None,
-            subs_opt: None
+            subs_opt: None,
         }
     }
 
@@ -249,24 +251,15 @@ impl StreamHandlerPool {
         todo!()
     }
 
-    fn handle_process_package(
-        &mut self,
-        process_package_message: ProcessPackageMessage
-    ) {
+    fn handle_process_package(&mut self, process_package_message: ProcessPackageMessage) {
         let stream_key = process_package_message.payload.stream_key;
         match self.stream_pairs.get_mut(&stream_key) {
-            Some(mut stream_pair) => {
-                match stream_pair.writer_opt.take() {
-                    Some(sender) => {
-                        self.send_payload(process_package_message, sender)
-                    },
-                    None => {
-                        stream_pair.pending_data.push_back(process_package_message)
-                    }
-                }
-            }
+            Some(mut stream_pair) => match stream_pair.writer_opt.take() {
+                Some(sender) => self.send_payload(process_package_message, sender),
+                None => stream_pair.pending_data.push_back(process_package_message),
+            },
             None => {
-                self.add_stream_pair (process_package_message);
+                self.add_stream_pair(process_package_message);
                 // if process_package_message.payload.sequenced_packet.data.is_empty() {
                 //     debug!(
                 //         self.logger,
@@ -386,40 +379,34 @@ impl StreamHandlerPool {
         todo!()
     }
 
-    fn add_stream_pair(
-        &mut self,
-        process_package_message: ProcessPackageMessage,
-    ) {
+    fn add_stream_pair(&mut self, process_package_message: ProcessPackageMessage) {
         // TODO If process_package_member's payload is empty, log and abort here
         // Add null StreamPair to self.stream_pairs, put process_package_message in its queue
         let stream_key = process_package_message.payload.stream_key.clone();
         let host_name = match process_package_message.payload.target_hostname.as_ref() {
             Some(hn) => hn.clone(),
-            None => todo!("Why would there be no target hostname?")
+            None => todo!("Why would there be no target hostname?"),
         };
         let port = process_package_message.payload.target_port;
         let mut pending_data = VecDeque::new();
-        pending_data.push_back (process_package_message);
+        pending_data.push_back(process_package_message);
         let stream_pair = StreamPair {
             peer_addr: SocketAddr::from_str("255.255.255.255:255").expect("Bad SocketAddr syntax"),
             pending_data,
             writer_opt: None,
             reader_opt: None,
         };
-        self.stream_pairs.insert (stream_key, stream_pair);
+        self.stream_pairs.insert(stream_key, stream_pair);
         let future = async {
             let ip_addrs = match Self::to_ip_addr(&host_name) {
                 Ok(ip_addr) => {
                     todo!("Test-drive me") // vec![ip_addr]
-                },
+                }
                 Err(_) => {
                     let resolver_config = ResolverConfig::default();
                     // TODO: resolver_config.add_name_server(*get from --dns-servers parameter*);
                     let resolver_opts = ResolverOpts::default();
-                    let resolver = self.resolver_factory.make(
-                        resolver_config,
-                        resolver_opts
-                    );
+                    let resolver = self.resolver_factory.make(resolver_config, resolver_opts);
                     match resolver.lookup_ip(&host_name).await {
                         Err(e) => todo!("IP resolution error for {}: {:?}", host_name, e),
                         Ok(lookup_ip_x) => {
@@ -430,10 +417,12 @@ impl StreamHandlerPool {
                 }
             };
             let stream: TcpStream = match Self::connect_to_server(&ip_addrs, port) {
-                Err(e) => todo! ("Connection to all of {:?} failed: {:?}", ip_addrs, e),
+                Err(e) => todo!("Connection to all of {:?} failed: {:?}", ip_addrs, e),
                 Ok(stream) => stream,
             };
-            let peer_addr = stream.peer_addr().expect("Stream is connected, but no peer_addr is available");
+            let peer_addr = stream
+                .peer_addr()
+                .expect("Stream is connected, but no peer_addr is available");
             let (reader, writer) = stream.into_split();
             let msg = AddStreamPair {
                 stream_key,
@@ -441,19 +430,23 @@ impl StreamHandlerPool {
                 writer: Box::new(writer),
                 reader: Box::new(reader),
             };
-            self.private_subs_opt.as_ref().expect("StreamHandlerPool was not properly initialized")
-                .add_stream_pair_sub.try_send(msg).expect("StreamHandlerPool is dead")
+            self.private_subs_opt
+                .as_ref()
+                .expect("StreamHandlerPool was not properly initialized")
+                .add_stream_pair_sub
+                .try_send(msg)
+                .expect("StreamHandlerPool is dead")
         };
         tokio::spawn(future);
     }
 
-    async fn connect_to_server (ip_addrs: &Vec<IpAddr>, port: u16) -> io::Result<TcpStream> {
+    async fn connect_to_server(ip_addrs: &Vec<IpAddr>, port: u16) -> io::Result<TcpStream> {
         // TODO: This is about going down the list one by one and allowing each connection attempt to fail before
         // trying the next one. Consider whether we'd rather start up connection attempts to all the IP addresses at
         // once, and when one attempt succeeds, abandon all the others.
         for ip_addr in ip_addrs {
             match TcpStream::connect(SocketAddr::new(*ip_addr, port)).await {
-                Err(e) => todo! ("Connection attempt to {} failed: {:?}", ip_addr, e),
+                Err(e) => todo!("Connection attempt to {} failed: {:?}", ip_addr, e),
                 Ok(stream) => todo!("Test-drive me!"), //return Ok(stream)
             }
         }
@@ -473,7 +466,6 @@ impl StreamHandlerPool {
         };
         todo!()
     }
-
 
     // fn write_and_tend(
     //     &mut self,
@@ -698,14 +690,11 @@ impl StreamHandlerPool {
         format!("{}.", target_hostname)
     }
 
-    fn find_stream_pair_with_key(
-        &self,
-        stream_key: &StreamKey,
-    ) -> Option<&StreamPair> {
+    fn find_stream_pair_with_key(&self, stream_key: &StreamKey) -> Option<&StreamPair> {
         self.stream_pairs.get(stream_key)
     }
 
-    fn make_logger_copy(&self, ) -> Logger {
+    fn make_logger_copy(&self) -> Logger {
         self.logger.clone()
     }
 
@@ -793,7 +782,7 @@ impl StreamHandlerPool {
     // }
 
     fn set_private_subs_opt(&mut self, addr: Addr<StreamHandlerPool>) {
-        self.private_subs_opt = Some (PrivateStreamHandlerPoolSubs {
+        self.private_subs_opt = Some(PrivateStreamHandlerPoolSubs {
             data_write_success_sub: addr.recipient(),
             data_read_success_sub: addr.recipient(),
             data_write_error_sub: addr.recipient(),
@@ -847,15 +836,17 @@ trait StreamConnector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proxy_client::local_test_utils::{ResolverWrapperFactoryMock};
+    use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::make_meaningless_stream_key;
-    use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::unshared_test_utils::AssertionsMessage;
     use actix::System;
+    use futures::lock::{Mutex, MutexGuard};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -865,26 +856,30 @@ mod tests {
     use std::pin::Pin;
     use std::str::FromStr;
     use std::task::Poll;
-    use futures::lock::{Mutex, MutexGuard};
-    use crate::test_utils::unshared_test_utils::AssertionsMessage;
 
     impl Handler<AssertionsMessage<StreamHandlerPool>> for StreamHandlerPool {
         type Result = ();
 
-        fn handle(&mut self, msg: AssertionsMessage<StreamHandlerPool>, ctx: &mut Self::Context) -> Self::Result {
+        fn handle(
+            &mut self,
+            msg: AssertionsMessage<StreamHandlerPool>,
+            ctx: &mut Self::Context,
+        ) -> Self::Result {
             (msg.assertions)(self)
         }
     }
 
     #[derive(Message)]
     #[rtype(result = "()")]
-    struct SetPrivateSubsMessage {recorder: Recorder}
+    struct SetPrivateSubsMessage {
+        recorder: Recorder,
+    }
     impl Handler<SetPrivateSubsMessage> for StreamHandlerPool {
         type Result = ();
 
         fn handle(&mut self, msg: SetPrivateSubsMessage, ctx: &mut Self::Context) -> Self::Result {
             let addr = msg.recorder.start();
-            self.private_subs_opt = Some (PrivateStreamHandlerPoolSubs {
+            self.private_subs_opt = Some(PrivateStreamHandlerPoolSubs {
                 data_write_success_sub: addr.recipient::<DataWriteSuccess>(),
                 data_read_success_sub: addr.recipient::<DataReadSuccess>(),
                 data_write_error_sub: addr.recipient::<DataWriteError>(),
@@ -897,24 +892,36 @@ mod tests {
     }
 
     struct TestAsyncWrite {
-        pub data_arc: Arc<Mutex<Vec<u8>>>
+        pub data_arc: Arc<Mutex<Vec<u8>>>,
     }
     impl AsyncWrite for TestAsyncWrite {
-        fn poll_write(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
             self.data().poll_write(cx, buf)
         }
 
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<io::Result<()>> {
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> Poll<io::Result<()>> {
             self.data().poll_flush(cx)
         }
 
-        fn poll_close(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<io::Result<()>> {
+        fn poll_close(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> Poll<io::Result<()>> {
             self.data().poll_close(cx)
         }
     }
     impl TestAsyncWrite {
         pub fn new() -> Self {
-            Self {data_arc: Arc::new(Mutex::new(vec![]))}
+            Self {
+                data_arc: Arc::new(Mutex::new(vec![])),
+            }
         }
         pub fn data(&self) -> MutexGuard<Vec<u8>> {
             self.data_arc.lock().unwrap()
@@ -922,10 +929,14 @@ mod tests {
     }
 
     struct TestAsyncRead {
-        data_arc: Arc<Mutex<Vec<Vec<u8>>>>
+        data_arc: Arc<Mutex<Vec<Vec<u8>>>>,
     }
     impl AsyncRead for TestAsyncRead {
-        fn poll_read(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
             let mut buffers = self.data_arc.lock().unwrap();
             let data = buffers.remove(0);
             data.poll_read(cx, buf)
@@ -933,7 +944,9 @@ mod tests {
     }
     impl TestAsyncRead {
         pub fn new(data: Vec<Vec<u8>>) -> Self {
-            Self {data_arc: Arc::new(Mutex::new(data))}
+            Self {
+                data_arc: Arc::new(Mutex::new(data)),
+            }
         }
     }
 
@@ -947,9 +960,7 @@ mod tests {
         }
     }
 
-    struct StreamConnectorMock {
-
-    }
+    struct StreamConnectorMock {}
 
     impl StreamConnector for StreamConnectorMock {
         fn connect(addr: SocketAddr) -> io::Result<(Box<dyn AsyncWrite>, Box<dyn AsyncRead>)> {
@@ -983,27 +994,35 @@ mod tests {
         }
     }
 
-    struct AsyncPairFactoryMock{
+    struct AsyncPairFactoryMock {
         incoming_data: Vec<Vec<u8>>,
         outgoing_data: Arc<Mutex<Vec<Arc<Mutex<Vec<u8>>>>>>,
         make_params: Arc<Mutex<Vec<SocketAddr>>>,
         make_results: RefCell<Vec<io::Result<(Box<dyn AsyncWrite>, Box<dyn AsyncRead>)>>>,
     }
     impl AsyncPairFactory for AsyncPairFactoryMock {
-        fn make(&self, peer_addr: SocketAddr) -> io::Result<(Box<dyn AsyncWrite>, Box<dyn AsyncRead>)> {
+        fn make(
+            &self,
+            peer_addr: SocketAddr,
+        ) -> io::Result<(Box<dyn AsyncWrite>, Box<dyn AsyncRead>)> {
             let async_write = TestAsyncWrite::new();
             let outgoing_data = async_write.data_arc.clone();
             self.outgoing_data.lock().unwrap().push(outgoing_data);
-            Ok ((Box::new (async_write), Box::new(TestAsyncRead::new(self.incoming_data.clone()))))
+            Ok((
+                Box::new(async_write),
+                Box::new(TestAsyncRead::new(self.incoming_data.clone())),
+            ))
         }
     }
     impl AsyncPairFactoryMock {
-        pub fn mock_and_outgoing_data(incoming_data: Vec<Vec<u8>>) -> (Self, Arc<Mutex<Vec<Arc<Mutex<Vec<u8>>>>>>) {
+        pub fn mock_and_outgoing_data(
+            incoming_data: Vec<Vec<u8>>,
+        ) -> (Self, Arc<Mutex<Vec<Arc<Mutex<Vec<u8>>>>>>) {
             let mock = Self {
                 incoming_data,
                 outgoing_data: Arc::new(Mutex::new(vec![])),
                 make_params: Arc::new(Mutex::new(vec![])),
-                make_results: RefCell::new(vec![])
+                make_results: RefCell::new(vec![]),
             };
             let outgoing_data = mock.outgoing_data.clone();
             (mock, outgoing_data)
@@ -1013,7 +1032,10 @@ mod tests {
             self
         }
 
-        pub fn make_result(mut self, result: io::Result<(Box<dyn AsyncWrite>, Box<dyn AsyncRead>)>) -> Self {
+        pub fn make_result(
+            mut self,
+            result: io::Result<(Box<dyn AsyncWrite>, Box<dyn AsyncRead>)>,
+        ) -> Self {
             self.make_results.borrow_mut().push(result);
             self
         }
@@ -1022,7 +1044,7 @@ mod tests {
     #[derive(PartialEq, Debug)]
     struct TransmittedChunk {
         pub stream_key: StreamKey,
-        pub data: Vec<u8>
+        pub data: Vec<u8>,
     }
 
     // fn run_process_package(
@@ -1050,20 +1072,26 @@ mod tests {
     }
 
     #[test]
-    fn a_connection_for_an_ip_address_is_created_when_necessary () {
+    fn a_connection_for_an_ip_address_is_created_when_necessary() {
         init_test_logging();
         let test_name = "a_connection_for_an_ip_address_is_created_when_necessary";
         let logger = Logger::new(test_name);
         let client_request_payload = make_request_payload();
         let lookup_ip_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = StreamHandlerPool::new(
-            vec![SocketAddr::from_str("1.1.1.1:53").unwrap(), SocketAddr::from_str("2.2.2.2").unwrap()],
+            vec![
+                SocketAddr::from_str("1.1.1.1:53").unwrap(),
+                SocketAddr::from_str("2.2.2.2").unwrap(),
+            ],
             100,
-            200
+            200,
         );
         let resolver_wrapper = ResolverWrapperMock::new()
             .lookup_ip_params(&lookup_ip_params_arc)
-            .lookup_ip_success(vec![IpAddr::from_str("1.2.3.4").unwrap(), IpAddr::from_str("2.3.4.5").unwrap()]);
+            .lookup_ip_success(vec![
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                IpAddr::from_str("2.3.4.5").unwrap(),
+            ]);
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let resolver_factory = ResolverWrapperFactoryMock::new()
             .make_params(&make_params_arc)
@@ -1075,8 +1103,14 @@ mod tests {
         let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
-        subject_addr.try_send(SetPrivateSubsMessage{recorder: shp_recorder}).unwrap();
-        let bind_message = BindMessage {peer_actors: peer_actors_builder().build()};
+        subject_addr
+            .try_send(SetPrivateSubsMessage {
+                recorder: shp_recorder,
+            })
+            .unwrap();
+        let bind_message = BindMessage {
+            peer_actors: peer_actors_builder().build(),
+        };
         subject_addr.try_send(bind_message).unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
@@ -1096,31 +1130,57 @@ mod tests {
 
         subject_addr.try_send(process_package_message).unwrap();
 
-        subject_addr.try_send(AssertionsMessage {
-            assertions: Box::new (move |mut shp| {
-                let mut stream_pair: &StreamPair = shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
-                assert_eq!(stream_pair.writer_opt, None);
-                assert_eq!(stream_pair.reader_opt, None);
-                assert_eq!(stream_pair.peer_addr, SocketAddr::from_str("255.255.255.255:255").unwrap());
-                assert_eq!(stream_pair.pending_data, vec![inner_process_package_message]);
-                assert_eq!(shp.stream_pairs.len(), 1);
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |mut shp| {
+                    let mut stream_pair: &StreamPair =
+                        shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
+                    assert_eq!(stream_pair.writer_opt, None);
+                    assert_eq!(stream_pair.reader_opt, None);
+                    assert_eq!(
+                        stream_pair.peer_addr,
+                        SocketAddr::from_str("255.255.255.255:255").unwrap()
+                    );
+                    assert_eq!(
+                        stream_pair.pending_data,
+                        vec![inner_process_package_message]
+                    );
+                    assert_eq!(shp.stream_pairs.len(), 1);
+                }),
             })
-        }).unwrap();
+            .unwrap();
         system.run().unwrap();
         System::current().stop();
         let shp_recording = shp_recording_arc.lock().unwrap();
         let add_stream_pair_msg = shp_recording.get_record::<AddStreamPair>(0);
-        assert_eq! (add_stream_pair_msg.peer_addr, SocketAddr::from_str("2.3.4.5:80").uwnrap());
-        assert_eq! (add_stream_pair_msg.stream_key, stream_key);
-        let tlh = TestLogHandler{};
+        assert_eq!(
+            add_stream_pair_msg.peer_addr,
+            SocketAddr::from_str("2.3.4.5:80").uwnrap()
+        );
+        assert_eq!(add_stream_pair_msg.stream_key, stream_key);
+        let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},
             if let Some(name) = target_hostname {&name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
             originator_public_key));
-        tlh.exists_log_containing(&format!("{} DEBUG Stream key '{}' unknown; creating new stream", test_name, stream_key));
-        tlh.exists_log_containing(&format!("{} DEBUG Resolving host name {}", test_name, target_hostname.as_ref().unwrap()));
-        tlh.exists_log_containing(&format!("{} INFO Resolved host name {} to [1.2.3.4, 5.6.7.8]", test_name, target_hostname.as_ref().unwrap()));
-        tlh.exists_log_containing(&format!("{} DEBUG Connecting to 1.2.3.4:{}", test_name, target_port));
+        tlh.exists_log_containing(&format!(
+            "{} DEBUG Stream key '{}' unknown; creating new stream",
+            test_name, stream_key
+        ));
+        tlh.exists_log_containing(&format!(
+            "{} DEBUG Resolving host name {}",
+            test_name,
+            target_hostname.as_ref().unwrap()
+        ));
+        tlh.exists_log_containing(&format!(
+            "{} INFO Resolved host name {} to [1.2.3.4, 5.6.7.8]",
+            test_name,
+            target_hostname.as_ref().unwrap()
+        ));
+        tlh.exists_log_containing(&format!(
+            "{} DEBUG Connecting to 1.2.3.4:{}",
+            test_name, target_port
+        ));
     }
 
     #[test]
@@ -1142,23 +1202,33 @@ mod tests {
         let client_request_payload = make_request_payload();
         let mut subject = StreamHandlerPool::new(vec![], 100, 200);
         subject.resolver_factory = Box::new(ResolverWrapperFactoryMock::new());
-        let (async_pair_factory, outgoing_data) = AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
+        let (async_pair_factory, outgoing_data) =
+            AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
         subject.async_pair_factory = Box::new(async_pair_factory);
         let async_write = TestAsyncWrite::new();
         let async_write_data_arc = async_write.data_arc.clone();
         let async_read = TestAsyncRead::new(vec![]);
-        subject.stream_pairs.insert(client_request_payload.stream_key.clone(), StreamPair{
-            peer_addr: SocketAddr::from_str("1.2.3.4:5").unwrap(),
-            pending_data: VecDeque::new(),
-            writer_opt: Some(Box::new(async_write)),
-            reader_opt: Some(Box::new(async_read)),
-        });
+        subject.stream_pairs.insert(
+            client_request_payload.stream_key.clone(),
+            StreamPair {
+                peer_addr: SocketAddr::from_str("1.2.3.4:5").unwrap(),
+                pending_data: VecDeque::new(),
+                writer_opt: Some(Box::new(async_write)),
+                reader_opt: Some(Box::new(async_read)),
+            },
+        );
         subject.logger = logger;
         let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
-        subject_addr.try_send(SetPrivateSubsMessage{recorder: shp_recorder}).unwrap();
-        let bind_message = BindMessage {peer_actors: peer_actors_builder().build()};
+        subject_addr
+            .try_send(SetPrivateSubsMessage {
+                recorder: shp_recorder,
+            })
+            .unwrap();
+        let bind_message = BindMessage {
+            peer_actors: peer_actors_builder().build(),
+        };
         subject_addr.try_send(bind_message).unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
@@ -1178,32 +1248,44 @@ mod tests {
 
         subject_addr.try_send(process_package_message).unwrap();
 
-        subject_addr.try_send(AssertionsMessage {
-            assertions: Box::new (move |mut shp| {
-                let mut stream_pair: &StreamPair = shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
-                assert_eq!(stream_pair.writer_opt, None);
-                assert_eq!(stream_pair.reader_opt.is_some(), true);
-                assert_eq!(stream_pair.peer_addr, SocketAddr::from_str("1.2.3.4:5").unwrap());
-                assert_eq!(stream_pair.pending_data, vec![]);
-                assert_eq!(shp.stream_pairs.len(), 1);
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |mut shp| {
+                    let mut stream_pair: &StreamPair =
+                        shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
+                    assert_eq!(stream_pair.writer_opt, None);
+                    assert_eq!(stream_pair.reader_opt.is_some(), true);
+                    assert_eq!(
+                        stream_pair.peer_addr,
+                        SocketAddr::from_str("1.2.3.4:5").unwrap()
+                    );
+                    assert_eq!(stream_pair.pending_data, vec![]);
+                    assert_eq!(shp.stream_pairs.len(), 1);
+                }),
             })
-        }).unwrap();
+            .unwrap();
         system.run().unwrap();
         System::current().stop();
         let mut shp_recording = shp_recording_arc.lock().unwrap();
         let mut data_write_success_msg = shp_recording.get_record::<DataWriteSuccess>(0);
-        assert_eq! (data_write_success_msg.stream_key, stream_key);
-        assert_eq! (data_write_success_msg.last_data, false);
+        assert_eq!(data_write_success_msg.stream_key, stream_key);
+        assert_eq!(data_write_success_msg.last_data, false);
         let outgoing_record_arc = async_write_data_arc.lock().unwrap().remove(0);
         let outgoing_record = outgoing_record_arc.lock().unwrap().remove(0);
         assert_eq!(*outgoing_record, data);
-        let tlh = TestLogHandler{};
+        let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},
             if let Some(name) = target_hostname {&name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
             originator_public_key));
-        tlh.exists_log_containing(&format!("{} DEBUG Writing {}-byte packet {}{} over stream {} to 1.2.3.4:5", test_name, data_len, sequence_number,
-            if last_data {" (final)"} else {""}, stream_key, ))
+        tlh.exists_log_containing(&format!(
+            "{} DEBUG Writing {}-byte packet {}{} over stream {} to 1.2.3.4:5",
+            test_name,
+            data_len,
+            sequence_number,
+            if last_data { " (final)" } else { "" },
+            stream_key,
+        ))
     }
 
     #[test]
@@ -1215,23 +1297,33 @@ mod tests {
         client_request_payload.sequenced_packet.last_data = true; // this one is terminal
         let mut subject = StreamHandlerPool::new(vec![], 100, 200);
         subject.resolver_factory = Box::new(ResolverWrapperFactoryMock::new());
-        let (async_pair_factory, outgoing_data) = AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
+        let (async_pair_factory, outgoing_data) =
+            AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
         subject.async_pair_factory = Box::new(async_pair_factory);
         let async_write = TestAsyncWrite::new();
         let async_write_data_arc = async_write.data_arc.clone();
         let async_read = TestAsyncRead::new(vec![]);
-        subject.stream_pairs.insert(client_request_payload.stream_key.clone(), StreamPair{
-            peer_addr: SocketAddr::from_str("1.2.3.4:5").unwrap(),
-            pending_data: VecDeque::new(),
-            writer_opt: Some(Box::new(async_write)),
-            reader_opt: Some(Box::new(async_read)),
-        });
+        subject.stream_pairs.insert(
+            client_request_payload.stream_key.clone(),
+            StreamPair {
+                peer_addr: SocketAddr::from_str("1.2.3.4:5").unwrap(),
+                pending_data: VecDeque::new(),
+                writer_opt: Some(Box::new(async_write)),
+                reader_opt: Some(Box::new(async_read)),
+            },
+        );
         subject.logger = logger;
         let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
-        subject_addr.try_send(SetPrivateSubsMessage{recorder: shp_recorder}).unwrap();
-        let bind_message = BindMessage {peer_actors: peer_actors_builder().build()};
+        subject_addr
+            .try_send(SetPrivateSubsMessage {
+                recorder: shp_recorder,
+            })
+            .unwrap();
+        let bind_message = BindMessage {
+            peer_actors: peer_actors_builder().build(),
+        };
         subject_addr.try_send(bind_message).unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
@@ -1251,32 +1343,44 @@ mod tests {
 
         subject_addr.try_send(process_package_message).unwrap();
 
-        subject_addr.try_send(AssertionsMessage {
-            assertions: Box::new (move |mut shp| {
-                let mut stream_pair: &StreamPair = shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
-                assert_eq!(stream_pair.writer_opt, None);
-                assert_eq!(stream_pair.reader_opt.is_some(), true);
-                assert_eq!(stream_pair.peer_addr, SocketAddr::from_str("1.2.3.4:5").unwrap());
-                assert_eq!(stream_pair.pending_data, vec![]);
-                assert_eq!(shp.stream_pairs.len(), 1);
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |mut shp| {
+                    let mut stream_pair: &StreamPair =
+                        shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
+                    assert_eq!(stream_pair.writer_opt, None);
+                    assert_eq!(stream_pair.reader_opt.is_some(), true);
+                    assert_eq!(
+                        stream_pair.peer_addr,
+                        SocketAddr::from_str("1.2.3.4:5").unwrap()
+                    );
+                    assert_eq!(stream_pair.pending_data, vec![]);
+                    assert_eq!(shp.stream_pairs.len(), 1);
+                }),
             })
-        }).unwrap();
+            .unwrap();
         system.run().unwrap();
         System::current().stop();
         let mut shp_recording = shp_recording_arc.lock().unwrap();
         let mut data_write_success_msg = shp_recording.get_record::<DataWriteSuccess>(0);
-        assert_eq! (data_write_success_msg.stream_key, stream_key);
-        assert_eq! (data_write_success_msg.last_data, true);
+        assert_eq!(data_write_success_msg.stream_key, stream_key);
+        assert_eq!(data_write_success_msg.last_data, true);
         let outgoing_record_arc = async_write_data_arc.lock().unwrap().remove(0);
         let outgoing_record = outgoing_record_arc.lock().unwrap().remove(0);
         assert_eq!(*outgoing_record, data);
-        let tlh = TestLogHandler{};
+        let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},
             if let Some(name) = target_hostname {&name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
             originator_public_key));
-        tlh.exists_log_containing(&format!("{} DEBUG Writing {}-byte packet {}{} over stream {} to 1.2.3.4:5", test_name, data_len, sequence_number,
-            if last_data {" (final)"} else {""}, stream_key, ))
+        tlh.exists_log_containing(&format!(
+            "{} DEBUG Writing {}-byte packet {}{} over stream {} to 1.2.3.4:5",
+            test_name,
+            data_len,
+            sequence_number,
+            if last_data { " (final)" } else { "" },
+            stream_key,
+        ))
     }
 
     #[test]
@@ -1287,20 +1391,30 @@ mod tests {
         let client_request_payload = make_request_payload();
         let mut subject = StreamHandlerPool::new(vec![], 100, 200);
         subject.resolver_factory = Box::new(ResolverWrapperFactoryMock::new());
-        let (async_pair_factory, outgoing_data) = AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
+        let (async_pair_factory, outgoing_data) =
+            AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
         subject.async_pair_factory = Box::new(async_pair_factory);
-        subject.stream_pairs.insert(client_request_payload.stream_key.clone(), StreamPair{
-            peer_addr: SocketAddr::from_str("1.2.3.4:5").unwrap(),
-            pending_data: VecDeque::new(),
-            writer_opt: None, // this is important
-            reader_opt: None, // this is just convenient
-        });
+        subject.stream_pairs.insert(
+            client_request_payload.stream_key.clone(),
+            StreamPair {
+                peer_addr: SocketAddr::from_str("1.2.3.4:5").unwrap(),
+                pending_data: VecDeque::new(),
+                writer_opt: None, // this is important
+                reader_opt: None, // this is just convenient
+            },
+        );
         subject.logger = logger;
         let system = System::new();
         let (shp_recorder, _, shp_recording_arc) = make_recorder();
         let subject_addr = subject.start();
-        subject_addr.try_send(SetPrivateSubsMessage{recorder: shp_recorder}).unwrap();
-        let bind_message = BindMessage {peer_actors: peer_actors_builder().build()};
+        subject_addr
+            .try_send(SetPrivateSubsMessage {
+                recorder: shp_recorder,
+            })
+            .unwrap();
+        let bind_message = BindMessage {
+            peer_actors: peer_actors_builder().build(),
+        };
         subject_addr.try_send(bind_message).unwrap();
         let stream_key = client_request_payload.stream_key.clone();
         let inner_stream_key = stream_key.clone();
@@ -1321,32 +1435,45 @@ mod tests {
 
         subject_addr.try_send(process_package_message).unwrap();
 
-        subject_addr.try_send(AssertionsMessage {
-            assertions: Box::new (move |mut shp| {
-                let mut stream_pair: &StreamPair = shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
-                assert_eq!(stream_pair.writer_opt, None);
-                assert_eq!(stream_pair.peer_addr, SocketAddr::from_str("1.2.3.4:5").unwrap());
-                assert_eq!(stream_pair.pending_data, vec![assertion_process_package_message]);
-                assert_eq!(shp.stream_pairs.len(), 1);
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |mut shp| {
+                    let mut stream_pair: &StreamPair =
+                        shp.stream_pairs.get_mut(&inner_stream_key).unwrap();
+                    assert_eq!(stream_pair.writer_opt, None);
+                    assert_eq!(
+                        stream_pair.peer_addr,
+                        SocketAddr::from_str("1.2.3.4:5").unwrap()
+                    );
+                    assert_eq!(
+                        stream_pair.pending_data,
+                        vec![assertion_process_package_message]
+                    );
+                    assert_eq!(shp.stream_pairs.len(), 1);
+                }),
             })
-        }).unwrap();
+            .unwrap();
         system.run().unwrap();
         System::current().stop();
-        let tlh = TestLogHandler{};
+        let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},
             if let Some(name) = target_hostname {&name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
             originator_public_key));
-        tlh.exists_log_containing(&format!("{} DEBUG Stream {} to 1.2.3.4:5 is busy; queuing {}-byte packet {}{}", test_name, stream_key, data_len, sequence_number,
-            if last_data {" (final)"} else {""} ))
+        tlh.exists_log_containing(&format!(
+            "{} DEBUG Stream {} to 1.2.3.4:5 is busy; queuing {}-byte packet {}{}",
+            test_name,
+            stream_key,
+            data_len,
+            sequence_number,
+            if last_data { " (final)" } else { "" }
+        ))
     }
-    
+
     #[test]
     fn non_terminal_and_terminal_packets_are_properly_read_and_reported() {
         todo!()
     }
-    
-    
 
     // #[test]
     // fn dns_resolution_failure_sends_a_message_to_proxy_client() {
@@ -1421,7 +1548,8 @@ mod tests {
     }
 
     #[test]
-    fn data_write_success_with_terminal_packet_with_queued_data() { // TODO: How do we deal with this? A new connection, or not?
+    fn data_write_success_with_terminal_packet_with_queued_data() {
+        // TODO: How do we deal with this? A new connection, or not?
         todo!()
     }
 
@@ -1447,7 +1575,8 @@ mod tests {
     }
 
     #[test]
-    fn data_write_error_with_terminal_packet_with_queued_data() { // TODO: How do we deal with this? A new connection, or not?
+    fn data_write_error_with_terminal_packet_with_queued_data() {
+        // TODO: How do we deal with this? A new connection, or not?
         todo!()
     }
 
@@ -1456,31 +1585,31 @@ mod tests {
         todo!()
     }
 
-// DataReadSuccess
+    // DataReadSuccess
     #[test]
     fn data_read_success_handles_nonterminal_followed_by_terminal() {
         todo!()
     }
 
-// DataReadError
+    // DataReadError
     #[test]
     fn data_read_error_handles_nonterminal_followed_by_terminal() {
         todo!()
     }
 
-// AddStreamPair
+    // AddStreamPair
     #[test]
     fn add_stream_pair_populates_stream_pair_and_sends_first_queue_entry() {
         todo!()
     }
 
-// StreamCreationError
+    // StreamCreationError
     #[test]
     fn stream_creation_error_is_reported() {
         todo!()
     }
 
-// KillStream
+    // KillStream
     #[test]
     fn kill_stream_works_when_writer_is_present() {
         todo!()

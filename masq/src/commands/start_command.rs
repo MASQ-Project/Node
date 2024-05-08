@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand};
+use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use masq_lib::short_writeln;
 use std::default::Default;

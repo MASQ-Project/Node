@@ -9,8 +9,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, value_parser};
 use clap::builder::{OsStr, Str, ValueRange};
+use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
@@ -77,7 +77,7 @@ pub enum WordCount {
     Fifteen,
     Eighteen,
     TwentyOne,
-    TwentyFour
+    TwentyFour,
 }
 
 impl FromStr for WordCount {
@@ -189,8 +189,12 @@ impl GenerateWalletsCommand {
             Err(e) => return Err(format!("{}", e)),
         };
 
-        let consuming_path_opt = matches.get_one::<String>("consuming-path").map(|p| p.to_string());
-        let earning_path_opt = matches.get_one::<String>("earning-path").map(|p| p.to_string());
+        let consuming_path_opt = matches
+            .get_one::<String>("consuming-path")
+            .map(|p| p.to_string());
+        let earning_path_opt = matches
+            .get_one::<String>("earning-path")
+            .map(|p| p.to_string());
         let seed_spec_opt = if consuming_path_opt.is_some() || earning_path_opt.is_some() {
             Some(SeedSpec {
                 word_count: *matches
@@ -199,7 +203,9 @@ impl GenerateWalletsCommand {
                 language: *matches
                     .get_one::<Language>("language")
                     .expect("language not properly defaulted"),
-                passphrase_opt: matches.get_one::<String>("passphrase").map(|s| s.to_string()),
+                passphrase_opt: matches
+                    .get_one::<String>("passphrase")
+                    .map(|s| s.to_string()),
             })
         } else {
             None
@@ -291,7 +297,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(WORD_COUNT_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(WordCount))
+                .value_parser(value_parser!(WordCount)),
         )
         .arg(
             Arg::new("language")
@@ -301,7 +307,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .required(false)
                 .default_value(LANGUAGE_ARG_DEFAULT_VALUE)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(Language))
+                .value_parser(value_parser!(Language)),
         )
         .arg(
             Arg::new("passphrase")
@@ -309,7 +315,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .long("passphrase")
                 .value_name("PASSPHRASE")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("consuming-path")
@@ -317,7 +323,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .long("consuming-path")
                 .value_name("CONSUMING-PATH")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("earning-path")
@@ -325,7 +331,7 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
                 .long("earning-path")
                 .value_name("EARNING-PATH")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
 }
 
@@ -416,9 +422,10 @@ mod tests {
 
     #[test]
     fn from_str_for_word_count_happy_path() {
-        let actual = vec!["12", "15", "18", "21", "24"].into_iter().map(|s| {
-            WordCount::from_str(s).unwrap()
-        }).collect::<Vec<WordCount>>();
+        let actual = vec!["12", "15", "18", "21", "24"]
+            .into_iter()
+            .map(|s| WordCount::from_str(s).unwrap())
+            .collect::<Vec<WordCount>>();
 
         assert_eq!(actual, WORD_COUNT_ARG_POSSIBLE_VALUES.to_vec())
     }
@@ -427,76 +434,141 @@ mod tests {
     fn from_str_for_word_count_sad_path() {
         let result = WordCount::from_str("booga");
 
-        assert_eq!(result, Err("Can't parse WordCount from 'booga'".to_string()))
+        assert_eq!(
+            result,
+            Err("Can't parse WordCount from 'booga'".to_string())
+        )
     }
 
     #[test]
     fn from_word_count_for_os_str_happy_path() {
-        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES.iter()
-            .map(|wc| OsStr::from (*wc))
+        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES
+            .iter()
+            .map(|wc| OsStr::from(*wc))
             .collect::<Vec<OsStr>>();
 
-        assert_eq! (actual, vec![OsStr::from("12"), OsStr::from("15"),
-            OsStr::from("18"), OsStr::from("21"), OsStr::from("24")])
+        assert_eq!(
+            actual,
+            vec![
+                OsStr::from("12"),
+                OsStr::from("15"),
+                OsStr::from("18"),
+                OsStr::from("21"),
+                OsStr::from("24")
+            ]
+        )
     }
 
     #[test]
     fn from_word_count_ref_for_str_happy_path() {
-        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES.iter()
+        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES
+            .iter()
             .map(|wc| Str::from(wc))
             .collect::<Vec<Str>>();
 
-        assert_eq! (actual, vec!["12", "15", "18", "21", "24"])
+        assert_eq!(actual, vec!["12", "15", "18", "21", "24"])
     }
 
     #[test]
     fn display_for_word_count_happy_path() {
-        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES.iter()
+        let actual = WORD_COUNT_ARG_POSSIBLE_VALUES
+            .iter()
             .map(|wc| wc.to_string())
             .collect::<Vec<String>>();
 
-        assert_eq! (actual, vec!["12".to_string(), "15".to_string(), "18".to_string(),
-            "21".to_string(), "24".to_string()])
+        assert_eq!(
+            actual,
+            vec![
+                "12".to_string(),
+                "15".to_string(),
+                "18".to_string(),
+                "21".to_string(),
+                "24".to_string()
+            ]
+        )
     }
 
     #[test]
     fn from_language_ref_for_str_happy_path() {
-        let actual = LANGUAGE_ARG_POSSIBLE_VALUES.iter()
+        let actual = LANGUAGE_ARG_POSSIBLE_VALUES
+            .iter()
             .map(|wc| Str::from(wc))
             .collect::<Vec<Str>>();
 
-        assert_eq! (actual, vec!["English", "Chinese", "Traditional Chinese", "French",
-            "Italian", "Japanese", "Korean", "Spanish"])
+        assert_eq!(
+            actual,
+            vec![
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish"
+            ]
+        )
     }
 
     #[test]
     fn from_language_for_os_str_happy_path() {
-        let actual = LANGUAGE_ARG_POSSIBLE_VALUES.iter()
+        let actual = LANGUAGE_ARG_POSSIBLE_VALUES
+            .iter()
             .map(|wc| OsStr::from(*wc))
             .collect::<Vec<OsStr>>();
 
-        assert_eq! (actual, vec![OsStr::from("English"), OsStr::from("Chinese"),
-            OsStr::from("Traditional Chinese"), OsStr::from("French"),
-            OsStr::from("Italian"), OsStr::from("Japanese"),
-            OsStr::from("Korean"), OsStr::from("Spanish")])
+        assert_eq!(
+            actual,
+            vec![
+                OsStr::from("English"),
+                OsStr::from("Chinese"),
+                OsStr::from("Traditional Chinese"),
+                OsStr::from("French"),
+                OsStr::from("Italian"),
+                OsStr::from("Japanese"),
+                OsStr::from("Korean"),
+                OsStr::from("Spanish")
+            ]
+        )
     }
 
     #[test]
     fn display_for_language_works() {
-        let actual = LANGUAGE_ARG_POSSIBLE_VALUES.iter()
+        let actual = LANGUAGE_ARG_POSSIBLE_VALUES
+            .iter()
             .map(|wc| wc.to_string())
             .collect::<Vec<String>>();
 
-        assert_eq! (actual.iter().map(|s| s.as_str()).collect::<Vec<&str>>(), vec!["English",
-            "Chinese", "Traditional Chinese", "French", "Italian", "Japanese", "Korean", "Spanish"])
+        assert_eq!(
+            actual.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+            vec![
+                "English",
+                "Chinese",
+                "Traditional Chinese",
+                "French",
+                "Italian",
+                "Japanese",
+                "Korean",
+                "Spanish"
+            ]
+        )
     }
 
     #[test]
     fn from_str_for_language_happy_path() {
-        let actual = vec!["English", "Chinese", "Traditional Chinese", "French",
-            "Italian", "Japanese", "Korean", "Spanish"].into_iter().map(|s| {
-            Language::from_str(s).unwrap()
-        }).collect::<Vec<Language>>();
+        let actual = vec![
+            "English",
+            "Chinese",
+            "Traditional Chinese",
+            "French",
+            "Italian",
+            "Japanese",
+            "Korean",
+            "Spanish",
+        ]
+        .into_iter()
+        .map(|s| Language::from_str(s).unwrap())
+        .collect::<Vec<Language>>();
 
         assert_eq!(actual, LANGUAGE_ARG_POSSIBLE_VALUES.to_vec())
     }
@@ -750,12 +822,7 @@ mod tests {
         ]);
 
         let msg = result.err().unwrap();
-        assert_eq!(
-            msg.contains("unexpected argument"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
     #[test]

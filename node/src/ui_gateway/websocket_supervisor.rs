@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use actix::Recipient;
+use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
 use masq_lib::constants::UNMARSHAL_ERROR;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
@@ -20,11 +21,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task;
-use tokio_tungstenite::tungstenite::handshake::server::{Callback, ErrorResponse, Request, Response};
+use tokio_tungstenite::tungstenite::handshake::server::{
+    Callback, ErrorResponse, Request, Response,
+};
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
-use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 
 struct SubprotocolCallback {}
@@ -40,7 +42,7 @@ impl Callback for SubprotocolCallback {
 
 impl SubprotocolCallback {
     fn new() -> Self {
-        Self{}
+        Self {}
     }
 }
 
@@ -66,12 +68,16 @@ struct WebSocketSupervisorInner {
 
 impl WebSocketSupervisor for WebSocketSupervisorReal {
     fn send_msg(&self, msg: NodeToUiMessage) {
-        Self::send_msg(self.inner_arc.lock().expect("WebSocketSupervisor clients are dying"), msg);
+        Self::send_msg(
+            self.inner_arc
+                .lock()
+                .expect("WebSocketSupervisor clients are dying"),
+            msg,
+        );
     }
 }
 
 impl WebSocketSupervisorReal {
-
     pub fn new(
         port: u16,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
@@ -89,47 +95,62 @@ impl WebSocketSupervisorReal {
             SocketAddr::new(localhost(), port),
             inner_arc.clone(),
             Logger::new("WebSocketSupervisor"),
-            connections_to_accept
+            connections_to_accept,
         ));
-        WebSocketSupervisorReal { inner_arc: inner_arc }
+        WebSocketSupervisorReal {
+            inner_arc: inner_arc,
+        }
     }
 
     async fn listen_for_connections_on(
         socket_addr: SocketAddr,
         inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
         logger: Logger,
-        mut connections_to_accept: usize
+        mut connections_to_accept: usize,
     ) {
-        let listener = TcpListener::bind(socket_addr).await
+        let listener = TcpListener::bind(socket_addr)
+            .await
             .expect(format!("WebSocketSupervisor could not bind to {:?}", socket_addr).as_str());
         info!(logger, "Listening on: {}", socket_addr);
         loop {
             match listener.accept().await {
                 Ok((stream, peer_addr)) => {
                     debug!(logger, "Accepted TCP connection from {}", peer_addr);
-                    task::spawn(Self::process_connection(stream, peer_addr, inner_arc.clone(), logger.clone()))
-                },
+                    task::spawn(Self::process_connection(
+                        stream,
+                        peer_addr,
+                        inner_arc.clone(),
+                        logger.clone(),
+                    ))
+                }
                 Err(e) => {
-                    error!(logger, "Error accepting connection to {}: {:?}", socket_addr, e)
+                    error!(
+                        logger,
+                        "Error accepting connection to {}: {:?}", socket_addr, e
+                    )
                 }
             }
             connections_to_accept -= 1;
             if connections_to_accept == 0 {
-                break
+                break;
             }
         }
     }
 
-    async fn process_connection(stream: TcpStream, peer_addr: SocketAddr, inner_arc: Arc<Mutex<WebSocketSupervisorInner>>, logger: Logger) {
-        let ws_stream: WebSocketStream<TcpStream> = match tokio_tungstenite::accept_hdr_async(stream, SubprotocolCallback::new()) {
-            Err(e) => {
-                error!(logger, "Handshake error for {}: {:?}", peer_addr, e);
-                return
-            },
-            Ok(ws_stream) => {
-                ws_stream
-            }
-        };
+    async fn process_connection(
+        stream: TcpStream,
+        peer_addr: SocketAddr,
+        inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
+        logger: Logger,
+    ) {
+        let ws_stream: WebSocketStream<TcpStream> =
+            match tokio_tungstenite::accept_hdr_async(stream, SubprotocolCallback::new()) {
+                Err(e) => {
+                    error!(logger, "Handshake error for {}: {:?}", peer_addr, e);
+                    return;
+                }
+                Ok(ws_stream) => ws_stream,
+            };
         info!(logger, "New WebSocket connection from: {}", peer_addr);
         let (write, mut read) = ws_stream.split();
         let client_id = {
@@ -146,29 +167,41 @@ impl WebSocketSupervisorReal {
             Some(msg_result) => match msg_result {
                 Err(e) => todo!("Test-drive me!"),
                 Ok(msg) => match msg {
-                    Message::Text(message) => Self::handle_text_message(
-                        inner_arc.lock().expect("Client futures are panicking"),
-                        &logger,
-                        peer_addr,
-                        message.as_str()
-                    ).await,
+                    Message::Text(message) => {
+                        Self::handle_text_message(
+                            inner_arc.lock().expect("Client futures are panicking"),
+                            &logger,
+                            peer_addr,
+                            message.as_str(),
+                        )
+                        .await
+                    }
                     Message::Close(_) => Self::handle_close_message(
                         inner_arc.lock().expect("Client futures are panicking"),
                         &logger,
-                        peer_addr
+                        peer_addr,
                     ),
                     Message::Binary(_) => Self::handle_other_message(&logger, peer_addr, "binary"),
                     Message::Ping(_) => Self::handle_other_message(&logger, peer_addr, "ping"),
                     Message::Pong(_) => Self::handle_other_message(&logger, peer_addr, "pong"),
                     Message::Frame(_) => panic!("Should never happen"),
-                }
-            }
+                },
+            },
         } {}
         let mut inner = inner_arc.lock().expect("Client futures are panicking");
-        inner.client_id_by_socket_addr.remove(&peer_addr).expect("Client ID disappeared");
-        inner.socket_addr_by_client_id.remove(&client_id).expect("Peer address disappeared");
+        inner
+            .client_id_by_socket_addr
+            .remove(&peer_addr)
+            .expect("Client ID disappeared");
+        inner
+            .socket_addr_by_client_id
+            .remove(&client_id)
+            .expect("Peer address disappeared");
         // TODO Hopefully, dropping the write half will close everything
-        inner.client_by_id.remove(&client_id).expect("Write half disappeared");
+        inner
+            .client_by_id
+            .remove(&client_id)
+            .expect("Write half disappeared");
     }
 
     fn filter_clients<'a, P>(
@@ -186,7 +219,10 @@ impl WebSocketSupervisorReal {
             .collect()
     }
 
-    async fn send_msg(mut locked_inner: MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
+    async fn send_msg(
+        mut locked_inner: MutexGuard<WebSocketSupervisorInner>,
+        msg: NodeToUiMessage,
+    ) {
         let clients = match msg.target {
             MessageTarget::ClientId(n) => {
                 let clients = Self::filter_clients(&mut locked_inner, |(id, _)| **id == n);
@@ -236,7 +272,7 @@ impl WebSocketSupervisorReal {
                     logger,
                     "WebSocketSupervisor got a message from a client that never connected!"
                 );
-                return false // end the stream
+                return false; // end the stream
             }
         };
         match UiTrafficConverter::new_unmarshal_from_ui(message, client_id) {
@@ -245,7 +281,7 @@ impl WebSocketSupervisorReal {
                     .from_ui_message_sub
                     .try_send(from_ui_message)
                     .expect("UiGateway is dead");
-                return true
+                return true;
             }
             Err(Critical(e)) => {
                 error!(
@@ -266,8 +302,9 @@ impl WebSocketSupervisorReal {
                         }
                         .tmb(0),
                     },
-                ).await;
-                return true
+                )
+                .await;
+                return true;
             }
             Err(NonCritical(opcode, context_id_opt, e)) => {
                 error!(
@@ -279,30 +316,36 @@ impl WebSocketSupervisorReal {
                     message
                 );
                 match context_id_opt {
-                    None => Self::send_msg(
-                        locked_inner,
-                        NodeToUiMessage {
-                            target: ClientId(client_id),
-                            body: UiUnmarshalError {
-                                message: e.to_string(),
-                                bad_data: message.to_string(),
-                            }
-                            .tmb(0),
-                        },
-                    ).await,
-                    Some(context_id) => Self::send_msg(
-                        locked_inner,
-                        NodeToUiMessage {
-                            target: ClientId(client_id),
-                            body: MessageBody {
-                                opcode,
-                                path: Conversation(context_id),
-                                payload: Err((UNMARSHAL_ERROR, e.to_string())),
+                    None => {
+                        Self::send_msg(
+                            locked_inner,
+                            NodeToUiMessage {
+                                target: ClientId(client_id),
+                                body: UiUnmarshalError {
+                                    message: e.to_string(),
+                                    bad_data: message.to_string(),
+                                }
+                                .tmb(0),
                             },
-                        },
-                    ).await,
+                        )
+                        .await
+                    }
+                    Some(context_id) => {
+                        Self::send_msg(
+                            locked_inner,
+                            NodeToUiMessage {
+                                target: ClientId(client_id),
+                                body: MessageBody {
+                                    opcode,
+                                    path: Conversation(context_id),
+                                    payload: Err((UNMARSHAL_ERROR, e.to_string())),
+                                },
+                            },
+                        )
+                        .await
+                    }
                 };
-                return true
+                return true;
             }
         }
     }
@@ -319,7 +362,7 @@ impl WebSocketSupervisorReal {
                     logger,
                     "WebSocketSupervisor got a disconnect from a client that never connected!"
                 );
-               return false
+                return false;
             }
             Some(client_id) => client_id,
         };
@@ -334,11 +377,7 @@ impl WebSocketSupervisorReal {
         false
     }
 
-    fn handle_other_message(
-        logger: &Logger,
-        socket_addr: SocketAddr,
-        message_type: &str,
-    ) -> bool {
+    fn handle_other_message(logger: &Logger, socket_addr: SocketAddr, message_type: &str) -> bool {
         info!(
             logger,
             "UI at {} sent unexpected {} message; ignoring", socket_addr, message_type
@@ -352,12 +391,13 @@ impl WebSocketSupervisorReal {
     ) -> Option<Vec<SendToClientWebsocketError>> {
         let errors: Vec<SendToClientWebsocketError> = clients
             .into_iter()
-            .flat_map(
-                async move |(client_id, client)| match client.send(Message::Text(json.clone())).await {
+            .flat_map(async move |(client_id, client)| {
+                match client.send(Message::Text(json.clone())).await {
                     Ok(_) => None,
                     Err(e) => Some(SendToClientWebsocketError::SendError((client_id, e))),
-                }.await,
-            )
+                }
+                .await
+            })
             .collect();
         if errors.is_empty() {
             None
@@ -394,7 +434,10 @@ impl WebSocketSupervisorReal {
         );
     }
 
-    fn emergency_client_removal(client_id: u64, locked_inner: &MutexGuard<WebSocketSupervisorInner>) {
+    fn emergency_client_removal(
+        client_id: u64,
+        locked_inner: &MutexGuard<WebSocketSupervisorInner>,
+    ) {
         locked_inner
             .client_by_id
             .remove(&client_id)
@@ -421,7 +464,10 @@ impl WebSocketSupervisorReal {
             None => panic!("WebSocketSupervisor got a disconnect from a client that has disappeared from the stable!"),
         };
         let future = async {
-            let close_message = Message::Close(Some(CloseFrame{ code: CloseCode::Normal, reason: Cow::Owned("Client initiated closure")}));
+            let close_message = Message::Close(Some(CloseFrame {
+                code: CloseCode::Normal,
+                reason: Cow::Owned("Client initiated closure"),
+            }));
             match client.send(close_message).await {
                 Err(e) => warning!(
                     logger,
@@ -487,10 +533,14 @@ mod tests {
     use actix::{Actor, Addr};
     use crossbeam_channel::bounded;
     use masq_lib::constants::UNMARSHAL_ERROR;
-    use masq_lib::messages::{FromMessageBody, UiDescriptorResponse, UiShutdownRequest, UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL, UiCheckPasswordRequest};
+    use masq_lib::messages::{
+        FromMessageBody, UiCheckPasswordRequest, UiDescriptorResponse, UiShutdownRequest,
+        UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL,
+    };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::ui_connection::UiConnection;
+    use masq_lib::test_utils::utils::make_rt;
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
@@ -507,7 +557,6 @@ mod tests {
     use tokio_tungstenite::MaybeTlsStream;
     use websocket::client::sync::Client;
     use websocket::stream::sync::TcpStream;
-    use masq_lib::test_utils::utils::make_rt;
 
     impl WebSocketSupervisorReal {
         fn inject_mock_client(&self, mock_client: MessageWriterMock) -> u64 {
@@ -542,14 +591,25 @@ mod tests {
 
     impl Sink<Message> for MessageWriterMock {
         type Error = io::Error;
-        fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> { unimplemented!() }
-        fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> { unimplemented!() }
-        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> { unimplemented!() }
-        fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> { unimplemented!() }
+        fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            unimplemented!()
+        }
+        fn start_send(self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
+            unimplemented!()
+        }
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            unimplemented!()
+        }
+        fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            unimplemented!()
+        }
     }
 
     impl SinkExt<Message> for MessageWriterMock {
-        fn send(&mut self, item: Message) -> futures_util::sink::Send<'_, Self, Message> where Self: Unpin {
+        fn send(&mut self, item: Message) -> futures_util::sink::Send<'_, Self, Message>
+        where
+            Self: Unpin,
+        {
             self.send_params.lock().unwrap().push(item.clone());
             todo!()
         }
@@ -636,8 +696,7 @@ mod tests {
 
     async fn make_client(port: u16, protocol: &str) -> Client {
         let url = format!("ws://{}:{}", localhost(), port);
-        let (stream, response) =
-            tokio_tungstenite::connect_async(url).await.unwrap();
+        let (stream, response) = tokio_tungstenite::connect_async(url).await.unwrap();
         stream
     }
 
@@ -679,7 +738,7 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let _subject =  WebSocketSupervisorReal::new(port, ui_message_sub, 1);
+        let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
 
         wait_for_server(port);
 
@@ -715,13 +774,20 @@ mod tests {
                 &1
             );
         }
-        ui_connection.send(UiCheckPasswordRequest{db_password_opt: Some("booga".to_string())});
+        ui_connection.send(UiCheckPasswordRequest {
+            db_password_opt: Some("booga".to_string()),
+        });
         System::current().stop();
         system.run();
         let recording = ui_gateway_recording_arc.lock().unwrap();
         let message = recording.get_record::<UiCheckPasswordRequest>(0);
-        assert_eq!(message, UiCheckPasswordRequest{db_password_opt: Some("booga".to_string())});
-        todo! ("Check for proper connection-progress logs")
+        assert_eq!(
+            message,
+            UiCheckPasswordRequest {
+                db_password_opt: Some("booga".to_string())
+            }
+        );
+        todo!("Check for proper connection-progress logs")
     }
 
     #[test]
@@ -736,7 +802,10 @@ mod tests {
 
         let result: Result<UiConnection, String> = UiConnection::make(port, "MASQNode-UI");
 
-        assert_eq!(result, Err("UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]"));
+        assert_eq!(
+            result,
+            Err("UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]")
+        );
         {
             let inner = subject.inner_arc.lock().unwrap();
             assert_eq!(inner.next_client_id, 1);
@@ -744,7 +813,9 @@ mod tests {
             assert_eq!(inner.client_id_by_socket_addr.is_empty(), true);
         }
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]");
+        tlh.exists_log_containing(
+            "UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]",
+        );
     }
 
     #[test]
@@ -758,7 +829,8 @@ mod tests {
         wait_for_server(port);
 
         {
-            let mut ui_connection: UiConnection = UiConnection::make(port, NODE_UI_PROTOCOL).unwrap();
+            let mut ui_connection: UiConnection =
+                UiConnection::make(port, NODE_UI_PROTOCOL).unwrap();
             ui_connection.send_message(&Message::Binary(vec![1u8, 2u8, 3u8, 4u8]));
             ui_connection.send_message(&Message::Ping(vec![1u8, 2u8, 3u8, 4u8]));
             ui_connection.send_message(&Message::Pong(vec![1u8, 2u8, 3u8, 4u8]));
@@ -800,9 +872,7 @@ mod tests {
 
         one_client.send_message(&Message::Close(None)).unwrap();
         let one_close_msg = one_client.recv_message().unwrap();
-        another_client
-            .send_message(&Message::Close(None))
-            .unwrap();
+        another_client.send_message(&Message::Close(None)).unwrap();
         let another_close_msg = another_client.recv_message().unwrap();
 
         ui_gateway_awaiter.await_message_count(3);
@@ -1042,8 +1112,7 @@ mod tests {
     }
 
     fn flush_failure_assertion(flush_error: io::Error, client_is_retained_after_error: bool) {
-        let client = MessageWriterMock::new()
-            .send_result(Ok(()));
+        let client = MessageWriterMock::new().send_result(Ok(()));
         sink_failure_test_body(client, client_is_retained_after_error)
     }
 
@@ -1200,8 +1269,7 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
-        let one_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
+        let one_mock_client = MessageWriterMock::new().send_result(Ok(()));
         let another_mock_client = MessageWriterMock::new();
         let one_client_id = subject.inject_mock_client(one_mock_client);
         let another_client_id = subject.inject_mock_client(another_mock_client);
@@ -1234,10 +1302,8 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
-        let one_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let another_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
+        let one_mock_client = MessageWriterMock::new().send_result(Ok(()));
+        let another_mock_client = MessageWriterMock::new().send_result(Ok(()));
         let one_client_id = subject.inject_mock_client(one_mock_client);
         let another_client_id = subject.inject_mock_client(another_mock_client);
         let msg = NodeToUiMessage {
@@ -1268,10 +1334,8 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
         let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
-        let one_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
-        let another_mock_client = MessageWriterMock::new()
-            .send_result(Ok(()));
+        let one_mock_client = MessageWriterMock::new().send_result(Ok(()));
+        let another_mock_client = MessageWriterMock::new().send_result(Ok(()));
         let one_client_id = subject.inject_mock_client(one_mock_client);
         let another_client_id = subject.inject_mock_client(another_mock_client);
         let msg = NodeToUiMessage {
@@ -1332,7 +1396,7 @@ mod tests {
 
         TestLogHandler::new().await_log_containing(
             "WebsocketSupervisor: WARN: Tried to send to an absent client 7",
-            1000
+            1000,
         );
     }
 }

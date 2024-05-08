@@ -3,17 +3,17 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapperReal;
+use actix::ActorFutureExt;
 use masq_lib::logger::Logger;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::TcpStream as StdTcpStream;
 use std::time::Duration;
-use actix::ActorFutureExt;
 use tokio::io;
 use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
-use tokio::time::{Instant, timeout_at};
+use tokio::time::{timeout_at, Instant};
 
 pub const CONNECT_TIMEOUT_MS: u64 = 5000;
 
@@ -40,46 +40,52 @@ pub trait StreamConnector: Send {
 pub struct StreamConnectorReal {}
 
 impl StreamConnector for StreamConnectorReal {
-
-    async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> Result<ConnectionInfo, io::Error> {
+    async fn connect(
+        &self,
+        socket_addr: SocketAddr,
+        logger: &Logger,
+    ) -> Result<ConnectionInfo, io::Error> {
         let future_logger = logger.clone();
-        let timeout_result = timeout_at(Instant::now() + Duration::from_millis(CONNECT_TIMEOUT_MS), async {
-            let connect_result = TcpStream::connect(&socket_addr).await;
-            match connect_result {
-                Ok(mut stream) => {
-                    let local_addr = stream.local_addr().unwrap_or_else(|e| {
-                        panic!(
-                            "Newly-connected stream to {} has no local_addr: {:?}",
-                            socket_addr, e
-                        )
-                    });
-                    let peer_addr = stream.peer_addr().unwrap_or_else(|e| {
-                        // Untested code below: we couldn't figure out how to make this happen in captivity
-                        panic!(
-                            "Newly-connected stream to {} has no peer_addr: {:?}",
-                            socket_addr, e
-                        );
-                    });
-                    let (read_half, write_half) = stream.into_split();
-                    Ok(ConnectionInfo {
-                        reader: Box::new(ReadHalfWrapperReal::new(read_half)),
-                        writer: Box::new(WriteHalfWrapperReal::new(write_half)),
-                        local_addr,
-                        peer_addr,
-                    })
-                }
-                Err(e) => {
-                    error!(
+        let timeout_result = timeout_at(
+            Instant::now() + Duration::from_millis(CONNECT_TIMEOUT_MS),
+            async {
+                let connect_result = TcpStream::connect(&socket_addr).await;
+                match connect_result {
+                    Ok(mut stream) => {
+                        let local_addr = stream.local_addr().unwrap_or_else(|e| {
+                            panic!(
+                                "Newly-connected stream to {} has no local_addr: {:?}",
+                                socket_addr, e
+                            )
+                        });
+                        let peer_addr = stream.peer_addr().unwrap_or_else(|e| {
+                            // Untested code below: we couldn't figure out how to make this happen in captivity
+                            panic!(
+                                "Newly-connected stream to {} has no peer_addr: {:?}",
+                                socket_addr, e
+                            );
+                        });
+                        let (read_half, write_half) = stream.into_split();
+                        Ok(ConnectionInfo {
+                            reader: Box::new(ReadHalfWrapperReal::new(read_half)),
+                            writer: Box::new(WriteHalfWrapperReal::new(write_half)),
+                            local_addr,
+                            peer_addr,
+                        })
+                    }
+                    Err(e) => {
+                        error!(
                             future_logger,
                             "Could not connect TCP stream to {}", socket_addr
                         );
-                    Err(e)
+                        Err(e)
+                    }
                 }
-            }
-        });
+            },
+        );
         match timeout_result.await {
             Ok(connectionInfoResult) => connectionInfoResult,
-            Err(_) => io::Error::from(ErrorKind::TimedOut)
+            Err(_) => io::Error::from(ErrorKind::TimedOut),
         }
     }
 
@@ -99,8 +105,8 @@ impl StreamConnector for StreamConnectorReal {
             match StdTcpStream::connect(&socket_addr) {
                 Ok(stream) => {
                     debug!(logger, "Connected new stream to {}", socket_addr);
-                    let tokio_stream = TcpStream::from_std(stream)
-                        .expect("Tokio could not create a TcpStream");
+                    let tokio_stream =
+                        TcpStream::from_std(stream).expect("Tokio could not create a TcpStream");
                     return Ok(self.split_stream(tokio_stream, logger).unwrap_or_else(|| {
                         panic!("Stream to {} could not be split", socket_addr)
                     }));

@@ -506,11 +506,11 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use clap::builder::ValueRange;
+    use clap::parser::ValueSource;
     use clap::{value_parser, Arg, Command};
     use std::fs::File;
     use std::io::Write;
-    use clap::builder::ValueRange;
-    use clap::parser::ValueSource;
 
     #[test]
     fn config_file_vcl_error_displays_open_error() {

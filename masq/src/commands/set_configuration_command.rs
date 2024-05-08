@@ -1,15 +1,15 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand, Arg, ArgGroup, value_parser};
+use clap::builder::ValueRange;
+use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
+use masq_lib::shared_schema::common_validators::GasPrice;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
-use clap::builder::ValueRange;
-use masq_lib::shared_schema::common_validators::GasPrice;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -67,7 +67,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
                 .value_name("GAS-PRICE")
                 .num_args(ValueRange::new(1..=1))
                 .required(false)
-                .value_parser(value_parser!(GasPrice))
+                .value_parser(value_parser!(GasPrice)),
         )
         .arg(
             Arg::new("start-block")
@@ -76,7 +76,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
                 .value_name("START-BLOCK")
                 .num_args(ValueRange::new(1..=1))
                 .required(false)
-                .value_parser(value_parser!(u64))
+                .value_parser(value_parser!(u64)),
         )
         .group(
             ArgGroup::new("parameter")

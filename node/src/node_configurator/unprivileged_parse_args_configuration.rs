@@ -11,13 +11,13 @@ use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{
     Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
 };
-use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;

@@ -17,8 +17,8 @@ use crate::commands::setup_command::setup_subcommand;
 use crate::commands::shutdown_command::shutdown_subcommand;
 use crate::commands::start_command::start_subcommand;
 use crate::commands::wallet_addresses_command::wallet_addresses_subcommand;
-use clap::{Command as ClapCommand, Arg, value_parser};
 use clap::builder::ValueRange;
+use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::common_validators::InsecurePort;
@@ -76,7 +76,6 @@ pub fn app() -> ClapCommand {
         .subcommand(start_subcommand())
         .subcommand(wallet_addresses_subcommand())
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -361,8 +361,7 @@ mod tests {
             "daemon_initializer",
             "split_accepts_parameters_upon_system_shutdown_and_calls_main_with_args",
         );
-        let system =
-            System::new();
+        let system = System::new();
         let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(home_dir.clone()))
             .data_dir_result(Some(home_dir.join("data")));

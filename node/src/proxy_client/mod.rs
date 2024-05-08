@@ -36,13 +36,13 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::SystemTime;
-use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -356,6 +356,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::*;
     use actix::System;
+    use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
@@ -366,7 +367,6 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::SystemTime;
-    use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 
     #[test]
     fn constants_have_correct_values() {

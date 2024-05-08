@@ -1,24 +1,24 @@
-use std::fmt::{Display, Formatter};
+use crate::blockchains::chains::Chain;
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
     POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
+use crate::crash_point::CrashPoint;
+use crate::node_addr::NodeAddr;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
+use clap::builder::ValueRange;
 use clap::{value_parser, Arg, Command};
+use itertools::Itertools;
 use lazy_static::lazy_static;
+use regex::Regex;
+use rustc_hex::{FromHexIter, ToHexIter};
+use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
-use clap::builder::ValueRange;
-use itertools::Itertools;
 use url::Url;
-use crate::blockchains::chains::Chain;
-use crate::crash_point::CrashPoint;
-use crate::node_addr::NodeAddr;
-use regex::Regex;
-use rustc_hex::{FromHexIter, ToHexIter};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
@@ -462,20 +462,23 @@ pub fn shared_app(head: Command) -> Command {
             .value_parser(value_parser!(OnOff))
             .help(SCANS_HELP),
     )
-    .arg(common_parameter_with_separate_u64_values(
-        "scan-intervals",
-        SCAN_INTERVALS_HELP.to_string())
-        .value_parser(value_parser!(ScanIntervals))
+    .arg(
+        common_parameter_with_separate_u64_values(
+            "scan-intervals",
+            SCAN_INTERVALS_HELP.to_string(),
+        )
+        .value_parser(value_parser!(ScanIntervals)),
     )
-    .arg(common_parameter_with_separate_u64_values(
-        "rate-pack",
-        RATE_PACK_HELP.to_string())
-        .value_parser(value_parser!(RatePack))
+    .arg(
+        common_parameter_with_separate_u64_values("rate-pack", RATE_PACK_HELP.to_string())
+            .value_parser(value_parser!(RatePack)),
     )
-    .arg(common_parameter_with_separate_u64_values(
-        "payment-thresholds",
-        PAYMENT_THRESHOLDS_HELP.to_string())
-        .value_parser(value_parser!(PaymentThresholds))
+    .arg(
+        common_parameter_with_separate_u64_values(
+            "payment-thresholds",
+            PAYMENT_THRESHOLDS_HELP.to_string(),
+        )
+        .value_parser(value_parser!(PaymentThresholds)),
     )
 }
 
@@ -489,40 +492,37 @@ impl FromStr for IpAddrs {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let init: (Vec<IpAddr>, bool) = (vec![], false);
-        let (ip_addrs, error_encountered) = s
-            .split(',')
-            .map(IpAddr::from_str)
-            .fold(init, |sofar, ip_addr_result| {
-                let (mut ip_addrs, error_encountered) = sofar;
-                if error_encountered {
-                    (vec![], true)
-                }
-                else {
-                    match ip_addr_result {
-                        Ok(ip_addr) => {
-                            ip_addrs.push(ip_addr);
-                            (ip_addrs, false)
-                        },
-                        Err(_) => (vec![], true)
+        let (ip_addrs, error_encountered) =
+            s.split(',')
+                .map(IpAddr::from_str)
+                .fold(init, |sofar, ip_addr_result| {
+                    let (mut ip_addrs, error_encountered) = sofar;
+                    if error_encountered {
+                        (vec![], true)
+                    } else {
+                        match ip_addr_result {
+                            Ok(ip_addr) => {
+                                ip_addrs.push(ip_addr);
+                                (ip_addrs, false)
+                            }
+                            Err(_) => (vec![], true),
+                        }
                     }
-                }
-            });
+                });
         if error_encountered {
-            Err(format!("Must be a comma-separated list of IP addresses (no spaces), not '{}'", s))
-        }
-        else {
-            Ok(IpAddrs {ips: ip_addrs})
+            Err(format!(
+                "Must be a comma-separated list of IP addresses (no spaces), not '{}'",
+                s
+            ))
+        } else {
+            Ok(IpAddrs { ips: ip_addrs })
         }
     }
 }
 
 impl Display for IpAddrs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let string = self
-            .ips
-            .iter()
-            .map(|ip_addr| ip_addr.to_string())
-            .join(",");
+        let string = self.ips.iter().map(|ip_addr| ip_addr.to_string()).join(",");
         write!(f, "{}", string)
     }
 }
@@ -537,11 +537,13 @@ impl FromStr for PrivateKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.len() != 64 {
-            Err(format!("PrivateKey must be 64 hex characters long, not {}", s.len()))
-        }
-        else {
+            Err(format!(
+                "PrivateKey must be 64 hex characters long, not {}",
+                s.len()
+            ))
+        } else {
             match hex_to_u8s(s) {
-                Ok(data) => Ok(PrivateKey {data}),
+                Ok(data) => Ok(PrivateKey { data }),
                 Err(e) => Err(format!("Invalid PrivateKey: {}", e)),
             }
         }
@@ -588,12 +590,18 @@ impl FromStr for Wallet {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let regex = Regex::new("^0x([0-9a-fA-F]{40})$")
-            .expect("Failed to compile regular expression");
+        let regex =
+            Regex::new("^0x([0-9a-fA-F]{40})$").expect("Failed to compile regular expression");
         let hex_string = match regex.captures(s) {
             Some(captures) => captures.get(1).expect("Bad regular expression"),
-            None => return Err(format!("Must begin with '0x' followed by 40 hexadecimal digits, not '{}'", s)),
-        }.as_str();
+            None => {
+                return Err(format!(
+                    "Must begin with '0x' followed by 40 hexadecimal digits, not '{}'",
+                    s
+                ))
+            }
+        }
+        .as_str();
         let address = FromHexIter::new(hex_string)
             .map(|result| result.expect("Regular expression allowed non-hex characters through"))
             .collect_vec();
@@ -668,16 +676,12 @@ impl FromStr for RealUser {
             let uid_str = captures.get(1).expect("Regex failed").as_str();
             let uid = match uid_str.parse::<u32>() {
                 Ok(uid) => uid,
-                Err(_) => {
-                    return Err(format!("--real_user specified invalid uid: {}", uid_str))
-                }
+                Err(_) => return Err(format!("--real_user specified invalid uid: {}", uid_str)),
             };
             let gid_str = captures.get(2).expect("Regex failed").as_str();
             let gid = match gid_str.parse::<u32>() {
                 Ok(gid) => gid,
-                Err(_) => {
-                    return Err(format!("--real_user specified invalid gid: {}", gid_str))
-                }
+                Err(_) => return Err(format!("--real_user specified invalid gid: {}", gid_str)),
             };
             let home_dir_str = captures.get(3).expect("Regex failed").as_str();
             let home_dir = PathBuf::from(home_dir_str);
@@ -699,7 +703,13 @@ impl FromStr for RealUser {
 
 impl Display for RealUser {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}:{}", self.uid, self.gid, self.home_dir.to_string_lossy())
+        write!(
+            f,
+            "{}:{}:{}",
+            self.uid,
+            self.gid,
+            self.home_dir.to_string_lossy()
+        )
     }
 }
 
@@ -785,7 +795,7 @@ pub enum LogLevel {
     Warn,
     Info,
     Debug,
-    Trace
+    Trace,
 }
 
 impl FromStr for LogLevel {
@@ -799,7 +809,7 @@ impl FromStr for LogLevel {
             "info" => Ok(Self::Info),
             "debug" => Ok(Self::Debug),
             "trace" => Ok(Self::Trace),
-            _ => Err(format!("Unrecognized log-level value '{}'", s))
+            _ => Err(format!("Unrecognized log-level value '{}'", s)),
         }
     }
 }
@@ -823,7 +833,7 @@ pub enum NeighborhoodMode {
     ZeroHop,
     OriginateOnly,
     ConsumeOnly,
-    Standard
+    Standard,
 }
 
 impl FromStr for NeighborhoodMode {
@@ -835,7 +845,7 @@ impl FromStr for NeighborhoodMode {
             "originate-only" => Ok(Self::OriginateOnly),
             "consume-only" => Ok(Self::ConsumeOnly),
             "standard" => Ok(Self::Standard),
-            _ => Err(format!("Unrecognized neighborhood-mode value '{}'", s))
+            _ => Err(format!("Unrecognized neighborhood-mode value '{}'", s)),
         }
     }
 }
@@ -852,11 +862,11 @@ impl Display for NeighborhoodMode {
     }
 }
 
-#[derive (Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum MappingProtocol {
     Pcp,
     Pmp,
-    Igdp
+    Igdp,
 }
 
 impl FromStr for MappingProtocol {
@@ -867,7 +877,7 @@ impl FromStr for MappingProtocol {
             "pcp" => Ok(Self::Pcp),
             "pmp" => Ok(Self::Pmp),
             "igdp" => Ok(Self::Igdp),
-            _ => Err(format!("Unrecognized mapping-protocol value '{}'", s))
+            _ => Err(format!("Unrecognized mapping-protocol value '{}'", s)),
         }
     }
 }
@@ -897,9 +907,12 @@ impl FromStr for ConfigFile {
             Err(infallible) => return Err(infallible.to_string()),
         };
         if config_file.is_dir() {
-            return Err(format!("Config file must be a file, not a directory: '{}'", s))
+            return Err(format!(
+                "Config file must be a file, not a directory: '{}'",
+                s
+            ));
         }
-        Ok(ConfigFile {path: config_file})
+        Ok(ConfigFile { path: config_file })
     }
 }
 
@@ -923,9 +936,14 @@ impl FromStr for DataDirectory {
             Err(infallible) => return Err(infallible.to_string()),
         };
         if data_directory.is_file() {
-            return Err(format!("Data directory must be a directory, not a file: '{}'", s))
+            return Err(format!(
+                "Data directory must be a directory, not a file: '{}'",
+                s
+            ));
         }
-        Ok(DataDirectory {path: data_directory })
+        Ok(DataDirectory {
+            path: data_directory,
+        })
     }
 }
 
@@ -945,8 +963,8 @@ impl FromStr for PublicKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match BASE64_STANDARD_NO_PAD.decode(s) {
-            Ok(data) => Ok(PublicKey{data}),
-            Err(_) => Err(format!("Illegal Base64 string for public key: '{}'", s))
+            Ok(data) => Ok(PublicKey { data }),
+            Err(_) => Err(format!("Illegal Base64 string for public key: '{}'", s)),
         }
     }
 }
@@ -958,7 +976,14 @@ impl Display for PublicKey {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum MinHops { One, Two, Three, Four, Five, Six }
+pub enum MinHops {
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+}
 
 impl FromStr for MinHops {
     type Err = String;
@@ -971,7 +996,7 @@ impl FromStr for MinHops {
             "4" => Ok(MinHops::Four),
             "5" => Ok(MinHops::Five),
             "6" => Ok(MinHops::Six),
-            _ => Err(format!("Unrecognized min-hops value '{}'", s))
+            _ => Err(format!("Unrecognized min-hops value '{}'", s)),
         }
     }
 }
@@ -984,7 +1009,7 @@ impl Display for MinHops {
             MinHops::Three => "3",
             MinHops::Four => "4",
             MinHops::Five => "5",
-            MinHops::Six => "6"
+            MinHops::Six => "6",
         };
         write!(f, "{}", string)
     }
@@ -992,7 +1017,7 @@ impl Display for MinHops {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Neighbors {
-    neighbors: Vec<NodeAddr>
+    neighbors: Vec<NodeAddr>,
 }
 
 impl FromStr for Neighbors {
@@ -1000,27 +1025,26 @@ impl FromStr for Neighbors {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let init: (Vec<NodeAddr>, Vec<String>) = (vec![], vec![]);
-        let (neighbors, errors) = s
-            .split(',')
-            .map(|s| s.trim())
-            .map(NodeAddr::from_str)
-            .fold(init, |sofar, result| {
-                let (mut node_addrs, mut errors) = sofar;
-                match result {
-                    Ok(node_addr) => {
-                        node_addrs.push(node_addr);
-                        (node_addrs, errors)
-                    },
-                    Err(e) => {
-                        errors.push(e);
-                        (vec![], errors)
+        let (neighbors, errors) =
+            s.split(',')
+                .map(|s| s.trim())
+                .map(NodeAddr::from_str)
+                .fold(init, |sofar, result| {
+                    let (mut node_addrs, mut errors) = sofar;
+                    match result {
+                        Ok(node_addr) => {
+                            node_addrs.push(node_addr);
+                            (node_addrs, errors)
+                        }
+                        Err(e) => {
+                            errors.push(e);
+                            (vec![], errors)
+                        }
                     }
-                }
-            });
+                });
         if errors.is_empty() {
-            Ok(Neighbors {neighbors})
-        }
-        else {
+            Ok(Neighbors { neighbors })
+        } else {
             Err(errors.join("; "))
         }
     }
@@ -1034,7 +1058,10 @@ impl Display for Neighbors {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum OnOff { On, Off }
+pub enum OnOff {
+    On,
+    Off,
+}
 
 impl FromStr for OnOff {
     type Err = String;
@@ -1058,15 +1085,24 @@ impl Display for OnOff {
     }
 }
 
-fn from_str_for_vec_u64(values_with_delimiters: &str, expected_count: usize) -> Result<Vec<u64>, String> {
-    let example = || (1..=expected_count)
-        .map (|i| format!("{}{}{}", i, i, i))
-        .collect_vec()
-        .join("|");
+fn from_str_for_vec_u64(
+    values_with_delimiters: &str,
+    expected_count: usize,
+) -> Result<Vec<u64>, String> {
+    let example = || {
+        (1..=expected_count)
+            .map(|i| format!("{}{}{}", i, i, i))
+            .collect_vec()
+            .join("|")
+    };
     let str_values = values_with_delimiters.split('|').collect_vec();
     if str_values.len() != expected_count {
-        return Err(format!("Supply {} positive numeric values separated by vertical bars like {}, not '{}'",
-            expected_count, example(), values_with_delimiters))
+        return Err(format!(
+            "Supply {} positive numeric values separated by vertical bars like {}, not '{}'",
+            expected_count,
+            example(),
+            values_with_delimiters
+        ));
     }
     let init: Vec<u64> = vec![];
     let result = str_values
@@ -1080,11 +1116,14 @@ fn from_str_for_vec_u64(values_with_delimiters: &str, expected_count: usize) -> 
                 }
             }
         });
-    result
-        .map_err (|_| {
-            format!("Supply {} positive numeric values separated by vertical bars like {}, not '{}'",
-                    expected_count, example(), values_with_delimiters)
-        })
+    result.map_err(|_| {
+        format!(
+            "Supply {} positive numeric values separated by vertical bars like {}, not '{}'",
+            expected_count,
+            example(),
+            values_with_delimiters
+        )
+    })
 }
 
 fn fmt_vec_u64(numbers: &[u64], f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -1095,11 +1134,15 @@ fn fmt_vec_u64(numbers: &[u64], f: &mut Formatter<'_>) -> std::fmt::Result {
 macro_rules! make_vec_u64_type {
     ($new_type: ident, $length: expr) => {
         #[derive(Debug, PartialEq, Clone)]
-        pub struct $new_type {data: Vec<u64>}
+        pub struct $new_type {
+            data: Vec<u64>,
+        }
         impl FromStr for $new_type {
             type Err = String;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                Ok($new_type {data: from_str_for_vec_u64(s, $length)?})
+                Ok($new_type {
+                    data: from_str_for_vec_u64(s, $length)?,
+                })
             }
         }
         impl Display for $new_type {
@@ -1163,15 +1206,21 @@ impl ConfiguratorError {
     }
 }
 
-const HEX_DIGITS: [char; 16] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B' ,'C', 'D', 'E', 'F'];
+const HEX_DIGITS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+];
 fn hex_to_u8s(hex: &str) -> Result<Vec<u8>, String> {
     let upperhex = hex.to_ascii_uppercase();
     let upperhex_bytes = upperhex.as_bytes();
     if (upperhex_bytes.len() & 1) > 0 {
-        return Err(format!("Hexadecimal string must have even number of digits, not {}", upperhex.len()))
+        return Err(format!(
+            "Hexadecimal string must have even number of digits, not {}",
+            upperhex.len()
+        ));
     }
     let digit_value = |c: char| {
-        HEX_DIGITS.binary_search(&c)
+        HEX_DIGITS
+            .binary_search(&c)
             .map_err(|_| format!("Not a hexadecimal digit: {}", c))
     };
     let mut u8s: Vec<u8> = vec![];
@@ -1184,9 +1233,7 @@ fn hex_to_u8s(hex: &str) -> Result<Vec<u8>, String> {
 }
 
 fn u8s_to_hex(u8s: &Vec<u8>) -> String {
-    let hex_digit = |n: usize| -> char {
-        HEX_DIGITS[n]
-    };
+    let hex_digit = |n: usize| -> char { HEX_DIGITS[n] };
     let mut hex = String::new();
     for b in u8s {
         hex.push(hex_digit((b >> 4) as usize));
@@ -1197,15 +1244,15 @@ fn u8s_to_hex(u8s: &Vec<u8>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
     use super::*;
     use crate::blockchains::chains::Chain;
+    use crate::shared_schema::official_chain_names;
     use crate::shared_schema::{IpAddrs, PrivateKey, RealUser, VecU64, Wallet};
-    use crate::shared_schema::{official_chain_names};
+    use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use itertools::Itertools;
+    use std::fs::File;
     use std::path::PathBuf;
     use std::str::FromStr;
-    use itertools::Itertools;
-    use crate::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1560,11 +1607,11 @@ mod tests {
 
     #[test]
     fn gas_price_to_string_works() {
-        let subject = GasPrice {price: 12345678};
+        let subject = GasPrice { price: 12345678 };
 
         let result = subject.to_string();
 
-        assert_eq! (result, "12345678".to_string());
+        assert_eq!(result, "12345678".to_string());
     }
 
     #[test]
@@ -1620,11 +1667,15 @@ mod tests {
 
     #[test]
     fn real_user_to_string_works() {
-        let subject = RealUser {uid: 1234, gid: 2345, home_dir: PathBuf::from("/home/booga")};
+        let subject = RealUser {
+            uid: 1234,
+            gid: 2345,
+            home_dir: PathBuf::from("/home/booga"),
+        };
 
         let result = subject.to_string();
 
-        assert_eq! (result, "1234:2345:/home/booga".to_string())
+        assert_eq!(result, "1234:2345:/home/booga".to_string())
     }
 
     #[test]
@@ -1690,10 +1741,22 @@ mod tests {
     #[test]
     fn official_chain_names_are_reliable() {
         let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from_str(*iterator.next().unwrap()), Ok(Chain::PolyMainnet));
-        assert_eq!(Chain::from_str(*iterator.next().unwrap()), Ok(Chain::EthMainnet));
-        assert_eq!(Chain::from_str(*iterator.next().unwrap()), Ok(Chain::PolyMumbai));
-        assert_eq!(Chain::from_str(*iterator.next().unwrap()), Ok(Chain::EthRopsten));
+        assert_eq!(
+            Chain::from_str(*iterator.next().unwrap()),
+            Ok(Chain::PolyMainnet)
+        );
+        assert_eq!(
+            Chain::from_str(*iterator.next().unwrap()),
+            Ok(Chain::EthMainnet)
+        );
+        assert_eq!(
+            Chain::from_str(*iterator.next().unwrap()),
+            Ok(Chain::PolyMumbai)
+        );
+        assert_eq!(
+            Chain::from_str(*iterator.next().unwrap()),
+            Ok(Chain::EthRopsten)
+        );
         assert_eq!(Chain::from_str(*iterator.next().unwrap()), Ok(Chain::Dev));
         assert_eq!(iterator.next(), None)
     }
@@ -1714,14 +1777,20 @@ mod tests {
 
         let result = ConfigFile::from_str(&cd_str);
 
-        assert_eq!(result, Err(format!("Config file must be a file, not a directory: '{}'", &cd_str)));
+        assert_eq!(
+            result,
+            Err(format!(
+                "Config file must be a file, not a directory: '{}'",
+                &cd_str
+            ))
+        );
     }
 
     #[test]
     fn config_file_can_be_rendered_as_string() {
         let config_file = PathBuf::from_str("parent_dir/file.toml").unwrap();
         let cf_str = config_file.as_os_str().to_string_lossy().to_string();
-        let subject = ConfigFile {path: config_file};
+        let subject = ConfigFile { path: config_file };
 
         let result = subject.to_string();
 
@@ -1739,7 +1808,8 @@ mod tests {
 
     #[test]
     fn data_directory_rejects_file() {
-        let directory = ensure_node_home_directory_exists("shared_schema", "data_directory_rejects_file");
+        let directory =
+            ensure_node_home_directory_exists("shared_schema", "data_directory_rejects_file");
         let file_path = directory.join("data-directory-file.toml");
         {
             let _ = File::create(&file_path).unwrap();
@@ -1748,14 +1818,20 @@ mod tests {
 
         let result = DataDirectory::from_str(&dd_str);
 
-        assert_eq!(result, Err(format!("Data directory must be a directory, not a file: '{}'", &dd_str)));
+        assert_eq!(
+            result,
+            Err(format!(
+                "Data directory must be a directory, not a file: '{}'",
+                &dd_str
+            ))
+        );
     }
 
     #[test]
     fn data_directory_can_be_rendered_as_string() {
         let config_file = PathBuf::from_str("parent_dir/child_dir").unwrap();
         let cf_str = config_file.as_os_str().to_string_lossy().to_string();
-        let subject = DataDirectory {path: config_file};
+        let subject = DataDirectory { path: config_file };
 
         let result = subject.to_string();
 
@@ -1768,26 +1844,36 @@ mod tests {
 
         let result = IpAddrs::from_str(input).unwrap();
 
-        assert_eq!(result.ips, vec![
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            IpAddr::from_str("2001:db8:85a3:8d3:1319:8a2e:370:7348").unwrap()
-        ]);
+        assert_eq!(
+            result.ips,
+            vec![
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                IpAddr::from_str("2001:db8:85a3:8d3:1319:8a2e:370:7348").unwrap()
+            ]
+        );
     }
 
     #[test]
     fn ip_addrs_rejects_bad_syntax() {
-
         let result = IpAddrs::from_str("boogety,boo");
 
-        assert_eq!(result, Err("Must be a comma-separated list of IP addresses (no spaces), not 'boogety,boo'".to_string()));
+        assert_eq!(
+            result,
+            Err(
+                "Must be a comma-separated list of IP addresses (no spaces), not 'boogety,boo'"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
     fn ip_addrs_can_be_rendered_as_string() {
-        let subject = IpAddrs{ips: vec![
-            IpAddr::from_str("1.2.3.4").unwrap(),
-            IpAddr::from_str("2001:db8:85a3:8d3:1319:8a2e:370:7348").unwrap()
-        ]};
+        let subject = IpAddrs {
+            ips: vec![
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                IpAddr::from_str("2001:db8:85a3:8d3:1319:8a2e:370:7348").unwrap(),
+            ],
+        };
 
         let result = subject.to_string();
 
@@ -1802,7 +1888,7 @@ mod tests {
 
         let expected: Vec<u8> = vec![
             0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
-            0x32, 0x10, 0x12, 0x34, 0x56, 0x78
+            0x32, 0x10, 0x12, 0x34, 0x56, 0x78,
         ];
         assert_eq!(result.address, expected);
     }
@@ -1813,15 +1899,23 @@ mod tests {
 
         let result = Wallet::from_str(input);
 
-        assert_eq!(result, Err(format!("Must begin with '0x' followed by 40 hexadecimal digits, not '{}'", input)));
+        assert_eq!(
+            result,
+            Err(format!(
+                "Must begin with '0x' followed by 40 hexadecimal digits, not '{}'",
+                input
+            ))
+        );
     }
 
     #[test]
     fn wallet_can_be_rendered_as_string() {
-        let subject = Wallet{address: vec![
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
-            0x32, 0x10, 0x12, 0x34, 0x56, 0x78
-        ]};
+        let subject = Wallet {
+            address: vec![
+                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54,
+                0x32, 0x10, 0x12, 0x34, 0x56, 0x78,
+            ],
+        };
 
         let result = subject.to_string();
 
@@ -1837,22 +1931,27 @@ mod tests {
             .map(|input| LogLevel::from_str(input).unwrap())
             .collect_vec();
 
-        assert_eq! (result, vec![
-            LogLevel::Off,
-            LogLevel::Error,
-            LogLevel::Warn,
-            LogLevel::Info,
-            LogLevel::Debug,
-            LogLevel::Trace
-        ])
+        assert_eq!(
+            result,
+            vec![
+                LogLevel::Off,
+                LogLevel::Error,
+                LogLevel::Warn,
+                LogLevel::Info,
+                LogLevel::Debug,
+                LogLevel::Trace
+            ]
+        )
     }
 
     #[test]
     fn log_level_detects_invalid_value() {
-
         let result = LogLevel::from_str("booga");
 
-        assert_eq! (result, Err("Unrecognized log-level value 'booga'".to_string()))
+        assert_eq!(
+            result,
+            Err("Unrecognized log-level value 'booga'".to_string())
+        )
     }
 
     #[test]
@@ -1863,7 +1962,7 @@ mod tests {
             LogLevel::Warn,
             LogLevel::Info,
             LogLevel::Debug,
-            LogLevel::Trace
+            LogLevel::Trace,
         ];
 
         let result = inputs
@@ -1871,7 +1970,7 @@ mod tests {
             .map(|input| input.to_string())
             .collect_vec();
 
-        assert_eq! (
+        assert_eq!(
             result,
             vec!["off", "error", "warn", "info", "debug", "trace"]
                 .into_iter()
@@ -1889,20 +1988,25 @@ mod tests {
             .map(|input| NeighborhoodMode::from_str(input).unwrap())
             .collect_vec();
 
-        assert_eq! (result, vec![
-            NeighborhoodMode::ZeroHop,
-            NeighborhoodMode::OriginateOnly,
-            NeighborhoodMode::ConsumeOnly,
-            NeighborhoodMode::Standard,
-        ])
+        assert_eq!(
+            result,
+            vec![
+                NeighborhoodMode::ZeroHop,
+                NeighborhoodMode::OriginateOnly,
+                NeighborhoodMode::ConsumeOnly,
+                NeighborhoodMode::Standard,
+            ]
+        )
     }
 
     #[test]
     fn neighborhood_mode_detects_invalid_value() {
-
         let result = NeighborhoodMode::from_str("booga");
 
-        assert_eq! (result, Err("Unrecognized neighborhood-mode value 'booga'".to_string()))
+        assert_eq!(
+            result,
+            Err("Unrecognized neighborhood-mode value 'booga'".to_string())
+        )
     }
 
     #[test]
@@ -1919,7 +2023,7 @@ mod tests {
             .map(|input| input.to_string())
             .collect_vec();
 
-        assert_eq! (
+        assert_eq!(
             result,
             vec!["zero-hop", "originate-only", "consume-only", "standard"]
                 .into_iter()
@@ -1937,19 +2041,24 @@ mod tests {
             .map(|input| MappingProtocol::from_str(input).unwrap())
             .collect_vec();
 
-        assert_eq! (result, vec![
-            MappingProtocol::Pcp,
-            MappingProtocol::Pmp,
-            MappingProtocol::Igdp,
-        ])
+        assert_eq!(
+            result,
+            vec![
+                MappingProtocol::Pcp,
+                MappingProtocol::Pmp,
+                MappingProtocol::Igdp,
+            ]
+        )
     }
 
     #[test]
     fn mapping_protocol_detects_invalid_value() {
-
         let result = MappingProtocol::from_str("booga");
 
-        assert_eq! (result, Err("Unrecognized mapping-protocol value 'booga'".to_string()))
+        assert_eq!(
+            result,
+            Err("Unrecognized mapping-protocol value 'booga'".to_string())
+        )
     }
 
     #[test]
@@ -1965,7 +2074,7 @@ mod tests {
             .map(|input| input.to_string())
             .collect_vec();
 
-        assert_eq! (
+        assert_eq!(
             result,
             vec!["pcp", "pmp", "igdp"]
                 .into_iter()
@@ -1980,24 +2089,34 @@ mod tests {
 
         let result = PublicKey::from_str(input).unwrap();
 
-        assert_eq! (result.data, b"Inside of a dog, it's too dark to read.".to_vec())
+        assert_eq!(
+            result.data,
+            b"Inside of a dog, it's too dark to read.".to_vec()
+        )
     }
 
     #[test]
     fn public_key_detects_invalid_value() {
-
         let result = PublicKey::from_str("X");
 
-        assert_eq! (result, Err("Illegal Base64 string for public key: 'X'".to_string()))
+        assert_eq!(
+            result,
+            Err("Illegal Base64 string for public key: 'X'".to_string())
+        )
     }
 
     #[test]
     fn public_key_displays_properly() {
-        let input = PublicKey {data: b"Inside of a dog, it's too dark to read.".to_vec()};
+        let input = PublicKey {
+            data: b"Inside of a dog, it's too dark to read.".to_vec(),
+        };
 
         let result = input.to_string();
 
-        assert_eq! (result, "SW5zaWRlIG9mIGEgZG9nLCBpdCdzIHRvbyBkYXJrIHRvIHJlYWQu");
+        assert_eq!(
+            result,
+            "SW5zaWRlIG9mIGEgZG9nLCBpdCdzIHRvbyBkYXJrIHRvIHJlYWQu"
+        );
     }
 
     #[test]
@@ -2009,22 +2128,27 @@ mod tests {
             .map(|input| MinHops::from_str(input).unwrap())
             .collect_vec();
 
-        assert_eq! (result, vec![
-            MinHops::One,
-            MinHops::Two,
-            MinHops::Three,
-            MinHops::Four,
-            MinHops::Five,
-            MinHops::Six
-        ])
+        assert_eq!(
+            result,
+            vec![
+                MinHops::One,
+                MinHops::Two,
+                MinHops::Three,
+                MinHops::Four,
+                MinHops::Five,
+                MinHops::Six
+            ]
+        )
     }
 
     #[test]
     fn min_hops_detects_invalid_value() {
-
         let result = MinHops::from_str("booga");
 
-        assert_eq! (result, Err("Unrecognized min-hops value 'booga'".to_string()))
+        assert_eq!(
+            result,
+            Err("Unrecognized min-hops value 'booga'".to_string())
+        )
     }
 
     #[test]
@@ -2035,7 +2159,7 @@ mod tests {
             MinHops::Three,
             MinHops::Four,
             MinHops::Five,
-            MinHops::Six
+            MinHops::Six,
         ];
 
         let result = inputs
@@ -2043,7 +2167,7 @@ mod tests {
             .map(|input| input.to_string())
             .collect_vec();
 
-        assert_eq! (
+        assert_eq!(
             result,
             vec!["1", "2", "3", "4", "5", "6"]
                 .into_iter()
@@ -2058,15 +2182,19 @@ mod tests {
 
         let result = Neighbors::from_str(input).unwrap();
 
-        assert_eq! (result, Neighbors {neighbors: vec![
-            NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
-            NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap()
-        ]})
+        assert_eq!(
+            result,
+            Neighbors {
+                neighbors: vec![
+                    NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
+                    NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap()
+                ]
+            }
+        )
     }
 
     #[test]
     fn neighbors_detects_invalid_value() {
-
         let result = Neighbors::from_str("1.2.254.255:12342345/3456,300.4.253.254:4567/5678/6789");
 
         assert_eq! (result, Err("NodeAddr must have port numbers between 1025 and 65535, not '12342345'; NodeAddr must have a valid IP address, not '300.4.253.254'".to_string()))
@@ -2074,14 +2202,16 @@ mod tests {
 
     #[test]
     fn neighbors_displays_properly() {
-        let input = Neighbors {neighbors: vec![
-            NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
-            NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap(),
-        ]};
+        let input = Neighbors {
+            neighbors: vec![
+                NodeAddr::from_str("1.2.254.255:1234/2345/3456").unwrap(),
+                NodeAddr::from_str("3.4.253.254:4567/5678/6789").unwrap(),
+            ],
+        };
 
         let result = input.to_string();
 
-        assert_eq! (
+        assert_eq!(
             result,
             "1.2.254.255:1234/2345/3456,3.4.253.254:4567/5678/6789".to_string()
         )
@@ -2094,7 +2224,7 @@ mod tests {
 
         let result = PrivateKey::from_str(input).unwrap();
 
-        assert_eq! (result, PrivateKey {data: u8s })
+        assert_eq!(result, PrivateKey { data: u8s })
     }
 
     #[test]
@@ -2103,7 +2233,10 @@ mod tests {
 
         let result = PrivateKey::from_str(input);
 
-        assert_eq! (result, Err(format!("PrivateKey must be 64 hex characters long, not 65")))
+        assert_eq!(
+            result,
+            Err(format!("PrivateKey must be 64 hex characters long, not 65"))
+        )
     }
 
     #[test]
@@ -2112,7 +2245,10 @@ mod tests {
 
         let result = PrivateKey::from_str(input);
 
-        assert_eq! (result, Err(format!("PrivateKey must be 64 hex characters long, not 63")))
+        assert_eq!(
+            result,
+            Err(format!("PrivateKey must be 64 hex characters long, not 63"))
+        )
     }
 
     #[test]
@@ -2121,23 +2257,28 @@ mod tests {
 
         let result = PrivateKey::from_str(input);
 
-        assert_eq! (result, Err(format!("Invalid PrivateKey: Not a hexadecimal digit: X")))
+        assert_eq!(
+            result,
+            Err(format!("Invalid PrivateKey: Not a hexadecimal digit: X"))
+        )
     }
 
     #[test]
     fn private_key_displays_properly() {
         let hex = "FFAAEEBBDDCC99008811772266335544ffaaeebbddcc99008811772266335544";
-        let input = PrivateKey {data: hex_to_u8s(hex).unwrap()};
+        let input = PrivateKey {
+            data: hex_to_u8s(hex).unwrap(),
+        };
 
         let result = input.to_string();
 
-        assert_eq! (result, hex.to_string().to_ascii_uppercase())
+        assert_eq!(result, hex.to_string().to_ascii_uppercase())
     }
 
     #[test]
     fn on_off_from_str_and_display_work() {
         vec!["on", "off"].into_iter().for_each(|expected_value| {
-            let value = OnOff::from_str (expected_value).unwrap();
+            let value = OnOff::from_str(expected_value).unwrap();
             let actual_value = value.to_string();
             assert_eq!(&actual_value, expected_value);
         })
@@ -2147,7 +2288,10 @@ mod tests {
     fn on_off_from_str_rejects_bad_string() {
         let value = OnOff::from_str("booga");
 
-        assert_eq!(value, Err("Must be either 'on' or 'off', not 'booga'".to_string()))
+        assert_eq!(
+            value,
+            Err("Must be either 'on' or 'off', not 'booga'".to_string())
+        )
     }
 
     #[test]
@@ -2156,6 +2300,9 @@ mod tests {
 
         let result = hex_to_u8s(hex);
 
-        assert_eq! (result, Err("Hexadecimal string must have even number of digits, not 1".to_string()));
+        assert_eq!(
+            result,
+            Err("Hexadecimal string must have even number of digits, not 1".to_string())
+        );
     }
 }

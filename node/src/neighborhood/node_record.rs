@@ -8,11 +8,11 @@ use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::node_addr::NodeAddr;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
-use masq_lib::node_addr::NodeAddr;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]

@@ -57,7 +57,6 @@ use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
-use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
@@ -75,6 +74,7 @@ use gossip_producer::GossipProducerReal;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
+use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
@@ -1640,7 +1640,11 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, make_cpm_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, make_rt};
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
+        make_node_to_ui_recipient, make_recipient_and_recording_arc, make_rt,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+    };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
@@ -1817,8 +1821,7 @@ mod tests {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
-        let system =
-            System::new();
+        let system = System::new();
         let mut subject = Neighborhood::new(
             cryptde,
             &bc_from_nc_plus(
@@ -2540,8 +2543,7 @@ mod tests {
 
     #[test]
     fn route_query_responds_with_none_when_asked_for_route_with_too_many_hops() {
-        let system =
-            System::new();
+        let system = System::new();
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
@@ -2577,8 +2579,7 @@ mod tests {
         todo!("This test is now bad. Gossip doesn't involve any RouteQueryMessages; all RouteQueryMessages should require a consuming wallet.");
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let system =
-            System::new();
+        let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::OneHop;
         subject
@@ -2706,7 +2707,8 @@ mod tests {
     }
 
     #[test]
-    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet() {
+    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
+    ) {
         let system = System::new();
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;

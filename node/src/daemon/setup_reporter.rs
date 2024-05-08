@@ -1218,6 +1218,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain::PolyMumbai;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
+    use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -1233,7 +1234,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use masq_lib::node_addr::NodeAddr;
 
     #[test]
     fn constants_have_correct_values() {

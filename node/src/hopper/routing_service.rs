@@ -1052,8 +1052,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system =
-            System::new();
+        let system = System::new();
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             CryptDEPair {

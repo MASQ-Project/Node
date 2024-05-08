@@ -4,21 +4,21 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{ArgMatches, Command as ClapCommand};
+use itertools::Itertools;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
-use masq_lib::shared_schema::{data_directory_arg, NeighborhoodMode, shared_app};
+use masq_lib::shared_schema::{data_directory_arg, shared_app, NeighborhoodMode};
 use masq_lib::short_writeln;
-use masq_lib::utils::{index_of_from, DATA_DIRECTORY_DAEMON_HELP, get_argument_value_as_string};
+use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTORY_DAEMON_HELP};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::Iterator;
-use itertools::Itertools;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -26,11 +26,14 @@ const SETUP_COMMAND_ABOUT: &str =
     "Establishes (if Node is not already running) and displays startup parameters for MASQNode.";
 
 pub fn setup_subcommand() -> ClapCommand {
-    let command_with_old_data_directory = shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT));
-    let args_except_data_directory = command_with_old_data_directory.get_arguments()
+    let command_with_old_data_directory =
+        shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT));
+    let args_except_data_directory = command_with_old_data_directory
+        .get_arguments()
         .filter(|arg| arg.get_long() != Some("data-directory"))
         .collect_vec();
-    let command_with_new_data_directory = ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT)
+    let command_with_new_data_directory = ClapCommand::new("setup")
+        .about(SETUP_COMMAND_ABOUT)
         .args(args_except_data_directory)
         .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()));
     command_with_new_data_directory
@@ -79,7 +82,8 @@ impl SetupCommand {
             .map(|piece| piece[2..].to_string())
             .map(|key| {
                 if Self::has_value(pieces, &key) {
-                    let value = get_argument_value_as_string(&matches, &key).expect("Value disappeared");
+                    let value =
+                        get_argument_value_as_string(&matches, &key).expect("Value disappeared");
                     UiSetupRequestValue::new(&key, &value)
                 } else {
                     UiSetupRequestValue::clear(&key)
@@ -229,11 +233,15 @@ mod tests {
         let subject = factory
             .make(&[
                 "setup".to_string(),
-                "--neighborhood-mode".to_string(), "zero-hop".to_string(),
+                "--neighborhood-mode".to_string(),
+                "zero-hop".to_string(),
                 "--log-level".to_string(),
-                "--chain".to_string(), "polygon-mainnet".to_string(),
-                "--scan-intervals".to_string(), "123|111|228".to_string(),
-                "--scans".to_string(), "off".to_string(),
+                "--chain".to_string(),
+                "polygon-mainnet".to_string(),
+                "--scan-intervals".to_string(),
+                "123|111|228".to_string(),
+                "--scans".to_string(),
+                "off".to_string(),
             ])
             .unwrap();
 

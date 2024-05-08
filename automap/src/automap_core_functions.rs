@@ -247,7 +247,7 @@ fn poke_firewall_hole(
     ));
     match transactor.add_mapping(router_ip, test_port, 5) {
         Ok(_) => status.succeed(),
-        Err(e) if e == AutomapError::PermanentLeasesOnly => {
+        Err(AutomapError::PermanentLeasesOnly) => {
             poke_permanent_firewall_hole(test_port, status.permanent_only(), router_ip, transactor)
         }
         Err(e) => status.abort(e),

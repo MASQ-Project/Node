@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use clap::{crate_description, crate_version, Command, Arg, ColorChoice};
+use clap::{crate_description, crate_version, Arg, ColorChoice, Command};
 use indoc::indoc;
 use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -12,7 +12,11 @@ use masq_lib::utils::DATA_DIRECTORY_DAEMON_HELP;
 
 pub fn app_head() -> Command {
     Command::new("MASQNode")
-        .color(if cfg!(test) {ColorChoice::Never} else {ColorChoice::Auto})
+        .color(if cfg!(test) {
+            ColorChoice::Never
+        } else {
+            ColorChoice::Auto
+        })
         .disable_colored_help(cfg!(test))
         .author("MASQ")
         .version(crate_version!())

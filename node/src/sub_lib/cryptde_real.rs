@@ -3,6 +3,8 @@ use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
@@ -13,8 +15,6 @@ use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
 use std::any::Any;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -158,16 +158,15 @@ impl CryptDE for CryptDEReal {
         &self,
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String> {
-        let mut encryption_public_key =
-            match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
-                Ok(v) => v,
-                Err(_) => {
-                    return Err(format!(
-                        "Invalid Base64 value for public key: {}",
-                        descriptor_fragment,
-                    ))
-                }
-            };
+        let mut encryption_public_key = match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(format!(
+                    "Invalid Base64 value for public key: {}",
+                    descriptor_fragment,
+                ))
+            }
+        };
         if encryption_public_key.len() != cxsp::PUBLICKEYBYTES {
             return Err(format!(
                 "Public key must decode to {} bytes, not {}: {}",
@@ -236,8 +235,8 @@ impl CryptDEReal {
 
 #[cfg(test)]
 mod tests {
-    use base64::prelude::BASE64_STANDARD_NO_PAD;
     use super::*;
+    use base64::prelude::BASE64_STANDARD_NO_PAD;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
@@ -465,10 +464,7 @@ mod tests {
 
         let result = subject.public_key_to_descriptor_fragment(subject.public_key());
 
-        assert_eq!(
-            result,
-            BASE64_STANDARD_NO_PAD.encode(public_encryption_key)
-        );
+        assert_eq!(result, BASE64_STANDARD_NO_PAD.encode(public_encryption_key));
     }
 
     #[test]
@@ -505,8 +501,7 @@ mod tests {
         let subject = CryptDEReal::default();
         let short_public_encryption_key =
             &subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES - 1];
-        let short_half_key_string =
-            BASE64_STANDARD_NO_PAD.encode(short_public_encryption_key);
+        let short_half_key_string = BASE64_STANDARD_NO_PAD.encode(short_public_encryption_key);
 
         let result =
             subject.descriptor_fragment_to_first_contact_public_key(&short_half_key_string);
@@ -526,8 +521,7 @@ mod tests {
         let mut long_public_encryption_key =
             subject.public_key.as_slice()[..cxsp::PUBLICKEYBYTES].to_vec();
         long_public_encryption_key.push(0);
-        let long_half_key_string =
-            BASE64_STANDARD_NO_PAD.encode(&long_public_encryption_key);
+        let long_half_key_string = BASE64_STANDARD_NO_PAD.encode(&long_public_encryption_key);
 
         let result = subject.descriptor_fragment_to_first_contact_public_key(&long_half_key_string);
 

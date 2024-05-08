@@ -835,7 +835,6 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
-    use masq_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
@@ -844,6 +843,7 @@ mod tests {
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
+    use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;

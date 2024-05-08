@@ -98,10 +98,8 @@ fn handle_help_or_version(
 ) -> InteractiveEvent {
     let _lock = terminal_interface.lock();
     let _ = match arg {
-        "help" => writeln!(&mut stdout, "{}", app()
-            .render_help()),
-        "version" => writeln!(&mut stdout, "{}", app()
-            .render_version()),
+        "help" => writeln!(&mut stdout, "{}", app().render_help()),
+        "version" => writeln!(&mut stdout, "{}", app().render_version()),
         _ => unreachable!("should have been treated before"),
     };
     short_writeln!(stdout, "");

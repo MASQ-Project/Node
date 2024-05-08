@@ -33,6 +33,7 @@ toml = "0.7.6"
 #tungstenite = "0.21.0"
 workflow-websocket = "0.11.0"
 url = "1.7.2"
+async-trait = "0.1.79"
 
 [features]
 no_test_share = []

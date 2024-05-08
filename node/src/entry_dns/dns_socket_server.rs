@@ -1,14 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
-use masq_lib::command::StdStreams;
-use masq_lib::logger::Logger;
-use std::net::SocketAddr;
 use crate::entry_dns::processing;
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+use masq_lib::command::StdStreams;
+use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
+use std::net::SocketAddr;
 
 const DNS_PORT: u16 = 53;
 
@@ -42,7 +42,6 @@ impl ConfiguredByPrivilege for DnsSocketServer {
 }
 
 impl ConfiguredServer for DnsSocketServer {
-
     async fn make_server_future(self) -> std::io::Result<()> {
         loop {
             let mut buffer = self.buf;
@@ -57,8 +56,15 @@ impl ConfiguredServer for DnsSocketServer {
                 }
             };
             let response_length = processing::process(&mut buffer, len, &socket_addr, &self.logger);
-            if let Err(e) = self.socket_wrapper.send_to(&buffer[0..response_length], socket_addr).await {
-                error!(self.logger, "Unrecoverable error sending to UdpSocket: {}", e);
+            if let Err(e) = self
+                .socket_wrapper
+                .send_to(&buffer[0..response_length], socket_addr)
+                .await
+            {
+                error!(
+                    self.logger,
+                    "Unrecoverable error sending to UdpSocket: {}", e
+                );
                 return Err(e);
             }
         }
@@ -87,6 +93,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
     use crate::test_utils::unshared_test_utils::{make_rt, make_simplified_multi_config};
+    use hickory_proto::op::ResponseCode;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -100,7 +107,6 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use hickory_proto::op::ResponseCode;
     use tokio;
     use tokio::runtime::Runtime;
     use tokio::task;
@@ -212,51 +218,27 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let (log, mut buf) = {
             let socket_wrapper = make_socket_wrapper_mock();
-            socket_wrapper
-                .recv_from_results
-                .lock()
-                .unwrap()
-                .push(Ok((
-                    socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
-                    SocketAddr::from_str("0.0.0.0:0").unwrap(),
-                )));
-            socket_wrapper
-                .recv_from_results
-                .lock()
-                .unwrap()
-                .push(Ok((
-                    socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
-                    SocketAddr::from_str("1.0.0.0:0").unwrap(),
-                )));
-            socket_wrapper
-                .recv_from_results
-                .lock()
-                .unwrap()
-                .push(Ok((
-                    socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
-                    SocketAddr::from_str("2.0.0.0:0").unwrap(),
-                )));
+            socket_wrapper.recv_from_results.lock().unwrap().push(Ok((
+                socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
+                SocketAddr::from_str("0.0.0.0:0").unwrap(),
+            )));
+            socket_wrapper.recv_from_results.lock().unwrap().push(Ok((
+                socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
+                SocketAddr::from_str("1.0.0.0:0").unwrap(),
+            )));
+            socket_wrapper.recv_from_results.lock().unwrap().push(Ok((
+                socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
+                SocketAddr::from_str("2.0.0.0:0").unwrap(),
+            )));
             socket_wrapper
                 .recv_from_results
                 .lock()
                 .unwrap()
                 .push(Err(Error::from(ErrorKind::BrokenPipe)));
 
-            socket_wrapper
-                .send_to_results
-                .lock()
-                .unwrap()
-                .push(Ok(12));
-            socket_wrapper
-                .send_to_results
-                .lock()
-                .unwrap()
-                .push(Ok(12));
-            socket_wrapper
-                .send_to_results
-                .lock()
-                .unwrap()
-                .push(Ok(12));
+            socket_wrapper.send_to_results.lock().unwrap().push(Ok(12));
+            socket_wrapper.send_to_results.lock().unwrap().push(Ok(12));
+            socket_wrapper.send_to_results.lock().unwrap().push(Ok(12));
             let mut subject = make_instrumented_subject(socket_wrapper.clone());
             subject
                 .initialize_as_unprivileged(
@@ -328,14 +310,10 @@ mod tests {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
-        socket_wrapper
-            .recv_from_results
-            .lock()
-            .unwrap()
-            .push(Ok((
-                socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
-                SocketAddr::from_str("0.0.0.0:0").unwrap(),
-            )));
+        socket_wrapper.recv_from_results.lock().unwrap().push(Ok((
+            socket_wrapper.guts.lock().unwrap().borrow().buf.len(),
+            SocketAddr::from_str("0.0.0.0:0").unwrap(),
+        )));
         socket_wrapper
             .send_to_results
             .lock()

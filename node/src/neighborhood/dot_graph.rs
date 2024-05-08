@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::cryptde::PublicKey;
-use std::fmt::Write as _;
 use masq_lib::node_addr::NodeAddr;
+use std::fmt::Write as _;
 
 pub trait DotRenderable {
     fn render(&self) -> String;

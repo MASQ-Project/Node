@@ -667,6 +667,7 @@ mod tests {
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
+    use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::utils::{
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
         TEST_DEFAULT_CHAIN,
@@ -689,7 +690,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::node_addr::NodeAddr;
 
     struct LogRecipientSetterNull {}
 

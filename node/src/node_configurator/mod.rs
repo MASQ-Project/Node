@@ -12,7 +12,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::utils::{db_connection_launch_panic, make_new_multi_config};
-use clap::{Command};
+use clap::Command;
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;

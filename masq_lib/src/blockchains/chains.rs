@@ -5,9 +5,9 @@ use crate::constants::{
     DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
+use core::str::FromStr;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
-use core::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Chain {
@@ -112,8 +112,8 @@ fn return_record_opt_body<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::shared_schema::official_chain_names;
     use super::*;
+    use crate::shared_schema::official_chain_names;
 
     #[test]
     #[should_panic(expected = "Non-unique identifier used to query a BlockchainRecord")]
@@ -157,7 +157,7 @@ mod tests {
         official_chain_names().iter().for_each(|expected_name| {
             let chain = Chain::from_str(*expected_name).unwrap();
             let actual_name = chain.to_string();
-            assert_eq! (&actual_name, expected_name);
+            assert_eq!(&actual_name, expected_name);
         })
     }
 

@@ -2,13 +2,13 @@
 
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
+use futures::{AsyncRead, AsyncWrite};
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use futures::{AsyncRead, AsyncWrite};
 use tokio::io::ReadBuf;
 
 type PollReadResult = (Vec<u8>, Poll<io::Result<usize>>);
@@ -27,7 +27,11 @@ impl Read for ReadHalfWrapperMock {
 }
 
 impl AsyncRead for ReadHalfWrapperMock {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<usize>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<usize>> {
         if self.poll_read_results.is_empty() {
             panic!("ReadHalfWrapperMock: poll_read_results is empty")
         }
@@ -80,7 +84,11 @@ impl Write for WriteHalfWrapperMock {
 }
 
 impl AsyncWrite for WriteHalfWrapperMock {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         self.poll_write_params.lock().unwrap().push(buf.to_vec());
         if self.poll_write_results.is_empty() {
             panic!("WriteHalfWrapperMock: poll_write_results is empty")
@@ -117,10 +125,7 @@ impl WriteHalfWrapperMock {
         self
     }
 
-    pub fn poll_write_result(
-        mut self,
-        result: Poll<io::Result<usize>>,
-    ) -> WriteHalfWrapperMock {
+    pub fn poll_write_result(mut self, result: Poll<io::Result<usize>>) -> WriteHalfWrapperMock {
         self.poll_write_results.push(result);
         self
     }

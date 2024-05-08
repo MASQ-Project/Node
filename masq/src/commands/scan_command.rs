@@ -2,11 +2,11 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand, Arg};
+use clap::builder::PossibleValuesParser;
+use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
-use clap::builder::PossibleValuesParser;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -20,16 +20,18 @@ const SCAN_SUBCOMMAND_ABOUT: &str =
 const SCAN_SUBCOMMAND_HELP: &str = "Type of the scan that should be triggered.";
 
 pub fn scan_subcommand() -> ClapCommand {
-    ClapCommand::new("scan")
-        .about(SCAN_SUBCOMMAND_ABOUT)
-        .arg(
-            Arg::new("name")
-                .help(SCAN_SUBCOMMAND_HELP)
-                .index(1)
-                .value_parser(PossibleValuesParser::new(&["payables", "receivables", "pendingpayables"]))
-                .required(true)
-                .ignore_case(true),
-        )
+    ClapCommand::new("scan").about(SCAN_SUBCOMMAND_ABOUT).arg(
+        Arg::new("name")
+            .help(SCAN_SUBCOMMAND_HELP)
+            .index(1)
+            .value_parser(PossibleValuesParser::new(&[
+                "payables",
+                "receivables",
+                "pendingpayables",
+            ]))
+            .required(true)
+            .ignore_case(true),
+    )
 }
 
 impl Command for ScanCommand {

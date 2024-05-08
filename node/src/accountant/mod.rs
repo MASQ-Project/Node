@@ -1725,8 +1725,7 @@ mod tests {
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
-        let system =
-            System::new();
+        let system = System::new();
         let subject = accountant.start();
 
         subject
@@ -2162,8 +2161,7 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(RequestBalancesToPayPayables));
-        let system =
-            System::new();
+        let system = System::new();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();

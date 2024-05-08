@@ -4,9 +4,7 @@ pub(in crate::commands::financials_command) mod restricted {
     use crate::commands::financials_command::data_structures::restricted::{
         HeadingsHolder, ProcessAccountsMetadata,
     };
-    use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
-        convert_masq_from_gwei_and_dress_well,
-    };
+    use crate::commands::financials_command::parsing_and_value_dressing::restricted::convert_masq_from_gwei_and_dress_well;
     use crate::commands::financials_command::FinancialsCommand;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};

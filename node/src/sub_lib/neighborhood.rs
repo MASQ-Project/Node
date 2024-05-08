@@ -24,6 +24,7 @@ use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
@@ -32,7 +33,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use masq_lib::node_addr::NodeAddr;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 

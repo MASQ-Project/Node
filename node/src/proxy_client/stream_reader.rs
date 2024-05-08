@@ -1,6 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use std::future::Future;
-use std::io;
 use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::stream_key::StreamKey;
@@ -10,6 +8,8 @@ use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use crossbeam_channel::Sender;
 use masq_lib::logger::Logger;
+use std::future::Future;
+use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};

@@ -3,8 +3,8 @@ use hickory_resolver::config::ResolverConfig;
 use hickory_resolver::config::ResolverOpts;
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup_ip::LookupIp;
-use hickory_resolver::{AsyncResolver, TokioAsyncResolver};
 use hickory_resolver::name_server::TokioRuntimeProvider;
+use hickory_resolver::{AsyncResolver, TokioAsyncResolver};
 
 pub trait ResolverWrapper: Send {
     async fn lookup_ip(&self, host: &str) -> Result<LookupIp, ResolveError>;
@@ -29,6 +29,8 @@ impl ResolverWrapperFactory for ResolverWrapperFactoryReal {
     fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
         let runtime_provider = TokioRuntimeProvider::new();
         let resolver = AsyncResolver::new(config, options, runtime_provider);
-        Box::new(ResolverWrapperReal { delegate: Box::new(resolver) })
+        Box::new(ResolverWrapperReal {
+            delegate: Box::new(resolver),
+        })
     }
 }

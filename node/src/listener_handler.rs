@@ -7,12 +7,12 @@ use crate::sub_lib::tokio_wrappers::TokioListenerWrapper;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use actix::Recipient;
 use masq_lib::logger::Logger;
+use std::future::Future;
 use std::io;
 use std::marker::Send;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -78,7 +78,7 @@ impl Future for ListenerHandlerReal {
                                     "Connection from {} was closed before it could be accepted",
                                     socket_addr
                                 );
-                                return Poll::Pending
+                                return Poll::Pending;
                             }
                         };
                     self.add_stream_sub
@@ -140,6 +140,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
+    use crate::test_utils::unshared_test_utils::make_rt;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -161,7 +162,6 @@ mod tests {
     use tokio;
     use tokio::net::TcpStream;
     use tokio::task;
-    use crate::test_utils::unshared_test_utils::make_rt;
 
     struct TokioListenerWrapperMock {
         logger_arc: Arc<TestLog>,
@@ -181,11 +181,17 @@ mod tests {
 
     impl TokioListenerWrapper for TokioListenerWrapperMock {
         fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
-            self.logger_arc.lock().unwrap().log(format!("bind ({:?})", addr));
+            self.logger_arc
+                .lock()
+                .unwrap()
+                .log(format!("bind ({:?})", addr));
             self.bind_results.remove(0)
         }
 
-        fn poll_accept(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
+        fn poll_accept(
+            &mut self,
+            cx: &mut Context<'_>,
+        ) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
             self.poll_accept_results.borrow_mut().remove(0)
         }
     }

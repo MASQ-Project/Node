@@ -1,15 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use clap::{Command as ClapCommand, Arg, ArgGroup, value_parser};
-use std::fmt::{Debug};
-use std::io::Write;
-use std::str::FromStr;
 use clap::builder::{ArgPredicate, ValueRange};
-use num::ToPrimitive;
-use regex::{Captures, Regex};
+use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
 use masq_lib::messages::{RangeQuery, TopRecordsOrdering};
 use masq_lib::short_writeln;
+use num::ToPrimitive;
+use regex::{Captures, Regex};
+use std::fmt::Debug;
+use std::io::Write;
+use std::str::FromStr;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
@@ -38,7 +38,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(NonZeroU16))
+                .value_parser(value_parser!(NonZeroU16)),
         )
         .arg(
             Arg::new("payable")
@@ -49,7 +49,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(TwoRanges))
+                .value_parser(value_parser!(TwoRanges)),
         )
         .arg(
             Arg::new("receivable")
@@ -60,7 +60,7 @@ pub fn financials_subcommand() -> ClapCommand {
                 .required(false)
                 .ignore_case(false)
                 .num_args(ValueRange::new(1..=1))
-                .value_parser(value_parser!(TwoRanges))
+                .value_parser(value_parser!(TwoRanges)),
         )
         .arg(
             Arg::new("no-stats")
@@ -122,8 +122,8 @@ impl FromStr for NonZeroU16 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match u16::from_str(s) {
-            Ok(value) if value != 0 => Ok(NonZeroU16{data: value}),
-            _ => Err(format!("Can't parse NonZeroU16 from '{}'", s))
+            Ok(value) if value != 0 => Ok(NonZeroU16 { data: value }),
+            _ => Err(format!("Can't parse NonZeroU16 from '{}'", s)),
         }
     }
 }
@@ -131,7 +131,7 @@ impl FromStr for NonZeroU16 {
 #[derive(Debug, PartialEq, Clone)]
 pub struct TwoRanges {
     pub age_range: (u64, u64),
-    pub gwei_range: (i128, Option<i128>)
+    pub gwei_range: (i128, Option<i128>),
 }
 
 impl FromStr for TwoRanges {
@@ -149,14 +149,16 @@ impl FromStr for TwoRanges {
         let amount_range = Self::parse_masq_range_to_gwei(balance_range_str)?;
         match amount_range.1 {
             Some(high) => Self::check_range(s, &amount_range.0, &high)?,
-            None => Self::check_range(s, &amount_range.0, &(i64::MAX as i128))?
+            None => Self::check_range(s, &amount_range.0, &(i64::MAX as i128))?,
         }
-        Ok(TwoRanges {age_range, gwei_range: amount_range })
+        Ok(TwoRanges {
+            age_range,
+            gwei_range: amount_range,
+        })
     }
 }
 
 impl TwoRanges {
-
     pub fn try_convert_with_limit_u(&self, limit: i128) -> Result<RangeQuery<u64>, String> {
         let (age_low, age_high, amount_low, amount_high) = self.try_convert_with_limit(limit)?;
         Ok(RangeQuery {
@@ -181,8 +183,7 @@ impl TwoRanges {
         let apply_limit = |candidate: i128| -> Result<i128, String> {
             if candidate <= limit {
                 Ok(candidate)
-            }
-            else {
+            } else {
                 Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only gwei supported)", candidate))
             }
         };
@@ -213,42 +214,36 @@ impl TwoRanges {
         ))
     }
 
-    fn parse_integer_as_i128(str_gwei: &str) -> Result<i128, String>
-    {
-        str::parse::<i128>(str_gwei)
-            .map_err(|_| format!(
+    fn parse_integer_as_i128(str_gwei: &str) -> Result<i128, String> {
+        str::parse::<i128>(str_gwei).map_err(|_| {
+            format!(
                 "Non numeric value '{}', it must be a valid integer",
                 str_gwei
-            ))
+            )
+        })
     }
 
-    fn parse_masq_range_to_gwei(range_str: &str) -> Result<(i128, Option<i128>), String>
-    {
+    fn parse_masq_range_to_gwei(range_str: &str) -> Result<(i128, Option<i128>), String> {
         let regex = Regex::new(r#"^((-?\d+\.?\d*)\s*-\s*(-?\d+\.?\d*))|(-?\d+\.?\d*)$"#)
             .expect("wrong regex");
         let (first, second_opt) = Self::extract_individual_masq_values(range_str, regex)?;
         let first_numeral = Self::process_optionally_fractional_number(&first)?;
         let second_numeral_opt = match second_opt {
             None => None,
-            Some(second) => Some(Self::process_optionally_fractional_number(&second)?)
+            Some(second) => Some(Self::process_optionally_fractional_number(&second)?),
         };
-        Ok((
-            first_numeral,
-            second_numeral_opt,
-        ))
+        Ok((first_numeral, second_numeral_opt))
     }
 
     fn check_range<T: PartialOrd>(s: &str, low: &T, high: &T) -> Result<(), String> {
         if low >= high {
             Err(format!("Both ranges '{}' must be low to high", s))
-        }
-        else {
+        } else {
             Ok(())
         }
     }
 
-    fn process_optionally_fractional_number(num: &str) -> Result<i128, String>
-    {
+    fn process_optionally_fractional_number(num: &str) -> Result<i128, String> {
         const DIGITS_IN_BILLION: u32 = 9;
         fn all_digits_with_dot_removed(num: &str) -> String {
             num.chars().filter(|char| *char != '.').collect()
@@ -283,8 +278,7 @@ impl TwoRanges {
                             "Amount bigger than the MASQ total supply: {}, total supply: {}",
                             num, MASQ_TOTAL_SUPPLY
                         ))
-                    }
-                    else {
+                    } else {
                         Ok(gwei)
                     }
                 }
@@ -303,10 +297,7 @@ impl TwoRanges {
                 DIGITS_IN_BILLION - decimal_digits_count,
             )
         } else {
-            decimal_shift_to_gwei(
-                Self::parse_integer_as_i128(num)?,
-                DIGITS_IN_BILLION
-            )
+            decimal_shift_to_gwei(Self::parse_integer_as_i128(num)?, DIGITS_IN_BILLION)
         }
     }
 
@@ -366,7 +357,8 @@ impl TwoRanges {
         stdout: &mut dyn Write,
         table_type: &str,
         range_query: RangeQuery<R>,
-    ) where R: ToPrimitive
+    ) where
+        R: ToPrimitive,
     {
         short_writeln!(
             stdout,
@@ -380,10 +372,11 @@ impl TwoRanges {
     }
 
     fn gwei_as_masq<R>(gwei: R) -> String
-        where R: ToPrimitive
+    where
+        R: ToPrimitive,
     {
         if gwei.to_i64().expect("Can't convert integer to i64") == i64::MAX {
-            return "∞".to_string()
+            return "∞".to_string();
         }
         let gwei_f = gwei.to_f64().expect("Can't convert integer to float");
         let masq_f = gwei_f / (GWEI_IN_MASQ as f64);
@@ -424,54 +417,79 @@ mod tests {
     fn from_str_for_nonzerou16_doesnt_like_bad_syntax() {
         let result = NonZeroU16::from_str("booga");
 
-        assert_eq! (result, Err("Can't parse NonZeroU16 from 'booga'".to_string()))
+        assert_eq!(
+            result,
+            Err("Can't parse NonZeroU16 from 'booga'".to_string())
+        )
     }
 
     #[test]
     fn from_str_for_nonzerou16_doesnt_like_zero() {
         let result = NonZeroU16::from_str("0");
 
-        assert_eq! (result, Err("Can't parse NonZeroU16 from '0'".to_string()))
+        assert_eq!(result, Err("Can't parse NonZeroU16 from '0'".to_string()))
     }
 
     #[test]
     fn from_str_for_nonzerou16_doesnt_like_big_numbers() {
         let result = NonZeroU16::from_str("65536");
 
-        assert_eq! (result, Err("Can't parse NonZeroU16 from '65536'".to_string()))
+        assert_eq!(
+            result,
+            Err("Can't parse NonZeroU16 from '65536'".to_string())
+        )
     }
 
     #[test]
     fn from_str_for_nonzerou16_happy_path() {
         let result = NonZeroU16::from_str("1024");
 
-        assert_eq! (result, Ok(NonZeroU16{data: 1024}))
+        assert_eq!(result, Ok(NonZeroU16 { data: 1024 }))
     }
 
     #[test]
     fn validate_two_ranges_also_integers_are_acceptable_for_masqs_range() {
         let result: Result<TwoRanges, String> = TwoRanges::from_str("454-2000|2000-30000");
 
-        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), gwei_range: (2_000_000_000_000, Some(30_000_000_000_000))}))
+        assert_eq!(
+            result,
+            Ok(TwoRanges {
+                age_range: (454, 2000),
+                gwei_range: (2_000_000_000_000, Some(30_000_000_000_000))
+            })
+        )
     }
 
     #[test]
     fn validate_two_ranges_one_side_negative_range_is_acceptable_for_masqs_range() {
         let result: Result<TwoRanges, String> = TwoRanges::from_str("454-2000|-2000-30000");
 
-        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), gwei_range: (-2_000_000_000_000, Some(30_000_000_000_000))}))
+        assert_eq!(
+            result,
+            Ok(TwoRanges {
+                age_range: (454, 2000),
+                gwei_range: (-2_000_000_000_000, Some(30_000_000_000_000))
+            })
+        )
     }
 
     #[test]
     fn validate_two_ranges_both_side_negative_range_is_acceptable_for_masqs_range() {
         let result: Result<TwoRanges, String> = TwoRanges::from_str("454-2000|-2000--1000");
 
-        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), gwei_range: (-2_000_000_000_000, Some(-1_000_000_000_000))}))
+        assert_eq!(
+            result,
+            Ok(TwoRanges {
+                age_range: (454, 2000),
+                gwei_range: (-2_000_000_000_000, Some(-1_000_000_000_000))
+            })
+        )
     }
 
     #[test]
     fn validate_two_ranges_with_decimal_part_longer_than_the_whole_gwei_range() {
-        let result: Result<TwoRanges, String> = TwoRanges::from_str("454-2000|100-1000.000111222333");
+        let result: Result<TwoRanges, String> =
+            TwoRanges::from_str("454-2000|100-1000.000111222333");
 
         assert_eq!(result, Err("Value '1000.000111222333' exceeds the limit of maximally nine decimal digits (only gwei supported)".to_string()))
     }
@@ -480,7 +498,13 @@ mod tests {
     fn validate_two_ranges_with_decimal_part_fully_used_up() {
         let result: Result<TwoRanges, String> = TwoRanges::from_str("454-2000|100-1000.000111222");
 
-        assert_eq!(result, Ok(TwoRanges{age_range: (454, 2000), gwei_range: (100_000_000_000, Some(1_000_000_111_222))}))
+        assert_eq!(
+            result,
+            Ok(TwoRanges {
+                age_range: (454, 2000),
+                gwei_range: (100_000_000_000, Some(1_000_000_111_222))
+            })
+        )
     }
 
     #[test]
@@ -577,22 +601,30 @@ mod tests {
     #[test]
     fn validate_two_ranges_overflow_for_i128_is_detected() {
         let too_much: i128 = 1_000_000_000_000_000_000_000_000_000_000_000;
-        let result: Result<TwoRanges, String> = TwoRanges::from_str(&format!("1000-1234|1234-{}", too_much));
+        let result: Result<TwoRanges, String> =
+            TwoRanges::from_str(&format!("1000-1234|1234-{}", too_much));
 
         assert_eq!(
             result,
-            Err(format!("Amount bigger than the MASQ total supply: {}, total supply: {}", too_much, MASQ_TOTAL_SUPPLY))
+            Err(format!(
+                "Amount bigger than the MASQ total supply: {}, total supply: {}",
+                too_much, MASQ_TOTAL_SUPPLY
+            ))
         )
     }
 
     #[test]
     fn validate_two_ranges_masq_value_too_high_is_caught() {
         let too_much = MASQ_TOTAL_SUPPLY + 1;
-        let result: Result<TwoRanges, String> = TwoRanges::from_str(&format!("1000-1234|1234-{}", too_much));
+        let result: Result<TwoRanges, String> =
+            TwoRanges::from_str(&format!("1000-1234|1234-{}", too_much));
 
         assert_eq!(
             result,
-            Err(format!("Amount bigger than the MASQ total supply: {}, total supply: {}", too_much, MASQ_TOTAL_SUPPLY))
+            Err(format!(
+                "Amount bigger than the MASQ total supply: {}, total supply: {}",
+                too_much, MASQ_TOTAL_SUPPLY
+            ))
         )
     }
 
@@ -618,7 +650,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-    expected = "entered unreachable code: the regex was designed not to allow 'None' for the second and 'Some(\"ghi\")' for the third capture group"
+        expected = "entered unreachable code: the regex was designed not to allow 'None' for the second and 'Some(\"ghi\")' for the third capture group"
     )]
     fn extract_individual_masq_values_regex_is_wrong() {
         let regex = Regex::new("(abc)?(def)?(ghi)").unwrap();

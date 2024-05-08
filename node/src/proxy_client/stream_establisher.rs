@@ -139,7 +139,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::task::Poll;
-    use std::{thread};
+    use std::thread;
     use tokio::task;
 
     #[test]
@@ -165,7 +165,10 @@ mod tests {
             let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![
                 (bytes.to_vec(), Poll::Ready(Ok(bytes.len()))),
-                (vec![], Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe)))),
+                (
+                    vec![],
+                    Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe))),
+                ),
             ];
 
             let subject = StreamEstablisher {

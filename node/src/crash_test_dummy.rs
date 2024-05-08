@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::logger::Logger;
 
 pub struct CrashTestDummy<C> {
     pub configuration: C,
@@ -61,8 +61,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use tokio::runtime::Runtime;
     use super::*;
+    use tokio::runtime::Runtime;
 
     #[test]
     #[should_panic(expected = "CrashTestDummy")]

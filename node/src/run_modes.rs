@@ -10,10 +10,10 @@ use crate::run_modes_factories::{
 use actix::System;
 use clap::Error;
 use futures::future::Future;
-use tokio::{task, task_local};
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+use tokio::{task, task_local};
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -243,13 +243,16 @@ impl Runner for RunnerReal {
         let _ = task::spawn(async {
             let result = server_initializer.await;
             match result {
-                Ok(x) => panic! ("DNS server was never supposed to stop, but terminated with {:?}", x),
+                Ok(x) => panic!(
+                    "DNS server was never supposed to stop, but terminated with {:?}",
+                    x
+                ),
                 Err(_) => System::current().stop_with_code(1), // TODO: Maybe log this error?
             }
         });
         match system.run() {
             Ok(()) => Ok(()),
-            Err(e) => RunnerError::blah
+            Err(e) => RunnerError::blah,
         }
     }
 

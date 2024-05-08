@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::schema::app;
-use clap::{ArgMatches};
+use clap::ArgMatches;
 use masq_lib::shared_schema::common_validators::InsecurePort;
 
 #[allow(clippy::upper_case_acronyms)]

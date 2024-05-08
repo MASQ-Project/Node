@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::terminal::terminal_interface::TerminalWrapper;
-use clap::{Command as ClapCommand, Arg};
+use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };

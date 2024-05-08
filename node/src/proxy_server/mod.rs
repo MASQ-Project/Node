@@ -2400,8 +2400,7 @@ mod tests {
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
-        let system =
-            System::new();
+        let system = System::new();
         let peer_actors = peer_actors_builder()
             .accountant(accountant_mock)
             .hopper(hopper_mock)
@@ -2487,8 +2486,7 @@ mod tests {
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
-        let system =
-            System::new();
+        let system = System::new();
         let peer_actors = peer_actors_builder()
             .proxy_server(proxy_server_mock)
             .build();
@@ -2577,8 +2575,7 @@ mod tests {
         };
         thread::spawn(move || {
             let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-            let system =
-                System::new();
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
@@ -3551,8 +3548,7 @@ mod tests {
 
     #[test]
     fn proxy_server_records_services_consumed_even_after_browser_stream_is_gone() {
-        let system =
-            System::new();
+        let system = System::new();
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = main_cryptde();

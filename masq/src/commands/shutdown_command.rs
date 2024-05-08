@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use clap::{Command as ClapCommand};
+use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
 use masq_lib::short_writeln;
