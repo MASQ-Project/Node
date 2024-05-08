@@ -66,8 +66,9 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         &self,
         _consuming_wallet: &Wallet,
         _persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
-        self.handle_uninitialized_interface("build blockchain agent")
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+        todo!("GH-744")
+        // self.handle_uninitialized_interface("build blockchain agent")
     }
 
     fn get_service_fee_balance(
@@ -246,7 +247,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         let subject = make_subject(test_name);
 
-        let result = subject.build_blockchain_agent(&wallet, &persistent_config);
+        let result = subject.build_blockchain_agent(&wallet, &persistent_config).wait();
 
         let err = match result {
             Ok(_) => panic!("we expected an error but got ok"),

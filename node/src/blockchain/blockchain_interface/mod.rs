@@ -50,7 +50,7 @@ pub trait BlockchainInterface {
         &self,
         consuming_wallet: &Wallet,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>;
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>;
     fn get_service_fee_balance(
         &self,
         wallet_address: Address,

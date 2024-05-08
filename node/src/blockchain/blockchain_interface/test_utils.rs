@@ -56,6 +56,10 @@ impl LowBlockchainInt for LowBlockchainIntMock {
             .push(address.clone());
         self.get_transaction_id_results.borrow_mut().remove(0)
     }
+
+    fn dup(&self) -> Box<dyn LowBlockchainInt> {
+        todo!()
+    }
 }
 
 impl LowBlockchainIntMock {

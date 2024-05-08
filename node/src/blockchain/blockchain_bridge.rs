@@ -18,7 +18,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 };
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-use crate::blockchain::blockchain_interface_utils::{get_token_balance, get_transaction_fee_balance, send_payables_within_batch};
+use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, send_payables_within_batch};
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
@@ -345,7 +345,28 @@ impl BlockchainBridge {
         let contract = self.blockchain_interface.get_contract();
 
         return Box::new(
-           get_token_balance(contract, consuming_wallet_address)
+            // self.blockchain_interface.build_blockchain_agent(consuming_wallet, )
+            //     .map_err()
+            //     .and_then(|move agent| {
+            //             let outgoing_message = BlockchainAgentWithContextMessage::new(
+            //                 incoming_message.protected_qualified_payables,
+            //                 agent,
+            //                 incoming_message.response_skeleton_opt,
+            //             );
+            //             self.payable_payments_setup_subs_opt
+            //                 .as_ref()
+            //                 .expect("Accountant is unbound")
+            //                 .try_send(outgoing_message)
+            //                 .expect("Accountant is dead");
+            //
+            //
+            //         // ....
+            //
+            //
+            // });
+
+
+           get_service_fee_balance(contract, consuming_wallet_address)
                 .map_err(|e| {
                     format!("Did not find out token balance of the consuming wallet: {:?}", e )
                 })
@@ -424,10 +445,10 @@ impl BlockchainBridge {
             Ok(Some(mbc)) => mbc,
             _ => u64::MAX,
         };
-        let end_block = match self
+        let end_block = match self // TODO: GH-744: Has Wait here.
             .blockchain_interface
             .lower_interface()
-            .get_block_number()
+            .get_block_number() // TODO: GH-744: dup_lower_interface -- return owned
         {
             Ok(eb) => {
                 if u64::MAX == max_block_count {
@@ -464,7 +485,6 @@ impl BlockchainBridge {
             self.blockchain_interface
                 .retrieve_transactions(start_block, end_block, &msg.recipient)
                 .map_err(move |e| {
-                    // todo!("GH-744: handle_retrieve_transactions - error case");
                     let received_payments_error =
                         match BlockchainBridge::extract_max_block_count(e.clone()) {
                             Some(max_block_count) => {
@@ -475,7 +495,6 @@ impl BlockchainBridge {
                                 e
                             )),
                         };
-
                     received_payments_subs_error_case
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
@@ -489,13 +508,10 @@ impl BlockchainBridge {
                     )
                 })
                 .and_then(move |transactions| {
-                    // todo!("GH-744: handle_retrieve_transactions - Ok case");
-
                     let payments_and_start_block = PaymentsAndStartBlock {
                         payments: transactions.transactions,
                         new_start_block: transactions.new_start_block,
                     };
-
                     received_payments_subs_ok_case
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
@@ -957,55 +973,8 @@ mod tests {
     }
 
     #[test]
-    fn report_accounts_payable_returns_error_when_there_is_no_consuming_wallet_configured() {
-        todo!("GH-744 - This test needs refactoring");
-        // let blockchain_interface_mock = BlockchainInterfaceMock::default();
-        // let persistent_configuration_mock = PersistentConfigurationMock::default();
-        // let (accountant, _, accountant_recording_arc) = make_recorder();
-        // let recipient = accountant.start().recipient();
-        // let mut subject = BlockchainBridge::new(
-        //     Box::new(blockchain_interface_mock),
-        //     Box::new(persistent_configuration_mock),
-        //     false,
-        //     None,
-        // );
-        // subject.sent_payable_subs_opt = Some(recipient);
-        // let request = ReportAccountsPayable {
-        //     accounts: vec![PayableAccount {
-        //         wallet: make_wallet("blah"),
-        //         balance_wei: 42,
-        //         last_paid_timestamp: SystemTime::now(),
-        //         pending_payable_opt: None,
-        //     }],
-        //     response_skeleton_opt: None,
-        // };
-        // let system = System::new("test");
-        //
-        // let result = subject.handle_report_accounts_payable(request).wait();
-        //
-        // System::current().stop();
-        // assert_eq!(system.run(), 0);
-        // assert_eq!(
-        //     result,
-        //     Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
-        // );
-        // let accountant_recording = accountant_recording_arc.lock().unwrap();
-        // let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
-        // assert_eq!(
-        //     sent_payables_msg,
-        //     &SentPayables {
-        //         payment_procedure_result: Err(PayableTransactionError::MissingConsumingWallet),
-        //         response_skeleton_opt: None
-        //     }
-        // );
-        // assert_eq!(accountant_recording.len(), 1)
-    }
-
-    #[test]
     fn handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant() {
-
-        todo!("GH-744 - This test needs refactoring");
-
+        todo!("GH-744 - This test needs refactoring -- Blockchain Agent");
 
         // let system = System::new(
         //     "handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant",

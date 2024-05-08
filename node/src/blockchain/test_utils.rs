@@ -154,12 +154,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         consuming_wallet: &Wallet,
         persistent_config: &dyn PersistentConfiguration,
-    ) -> Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError> {
-        self.build_blockchain_agent_params.lock().unwrap().push((
-            consuming_wallet.clone(),
-            persistent_config.arbitrary_id_stamp(),
-        ));
-        self.build_blockchain_agent_results.borrow_mut().remove(0)
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+        todo!("GH-744")
+        // self.build_blockchain_agent_params.lock().unwrap().push((
+        //     consuming_wallet.clone(),
+        //     persistent_config.arbitrary_id_stamp(),
+        // ));
+        // self.build_blockchain_agent_results.borrow_mut().remove(0)
     }
 
     fn get_service_fee_balance(

@@ -27,6 +27,10 @@ impl LowBlockchainInt for LowBlockChainIntNull {
     fn get_transaction_id(&self, _wallet: &Wallet) -> ResultForNonce {
         Err(self.handle_null_call("transaction id"))
     }
+
+    fn dup(&self) -> Box<dyn LowBlockchainInt> {
+        todo!()
+    }
 }
 
 impl LowBlockChainIntNull {

@@ -1,11 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use futures::{Future, Poll};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 
 use web3::types::U256;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainAgentBuildError;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
@@ -40,6 +42,7 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
         self.pending_transaction_id
     }
 }
+
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
 // each non-zero byte costs 64 units of gas

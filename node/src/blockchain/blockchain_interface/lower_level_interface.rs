@@ -13,6 +13,8 @@ pub trait LowBlockchainInt {
     fn get_block_number(&self) -> LatestBlockNumber;
 
     fn get_transaction_id(&self, wallet: &Wallet) -> ResultForNonce;
+
+    fn dup(&self) -> Box<dyn LowBlockchainInt>;
 }
 
 pub type ResultForBalance = BlockchainResult<web3::types::U256>;

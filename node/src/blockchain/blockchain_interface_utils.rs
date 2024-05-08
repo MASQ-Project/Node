@@ -7,12 +7,12 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     REQUESTS_IN_PARALLEL, TRANSFER_METHOD_ID,
 };
 
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use ethereum_types::U64;
-use futures::future::err;
+use futures::future::{err, result};
 use futures::stream::FuturesOrdered;
 use futures::{Future, Stream};
 use http::uri::Port;
@@ -33,8 +33,13 @@ use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
 use web3::api::{Accounts, Namespace};
 use web3::contract::{Contract, Options};
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
+use crate::blockchain::blockchain_interface::lower_level_interface::ResultForNonce;
+use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
+use crate::test_utils::make_paying_wallet;
 
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
@@ -181,7 +186,7 @@ pub fn sign_transaction(
     }
 }
 
-// TODO: GH-744
+// TODO: GH-744 -- Come back and delete this
 pub fn sign_transaction_2(
     chain: Chain,
     batch_web3: Web3<Batch<Http>>,
@@ -244,7 +249,7 @@ pub fn handle_new_transaction(
     signed_tx.transaction_hash
 }
 
-// TODO GH-744:
+// TODO GH-744: come back and delete this
 pub fn sign_and_send_payment_2(
     chain: Chain,
     batch_web3: Web3<Batch<Http>>,
@@ -271,7 +276,7 @@ pub fn sign_and_send_payment_2(
 }
 
 
-pub fn send_transaction_not_working(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
+pub fn send_transaction_not_working(batch_web3: Web3<Batch<Http>>, raw_transaction: Bytes) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> { // TODO: GH-744 delete this I think
     Box::new(
         batch_web3
             .eth()
@@ -344,7 +349,7 @@ pub fn sign_and_append_payment(
 }
 
 
-// TODO: GH-744
+// TODO: GH-744 -- Come back and delete this
 pub fn send_and_append_payment_2(
     chain: Chain,
     batch_web3: Web3<Batch<Http>>,
@@ -502,11 +507,10 @@ pub fn request_block_number(
     )
 }
 
-pub fn get_transaction_fee_balance(
+pub fn get_transaction_fee_balance( // TODO GH-744 -- Delete this -- move to lower_interface
     web3: Web3<Http>,
     address: Address,
 ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-    // TODO: GH-744: We could accept an wallet address instead of the wallet so this function wouldn't panic.
     Box::new(
         web3.eth()
             .balance(address, None)
@@ -514,7 +518,7 @@ pub fn get_transaction_fee_balance(
     )
 }
 
-pub fn get_token_balance(
+pub fn get_service_fee_balance(
     contract: Contract<Http>,
     address: Address,
 ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
@@ -528,6 +532,80 @@ pub fn get_token_balance(
             )
             .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
     )
+}
+
+
+// ResultForNonce
+pub fn get_transaction_id(
+    web3: Web3<Http>,
+    address: Address
+) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    Box::new(
+        web3.eth()
+            .transaction_count(address, Some(BlockNumber::Pending))
+            .map_err(move |e| BlockchainError::QueryFailed(format!("{} for wallet {}", e, address)))
+    )
+}
+
+pub struct BlockchainAgentFutureResult {
+    pub transaction_fee_balance: U256,
+    pub masq_token_balance: U256,
+    pub pending_transaction_id: U256
+}
+pub fn blockchain_agent_future(web3: Web3<Http>, contract: Contract<Http>, consuming_wallet: Wallet
+) -> Box<dyn Future<Item = BlockchainAgentFutureResult, Error = BlockchainAgentBuildError>> {
+
+    let wallet_address = consuming_wallet.address();
+    let consuming_wallet_2 = consuming_wallet.clone();
+    let consuming_wallet_3 = consuming_wallet.clone();
+
+    Box::new(
+        get_transaction_fee_balance(web3.clone(), wallet_address)
+            .map_err(move |e| {
+                BlockchainAgentBuildError::TransactionFeeBalance(consuming_wallet.clone(), e.clone())
+            }).and_then(move |transaction_fee_balance| {
+            get_service_fee_balance(contract, wallet_address)
+                .map_err(move |e| {
+                    BlockchainAgentBuildError::ServiceFeeBalance(consuming_wallet_2, e.clone())
+                }).and_then(move |masq_token_balance| {
+                get_transaction_id(web3, wallet_address)
+                    .map_err(move |e| {
+                        BlockchainAgentBuildError::TransactionID(consuming_wallet_3, e.clone())
+                    }).and_then(move |pending_transaction_id| {
+
+
+                        Ok(BlockchainAgentFutureResult{
+                            transaction_fee_balance,
+                            masq_token_balance,
+                            pending_transaction_id,
+                        })
+
+                        // Ok((transaction_fee_balance, masq_token_balance, pending_transaction_id))
+
+
+                })
+            })
+        })
+    )
+}
+
+pub fn create_blockchain_agent_web3(
+    gas_price_gwei: u64,
+    gas_limit_const_part: u64,
+    blockchain_agent_future_result: BlockchainAgentFutureResult,
+    wallet: Wallet
+) -> Box<dyn BlockchainAgent> {
+    Box::new(
+    BlockchainAgentWeb3::new(
+        gas_price_gwei,
+        gas_limit_const_part,
+        wallet,
+        ConsumingWalletBalances {
+            transaction_fee_balance_in_minor_units: blockchain_agent_future_result.transaction_fee_balance,
+            masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance
+        },
+        blockchain_agent_future_result.pending_transaction_id
+    ))
 }
 
 
@@ -1462,6 +1540,44 @@ mod tests {
     }
 
     #[test]
+    fn get_transaction_id_works() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x23".to_string(),1 )
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let web3 = blockchain_interface_web3.get_web3();
+        let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+
+        let result = get_transaction_id(web3, wallet.address()).wait();
+
+        assert_eq!(
+            result,
+            Ok(35.into())
+        );
+    }
+
+    #[test]
+    fn get_transaction_id_returns_an_error_for_unintelligible_response(
+    ) {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0xFFFQ".to_string(),0 )
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let result = get_transaction_id(web3, Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address()).wait();
+
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+                ()
+            }
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        };
+    }
+
+    #[test]
     fn get_transaction_fee_balance_works() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
@@ -1508,7 +1624,7 @@ mod tests {
         let blockchain_interface_web3 = make_blockchain_interface(Some(port));
         let contract = blockchain_interface_web3.get_contract();
 
-        let result = get_token_balance(contract, Wallet::from_str( "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address() )
+        let result = get_service_fee_balance(contract, Wallet::from_str( "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address() )
             .wait()
             .unwrap();
 
@@ -1525,7 +1641,7 @@ mod tests {
         let contract = blockchain_interface_web3.get_contract();
         let expected_err_msg = "Invalid hex";
 
-        let result = get_token_balance(contract, Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address()).wait();
+        let result = get_service_fee_balance(contract, Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address()).wait();
 
         let err_msg = match result {
             Err(BlockchainError::QueryFailed(msg)) => msg,
