@@ -546,7 +546,10 @@ impl Neighborhood {
 
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
         let node_location = get_node_location(Some(new_public_ip));
-        self.neighborhood_database.root_mut().metadata.node_location_opt = node_location.clone();
+        self.neighborhood_database
+            .root_mut()
+            .metadata
+            .node_location_opt = node_location.clone();
         self.neighborhood_database.root_mut().inner.country_code =
             node_location.expect("expected Node location").country_code;
     }
@@ -1676,7 +1679,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::neighborhood::node_record::{NodeRecordInputs, NodeRecordInner_0v1};
+    use crate::neighborhood::node_record::{NodeRecordInner_0v1, NodeRecordInputs};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -5555,11 +5558,7 @@ mod tests {
             version: 0,
             location: None,
         };
-        let node_record = NodeRecord::new(
-            &public_key,
-            main_cryptde(),
-            node_record_data
-        );
+        let node_record = NodeRecord::new(&public_key, main_cryptde(), node_record_data);
         let unreachable_host = String::from("facebook.com");
         let mut subject = neighborhood_from_nodes(&subject_node, None);
         let _ = subject.neighborhood_database.add_node(node_record);

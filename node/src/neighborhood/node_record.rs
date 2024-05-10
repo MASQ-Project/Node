@@ -347,7 +347,8 @@ pub struct NodeRecordMetadata {
     pub node_addr_opt: Option<NodeAddr>,
     pub unreachable_hosts: HashSet<String>,
     pub node_location_opt: Option<NodeLocation>,
-    pub node_trust_score: u32,
+    pub node_distrust_score: u32,
+    //TODO introduce various scores for latency, reliability and so
 }
 
 impl NodeRecordMetadata {
@@ -357,7 +358,7 @@ impl NodeRecordMetadata {
             node_addr_opt: None,
             unreachable_hosts: Default::default(),
             node_location_opt,
-            node_trust_score: Default::default(),
+            node_distrust_score: Default::default(),
         }
     }
 }
@@ -641,22 +642,22 @@ mod tests {
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data
+            node_record_data,
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_duplicate
+            node_record_data_duplicate,
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_with_neighbor
+            node_record_data_with_neighbor,
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
             main_cryptde(),
-            node_record_data_mod_key
+            node_record_data_mod_key,
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -664,7 +665,7 @@ mod tests {
         let mut mod_node_addr = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_node_addr
+            node_record_data_mod_node_addr,
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -676,43 +677,43 @@ mod tests {
         let mod_earning_wallet = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_earning_wallet
+            node_record_data_mod_earning_wallet,
         );
         node_record_data_mod_rate_pack.rate_pack = rate_pack(200);
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_rate_pack
+            node_record_data_mod_rate_pack,
         );
         node_record_data_mod_accepts_connections.accepts_connections = false;
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_accepts_connections
+            node_record_data_mod_accepts_connections,
         );
         node_record_data_mod_routes_data.routes_data = false;
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_routes_data
+            node_record_data_mod_routes_data,
         );
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_signed_gossip
+            node_record_data_mod_signed_gossip,
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_signature
+            node_record_data_mod_signature,
         );
         mod_signature.signature = CryptData::new(&[]);
         node_record_data_mod_version.version = 1;
         let mod_version = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_version
+            node_record_data_mod_version,
         );
 
         assert_eq!(exemplar, exemplar);

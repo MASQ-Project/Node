@@ -3,7 +3,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_location::NodeLocation;
-use crate::neighborhood::node_record::{NodeRecord, NodeRecordInputs, NodeRecordInner_0v1};
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1, NodeRecordInputs};
 use crate::neighborhood::{AccessibleGossipRecord, Neighborhood, DEFAULT_MIN_HOPS};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -171,7 +171,7 @@ impl NodeRecord {
         let mut node_record = NodeRecord::new(
             public_key,
             &CryptDENull::from(public_key, TEST_DEFAULT_CHAIN),
-            node_record_data
+            node_record_data,
         );
         if let Some(node_addr) = node_addr_opt {
             node_record.set_node_addr(node_addr).unwrap();

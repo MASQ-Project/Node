@@ -114,7 +114,10 @@ mod tests {
             metadata.node_location_opt.as_ref().unwrap().free_world_bit,
             true
         );
-        assert_eq!(metadata.node_location_opt.as_ref().unwrap().country_code, "AU");
+        assert_eq!(
+            metadata.node_location_opt.as_ref().unwrap().country_code,
+            "AU"
+        );
     }
 
     #[test]

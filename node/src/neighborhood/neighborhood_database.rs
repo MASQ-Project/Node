@@ -4,7 +4,7 @@ use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
 };
 use crate::neighborhood::node_location::get_node_location;
-use crate::neighborhood::node_record::{NodeRecord, NodeRecordInputs, NodeRecordError};
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordError, NodeRecordInputs};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::NeighborhoodMode;
@@ -62,14 +62,9 @@ impl NeighborhoodDatabase {
             accepts_connections: neighborhood_mode.accepts_connections(),
             routes_data: neighborhood_mode.routes_data(),
             version: 0,
-            location
-
+            location,
         };
-        let mut node_record = NodeRecord::new(
-            public_key,
-            cryptde,
-            node_record_data
-        );
+        let mut node_record = NodeRecord::new(public_key, cryptde, node_record_data);
         if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
             node_record
                 .set_node_addr(&node_addr)
