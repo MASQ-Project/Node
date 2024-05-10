@@ -5,9 +5,9 @@ pub mod gossip;
 pub mod gossip_acceptor;
 pub mod gossip_producer;
 pub mod neighborhood_database;
+pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
-pub mod node_location;
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
@@ -36,6 +36,7 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
+use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
@@ -77,7 +78,6 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
-use crate::neighborhood::node_location::get_node_location;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -546,8 +546,9 @@ impl Neighborhood {
 
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
         let node_location = get_node_location(Some(new_public_ip));
-        self.neighborhood_database.root_mut().metadata.node_location = node_location.clone();
-        self.neighborhood_database.root_mut().inner.country_code = node_location.expect("expected Node location").country_code;
+        self.neighborhood_database.root_mut().metadata.node_location_opt = node_location.clone();
+        self.neighborhood_database.root_mut().inner.country_code =
+            node_location.expect("expected Node location").country_code;
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -1675,7 +1676,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
-    use crate::neighborhood::node_record::NodeRecordInner_0v1;
+    use crate::neighborhood::node_record::{NodeRecordInputs, NodeRecordInner_0v1};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1724,7 +1725,6 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::neighborhood::node_location::get_node_location;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -4326,7 +4326,17 @@ mod tests {
             new_ip: new_public_ip,
         });
 
-        assert_eq!(subject.neighborhood_database.root().inner.country_code, subject.neighborhood_database.root().metadata.node_location.as_ref().unwrap().country_code);
+        assert_eq!(
+            subject.neighborhood_database.root().inner.country_code,
+            subject
+                .neighborhood_database
+                .root()
+                .metadata
+                .node_location_opt
+                .as_ref()
+                .unwrap()
+                .country_code
+        );
         assert_eq!(
             subject
                 .neighborhood_database
@@ -5537,15 +5547,18 @@ mod tests {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1345, true);
         let public_key = PublicKey::from(&b"exit_node"[..]);
+        let node_record_data = NodeRecordInputs {
+            earning_wallet: make_wallet("earning"),
+            rate_pack: rate_pack(100),
+            accepts_connections: true,
+            routes_data: true,
+            version: 0,
+            location: None,
+        };
         let node_record = NodeRecord::new(
             &public_key,
-            make_wallet("earning"),
-            rate_pack(100),
-            true,
-            true,
-            0,
             main_cryptde(),
-            get_node_location(None)
+            node_record_data
         );
         let unreachable_host = String::from("facebook.com");
         let mut subject = neighborhood_from_nodes(&subject_node, None);

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use lazy_static::lazy_static;
 use crate::country_block_stream::Country;
+use lazy_static::lazy_static;
+use std::collections::HashMap;
 
 lazy_static! {
     pub static ref COUNTRIES: Vec<Country> = vec![
@@ -191,7 +191,12 @@ lazy_static! {
         Country::new(184, "RU", "Russian Federation", true),
         Country::new(185, "RW", "Rwanda", true),
         Country::new(186, "BL", "Saint Barthelemy", true),
-        Country::new(187, "SH", "Saint Helena, Ascension Island, Tristan da Cunha", true),
+        Country::new(
+            187,
+            "SH",
+            "Saint Helena, Ascension Island, Tristan da Cunha",
+            true
+        ),
         Country::new(188, "KN", "Saint Kitts and Nevis", true),
         Country::new(189, "LC", "Saint Lucia", true),
         Country::new(190, "MF", "Saint Martin", true),
@@ -212,7 +217,12 @@ lazy_static! {
         Country::new(205, "SB", "Solomon Islands", true),
         Country::new(206, "SO", "Somalia", true),
         Country::new(207, "ZA", "South Africa", true),
-        Country::new(208, "GS", "South Georgia and the South Sandwich Islands", true),
+        Country::new(
+            208,
+            "GS",
+            "South Georgia and the South Sandwich Islands",
+            true
+        ),
         Country::new(209, "SS", "South Sudan", true),
         Country::new(210, "ES", "Spain", true),
         Country::new(211, "LK", "Sri Lanka", true),
@@ -256,7 +266,6 @@ lazy_static! {
         Country::new(249, "ZW", "Zimbabwe", true),
         Country::new(250, "XK", "Kosovo", true),
     ];
-    
     pub static ref INDEX_BY_ISO3166: HashMap<String, usize> = COUNTRIES
         .iter()
         .map(|country| (country.iso3166.clone(), country.index))
@@ -271,14 +280,21 @@ impl TryFrom<&str> for Country {
             None => return Err(format!("'{}' is not a valid ISO3166 country code", iso3166)),
             Some(index) => *index,
         };
-        Ok(Country::try_from(index).expect(&format!("Data error: ISO3166 {} maps to index {}, but there is no such Country", iso3166, index)))
+        Ok(Country::try_from(index).expect(&format!(
+            "Data error: ISO3166 {} maps to index {}, but there is no such Country",
+            iso3166, index
+        )))
     }
 }
 
 impl From<usize> for Country {
     fn from(index: usize) -> Self {
         match COUNTRIES.get(index) {
-            None => panic!("There are only {} Countries; no Country is at index {}", COUNTRIES.len(), index),
+            None => panic!(
+                "There are only {} Countries; no Country is at index {}",
+                COUNTRIES.len(),
+                index
+            ),
             Some(country) => country.clone(),
         }
     }
@@ -291,36 +307,31 @@ mod tests {
 
     #[test]
     fn countries_are_properly_ordered() {
-        COUNTRIES.iter()
-            .enumerate()
-            .for_each(|(index, country)| 
-                assert_eq!(
-                    country.index, 
-                    index, 
-                    "Index for {} should have been {} but was {}", 
-                    country.name, 
-                    index,
-                    country.index
-                )
-            );
+        COUNTRIES.iter().enumerate().for_each(|(index, country)| {
+            assert_eq!(
+                country.index, index,
+                "Index for {} should have been {} but was {}",
+                country.name, index, country.index
+            )
+        });
     }
 
     #[test]
     fn string_length_check() {
-        COUNTRIES.iter()
-            .for_each(|country| {
-                assert_eq!(country.iso3166.len(), 2);
-                assert_eq!(
-                    country.name.len() > 0, true,
-                    "Blank country name for {} at index {}",
-                    country.iso3166, country.index
-                );
-            })
+        COUNTRIES.iter().for_each(|country| {
+            assert_eq!(country.iso3166.len(), 2);
+            assert_eq!(
+                country.name.len() > 0,
+                true,
+                "Blank country name for {} at index {}",
+                country.iso3166,
+                country.index
+            );
+        })
     }
 
     #[test]
     fn try_from_str_happy_path() {
-
         let result = Country::try_from("IL");
 
         assert_eq!(result, Ok(COUNTRIES.get(110).unwrap().clone()));
@@ -328,7 +339,6 @@ mod tests {
 
     #[test]
     fn try_from_str_wrong_case() {
-
         let result = Country::try_from("il");
 
         assert_eq!(result, Ok(COUNTRIES.get(110).unwrap().clone()));
@@ -336,15 +346,16 @@ mod tests {
 
     #[test]
     fn try_from_str_bad_iso3166() {
-
         let result = Country::try_from("Booga");
 
-        assert_eq!(result, Err("'Booga' is not a valid ISO3166 country code".to_string()));
+        assert_eq!(
+            result,
+            Err("'Booga' is not a valid ISO3166 country code".to_string())
+        );
     }
 
     #[test]
     fn from_index_happy_path() {
-
         let result = Country::from(110usize);
 
         assert_eq!(result, COUNTRIES.get(110).unwrap().clone());
@@ -353,7 +364,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "There are only 251 Countries; no Country is at index 4096")]
     fn try_from_index_bad_index() {
-
         let _ = Country::from(4096usize);
     }
 }

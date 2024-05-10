@@ -1,7 +1,6 @@
-
+use csv::{StringRecord, StringRecordIter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use csv::{StringRecord, StringRecordIter};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Country {
@@ -17,15 +16,15 @@ impl Country {
             index,
             iso3166: iso3166.to_string(),
             name: name.to_string(),
-            free_world
+            free_world,
         }
     }
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum IpRange {
-    V4 (Ipv4Addr, Ipv4Addr),
-    V6 (Ipv6Addr, Ipv6Addr)
+    V4(Ipv4Addr, Ipv4Addr),
+    V6(Ipv6Addr, Ipv6Addr),
 }
 
 impl IpRange {
@@ -35,7 +34,7 @@ impl IpRange {
                 IpAddr::V4(candidate) => Self::contains_inner(
                     u32::from(*begin) as u128,
                     u32::from(*end) as u128,
-                    u32::from(candidate) as u128
+                    u32::from(candidate) as u128,
                 ),
                 IpAddr::V6(_candidate) => false,
             },
@@ -44,9 +43,9 @@ impl IpRange {
                 IpAddr::V6(candidate) => Self::contains_inner(
                     u128::from(*begin),
                     u128::from(*end),
-                    u128::from(candidate)
-                )
-            }
+                    u128::from(candidate),
+                ),
+            },
         }
     }
 
@@ -73,20 +72,26 @@ impl TryFrom<StringRecord> for CountryBlock {
             Some(s) => s,
         };
         if iter.next().is_some() {
-            return Err(format!("CSV line should contain 3 elements, but contains {}", string_record.len()))
+            return Err(format!(
+                "CSV line should contain 3 elements, but contains {}",
+                string_record.len()
+            ));
         };
         Self::validate_ip_addresses(start_ip, end_ip)?;
         let country = Country::try_from(iso3166)?;
         let country_block = match (start_ip, end_ip) {
             (IpAddr::V4(start), IpAddr::V4(end)) => CountryBlock {
                 ip_range: IpRange::V4(start, end),
-                country
+                country,
             },
             (IpAddr::V6(start), IpAddr::V6(end)) => CountryBlock {
                 ip_range: IpRange::V6(start, end),
-                country
+                country,
             },
-            (start, end) => panic! ("Start and end addresses must be of the same type, not {} and {}", start, end),
+            (start, end) => panic!(
+                "Start and end addresses must be of the same type, not {} and {}",
+                start, end
+            ),
         };
         Ok(country_block)
     }
@@ -96,10 +101,15 @@ impl CountryBlock {
     fn ip_addr_from_iter(iter: &mut StringRecordIter) -> Result<IpAddr, String> {
         let ip_string = match iter.next() {
             None => return Err("Missing IP address in CSV record".to_string()),
-            Some (s) => s,
+            Some(s) => s,
         };
         let ip_addr = match IpAddr::from_str(ip_string) {
-            Err(e) => return Err(format!("Invalid ({:?}) IP address in CSV record: '{}'", e, ip_string)),
+            Err(e) => {
+                return Err(format!(
+                    "Invalid ({:?}) IP address in CSV record: '{}'",
+                    e, ip_string
+                ))
+            }
             Ok(ip) => ip,
         };
         Ok(ip_addr)
@@ -109,42 +119,47 @@ impl CountryBlock {
         match (start_ip, end_ip) {
             (IpAddr::V4(start_v4), IpAddr::V4(end_v4)) => {
                 if u32::from(start_v4) > u32::from(end_v4) {
-                    Err(format!("Ending address {} is less than starting address {}", end_v4, start_v4))
-                }
-                else {
+                    Err(format!(
+                        "Ending address {} is less than starting address {}",
+                        end_v4, start_v4
+                    ))
+                } else {
                     Ok(())
                 }
-            },
+            }
             (IpAddr::V6(start_v6), IpAddr::V6(end_v6)) => {
                 if u128::from(start_v6) > u128::from(end_v6) {
-                    Err(format!("Ending address {} is less than starting address {}", end_v6, start_v6))
-                }
-                else {
+                    Err(format!(
+                        "Ending address {} is less than starting address {}",
+                        end_v6, start_v6
+                    ))
+                } else {
                     Ok(())
                 }
-            },
-            (s, e) => {
-                Err(format!("Beginning address {} and ending address {} must be the same IP address version", s, e))
             }
+            (s, e) => Err(format!(
+                "Beginning address {} and ending address {} must be the same IP address version",
+                s, e
+            )),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use super::*;
 
     #[test]
     fn ip_range_finds_ipv4_address() {
         let subject = IpRange::V4(
             Ipv4Addr::from_str("1.2.3.4").unwrap(),
-            Ipv4Addr::from_str("4.3.2.1").unwrap()
+            Ipv4Addr::from_str("4.3.2.1").unwrap(),
         );
 
-        let result_start = subject.contains (IpAddr::from_str("1.2.3.4").unwrap());
-        let result_end = subject.contains (IpAddr::from_str("4.3.2.1").unwrap());
+        let result_start = subject.contains(IpAddr::from_str("1.2.3.4").unwrap());
+        let result_end = subject.contains(IpAddr::from_str("4.3.2.1").unwrap());
 
         assert_eq!(result_start, true);
         assert_eq!(result_end, true);
@@ -154,11 +169,11 @@ mod tests {
     fn ip_range_doesnt_find_ipv4_address() {
         let subject = IpRange::V4(
             Ipv4Addr::from_str("1.2.3.4").unwrap(),
-            Ipv4Addr::from_str("4.3.2.1").unwrap()
+            Ipv4Addr::from_str("4.3.2.1").unwrap(),
         );
 
-        let result_start = subject.contains (IpAddr::from_str("1.2.3.3").unwrap());
-        let result_end = subject.contains (IpAddr::from_str("4.3.2.2").unwrap());
+        let result_start = subject.contains(IpAddr::from_str("1.2.3.3").unwrap());
+        let result_end = subject.contains(IpAddr::from_str("4.3.2.2").unwrap());
 
         assert_eq!(result_start, false);
         assert_eq!(result_end, false);
@@ -168,11 +183,11 @@ mod tests {
     fn ip_range_finds_ipv6_address() {
         let subject = IpRange::V6(
             Ipv6Addr::from_str("1:2:3:4:0:0:0:0").unwrap(),
-            Ipv6Addr::from_str("4:3:2:1:0:0:0:0").unwrap()
+            Ipv6Addr::from_str("4:3:2:1:0:0:0:0").unwrap(),
         );
 
-        let result_start = subject.contains (IpAddr::from_str("1:2:3:4:0:0:0:0").unwrap());
-        let result_end = subject.contains (IpAddr::from_str("4:3:2:1:0:0:0:0").unwrap());
+        let result_start = subject.contains(IpAddr::from_str("1:2:3:4:0:0:0:0").unwrap());
+        let result_end = subject.contains(IpAddr::from_str("4:3:2:1:0:0:0:0").unwrap());
 
         assert_eq!(result_start, true);
         assert_eq!(result_end, true);
@@ -182,11 +197,11 @@ mod tests {
     fn ip_range_doesnt_find_ipv6_address() {
         let subject = IpRange::V6(
             Ipv6Addr::from_str("0:0:0:0:1:2:3:4").unwrap(),
-            Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap()
+            Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap(),
         );
 
-        let result_start = subject.contains (IpAddr::from_str("0:0:0:0:1:2:3:3").unwrap());
-        let result_end = subject.contains (IpAddr::from_str("0:0:0:0:4:3:2:2").unwrap());
+        let result_start = subject.contains(IpAddr::from_str("0:0:0:0:1:2:3:3").unwrap());
+        let result_end = subject.contains(IpAddr::from_str("0:0:0:0:4:3:2:2").unwrap());
 
         assert_eq!(result_start, false);
         assert_eq!(result_end, false);
@@ -196,10 +211,10 @@ mod tests {
     fn ip_range_doesnt_find_ipv6_address_in_ipv4_range() {
         let subject = IpRange::V4(
             Ipv4Addr::from_str("1.2.3.4").unwrap(),
-            Ipv4Addr::from_str("4.3.2.1").unwrap()
+            Ipv4Addr::from_str("4.3.2.1").unwrap(),
         );
 
-        let result = subject.contains (IpAddr::from_str("1:2:3:4:0:0:0:0").unwrap());
+        let result = subject.contains(IpAddr::from_str("1:2:3:4:0:0:0:0").unwrap());
 
         assert_eq!(result, false);
     }
@@ -208,10 +223,10 @@ mod tests {
     fn ip_range_doesnt_find_ipv4_address_in_ipv6_range() {
         let subject = IpRange::V6(
             Ipv6Addr::from_str("0:0:0:0:1:2:3:4").unwrap(),
-            Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap()
+            Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap(),
         );
 
-        let result = subject.contains (IpAddr::from_str("1.2.3.4").unwrap());
+        let result = subject.contains(IpAddr::from_str("1.2.3.4").unwrap());
 
         assert_eq!(result, false);
     }
@@ -222,13 +237,16 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq! (result, Ok(CountryBlock {
-            ip_range: IpRange::V4(
-                Ipv4Addr::from_str("1.2.3.4").unwrap(),
-                Ipv4Addr::from_str("5.6.7.8").unwrap()
-            ),
-            country: Country::try_from("AS").unwrap().clone(),
-        }));
+        assert_eq!(
+            result,
+            Ok(CountryBlock {
+                ip_range: IpRange::V4(
+                    Ipv4Addr::from_str("1.2.3.4").unwrap(),
+                    Ipv4Addr::from_str("5.6.7.8").unwrap()
+                ),
+                country: Country::try_from("AS").unwrap().clone(),
+            })
+        );
     }
 
     #[test]
@@ -236,18 +254,21 @@ mod tests {
         let string_record = StringRecord::from(vec![
             "1234:2345:3456:4567:5678:6789:789A:89AB",
             "4321:5432:6543:7654:8765:9876:A987:BA98",
-            "VN"
+            "VN",
         ]);
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq! (result, Ok(CountryBlock {
-            ip_range: IpRange::V6 (
-                Ipv6Addr::from_str("1234:2345:3456:4567:5678:6789:789A:89AB").unwrap(),
-                Ipv6Addr::from_str("4321:5432:6543:7654:8765:9876:A987:BA98").unwrap()
-            ),
-            country: Country::try_from("VN").unwrap().clone(),
-        }));
+        assert_eq!(
+            result,
+            Ok(CountryBlock {
+                ip_range: IpRange::V6(
+                    Ipv6Addr::from_str("1234:2345:3456:4567:5678:6789:789A:89AB").unwrap(),
+                    Ipv6Addr::from_str("4321:5432:6543:7654:8765:9876:A987:BA98").unwrap()
+                ),
+                country: Country::try_from("VN").unwrap().clone(),
+            })
+        );
     }
 
     #[test]
@@ -256,7 +277,10 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("Invalid (AddrParseError(Ip)) IP address in CSV record: 'Ooga'".to_string()));
+        assert_eq!(
+            result,
+            Err("Invalid (AddrParseError(Ip)) IP address in CSV record: 'Ooga'".to_string())
+        );
     }
 
     #[test]
@@ -284,7 +308,10 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("Ending address 1.2.3.4 is less than starting address 4.3.2.1".to_string()));
+        assert_eq!(
+            result,
+            Err("Ending address 1.2.3.4 is less than starting address 4.3.2.1".to_string())
+        );
     }
 
     #[test]
@@ -293,7 +320,13 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("Ending address 1:2:3:4:5:6:7:8 is less than starting address 8:7:6:5:4:3:2:1".to_string()));
+        assert_eq!(
+            result,
+            Err(
+                "Ending address 1:2:3:4:5:6:7:8 is less than starting address 8:7:6:5:4:3:2:1"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
@@ -314,7 +347,10 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("'XY' is not a valid ISO3166 country code".to_string()));
+        assert_eq!(
+            result,
+            Err("'XY' is not a valid ISO3166 country code".to_string())
+        );
     }
 
     #[test]
@@ -323,7 +359,10 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("CSV line contains no ISO 3166 country code".to_string()));
+        assert_eq!(
+            result,
+            Err("CSV line contains no ISO 3166 country code".to_string())
+        );
     }
 
     #[test]
@@ -332,6 +371,9 @@ mod tests {
 
         let result = CountryBlock::try_from(string_record);
 
-        assert_eq!(result, Err("CSV line should contain 3 elements, but contains 4".to_string()));
+        assert_eq!(
+            result,
+            Err("CSV line should contain 3 elements, but contains 4".to_string())
+        );
     }
 }

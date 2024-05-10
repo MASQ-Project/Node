@@ -4199,8 +4199,8 @@ mod tests {
         )
     }
 
-    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
-        let mut debut_node = make_node_record(n, true);
+    fn make_single_node_gossip<'a>(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
+        let mut debut_node: NodeRecord = make_node_record(n, true);
         adjust_for_mode(&mut debut_node, mode);
         let src_db = db_from_node(&debut_node);
         let gossip = GossipBuilder::new(&src_db)

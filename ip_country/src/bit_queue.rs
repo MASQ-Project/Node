@@ -7,8 +7,7 @@ pub struct BitQueue {
 }
 
 impl BitQueue {
-
-    pub fn new () -> Self {
+    pub fn new() -> Self {
         let byte_queue = VecDeque::from(vec![0, 0]);
         Self {
             back_blank_bit_count: 8,
@@ -24,7 +23,10 @@ impl BitQueue {
     #[allow(unused_assignments)]
     pub fn add_bits(&mut self, mut bit_data: u64, mut bit_count: usize) {
         if bit_count > 64 {
-            panic! ("You can only add bits up to 64 at a time, not {}", bit_count)
+            panic!(
+                "You can only add bits up to 64 at a time, not {}",
+                bit_count
+            )
         }
         let initial_bits_added = self.add_some_back_bits(bit_data, bit_count);
         bit_data >>= initial_bits_added;
@@ -36,7 +38,7 @@ impl BitQueue {
         bit_data >>= final_bits_added;
         bit_count -= final_bits_added;
         if bit_count != 0 {
-            panic! ("Didn't add all the bits: {} left", bit_count);
+            panic!("Didn't add all the bits: {} left", bit_count);
         }
     }
 
@@ -44,10 +46,13 @@ impl BitQueue {
     pub fn take_bits(&mut self, mut bit_count: usize) -> Option<u64> {
         let original_bit_count = bit_count;
         if bit_count > 64 {
-            panic!("You can only take bits up to 64 at a time, not {}", bit_count)
+            panic!(
+                "You can only take bits up to 64 at a time, not {}",
+                bit_count
+            )
         }
         if bit_count > self.len() {
-            return None
+            return None;
         }
         let mut bit_data = 0u64;
         let mut bit_position = 0usize;
@@ -72,14 +77,21 @@ impl BitQueue {
         }
         bit_count -= final_back_bit_count;
         if bit_position != original_bit_count {
-            panic! ("Wanted {} bits, but got {} instead", original_bit_count, bit_position);
+            panic!(
+                "Wanted {} bits, but got {} instead",
+                original_bit_count, bit_position
+            );
         }
         return Some(bit_data);
     }
 
-    fn back_full_bit_count(&self) -> usize {8 - self.back_blank_bit_count}
+    fn back_full_bit_count(&self) -> usize {
+        8 - self.back_blank_bit_count
+    }
 
-    fn front_full_bit_count(&self) -> usize {8 - self.front_blank_bit_count}
+    fn front_full_bit_count(&self) -> usize {
+        8 - self.front_blank_bit_count
+    }
 
     fn low_order_ones(count: usize) -> u64 {
         !(u64::MAX << count)
@@ -87,12 +99,17 @@ impl BitQueue {
 
     #[allow(dead_code)]
     fn dump_queue(&self) -> String {
-        let queue_str = self.byte_queue.iter()
+        let queue_str = self
+            .byte_queue
+            .iter()
             .map(|b| format!("{:08b}", *b))
             .rev()
             .collect::<Vec<String>>()
             .join(" ");
-        format!("{}->{}->{}", self.back_blank_bit_count, queue_str, self.front_blank_bit_count)
+        format!(
+            "{}->{}->{}",
+            self.back_blank_bit_count, queue_str, self.front_blank_bit_count
+        )
     }
 
     fn add_some_back_bits(&mut self, bit_data: u64, bit_count: usize) -> usize {
@@ -102,20 +119,26 @@ impl BitQueue {
         }
         let bits_to_add = bit_count.min(self.back_blank_bit_count);
         let back_full_bit_count = self.back_full_bit_count();
-        let back_ref = self.byte_queue.back_mut().expect("There should be a back byte");
+        let back_ref = self
+            .byte_queue
+            .back_mut()
+            .expect("There should be a back byte");
         *back_ref |= (bit_data << back_full_bit_count) as u8;
         self.back_blank_bit_count -= bits_to_add;
         if self.back_blank_bit_count == 0 {
             self.byte_queue.push_back(0);
             self.back_blank_bit_count = 8;
         }
-        return bits_to_add
+        return bits_to_add;
     }
 
     fn add_back_bytes(&mut self, mut bit_data: u64, mut bit_count: usize) -> usize {
         let original_bit_count = bit_count;
         if bit_count > 64 {
-            panic! ("add_back_bytes() can add a maximum of 64 bits per call, not {}", bit_count)
+            panic!(
+                "add_back_bytes() can add a maximum of 64 bits per call, not {}",
+                bit_count
+            )
         }
         if bit_count < 8 {
             return 0;
@@ -125,7 +148,10 @@ impl BitQueue {
             self.back_blank_bit_count = 0;
         }
         if self.back_blank_bit_count > 0 {
-            panic! ("add_back_bytes() only works when there are no back blank bits, not {}", self.back_blank_bit_count)
+            panic!(
+                "add_back_bytes() only works when there are no back blank bits, not {}",
+                self.back_blank_bit_count
+            )
         }
         while bit_count >= 8 {
             let next_byte = (bit_data & Self::low_order_ones(8)) as u8;
@@ -142,36 +168,54 @@ impl BitQueue {
             self.front_blank_bit_count = 0;
         }
         let bits_to_take = bit_count.min(self.front_full_bit_count());
-        if bits_to_take == 0 {return (0, 0)}
-        let front_ref = self.byte_queue.front_mut().expect ("There should be a front byte");
+        if bits_to_take == 0 {
+            return (0, 0);
+        }
+        let front_ref = self
+            .byte_queue
+            .front_mut()
+            .expect("There should be a front byte");
         let bit_data = *front_ref & (Self::low_order_ones(bits_to_take) as u8);
-        *front_ref = if bits_to_take < 8 {*front_ref >> bits_to_take} else {0};
+        *front_ref = if bits_to_take < 8 {
+            *front_ref >> bits_to_take
+        } else {
+            0
+        };
         self.front_blank_bit_count += bits_to_take;
         if (self.front_blank_bit_count == 8) && (self.byte_queue.len() > 2) {
             let _ = self.byte_queue.pop_front();
             self.front_blank_bit_count = 0;
         }
-        return (bit_data as u64, bits_to_take)
+        return (bit_data as u64, bits_to_take);
     }
 
     fn take_front_bytes(&mut self, mut bit_count: usize) -> (u64, usize) {
         let original_bit_count = bit_count;
         if bit_count > 64 {
-            panic! ("take_front_bytes() can take a maximum of 64 bits per call, not {}", bit_count)
+            panic!(
+                "take_front_bytes() can take a maximum of 64 bits per call, not {}",
+                bit_count
+            )
         }
         if bit_count < 8 {
-            return (0, 0)
+            return (0, 0);
         }
         if self.front_blank_bit_count == 8 {
             let _ = self.byte_queue.pop_front();
             self.front_blank_bit_count = 0;
         }
         if self.front_blank_bit_count > 0 {
-            panic! ("take_front_bytes() only works when there are no front blank bits, not {}", self.front_blank_bit_count)
+            panic!(
+                "take_front_bytes() only works when there are no front blank bits, not {}",
+                self.front_blank_bit_count
+            )
         }
         let mut bit_data = 0u64;
         while bit_count >= 8 {
-            let byte = self.byte_queue.pop_front().expect("Demanded too many bytes") as u64;
+            let byte = self
+                .byte_queue
+                .pop_front()
+                .expect("Demanded too many bytes") as u64;
             bit_data |= byte << (original_bit_count - bit_count);
             bit_count -= 8;
         }
@@ -179,22 +223,29 @@ impl BitQueue {
             self.byte_queue.push_front(0);
             self.front_blank_bit_count = 8;
         }
-        return (bit_data, original_bit_count - bit_count)
+        return (bit_data, original_bit_count - bit_count);
     }
 
     fn take_some_back_bits(&mut self, bit_count: usize) -> (u64, usize) {
         let bits_to_take = bit_count.min(self.back_full_bit_count());
         let remaining_bits = self.back_full_bit_count() - bits_to_take;
         let mask = Self::low_order_ones(bits_to_take);
-        let back_ref = self.byte_queue.back_mut().expect ("There should be a back byte");
-        let bit_data = if remaining_bits < 8 {*back_ref & (mask as u8)} else {0};
+        let back_ref = self
+            .byte_queue
+            .back_mut()
+            .expect("There should be a back byte");
+        let bit_data = if remaining_bits < 8 {
+            *back_ref & (mask as u8)
+        } else {
+            0
+        };
         *back_ref >>= bits_to_take;
         self.back_blank_bit_count += bits_to_take;
         if (self.back_blank_bit_count == 8) && (self.byte_queue.len() > 2) {
             let _ = self.byte_queue.pop_back();
             self.back_blank_bit_count = 0;
         }
-        return (bit_data as u64, bits_to_take)
+        return (bit_data as u64, bits_to_take);
     }
 }
 
@@ -208,7 +259,7 @@ mod tests {
 
         let result = subject.take_bits(1);
 
-        assert_eq! (result, None);
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -326,7 +377,11 @@ mod tests {
         subject.add_bits(value, 32);
         let result = subject.take_bits(32).unwrap();
 
-        assert_eq!(result, value, "Should have been {:08X}, but was {:08X}", value, result);
+        assert_eq!(
+            result, value,
+            "Should have been {:08X}, but was {:08X}",
+            value, result
+        );
     }
 
     #[test]

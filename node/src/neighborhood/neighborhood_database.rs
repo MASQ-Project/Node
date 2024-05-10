@@ -3,7 +3,8 @@ use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
 };
-use crate::neighborhood::node_record::{NodeRecord, NodeRecordError};
+use crate::neighborhood::node_location::get_node_location;
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordInputs, NodeRecordError};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::neighborhood::NeighborhoodMode;
@@ -19,7 +20,6 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
-use crate::neighborhood::node_location::get_node_location;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
@@ -51,15 +51,24 @@ impl NeighborhoodDatabase {
             logger: Logger::new("NeighborhoodDatabase"),
         };
 
+        let location = if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
+            get_node_location(Some(node_addr.ip_addr))
+        } else {
+            None
+        };
+        let node_record_data = NodeRecordInputs {
+            earning_wallet,
+            rate_pack: *neighborhood_mode.rate_pack(),
+            accepts_connections: neighborhood_mode.accepts_connections(),
+            routes_data: neighborhood_mode.routes_data(),
+            version: 0,
+            location
+
+        };
         let mut node_record = NodeRecord::new(
             public_key,
-            earning_wallet,
-            *neighborhood_mode.rate_pack(),
-            neighborhood_mode.accepts_connections(),
-            neighborhood_mode.routes_data(),
-            0,
             cryptde,
-            if let Some(node_addr) = neighborhood_mode.node_addr_opt() { get_node_location(Some(node_addr.ip_addr)) } else { get_node_location(None) },
+            node_record_data
         );
         if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
             node_record
@@ -364,6 +373,7 @@ pub enum NeighborhoodDatabaseError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::neighborhood::node_location::NodeLocation;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
@@ -372,7 +382,6 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
-    use crate::neighborhood::node_location::NodeLocation;
 
     #[test]
     fn constants_have_correct_values() {
@@ -383,16 +392,24 @@ mod tests {
     fn a_brand_new_database_has_the_expected_contents() {
         let mut this_node = make_node_record(1234, true);
         this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.metadata.node_location_opt = Some(NodeLocation {
+            country_code: "AU".to_string(),
+            free_world_bit: true,
+        });
         this_node.resign();
 
         let subject = db_from_node(&this_node);
 
         let this_pubkey = this_node.public_key();
-        let last_update = subject.by_public_key.iter().map(|(pubkey, node_record)| match pubkey == this_pubkey {
-            true => node_record.metadata.last_update,
-            false => todo!("implement me")
-        }).exactly_one().unwrap();
+        let last_update = subject
+            .by_public_key
+            .iter()
+            .map(|(pubkey, node_record)| match pubkey == this_pubkey {
+                true => node_record.metadata.last_update,
+                false => todo!("implement me"),
+            })
+            .exactly_one()
+            .unwrap();
         this_node.metadata.last_update = last_update;
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -421,7 +438,10 @@ mod tests {
     fn can_get_mutable_root() {
         let mut this_node = make_node_record(1234, true);
         this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.metadata.node_location_opt = Some(NodeLocation {
+            country_code: "AU".to_string(),
+            free_world_bit: true,
+        });
         this_node.resign();
 
         let mut subject = NeighborhoodDatabase::new(
@@ -432,10 +452,15 @@ mod tests {
         );
 
         let this_pubkey = this_node.public_key();
-        let last_update = subject.by_public_key.iter().map(|(pubkey, node_record)| match pubkey == this_pubkey {
-            true => node_record.metadata.last_update,
-            false => todo!("implement me")
-        }).exactly_one().unwrap();
+        let last_update = subject
+            .by_public_key
+            .iter()
+            .map(|(pubkey, node_record)| match pubkey == this_pubkey {
+                true => node_record.metadata.last_update,
+                false => todo!("implement me"),
+            })
+            .exactly_one()
+            .unwrap();
         this_node.metadata.last_update = last_update;
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -498,7 +523,10 @@ mod tests {
     fn node_by_key_works() {
         let mut this_node = make_node_record(1234, true);
         this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.metadata.node_location_opt = Some(NodeLocation {
+            country_code: "AU".to_string(),
+            free_world_bit: true,
+        });
         this_node.resign();
 
         let one_node = make_node_record(4567, true);
@@ -513,8 +541,12 @@ mod tests {
         subject.add_node(one_node.clone()).unwrap();
 
         let this_pubkey = this_node.public_key();
-        let updated_record = subject.by_public_key.iter().filter(|(pubkey, _node_record)|
-            *pubkey == this_pubkey).exactly_one().unwrap();
+        let updated_record = subject
+            .by_public_key
+            .iter()
+            .filter(|(pubkey, _node_record)| *pubkey == this_pubkey)
+            .exactly_one()
+            .unwrap();
         this_node.metadata.last_update = updated_record.1.metadata.last_update;
 
         assert_eq!(
@@ -532,7 +564,10 @@ mod tests {
     fn node_by_ip_works() {
         let mut this_node = make_node_record(1234, true);
         this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        this_node.metadata.node_location_opt = Some(NodeLocation {
+            country_code: "AU".to_string(),
+            free_world_bit: true,
+        });
         this_node.resign();
         let one_node = make_node_record(4567, true);
         let another_node = make_node_record(5678, true);
@@ -541,8 +576,12 @@ mod tests {
         subject.add_node(one_node.clone()).unwrap();
 
         let this_pubkey = this_node.public_key();
-        let updated_record = subject.by_public_key.iter().filter(|(pubkey, _node_record)|
-            *pubkey == this_pubkey).exactly_one().unwrap();
+        let updated_record = subject
+            .by_public_key
+            .iter()
+            .filter(|(pubkey, _node_record)| *pubkey == this_pubkey)
+            .exactly_one()
+            .unwrap();
         this_node.metadata.last_update = updated_record.1.metadata.last_update;
 
         assert_eq!(
@@ -825,7 +864,10 @@ mod tests {
         let this_node = make_node_record(1234, true);
         let mut old_node = this_node.clone();
         old_node.inner.country_code = "AU".to_string();
-        old_node.metadata.node_location = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        old_node.metadata.node_location_opt = Some(NodeLocation {
+            country_code: "AU".to_string(),
+            free_world_bit: true,
+        });
         old_node.resign();
 
         let mut subject = NeighborhoodDatabase::new(
@@ -839,8 +881,12 @@ mod tests {
         subject.new_public_ip(new_public_ip);
 
         let this_pubkey = this_node.public_key();
-        let updated_record = subject.by_public_key.iter().filter(|(pubkey, _node_record)|
-            *pubkey == this_pubkey).exactly_one().unwrap();
+        let updated_record = subject
+            .by_public_key
+            .iter()
+            .filter(|(pubkey, _node_record)| *pubkey == this_pubkey)
+            .exactly_one()
+            .unwrap();
         old_node.metadata.last_update = updated_record.1.metadata.last_update;
 
         let mut new_node = subject.root().clone();

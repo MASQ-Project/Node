@@ -1,24 +1,23 @@
-use std::io;
 use crate::bit_queue::BitQueue;
-use crate::country_block_stream::CountryBlock;
 use crate::country_block_serde::CountryBlockSerializer;
+use crate::country_block_stream::CountryBlock;
+use std::io;
 
 #[allow(unused_must_use)]
 pub fn ip_country(
     _args: Vec<String>,
     stdin: &mut dyn io::Read,
     stdout: &mut dyn io::Write,
-    stderr: &mut dyn io::Write
+    stderr: &mut dyn io::Write,
 ) -> i32 {
     let mut serializer = CountryBlockSerializer::new();
     let mut line_number = 0usize;
     let mut csv_rdr = csv::Reader::from_reader(stdin);
-    let mut errors = csv_rdr.records()
-        .map(|string_record_result| {
-            match string_record_result {
-                Ok(string_record) => CountryBlock::try_from(string_record),
-                Err(e) => Err(format!("CSV format error: {:?}", e))
-            }
+    let mut errors = csv_rdr
+        .records()
+        .map(|string_record_result| match string_record_result {
+            Ok(string_record) => CountryBlock::try_from(string_record),
+            Err(e) => Err(format!("CSV format error: {:?}", e)),
         })
         .flat_map(|country_block_result| {
             line_number += 1;
@@ -26,21 +25,22 @@ pub fn ip_country(
                 Ok(country_block) => {
                     serializer.add(country_block);
                     None
-                },
+                }
                 Err(e) => Some(format!("Line {}: {}", line_number, e)), // TODO no test for this line yet
             }
         })
         .collect::<Vec<String>>();
     let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
-    if let Err(error) = generate_rust_code (ipv4_bit_queue, ipv6_bit_queue, stdout) {
+    if let Err(error) = generate_rust_code(ipv4_bit_queue, ipv6_bit_queue, stdout) {
         errors.push(format!("Error generating Rust code: {:?}", error)) // TODO no test for this line yet
     }
     if errors.is_empty() {
-        return 0
-    }
-    else {
+        return 0;
+    } else {
         let error_list = errors.join("\n");
-        write!(stdout, r#"
+        write!(
+            stdout,
+            r#"
             *** DO NOT USE THIS CODE ***
             It will produce incorrect results.
             The process that generated it found these errors:
@@ -49,20 +49,30 @@ pub fn ip_country(
 
             Fix the errors and regenerate the code.
             *** DO NOT USE THIS CODE ***
-"#, error_list);
+"#,
+            error_list
+        );
         write!(stderr, "{}", errors.join("\n"));
-        return 1
+        return 1;
     }
 }
 
-fn generate_rust_code(ipv4_bit_queue: BitQueue, ipv6_bit_queue: BitQueue, output: &mut dyn io::Write) -> Result<(), io::Error> {
+fn generate_rust_code(
+    ipv4_bit_queue: BitQueue,
+    ipv6_bit_queue: BitQueue,
+    output: &mut dyn io::Write,
+) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
     generate_country_data("ipv4_country_data", ipv4_bit_queue, output)?;
     generate_country_data("ipv6_country_data", ipv6_bit_queue, output)?;
     Ok(())
 }
 
-fn generate_country_data(name: &str, mut bit_queue: BitQueue, output: &mut dyn io::Write) -> Result<(), io::Error> {
+fn generate_country_data(
+    name: &str,
+    mut bit_queue: BitQueue,
+    output: &mut dyn io::Write,
+) -> Result<(), io::Error> {
     let bit_queue_len = bit_queue.len();
     write!(output, "\n")?;
     write!(output, "pub fn {}() -> (Vec<u64>, usize) {{\n", name)?;
@@ -83,14 +93,20 @@ fn generate_country_data(name: &str, mut bit_queue: BitQueue, output: &mut dyn i
     Ok(())
 }
 
-fn write_value(bit_queue: &mut BitQueue, bit_count: usize, values_written: &mut usize, output: &mut dyn io::Write) -> Result<(), io::Error> {
+fn write_value(
+    bit_queue: &mut BitQueue,
+    bit_count: usize,
+    values_written: &mut usize,
+    output: &mut dyn io::Write,
+) -> Result<(), io::Error> {
     if (*values_written & 0b11) == 0 {
         write!(output, "\n            ")?;
-    }
-    else {
+    } else {
         write!(output, " ")?;
     }
-    let value = bit_queue.take_bits(bit_count).expect("There should be bits left!");
+    let value = bit_queue
+        .take_bits(bit_count)
+        .expect("There should be bits left!");
     write!(output, "0x{:016X},", value)?;
     *values_written += 1;
     Ok(())
@@ -98,11 +114,10 @@ fn write_value(bit_queue: &mut BitQueue, bit_count: usize, values_written: &mut 
 
 #[cfg(test)]
 mod tests {
-    use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
     use super::*;
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
 
-    static TEST_DATA: &str =
-"0.0.0.0,0.255.255.255,ZZ
+    static TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
 1.0.0.0,1.0.0.255,AU
 1.0.1.0,1.0.3.255,CN
 1.0.4.0,1.0.7.255,AU
@@ -124,8 +139,7 @@ mod tests {
 1:1:0:0:0:0:0:0,1:1:0:255:0:0:0:0,CN
 ";
 
-    static BAD_TEST_DATA: &str =
-"0.0.0.0,0.255.255.255,ZZ
+    static BAD_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
 1.0.0.0,1.0.0.255,AU
 1.0.1.0,1.0.3.255,CN
 1.0.7.255,AU
@@ -154,14 +168,15 @@ BOOGA,BOOGA,BOOGA
         let mut stdin = ByteArrayReader::new(TEST_DATA.as_bytes());
         let mut stdout = ByteArrayWriter::new();
         let mut stderr = ByteArrayWriter::new();
-        
+
         let result = ip_country(vec![], &mut stdin, &mut stdout, &mut stderr);
-        
+
         assert_eq!(result, 0);
         let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
         let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
-        assert_eq!(stdout_string,
-r#"
+        assert_eq!(
+            stdout_string,
+            r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -187,7 +202,8 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         1513
     )
 }
-"#.to_string()
+"#
+            .to_string()
         );
         assert_eq!(stderr_string, "".to_string());
     }
@@ -203,7 +219,9 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         assert_eq!(result, 1);
         let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
         let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
-        assert_eq!(stdout_string, r#"
+        assert_eq!(
+            stdout_string,
+            r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -242,7 +260,8 @@ Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'
 
             Fix the errors and regenerate the code.
             *** DO NOT USE THIS CODE ***
-"#);
+"#
+        );
         assert_eq!(stderr_string,
 r#"Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, line: 4, record: 3 }), expected_len: 3, len: 2 })
 Line 4: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 80, line: 5, record: 4 }), expected_len: 3, len: 2 })

@@ -196,7 +196,7 @@ mod tests {
             accepts_connections: false,
             routes_data: true,
             version: 42,
-            country_code: "AU".to_string()
+            country_code: "AU".to_string(),
         };
         let future_nri = ExampleFutureNRI {
             public_key: expected_nri.public_key.clone(),
