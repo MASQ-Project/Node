@@ -5,6 +5,7 @@ use ip_country_lib::country_finder::country_finder;
 use ip_country_lib::dbip_country;
 use std::net::IpAddr;
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct NodeLocation {
     pub(crate) country_code: String,

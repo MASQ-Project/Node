@@ -1346,6 +1346,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use crate::neighborhood::node_location::NodeLocation;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2885,7 +2886,7 @@ mod tests {
         let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
-        let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
+        let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
 
@@ -2902,10 +2903,18 @@ mod tests {
             .add_half_neighbor_key(debut_node.public_key().clone())
             .unwrap();
         root_node.increment_version();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.inner.country_code = "AU".to_string();
+        root_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
+        let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
+        debut_node.metadata.last_update = reference_node.metadata.last_update;
+        debut_node.inner.country_code = "FR".to_string();
+        debut_node.metadata.node_location_opt = Some(NodeLocation { country_code: "FR".to_string(), free_world_bit: true });
+        debut_node.resign();
         assert_node_records_eq(
-            dest_db.node_by_key_mut(debut_node.public_key()).unwrap(),
+            reference_node,
             &debut_node,
             before,
             after,
@@ -3135,6 +3144,9 @@ mod tests {
         root_node
             .add_half_neighbor_key(existing_node_4_key.clone())
             .unwrap();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.inner.country_code = "AU".to_string();
+        root_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
     }
@@ -3217,6 +3229,10 @@ mod tests {
         root_node
             .add_half_neighbor_key(existing_node_5_key.clone())
             .unwrap();
+        root_node.resign();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.inner.country_code = "AU".to_string();
+        root_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
     }
@@ -4278,7 +4294,6 @@ mod tests {
             after,
             actual.metadata.last_update
         );
-        actual.metadata.last_update = expected.metadata.last_update;
         assert_eq!(actual, expected);
     }
 }

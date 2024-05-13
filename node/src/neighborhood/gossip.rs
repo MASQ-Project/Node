@@ -635,8 +635,8 @@ mod tests {
             "\n\tinner: NodeRecordInner_0v1 {\n\t\tpublic_key: 0x01020304,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1434, exit_byte_rate: 1237, exit_service_rate: 1634 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
             "\n\tsigned_data:
-Length: 229 (0xe5) bytes
-0000:   a7 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
+Length: 245 (0xf5) bytes
+0000:   a8 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
 0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
 0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
 0030:   db 18 8d 18  6e 09 18 37  18 49 18 71  18 33 18 d1   ....n..7.I.q.3..
@@ -650,11 +650,12 @@ Length: 229 (0xe5) bytes
 00b0:   6e 65 69 67  68 62 6f 72  73 80 73 61  63 63 65 70   neighbors.saccep
 00c0:   74 73 5f 63  6f 6e 6e 65  63 74 69 6f  6e 73 f5 6b   ts_connections.k
 00d0:   72 6f 75 74  65 73 5f 64  61 74 61 f5  67 76 65 72   routes_data.gver
-00e0:   73 69 6f 6e  02                                      sion.",
+00e0:   73 69 6f 6e  02 6c 63 6f  75 6e 74 72  79 5f 63 6f   sion.lcountry_co
+00f0:   64 65 62 41  55                                      debAU",
 	        "\n\tsignature:
 Length: 24 (0x18) bytes
-0000:   01 02 03 04  8a 7e b2 0e  c4 ea fe d8  ac 3c 89 2d   .....~.......<.-
-0010:   2d f1 e9 76  d1 76 db 67                             -..v.v.g"
+0000:   01 02 03 04  ff 0c 0f 5b  71 87 de 3c  36 76 14 73   .......[q..<6v.s
+0010:   42 d0 19 56  90 86 5d b1                             B..V..]."
         );
 
         assert_eq!(result, expected);
