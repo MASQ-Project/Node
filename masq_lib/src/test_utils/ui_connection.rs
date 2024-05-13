@@ -75,7 +75,7 @@ impl UiConnection {
     }
 
     pub fn send_string(&mut self, string: String) {
-        self.send_message(&Message::Text(string))
+        self.send_message(Message::Text(string))
     }
 
     pub fn send_message(&mut self, message: Message) {

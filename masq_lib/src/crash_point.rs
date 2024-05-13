@@ -24,7 +24,10 @@ impl FromStr for CrashPoint {
             "panic" => Ok(CrashPoint::Panic),
             "error" => Ok(CrashPoint::Error),
             "message" => Ok(CrashPoint::Message),
-            s => Err(format!("Crash point must be 'none', 'panic', 'error', or 'message'; not '{}'", s))
+            s => Err(format!(
+                "Crash point must be 'none', 'panic', 'error', or 'message'; not '{}'",
+                s
+            )),
         }
     }
 }
@@ -81,7 +84,13 @@ mod tests {
         assert_eq!(CrashPoint::from_str("panic"), Ok(CrashPoint::Panic));
         assert_eq!(CrashPoint::from_str("error"), Ok(CrashPoint::Error));
         assert_eq!(CrashPoint::from_str("message"), Ok(CrashPoint::Message));
-        assert_eq!(CrashPoint::from_str("booga"), Err("Crash point must be 'none', 'panic', 'error', or 'message'; not 'booga'".to_string()));
+        assert_eq!(
+            CrashPoint::from_str("booga"),
+            Err(
+                "Crash point must be 'none', 'panic', 'error', or 'message'; not 'booga'"
+                    .to_string()
+            )
+        );
     }
 
     #[test]

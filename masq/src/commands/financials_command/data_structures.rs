@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::commands::financials_command) mod restricted {
-    use masq_lib::messages::{CustomQueries};
+    use masq_lib::messages::CustomQueries;
 
     #[derive(Debug, PartialEq, Eq)]
     pub struct CustomQueryInput {

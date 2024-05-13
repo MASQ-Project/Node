@@ -558,7 +558,10 @@ mod tests {
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec![])),
             poll_write_results: vec![Ok(Async::Ready(packet_a.len()))],
-            poll_close_results: Arc::new(Mutex::new(vec![Ok(Async::NotReady), Ok(Async::Ready(()))])),
+            poll_close_results: Arc::new(Mutex::new(vec![
+                Ok(Async::NotReady),
+                Ok(Async::Ready(())),
+            ])),
         };
 
         let shutdown_remainder = writer.poll_close_results.clone();

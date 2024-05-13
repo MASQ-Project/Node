@@ -216,7 +216,9 @@ impl LoggerInitializerWrapperReal {
     }
 
     fn logfile_name_guard<'a>() -> MutexGuard<'a, PathBuf> {
-        LOGFILE_NAME.lock().unwrap_or_else(|poison_err| poison_err.into_inner())
+        LOGFILE_NAME
+            .lock()
+            .unwrap_or_else(|poison_err| poison_err.into_inner())
     }
 }
 

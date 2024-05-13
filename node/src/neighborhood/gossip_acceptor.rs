@@ -9,11 +9,11 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
 };
 use masq_lib::logger::Logger;
+use masq_lib::node_addr::NodeAddr;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, SystemTime};
-use masq_lib::node_addr::NodeAddr;
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
 /// to inability to grow the network beyond a very small size; values greater than 5 may lead to
@@ -1343,13 +1343,13 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
+    use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use masq_lib::node_addr::NodeAddr;
 
     #[test]
     fn constants_have_correct_values() {
@@ -3383,8 +3383,7 @@ mod tests {
         let (_introducer, introducee) =
             IntroductionHandler::identify_players(agrs.clone(), gossip_source).unwrap();
         let new_ip = introducee.node_addr_opt.unwrap().ip_addr();
-        let system =
-            System::new();
+        let system = System::new();
 
         subject.handle(cryptde, &mut db, agrs, gossip_source, neighborhood_metadata);
 
@@ -3544,8 +3543,7 @@ mod tests {
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
-        let system =
-            System::new();
+        let system = System::new();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.cpm_recipient = cpm_recipient;

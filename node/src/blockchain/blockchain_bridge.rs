@@ -850,8 +850,7 @@ mod tests {
 
     #[test]
     fn handle_report_accounts_payable_transacts_and_sends_finished_payments_back_to_accountant() {
-        let system =
-            System::new();
+        let system = System::new();
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let send_payables_within_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1520,8 +1519,7 @@ mod tests {
     #[test]
     fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
-        let system =
-            System::new();
+        let system = System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;

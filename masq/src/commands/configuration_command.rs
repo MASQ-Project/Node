@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg};
+use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
@@ -76,7 +76,9 @@ impl ConfigurationCommand {
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.get_one::<String>("db-password").map(|s| s.to_string()),
+            db_password: matches
+                .get_one::<String>("db-password")
+                .map(|s| s.to_string()),
         })
     }
 

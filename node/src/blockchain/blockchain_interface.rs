@@ -9,7 +9,7 @@ use crate::blockchain::blockchain_interface::BlockchainError::{
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
-use futures::{future};
+use futures::future;
 use indoc::indoc;
 use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};

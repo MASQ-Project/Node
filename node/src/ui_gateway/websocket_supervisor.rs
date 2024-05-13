@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use actix::Recipient;
+use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
 use masq_lib::constants::UNMARSHAL_ERROR;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
@@ -51,12 +52,16 @@ struct WebSocketSupervisorInner {
 
 impl WebSocketSupervisor for WebSocketSupervisorReal {
     fn send_msg(&self, msg: NodeToUiMessage) {
-        Self::send_msg(self.inner_arc.lock().expect("WebSocketSupervisor clients are dying"), msg);
+        Self::send_msg(
+            self.inner_arc
+                .lock()
+                .expect("WebSocketSupervisor clients are dying"),
+            msg,
+        );
     }
 }
 
 impl WebSocketSupervisorReal {
-
     pub fn new(
         port: u16,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
@@ -73,9 +78,11 @@ impl WebSocketSupervisorReal {
         task::spawn(Self::listen_for_connections_on(
             SocketAddr::new(localhost(), port),
             from_ui_message_sub,
-            connections_to_accept
+            connections_to_accept,
         ));
-        WebSocketSupervisorReal { inner_arc: inner_arc }
+        WebSocketSupervisorReal {
+            inner_arc: inner_arc,
+        }
     }
 
     async fn listen_for_connections_on(
@@ -104,7 +111,10 @@ impl WebSocketSupervisorReal {
             .collect()
     }
 
-    async fn send_msg(mut locked_inner: MutexGuard<WebSocketSupervisorInner>, msg: NodeToUiMessage) {
+    async fn send_msg(
+        mut locked_inner: MutexGuard<WebSocketSupervisorInner>,
+        msg: NodeToUiMessage,
+    ) {
         let clients = match msg.target {
             ClientId(n) => {
                 let clients = Self::filter_clients(&mut locked_inner, |(id, _)| **id == n);
@@ -147,12 +157,13 @@ impl WebSocketSupervisorReal {
     ) -> Option<Vec<SendToClientWebsocketError>> {
         let errors: Vec<SendToClientWebsocketError> = clients
             .into_iter()
-            .flat_map(
-                async move |(client_id, client)| match client.send(Message::Text(json.clone())).await {
+            .flat_map(async move |(client_id, client)| {
+                match client.send(Message::Text(json.clone())).await {
                     Ok(_) => None,
                     Err(e) => Some(SendToClientWebsocketError::SendError((client_id, e))),
-                }.await,
-            )
+                }
+                .await
+            })
             .collect();
         if errors.is_empty() {
             None
@@ -189,7 +200,10 @@ impl WebSocketSupervisorReal {
         );
     }
 
-    fn emergency_client_removal(client_id: u64, locked_inner: &MutexGuard<WebSocketSupervisorInner>) {
+    fn emergency_client_removal(
+        client_id: u64,
+        locked_inner: &MutexGuard<WebSocketSupervisorInner>,
+    ) {
         locked_inner
             .client_by_id
             .remove(&client_id)
@@ -216,7 +230,10 @@ impl WebSocketSupervisorReal {
             None => panic!("WebSocketSupervisor got a disconnect from a client that has disappeared from the stable!"),
         };
         let future = async {
-            let close_message = Message::Close(Some(CloseFrame{ code: CloseCode::Normal, reason: Cow::Owned("Client initiated closure")}));
+            let close_message = Message::Close(Some(CloseFrame {
+                code: CloseCode::Normal,
+                reason: Cow::Owned("Client initiated closure"),
+            }));
             match client.send(close_message).await {
                 Err(e) => warning!(
                     logger,
@@ -529,10 +546,14 @@ mod tests {
     use actix::{Actor, Addr};
     use crossbeam_channel::bounded;
     use masq_lib::constants::UNMARSHAL_ERROR;
-    use masq_lib::messages::{FromMessageBody, UiDescriptorResponse, UiShutdownRequest, UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL, UiCheckPasswordRequest};
+    use masq_lib::messages::{
+        FromMessageBody, UiCheckPasswordRequest, UiDescriptorResponse, UiShutdownRequest,
+        UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL,
+    };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::ui_connection::UiConnection;
+    use masq_lib::test_utils::utils::make_rt;
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
@@ -547,7 +568,6 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
     use workflow_websocket::client::{ConnectOptions, WebSocket};
-    use masq_lib::test_utils::utils::make_rt;
 
     impl WebSocketSupervisorReal {
         fn inject_client(&self, web_socket_sink: WebSocketSink) -> u64 {
@@ -642,7 +662,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let _subject =  WebSocketSupervisorReal::new(port, ui_message_sub, 1);
+        let _subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
 
         wait_for_server(port);
 
@@ -678,13 +698,20 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
                 &1
             );
         }
-        ui_connection.send(UiCheckPasswordRequest{db_password_opt: Some("booga".to_string())});
+        ui_connection.send(UiCheckPasswordRequest {
+            db_password_opt: Some("booga".to_string()),
+        });
         System::current().stop();
         system.run();
         let recording = ui_gateway_recording_arc.lock().unwrap();
         let message = recording.get_record::<UiCheckPasswordRequest>(0);
-        assert_eq!(message, UiCheckPasswordRequest{db_password_opt: Some("booga".to_string())});
-        todo! ("Check for proper connection-progress logs")
+        assert_eq!(
+            message,
+            UiCheckPasswordRequest {
+                db_password_opt: Some("booga".to_string())
+            }
+        );
+        todo!("Check for proper connection-progress logs")
     }
 
     #[test]
@@ -699,7 +726,10 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
 
         let result: Result<UiConnection, String> = UiConnection::make(port, "MASQNode-UI");
 
-        assert_eq!(result, Err("UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]"));
+        assert_eq!(
+            result,
+            Err("UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]")
+        );
         {
             let inner = subject.inner_arc.lock().unwrap();
             assert_eq!(inner.next_client_id, 1);
@@ -707,7 +737,9 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
             assert_eq!(inner.client_id_by_socket_addr.is_empty(), true);
         }
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]");
+        tlh.exists_log_containing(
+            "UI attempted connection without protocol MASQNode-UIv2: [\"MASQNode-UI\"]",
+        );
     }
 
     #[test]
@@ -721,7 +753,8 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         wait_for_server(port);
 
         {
-            let mut ui_connection: UiConnection = UiConnection::make(port, NODE_UI_PROTOCOL).unwrap();
+            let mut ui_connection: UiConnection =
+                UiConnection::make(port, NODE_UI_PROTOCOL).unwrap();
             ui_connection.send_message(&Message::Binary(vec![1u8, 2u8, 3u8, 4u8]));
             ui_connection.send_message(&Message::Ping(vec![1u8, 2u8, 3u8, 4u8]));
             ui_connection.send_message(&Message::Pong(vec![1u8, 2u8, 3u8, 4u8]));
@@ -763,9 +796,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
 
         one_client.send_message(&Message::Close(None)).unwrap();
         let one_close_msg = one_client.recv_message().unwrap();
-        another_client
-            .send_message(&Message::Close(None))
-            .unwrap();
+        another_client.send_message(&Message::Close(None)).unwrap();
         let another_close_msg = another_client.recv_message().unwrap();
 
         ui_gateway_awaiter.await_message_count(3);
@@ -1241,7 +1272,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
 
         TestLogHandler::new().await_log_containing(
             "WebsocketSupervisor: WARN: Tried to send to an absent client 7",
-            1000
+            1000,
         );
     }
 }

@@ -18,7 +18,6 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryMessage,
 };
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
-use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
@@ -34,6 +33,7 @@ use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, AsyncContext};
 use masq_lib::logger::Logger;
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
 use std::collections::HashMap;

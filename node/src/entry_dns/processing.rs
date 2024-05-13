@@ -2,6 +2,9 @@
 use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
+use hickory_proto::op::ResponseCode;
+use hickory_resolver::proto::op::OpCode;
+use hickory_resolver::proto::rr::{DNSClass, RecordType};
 use masq_lib::logger::Logger;
 use std::convert::From;
 use std::convert::TryFrom;
@@ -9,9 +12,6 @@ use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
-use hickory_proto::op::ResponseCode;
-use hickory_resolver::proto::op::OpCode;
-use hickory_resolver::proto::rr::{DNSClass, RecordType};
 
 const HEADER_BYTES: usize = 12;
 const UNKNOWN: &str = "<unknown>";

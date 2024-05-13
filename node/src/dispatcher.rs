@@ -4,7 +4,6 @@ use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NodeDescriptor;
-use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -19,6 +18,7 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiDescriptorRequest, UiDescriptorResponse,
 };
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::net::{IpAddr, Ipv4Addr};
 

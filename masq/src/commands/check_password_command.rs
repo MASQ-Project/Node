@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg};
+use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
@@ -119,12 +119,7 @@ mod tests {
         match result {
             Err(CommandFactoryError::CommandSyntax(msg)) => {
                 // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
-                assert_eq!(
-                    msg.contains("unexpected argument"),
-                    true,
-                    "{}",
-                    msg
-                )
+                assert_eq!(msg.contains("unexpected argument"), true, "{}", msg)
             }
             x => panic!("Expected CommandSyntax error, got {:?}", x),
         }

@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use std::future::Future;
-use std::io;
-use std::io::{Error, ErrorKind};
 use crate::sub_lib::sequence_buffer::SequenceBuffer;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use masq_lib::logger::Logger;
+use std::future::Future;
+use std::io;
+use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -443,8 +443,8 @@ mod tests {
             }))),
             Poll::Ready(Ok(None)),
         ];
-        let writer =
-            WriteHalfWrapperMock::new().poll_write_result(Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe))));
+        let writer = WriteHalfWrapperMock::new()
+            .poll_write_result(Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe))));
 
         let mut subject = StreamWriter::new(
             Box::new(writer),
@@ -502,11 +502,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let mut rx = Box::new(ReceiverWrapperMock::new());
         rx.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket::new(
-                b"worlds".to_vec(),
-                0,
-                false,
-            )))),
+            Poll::Ready(Ok(Some(SequencedPacket::new(b"worlds".to_vec(), 0, false)))),
             Poll::Pending,
             Poll::Pending,
             Poll::Pending,

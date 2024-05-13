@@ -15,11 +15,11 @@ use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use masq_lib::node_addr::NodeAddr;
 
 /// Special-case hack to avoid extending a Card From Hell. I'm not sure what the right way to do
 /// this is, but this doesn't feel like it. The intent here is to provide a way to send a CORES

@@ -60,7 +60,7 @@ fn manual(parameters: AutomapParameters) {
     parameters
         .protocols
         .iter()
-        .zip(results.into_iter())
+        .zip(results)
         .for_each(|(method, result)| report_on_method(method, result, &parameters));
 
     std::process::exit(if cumulative_success { 0 } else { 1 })

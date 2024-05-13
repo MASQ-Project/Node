@@ -2,10 +2,10 @@
 use crate::discriminator::UnmaskedChunk;
 use crate::masquerader::MasqueradeError;
 use crate::masquerader::Masquerader;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
 use masq_lib::logger::Logger;
 use serde_derive::{Deserialize, Serialize};
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 pub struct JsonMasquerader {
     logger: Logger,

@@ -1,9 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
 use crate::blockchains::chains::Chain;
+use crate::crash_point::CrashPoint;
+use crate::shared_schema::{
+    ConfigFile, DataDirectory, LogLevel, MappingProtocol, MinHops, NeighborhoodMode, Neighbors,
+    OnOff, PaymentThresholds, PublicKey, RatePack, ScanIntervals,
+};
+use crate::shared_schema::{GasPrice, InsecurePort, IpAddrs, PrivateKey, RealUser, VecU64, Wallet};
+use clap::ArgMatches;
 use dirs::{data_local_dir, home_dir};
 use lazy_static::lazy_static;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
@@ -12,10 +19,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use clap::ArgMatches;
-use crate::shared_schema::{LogLevel, NeighborhoodMode, ConfigFile, DataDirectory, PublicKey, MappingProtocol, MinHops, Neighbors, OnOff, ScanIntervals, RatePack, PaymentThresholds};
-use crate::shared_schema::{InsecurePort, VecU64, PrivateKey, IpAddrs, Wallet, GasPrice, RealUser};
-use crate::crash_point::CrashPoint;
 use url::Url;
 
 #[cfg(not(target_os = "windows"))]
@@ -78,7 +81,6 @@ fn compute_data_directory_help() -> String {
     )
 }
 
-
 pub trait ArgumentConverter {
     fn convert(&self, matches: &ArgMatches, key: &str) -> Option<String>;
 }
@@ -88,9 +90,7 @@ macro_rules! argument_converter_for {
         struct $converter_type {}
         impl ArgumentConverter for $converter_type {
             fn convert(&self, matches: &ArgMatches, key: &str) -> Option<String> {
-                matches
-                    .get_one::<$exotic_type>(key)
-                    .map(|v| v.to_string())
+                matches.get_one::<$exotic_type>(key).map(|v| v.to_string())
             }
         }
     };
@@ -98,7 +98,10 @@ macro_rules! argument_converter_for {
 
 macro_rules! make_converter_entry {
     ($arg_name: literal, $converter_type: ident) => {
-        ($arg_name, Box::new($converter_type {}) as Box<dyn ArgumentConverter>)
+        (
+            $arg_name,
+            Box::new($converter_type {}) as Box<dyn ArgumentConverter>,
+        )
     };
 }
 
@@ -156,7 +159,9 @@ fn make_argument_converters() -> HashMap<&'static str, Box<dyn ArgumentConverter
 pub fn get_argument_value_as_string(matches: &ArgMatches, key: &str) -> Option<String> {
     // TODO: We should find a way to make the map of converters a static constant
     match make_argument_converters().get(key) {
-        None => matches.get_one::<String>(key).map(|string_ref| string_ref.to_string()),
+        None => matches
+            .get_one::<String>(key)
+            .map(|string_ref| string_ref.to_string()),
         Some(converter) => converter.convert(matches, key),
     }
 }
@@ -400,13 +405,12 @@ pub fn hex_to_u128(digits: &str) -> Result<u128, String> {
         }
         None
     }
-    let value_opt =
-        digits
-            .chars()
-            .fold(Some(0u128), |so_far_opt, c| match so_far_opt {
-                Some(so_far) => digit_value(c).map(|dv| (so_far << 4) + (dv as u128)),
-                None => None,
-            });
+    let value_opt = digits
+        .chars()
+        .fold(Some(0u128), |so_far_opt, c| match so_far_opt {
+            Some(so_far) => digit_value(c).map(|dv| (so_far << 4) + (dv as u128)),
+            None => None,
+        });
     match value_opt {
         Some(v) => Ok(v),
         None => Err(format!("Illegal hexadecimal number: '{}'", digits)),
@@ -574,12 +578,12 @@ macro_rules! implement_as_any {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared_schema::shared_app;
+    use clap::Command;
     use std::env::current_dir;
     use std::fmt::Write;
     use std::fs::{create_dir_all, File, OpenOptions};
     use std::io::Write as FmtWrite;
-    use clap::Command;
-    use crate::shared_schema::shared_app;
 
     #[test]
     fn constants_have_correct_values() {
@@ -599,44 +603,78 @@ mod tests {
     #[test]
     fn get_argument_value_as_string_handles_exotic_types() {
         let command = shared_app(Command::new("test"));
-        let matches = command.try_get_matches_from(&["first",
-            "--blockchain-service-url", "https://blockchain.client.net/api/jsonrpc",
-            "--chain", "polygon-mainnet",
-            "--clandestine-port", "1234",
-            "--config-file", "../directory/file.toml",
-            "--consuming-private-key", "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100",
-            "--crash-point", "panic",
-            "--data-directory", "~/grandfather/father/target",
-            "--dns-servers", "1.2.3.4,2.3.4.5",
-            "--earning-wallet", "0x0123456789abcdef0123456789abcdef01234567",
-            "--fake-public-key", "Ym9vZ2EK",
-            "--gas-price", "1234",
-            "--ip", "3.4.5.6",
-            "--log-level", "warn",
-            "--mapping-protocol", "igdp",
-            "--min-hops", "4",
-            "--neighborhood-mode", "zero-hop",
-            "--neighbors", "1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567",
-            "--real-user", "4321:5432:/home/billy",
-            "--scans", "off",
-            "--scan-intervals",  "10|20|30",
-            "--rate-pack", "10|20|30|40",
-            "--payment-thresholds", "10|20|30|40|50|60",
-        ]).unwrap();
+        let matches = command
+            .try_get_matches_from(&[
+                "first",
+                "--blockchain-service-url",
+                "https://blockchain.client.net/api/jsonrpc",
+                "--chain",
+                "polygon-mainnet",
+                "--clandestine-port",
+                "1234",
+                "--config-file",
+                "../directory/file.toml",
+                "--consuming-private-key",
+                "00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100",
+                "--crash-point",
+                "panic",
+                "--data-directory",
+                "~/grandfather/father/target",
+                "--dns-servers",
+                "1.2.3.4,2.3.4.5",
+                "--earning-wallet",
+                "0x0123456789abcdef0123456789abcdef01234567",
+                "--fake-public-key",
+                "Ym9vZ2EK",
+                "--gas-price",
+                "1234",
+                "--ip",
+                "3.4.5.6",
+                "--log-level",
+                "warn",
+                "--mapping-protocol",
+                "igdp",
+                "--min-hops",
+                "4",
+                "--neighborhood-mode",
+                "zero-hop",
+                "--neighbors",
+                "1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567",
+                "--real-user",
+                "4321:5432:/home/billy",
+                "--scans",
+                "off",
+                "--scan-intervals",
+                "10|20|30",
+                "--rate-pack",
+                "10|20|30|40",
+                "--payment-thresholds",
+                "10|20|30|40|50|60",
+            ])
+            .unwrap();
         let verifier = |key, expected_value: Option<&str>| {
             let result = get_argument_value_as_string(&matches, key);
-            assert_eq! (result, expected_value.map(|v| v.to_string()))
+            assert_eq!(result, expected_value.map(|v| v.to_string()))
         };
 
-        verifier("blockchain-service-url", Some("https://blockchain.client.net/api/jsonrpc"));
+        verifier(
+            "blockchain-service-url",
+            Some("https://blockchain.client.net/api/jsonrpc"),
+        );
         verifier("chain", Some("polygon-mainnet"));
         verifier("clandestine-port", Some("1234"));
         verifier("config-file", Some("../directory/file.toml"));
-        verifier("consuming-private-key", Some("00112233445566778899AABBCCDDEEFFFFEEDDCCBBAA99887766554433221100"));
+        verifier(
+            "consuming-private-key",
+            Some("00112233445566778899AABBCCDDEEFFFFEEDDCCBBAA99887766554433221100"),
+        );
         verifier("crash-point", Some("panic"));
         verifier("data-directory", Some("~/grandfather/father/target"));
         verifier("dns-servers", Some("1.2.3.4,2.3.4.5"));
-        verifier("earning-wallet", Some("0x0123456789abcdef0123456789abcdef01234567"));
+        verifier(
+            "earning-wallet",
+            Some("0x0123456789abcdef0123456789abcdef01234567"),
+        );
         verifier("fake-public-key", Some("Ym9vZ2EK"));
         verifier("gas-price", Some("1234"));
         verifier("ip", Some("3.4.5.6"));
@@ -644,7 +682,10 @@ mod tests {
         verifier("mapping-protocol", Some("igdp"));
         verifier("min-hops", Some("4"));
         verifier("neighborhood-mode", Some("zero-hop"));
-        verifier("neighbors", Some("1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567"));
+        verifier(
+            "neighbors",
+            Some("1.2.3.4:1234/2345/3456,2.3.4.5:2345/3456/4567"),
+        );
         verifier("real-user", Some("4321:5432:/home/billy"));
         verifier("scans", Some("off"));
         verifier("scan-intervals", Some("10|20|30"));
@@ -655,13 +696,13 @@ mod tests {
     #[test]
     fn get_argument_value_as_string_handles_mundane_types() {
         let command = shared_app(Command::new("test"));
-        let matches = command.try_get_matches_from(&["first",
-            "--db-password", "boogety bop",
-        ]).unwrap();
+        let matches = command
+            .try_get_matches_from(&["first", "--db-password", "boogety bop"])
+            .unwrap();
 
-                let result = get_argument_value_as_string(&matches, "db-password");
+        let result = get_argument_value_as_string(&matches, "db-password");
 
-        assert_eq! (result, Some("boogety bop".to_string()));
+        assert_eq!(result, Some("boogety bop".to_string()));
     }
 
     #[test]

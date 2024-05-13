@@ -190,12 +190,7 @@ mod tests {
         match result {
             Err(CommandSyntax(msg)) => {
                 // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
-                assert_eq!(
-                    msg.contains("unexpected argument"),
-                    true,
-                    "{}",
-                    msg
-                )
+                assert_eq!(msg.contains("unexpected argument"), true, "{}", msg)
             }
             x => panic!("Expected CommandSyntax error, got {:?}", x),
         }
@@ -319,12 +314,7 @@ mod tests {
             x => panic!("Expected syntax error, got {:?}", x),
         };
         assert_eq!(msg.contains("--invalid"), true, "{}", msg);
-        assert_eq!(
-            msg.contains("unexpected argument"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
     #[test]
@@ -360,12 +350,7 @@ mod tests {
             x => panic!("Expected syntax error, got {:?}", x),
         };
         assert_eq!(msg.contains("--invalid"), true, "{}", msg);
-        assert_eq!(
-            msg.contains("unexpected argument"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
     #[test]
@@ -386,12 +371,7 @@ mod tests {
             x => panic!("Expected syntax error, got {:?}", x),
         };
         assert_eq!(msg.contains("--make-me-rich"), true, "{}", msg);
-        assert_eq!(
-            msg.contains("unexpected argument"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
     #[test]

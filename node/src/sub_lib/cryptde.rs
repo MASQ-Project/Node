@@ -1,5 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
 use ethsign_crypto::Keccak256;
 use rustc_hex::{FromHex, ToHex};
 use serde::de::Visitor;
@@ -11,8 +13,6 @@ use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
@@ -21,11 +21,7 @@ pub struct PrivateKey {
 
 impl fmt::Display for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}",
-            BASE64_STANDARD_NO_PAD.encode(&self.data)
-        )
+        write!(f, "{}", BASE64_STANDARD_NO_PAD.encode(&self.data))
     }
 }
 
@@ -104,11 +100,7 @@ impl<'de> Deserialize<'de> for PublicKey {
 
 impl fmt::Display for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}",
-            BASE64_STANDARD_NO_PAD.encode(&self.data)
-        )
+        write!(f, "{}", BASE64_STANDARD_NO_PAD.encode(&self.data))
     }
 }
 
@@ -208,21 +200,13 @@ impl<'de> Deserialize<'de> for SymmetricKey {
 
 impl fmt::Display for SymmetricKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}",
-            BASE64_STANDARD_NO_PAD.encode(&self.data)
-        )
+        write!(f, "{}", BASE64_STANDARD_NO_PAD.encode(&self.data))
     }
 }
 
 impl fmt::Debug for SymmetricKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}",
-            BASE64_STANDARD_NO_PAD.encode(&self.data)
-        )
+        write!(f, "{}", BASE64_STANDARD_NO_PAD.encode(&self.data))
     }
 }
 

@@ -7,14 +7,15 @@ use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
-use std::ops::{Not};
+use std::ops::Not;
 use std::sync::{Arc, Mutex};
-use std::{thread};
+use std::thread;
 use std::time::Duration;
 use futures_util::SinkExt;
 use tokio::{task};
-use workflow_websocket::server::{WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketSink};
-use workflow_websocket::server::{Error, Message};
+use workflow_websocket::server::{
+    WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketSink, Error, Message
+};
 use async_trait::async_trait;
 
 lazy_static! {
@@ -48,7 +49,7 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         peer: &SocketAddr,
         sender: &mut WebSocketSender,
         receiver: &mut WebSocketReceiver,
-        sink: &WebSocketSink
+        sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<Self::Context> {
         log(self.do_log, self.index, format!("Accepted TCP connection from {}", peer).as_str());
 
@@ -224,6 +225,15 @@ impl NodeUiProtocolWebSocketHandler {
         };
         true
     }
+
+    async fn message(
+        self: &Arc<Self>,
+        ctx: &(),
+        msg: Message,
+        sink: &WebSocketSink,
+    ) -> workflow_websocket::server::Result<()> {
+        todo!()
+    }
 }
 
 pub struct MockWebSocketsServer {
@@ -285,7 +295,7 @@ impl MockWebSocketsServer {
         let (stop_tx, stop_rx) = unbounded();
 
         let handler = NodeUiProtocolWebSocketHandler {
-            requests_arc,
+            requests_arc: requests_arc.clone(),
             responses_arc: Arc::new(Mutex::new(self.responses)),
             looping_tx,
             stop_rx,
@@ -296,14 +306,15 @@ impl MockWebSocketsServer {
         let server = WebSocketServer::new(Arc::new(handler), None);
         let socket_addr = SocketAddr::new(localhost(), self.port);
         log(self.do_log, index, format!("Listening on: {}", socket_addr).as_str());
-        let future = server.listen(socket_addr.to_string().as_str(), None);
+        let static_socket_addr_str: &'static str = Box::leak(socket_addr.to_string().into_boxed_str());
+        let future = server.listen(static_socket_addr_str, None);
         task::spawn(future);
         MockWebSocketsServerStopHandle {
             index,
             log: self.do_log,
             requests_arc,
             looping_rx,
-            stop_tx
+            stop_tx,
         }
         // let future = async move {
         //     let socket_addr = SocketAddr::new(localhost(), self.port);
@@ -427,133 +438,98 @@ impl MockWebSocketsServer {
     //     log(do_log, index, "Connection-handling future completed");
     // }
 
-    fn handle_incoming_msg_raw(
-        incoming: Option<Result<Message, Error>>,
-        do_log: bool,
-        index: u64,
-    ) -> Option<Result<MessageBody, String>> {
-        match incoming {
-            None => None,
-            Some(result) => match result {
-                // TODO: Dunno what kind of errors we're going to get from the new library, but
-                // the handlers from the old library are commented below.
-                Err(e) => todo!("{:?}", e),
-                // Err(WebSocketError::NoDataAvailable) => {
-                //     log(do_log, index, "No data available");
-                //     None
-                // }
-                // Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                //     log(do_log, index, "No message waiting");
-                //     None
-                // }
-                // Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
-                Ok(Message::Text(json)) => {
-                    log(do_log, index, &format!("Received '{}'", json));
-                    Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
-                        Ok(msg) => Ok(msg.body),
-                        Err(_) => Err(json),
-                    })
-                }
-                Ok(x) => {
-                    log(do_log, index, &format!("Received {:?}", x));
-                    Some(Err(format!("{:?}", x)))
-                }
-            }
-        }
-    }
+    // async fn handle_all_f_f_messages_introducing_the_queue<S>(
+    //     first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
+    //     ws_transmitter: &mut S,
+    //     inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
+    //     index: u64,
+    //     do_log: bool,
+    // ) where S: SinkExt<Message, Error=Error> + Unpin
+    // {
+    //     let mut counter = 0usize;
+    //     let mut inner_responses_vec = inner_responses_arc.lock().unwrap();
+    //     loop {
+    //         let should_signal_first_f_f_msg = first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
+    //         if inner_responses_vec.is_empty() {
+    //             break;
+    //         }
+    //         let temporarily_owned_possible_f_f = inner_responses_vec.remove(0);
+    //         if match &temporarily_owned_possible_f_f {
+    //             Message::Text(text) =>
+    //                 match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
+    //                 {
+    //                     Ok(msg) => match msg.body.path {
+    //                         MessagePath::FireAndForget => {
+    //                             if should_signal_first_f_f_msg {
+    //                                 log(do_log,index,"Sending a signal between the first two fire-and-forget messages");
+    //                                 first_f_f_msg_sent_tx_opt.as_ref().unwrap().send(()).unwrap()
+    //                             }
+    //                             let f_f_message = temporarily_owned_possible_f_f.clone();
+    //                             ws_transmitter.send(f_f_message).await;
+    //                             log(do_log, index, "Sending a fire-and-forget message to the UI");
+    //                             true
+    //                         }
+    //                         _ => false
+    //                     }
+    //                     _ => false
+    //                 }
+    //             _ => false
+    //         }.not() {
+    //             inner_responses_vec.insert(0, temporarily_owned_possible_f_f);
+    //             log(do_log, index, "No fire-and-forget message found; heading over to conversational messages");
+    //             break
+    //         }
+    //         thread::sleep(Duration::from_millis(1));
+    //         counter += 1;
+    //         //for true, we keep looping
+    //     }
+    // }
 
-    async fn handle_all_f_f_messages_introducing_the_queue<S>(
-        first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
-        ws_transmitter: &mut S,
-        inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
-        index: u64,
-        do_log: bool,
-    ) where S: SinkExt<Message, Error=Error> + Unpin
-    {
-        let mut counter = 0usize;
-        let mut inner_responses_vec = inner_responses_arc.lock().unwrap();
-        loop {
-            let should_signal_first_f_f_msg = first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
-            if inner_responses_vec.is_empty() {
-                break;
-            }
-            let temporarily_owned_possible_f_f = inner_responses_vec.remove(0);
-            if match &temporarily_owned_possible_f_f {
-                Message::Text(text) =>
-                    match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
-                    {
-                        Ok(msg) => match msg.body.path {
-                            MessagePath::FireAndForget => {
-                                if should_signal_first_f_f_msg {
-                                    log(do_log,index,"Sending a signal between the first two fire-and-forget messages");
-                                    first_f_f_msg_sent_tx_opt.as_ref().unwrap().send(()).unwrap()
-                                }
-                                let f_f_message = temporarily_owned_possible_f_f.clone();
-                                ws_transmitter.send(f_f_message).await;
-                                log(do_log, index, "Sending a fire-and-forget message to the UI");
-                                true
-                            }
-                            _ => false
-                        }
-                        _ => false
-                    }
-                _ => false
-            }.not() {
-                inner_responses_vec.insert(0, temporarily_owned_possible_f_f);
-                log(do_log, index, "No fire-and-forget message found; heading over to conversational messages");
-                break
-            }
-            thread::sleep(Duration::from_millis(1));
-            counter += 1;
-            //for true, we keep looping
-        }
-    }
-
-    async fn handle_conversational_incoming_message<S>(
-        ws_transmitter: &mut S,
-        inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
-        index: u64,
-        do_log: bool,
-    ) -> bool where S: SinkExt<Message, Error=Error> + Unpin
-    {
-        let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
-        if temporary_access_to_inner_responses_arc.len() != 0 {
-            match temporary_access_to_inner_responses_arc.remove(0) {
-                Message::Text(outgoing) => {
-                    if outgoing == "disconnect" {
-                        log(do_log, index, "Executing 'disconnect' directive");
-                        return false;
-                    }
-                    if outgoing == "close" {
-                        log(do_log, index, "Sending Close message");
-                        ws_transmitter.send(Message::Close(None)).await.unwrap();
-                    } else {
-                        log(
-                            do_log,
-                            index,
-                            &format!("Responding with preset message: '{}'", &outgoing),
-                        );
-                        ws_transmitter.send(Message::Text(outgoing)).await.unwrap();
-                    }
-                }
-                om => {
-                    log(
-                        do_log,
-                        index,
-                        &format!("Responding with preset Message: {:?}", om),
-                    );
-                    ws_transmitter.send(om).await.unwrap()
-                }
-            }
-        } else {
-            log(do_log, index, "Sending Close message");
-            ws_transmitter
-                .send(Message::Binary(b"EMPTY QUEUE".to_vec()))
-                .await
-                .unwrap()
-        };
-        true
-    }
+    //     async fn handle_conversational_incoming_message<S>(
+    //         ws_transmitter: &mut S,
+    //         inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
+    //         index: u64,
+    //         do_log: bool,
+    //     ) -> bool where S: SinkExt<Message, Error=Error> + Unpin
+    //     {
+    //         let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
+    //         if temporary_access_to_inner_responses_arc.len() != 0 {
+    //             match temporary_access_to_inner_responses_arc.remove(0) {
+    //                 Message::Text(outgoing) => {
+    //                     if outgoing == "disconnect" {
+    //                         log(do_log, index, "Executing 'disconnect' directive");
+    //                         return false;
+    //                     }
+    //                     if outgoing == "close" {
+    //                         log(do_log, index, "Sending Close message");
+    //                         ws_transmitter.send(Message::Close(None)).await.unwrap();
+    //                     } else {
+    //                         log(
+    //                             do_log,
+    //                             index,
+    //                             &format!("Responding with preset message: '{}'", &outgoing),
+    //                         );
+    //                         ws_transmitter.send(Message::Text(outgoing)).await.unwrap();
+    //                     }
+    //                 }
+    //                 om => {
+    //                     log(
+    //                         do_log,
+    //                         index,
+    //                         &format!("Responding with preset Message: {:?}", om),
+    //                     );
+    //                     ws_transmitter.send(om).await.unwrap()
+    //                 }
+    //             }
+    //         } else {
+    //             log(do_log, index, "Sending Close message");
+    //             ws_transmitter
+    //                 .send(Message::Binary(b"EMPTY QUEUE".to_vec()))
+    //                 .await
+    //                 .unwrap()
+    //         };
+    //         true
+    //     }
 }
 
 impl MockWebSocketsServerStopHandle {

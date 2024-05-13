@@ -73,7 +73,7 @@ pub fn make_rt() -> Runtime {
     return tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .unwrap();
 }
 
 #[cfg(not(feature = "no_test_share"))]

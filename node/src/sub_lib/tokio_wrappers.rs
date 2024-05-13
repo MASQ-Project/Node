@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use futures::{AsyncRead, AsyncWrite};
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use futures::{AsyncRead, AsyncWrite};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
@@ -109,7 +109,8 @@ impl TokioListenerWrapperReal {
     }
 
     fn delegate(&self) -> &TcpListener {
-        &self.delegate
+        &self
+            .delegate
             .expect("TcpListener not initialized - bind to a SocketAddr")
     }
 

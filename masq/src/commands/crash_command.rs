@@ -2,10 +2,10 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send, Command, CommandError};
-use clap::{Command as ClapCommand, Arg};
+use clap::builder::PossibleValuesParser;
+use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
-use clap::builder::PossibleValuesParser;
 
 #[derive(Debug)]
 pub struct CrashCommand {

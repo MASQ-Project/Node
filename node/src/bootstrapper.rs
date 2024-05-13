@@ -30,7 +30,6 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
-use masq_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::utils::db_connection_launch_panic;
@@ -43,6 +42,7 @@ use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::AutomapProtocol;
@@ -732,7 +732,6 @@ mod tests {
     use crate::sub_lib::neighborhood::{
         NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
     };
-    use masq_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
@@ -757,6 +756,7 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
+    use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};

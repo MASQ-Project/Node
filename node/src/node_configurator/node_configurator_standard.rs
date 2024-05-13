@@ -30,11 +30,11 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -97,12 +97,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     }
 }
 
-impl<'a>
-    From<(
-        &'a NodeConfiguratorStandardUnprivileged,
-        &'a MultiConfig,
-    )> for ExternalData
-{
+impl<'a> From<(&'a NodeConfiguratorStandardUnprivileged, &'a MultiConfig)> for ExternalData {
     fn from(tuple: (&'a NodeConfiguratorStandardUnprivileged, &'a MultiConfig)) -> ExternalData {
         let (node_configurator_standard, multi_config) = tuple;
         let (neighborhood_mode, db_password_opt) =
@@ -228,15 +223,16 @@ pub fn privileged_parse_args(
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
     if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
-        let (main_public_key, alias_public_key) = match BASE64_STANDARD_NO_PAD.decode(&public_key_str) {
-            Ok(mut key) => {
-                let main_public_key = PublicKey::new(&key);
-                key.reverse();
-                let alias_public_key = PublicKey::new(&key);
-                (main_public_key, alias_public_key)
-            }
-            Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
-        };
+        let (main_public_key, alias_public_key) =
+            match BASE64_STANDARD_NO_PAD.decode(&public_key_str) {
+                Ok(mut key) => {
+                    let main_public_key = PublicKey::new(&key);
+                    key.reverse();
+                    let alias_public_key = PublicKey::new(&key);
+                    (main_public_key, alias_public_key)
+                }
+                Err(e) => panic!("Invalid fake public key: {} ({:?})", public_key_str, e),
+            };
         let main_cryptde_null = CryptDENull::from(
             &main_public_key,
             privileged_config.blockchain_bridge_config.chain,

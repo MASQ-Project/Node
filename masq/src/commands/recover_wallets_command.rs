@@ -4,14 +4,14 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{Command as ClapCommand, Arg, ArgGroup};
-use itertools::{Either};
+use clap::builder::{PossibleValuesParser, ValueRange};
+use clap::{Arg, ArgGroup, Command as ClapCommand};
+use itertools::Either;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
-use clap::builder::{PossibleValuesParser, ValueRange};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -35,14 +35,18 @@ impl RecoverWalletsCommand {
             Err(e) => return Err(format!("{}", e)),
         };
 
-        let mnemonic_phrase_opt = matches
-            .get_one::<String>("mnemonic-phrase")
-            .map(|mpv| mpv.split(' ').map(|x| x.to_string()).collect::<Vec<String>>());
+        let mnemonic_phrase_opt = matches.get_one::<String>("mnemonic-phrase").map(|mpv| {
+            mpv.split(' ')
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>()
+        });
         let language = matches
             .get_one::<String>("language")
             .expect("language is not properly defaulted by clap")
             .to_string();
-        let passphrase_opt = matches.get_one::<String>("passphrase").map(|mp| mp.to_string());
+        let passphrase_opt = matches
+            .get_one::<String>("passphrase")
+            .map(|mp| mp.to_string());
         let seed_spec_opt = mnemonic_phrase_opt.map(|mnemonic_phrase| SeedSpec {
             mnemonic_phrase,
             language,
@@ -176,7 +180,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("mnemonic-phrase")
                 .value_name("MNEMONIC-PHRASE")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("passphrase")
@@ -184,7 +188,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("passphrase")
                 .value_name("PASSPHRASE")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("language")
@@ -202,7 +206,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("consuming-path")
                 .value_name("CONSUMING-PATH")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("consuming-key")
@@ -210,7 +214,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("consuming-key")
                 .value_name("CONSUMING-KEY")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("earning-path")
@@ -218,7 +222,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("earning-path")
                 .value_name("EARNING-PATH")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .arg(
             Arg::new("earning-address")
@@ -226,7 +230,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
                 .long("earning-address")
                 .value_name("EARNING-ADDRESS")
                 .required(false)
-                .num_args(ValueRange::new(1..=1))
+                .num_args(ValueRange::new(1..=1)),
         )
         .group(
             ArgGroup::new("consuming")
@@ -391,12 +395,7 @@ mod tests {
         ]);
 
         let msg = result.err().unwrap();
-        assert_eq!(
-            msg.contains("unexpected argument"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
     #[test]
@@ -488,12 +487,7 @@ mod tests {
             CommandFactoryError::CommandSyntax(msg) => msg,
             x => panic!("Expected CommandSyntax, but got {:?}", x),
         };
-        assert_eq!(
-            msg.contains("cannot be used with"),
-            true,
-            "{}",
-            msg
-        );
+        assert_eq!(msg.contains("cannot be used with"), true, "{}", msg);
     }
 
     #[test]

@@ -218,8 +218,8 @@ impl ResolvConfDnsModifier {
             })
             .collect();
         match results.len() {
-            x if x == 0 => Ok(None),
-            x if x == 1 => Ok(Some(results.remove(0))),
+            0 => Ok(None),
+            1 => Ok(Some(results.remove(0))),
             _ => Err(String::from(
                 "This system's DNS settings don't make sense; aborting",
             )),

@@ -15,16 +15,16 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use crossbeam_channel::{unbounded, Receiver};
+use hickory_resolver::error::ResolveError;
+use hickory_resolver::lookup_ip::LookupIp;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
-use std::future::{Future, ready};
+use std::future::{ready, Future};
 use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use hickory_resolver::error::ResolveError;
-use hickory_resolver::lookup_ip::LookupIp;
 use tokio::task;
 
 pub trait StreamHandlerPool {
@@ -59,9 +59,9 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
     }
 }
 
-type StreamEstablisherResultInner = Result<Box<dyn SenderWrapper<SequencedPacket> + 'static>, String>;
-type StreamEstablisherResult =
-    Box<dyn Future<Output = StreamEstablisherResultInner>>;
+type StreamEstablisherResultInner =
+    Result<Box<dyn SenderWrapper<SequencedPacket> + 'static>, String>;
+type StreamEstablisherResult = Box<dyn Future<Output = StreamEstablisherResultInner>>;
 
 impl StreamHandlerPoolReal {
     pub fn new(
@@ -107,7 +107,10 @@ impl StreamHandlerPoolReal {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
                 let future = async {
-                    if let Err(msg) = Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc).await {
+                    if let Err(msg) =
+                        Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
+                            .await
+                    {
                         Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, msg)
                     }
                 };
@@ -122,13 +125,16 @@ impl StreamHandlerPoolReal {
                     )
                 } else {
                     let future = async {
-                        let sender_wrapper = Self::make_stream_with_key(&payload, inner_arc_1.clone()).await?;
+                        let sender_wrapper =
+                            Self::make_stream_with_key(&payload, inner_arc_1.clone()).await?;
                         if let Err(msg) = Self::write_and_tend(
                             sender_wrapper,
                             payload,
                             paying_wallet_opt,
                             inner_arc,
-                        ).await {
+                        )
+                        .await
+                        {
                             // TODO: This ends up sending an empty response back to the browser and terminating
                             // the stream. User deserves better than that. Send back a response from the
                             // proper ServerImpersonator describing the error.
@@ -278,9 +284,12 @@ impl StreamHandlerPoolReal {
         target_hostname: String,
     ) -> StreamEstablisherResultInner {
         let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
-        match stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname).await {
+        match stream_establisher
+            .establish_stream(&payload, vec![ip_addr], target_hostname)
+            .await
+        {
             Ok(sender_wrapper) => Ok(Box::new(sender_wrapper)),
-            Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error))
+            Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
         }
     }
 
@@ -303,16 +312,20 @@ impl StreamHandlerPoolReal {
             .lock()
             .expect("Stream handler pool is poisoned")
             .resolver
-            .lookup_ip(&fqdn).await {
+            .lookup_ip(&fqdn)
+            .await
+        {
             Ok(lookup_result) => match Self::handle_lookup_ip(
                 target_hostname.to_string(),
                 &payload,
                 lookup_result,
                 logger,
                 &mut establisher,
-            ).await {
+            )
+            .await
+            {
                 Ok(sender_wrapper) => Ok(sender_wrapper),
-                Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error))
+                Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
             },
             Err(err) => {
                 dns_resolve_failed_sub
@@ -373,9 +386,7 @@ impl StreamHandlerPoolReal {
     ) -> Result<(), String> {
         match sender_wrapper.unbounded_send(sequenced_packet).await {
             Ok(_) => Ok(()),
-            Err(_) => {
-                Err("Could not queue write to stream; channel full".to_string())
-            }
+            Err(_) => Err("Could not queue write to stream; channel full".to_string()),
         }
     }
 
@@ -783,7 +794,10 @@ mod tests {
                         first_read_result.to_vec(),
                         Poll::Ready(Ok(first_read_result.len())),
                     ),
-                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
+                    (
+                        vec![],
+                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
+                    ),
                 ],
             };
             let writer = WriteHalfWrapperMock {
@@ -892,7 +906,10 @@ mod tests {
                         first_read_result.to_vec(),
                         Poll::Ready(Ok(first_read_result.len())),
                     ),
-                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
+                    (
+                        vec![],
+                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
+                    ),
                 ],
             };
             let writer = WriteHalfWrapperMock {
@@ -1068,7 +1085,10 @@ mod tests {
                         first_read_result.to_vec(),
                         Poll::Ready(Ok(first_read_result.len())),
                     ),
-                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
+                    (
+                        vec![],
+                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
+                    ),
                 ],
             };
             let writer = WriteHalfWrapperMock {
@@ -1269,7 +1289,10 @@ mod tests {
             let reader = ReadHalfWrapperMock {
                 poll_read_results: vec![
                     (vec![], Poll::Pending),
-                    (vec![], Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted)))),
+                    (
+                        vec![],
+                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
+                    ),
                 ],
             };
             let writer = WriteHalfWrapperMock {

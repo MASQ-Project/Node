@@ -11,6 +11,7 @@ use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
+use masq_lib::node_addr::NodeAddr;
 use masq_lib::utils::ExpectValue;
 use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
@@ -18,7 +19,6 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
-use masq_lib::node_addr::NodeAddr;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 

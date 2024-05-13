@@ -2,20 +2,20 @@
 
 use crate::proxy_client::resolver_wrapper::ResolverWrapper;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
-use std::cell::RefCell;
-use std::net::IpAddr;
-use std::sync::Arc;
-use std::sync::Mutex;
-use crossbeam_channel::{SendError, unbounded};
+use crossbeam_channel::{unbounded, SendError};
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup::Lookup;
 use hickory_resolver::lookup_ip::LookupIp;
-use hickory_resolver::Name;
 use hickory_resolver::proto::op::Query;
-use hickory_resolver::proto::rr::{DNSClass, Record, RecordType};
-use hickory_resolver::proto::rr::RData::{A, AAAA};
 use hickory_resolver::proto::rr::rdata::{A as RData_A, AAAA as RData_AAAA};
+use hickory_resolver::proto::rr::RData::{A, AAAA};
+use hickory_resolver::proto::rr::{DNSClass, Record, RecordType};
+use hickory_resolver::Name;
+use std::cell::RefCell;
+use std::net::IpAddr;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 pub struct ResolverWrapperMock {
     lookup_ip_results: RefCell<Vec<Result<LookupIp, ResolveError>>>,
@@ -24,10 +24,7 @@ pub struct ResolverWrapperMock {
 
 impl ResolverWrapper for ResolverWrapperMock {
     async fn lookup_ip(&self, host: &str) -> Result<LookupIp, ResolveError> {
-        self.lookup_ip_params
-            .lock()
-            .unwrap()
-            .push(host.to_string());
+        self.lookup_ip_params.lock().unwrap().push(host.to_string());
         self.lookup_ip_results.borrow_mut().remove(0)
     }
 }
@@ -57,7 +54,7 @@ impl ResolverWrapperMock {
                                 record.set_ttl(0);
                                 record.set_data(Some(A(RData_A(ipv4addr))));
                                 record
-                            },
+                            }
                             IpAddr::V6(ipv6addr) => {
                                 let mut record = Record::new();
                                 record.set_name(Name::new()); // Garbage; may have to change one day
@@ -74,16 +71,13 @@ impl ResolverWrapperMock {
                 let lookup = Lookup::new_with_max_ttl(query, records_arc);
                 let lookup_ip = LookupIp(lookup);
                 self.lookup_ip_results.borrow_mut().push(Ok(lookup_ip));
-            },
-            Err(e) => self.lookup_ip_results.borrow_mut().push(Err(e))
+            }
+            Err(e) => self.lookup_ip_results.borrow_mut().push(Err(e)),
         }
-        return self
+        return self;
     }
 
-    pub fn lookup_ip_params(
-        mut self,
-        parameters: &Arc<Mutex<Vec<String>>>,
-    ) -> ResolverWrapperMock {
+    pub fn lookup_ip_params(mut self, parameters: &Arc<Mutex<Vec<String>>>) -> ResolverWrapperMock {
         self.lookup_ip_params = parameters.clone();
         self
     }
@@ -96,14 +90,14 @@ pub struct ResolverWrapperFactoryMock {
 impl ResolverWrapperFactory for ResolverWrapperFactoryMock {
     fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
         self.make_parameters.lock().unwrap().push((config, options));
-        return self.make_results.borrow_mut().remove(0)
+        return self.make_results.borrow_mut().remove(0);
     }
 }
 impl ResolverWrapperFactoryMock {
     pub fn new() -> ResolverWrapperFactoryMock {
         ResolverWrapperFactoryMock {
             make_parameters: Arc::new(Mutex::new(vec![])),
-            make_results: RefCell::new(vec![])
+            make_results: RefCell::new(vec![]),
         }
     }
 

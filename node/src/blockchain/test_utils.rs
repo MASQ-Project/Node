@@ -343,7 +343,8 @@ impl TestTransport {
     }
 }
 
-pub fn make_fake_event_loop_handle() -> u64 { // TODO: Not really u64; what _should_ it be?
+pub fn make_fake_event_loop_handle() -> u64 {
+    // TODO: Not really u64; what _should_ it be?
     Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
         .unwrap()
         .0

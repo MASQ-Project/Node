@@ -131,7 +131,7 @@ pub fn request_probe(
     let status =
         status.begin_attempt("Reading probe server's report about the probe attempt".to_string());
     match connection.read(&mut buffer) {
-        Ok(length) if length == 0 => {
+        Ok(0) => {
             return status.fail(AutomapError::ProbeRequestError(
                 AutomapErrorCause::ProbeServerIssue,
                 "Zero-length response".to_string(),
@@ -179,13 +179,13 @@ pub fn request_probe(
 
 fn generate_nonce() -> u16 {
     let mut rnd = thread_rng();
-    rnd.gen_range(1000, 9999)
+    rnd.gen_range(1000..=9999)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{ErrorKind, IoSlice};
+    use std::io::ErrorKind;
 
     use masq_lib::utils::{find_free_port_0000, localhost};
 
@@ -222,44 +222,10 @@ mod tests {
         [b1, b2]
     }
 
-    struct MockStream {
-        pub stream: String,
-        pub flush_count: u8,
-    }
-
-    impl Write for MockStream {
-        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-            unimplemented!()
-        }
-
-        fn write_vectored(&mut self, _bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
-            unimplemented!()
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            self.flush_count += 1;
-            Ok(())
-        }
-
-        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-            self.stream.push_str(std::str::from_utf8(buf).unwrap());
-            Ok(())
-        }
-
-        fn by_ref(&mut self) -> &mut Self
-        where
-            Self: Sized,
-        {
-            unimplemented!()
-        }
-    }
-
     #[test]
     fn deploy_background_listener_with_good_probe_works() {
         let port = find_free_port_0000();
-
         let (handle, _) = deploy_background_listener(TestStatus::new(), port, 8875, 500);
-
         let send_probe_addr = SocketAddr::new(localhost(), port);
 
         test_stream_acceptor_and_probe_8875_imitator(0, send_probe_addr);

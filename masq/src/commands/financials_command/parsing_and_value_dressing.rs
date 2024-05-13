@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::commands::financials_command) mod restricted {
-    use masq_lib::constants::{WEIS_IN_GWEI};
+    use masq_lib::constants::WEIS_IN_GWEI;
     use thousands::Separable;
 
     pub fn convert_masq_from_gwei_and_dress_well(balance_gwei: i64) -> String {
@@ -29,9 +29,7 @@ pub(in crate::commands::financials_command) mod restricted {
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
-        convert_masq_from_gwei_and_dress_well,
-    };
+    use crate::commands::financials_command::parsing_and_value_dressing::restricted::convert_masq_from_gwei_and_dress_well;
     use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_IN_GWEI};
 
     #[test]

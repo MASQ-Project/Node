@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::cryptde::PublicKey;
+use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::Engine;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -9,8 +11,6 @@ use serde::Serializer;
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use base64::Engine;
-use base64::prelude::BASE64_STANDARD_NO_PAD;
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {

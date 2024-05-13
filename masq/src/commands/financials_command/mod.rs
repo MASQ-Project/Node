@@ -11,20 +11,25 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::commands::financials_command::args_validation::{financials_subcommand, NonZeroU16, TwoRanges};
-use crate::commands::financials_command::data_structures::restricted::{ProcessAccountsMetadata};
+use crate::commands::financials_command::args_validation::{
+    financials_subcommand, NonZeroU16, TwoRanges,
+};
+use crate::commands::financials_command::data_structures::restricted::ProcessAccountsMetadata;
 use crate::commands::financials_command::pretty_print_utils::restricted::process_gwei_into_requested_format;
 use crate::commands::financials_command::pretty_print_utils::restricted::{
     financial_status_totals_title, main_title_for_tops_opt, no_records_found, prepare_metadata,
-    render_accounts_generic, subtitle_for_tops,
-    triple_or_single_blank_line, StringValuesFormattableAccount,
+    render_accounts_generic, subtitle_for_tops, triple_or_single_blank_line,
+    StringValuesFormattableAccount,
 };
 use clap::ArgMatches;
-use masq_lib::messages::{CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse, TopRecordsOrdering};
+use masq_lib::messages::{
+    CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, TopRecordsOrdering,
+    UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse,
+};
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-use std::io::Write;
 use num::ToPrimitive;
+use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -160,8 +165,9 @@ impl FinancialsCommand {
         );
     }
 
-    fn flat_map_option<A, B, F> (input: &Option<A>, closure: F) -> Option<B>
-        where F: FnOnce(&A) -> Option<B>
+    fn flat_map_option<A, B, F>(input: &Option<A>, closure: F) -> Option<B>
+    where
+        F: FnOnce(&A) -> Option<B>,
     {
         match input {
             None => None,
@@ -170,14 +176,12 @@ impl FinancialsCommand {
     }
 
     fn are_both_sets_to_be_displayed(&self) -> bool {
-        self.top_records_opt.is_some() || (
-            if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
-                custom_queries.payable_opt.is_some()
-                    && custom_queries.receivable_opt.is_some()
+        self.top_records_opt.is_some()
+            || (if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
+                custom_queries.payable_opt.is_some() && custom_queries.receivable_opt.is_some()
             } else {
                 false
-            }
-        )
+            })
     }
 
     fn process_returned_records_in_requested_mode<A, R>(
@@ -188,7 +192,7 @@ impl FinancialsCommand {
         range_query_opt: Option<RangeQuery<R>>,
     ) where
         A: StringValuesFormattableAccount,
-        R: ToPrimitive
+        R: ToPrimitive,
     {
         if self.top_records_opt.is_some() {
             subtitle_for_tops(stdout, metadata.table_type);
@@ -198,8 +202,7 @@ impl FinancialsCommand {
             } else {
                 no_records_found(stdout, metadata.headings.words.as_slice())
             }
-        }
-        else if let Some(range_query) = range_query_opt {
+        } else if let Some(range_query) = range_query_opt {
             TwoRanges::title_for_custom_query(stdout, metadata.table_type, range_query);
             if let Some(accounts) = returned_records_opt {
                 render_accounts_generic(stdout, accounts, &metadata.headings)
@@ -210,12 +213,14 @@ impl FinancialsCommand {
     }
 
     fn parse_top_records_args(matches: &ArgMatches) -> Option<TopRecordsConfig> {
-        matches.get_one::<NonZeroU16>("top").map(|nzu16| TopRecordsConfig {
-            count: nzu16.data,
-            ordered_by: *matches
-                .get_one::<TopRecordsOrdering>("ordered")
-                .expect("should be required and defaulted"),
-        })
+        matches
+            .get_one::<NonZeroU16>("top")
+            .map(|nzu16| TopRecordsConfig {
+                count: nzu16.data,
+                ordered_by: *matches
+                    .get_one::<TopRecordsOrdering>("ordered")
+                    .expect("should be required and defaulted"),
+            })
     }
 
     fn parse_custom_query_args(matches: &ArgMatches) -> Result<Option<CustomQueries>, String> {
@@ -245,8 +250,7 @@ impl FinancialsCommand {
     fn parse_range_for_query_u(
         matches: &ArgMatches,
         parameter_name: &str,
-    ) -> Option<Result<RangeQuery<u64>, String>>
-    {
+    ) -> Option<Result<RangeQuery<u64>, String>> {
         match matches.get_one::<TwoRanges>(parameter_name) {
             None => None,
             Some(two_ranges) => Some(two_ranges.try_convert_with_limit_u(i64::MAX as i128)),
@@ -256,8 +260,7 @@ impl FinancialsCommand {
     fn parse_range_for_query_i(
         matches: &ArgMatches,
         parameter_name: &str,
-    ) -> Option<Result<RangeQuery<i64>, String>>
-    {
+    ) -> Option<Result<RangeQuery<i64>, String>> {
         match matches.get_one::<TwoRanges>(parameter_name) {
             None => None,
             Some(two_ranges) => Some(two_ranges.try_convert_with_limit_i(i64::MAX as i128)),
@@ -365,7 +368,8 @@ mod tests {
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
-                "--top", "10",
+                "--top",
+                "10",
                 "--gwei",
             ]))
             .unwrap();
@@ -514,11 +518,7 @@ mod tests {
             Err(e) => panic!("we expected CommandSyntax error but got: {:?}", e),
         };
         assert_on_text_simply_in_ide_and_otherwise_in_terminal(&err, affected_parameters);
-        assert!(
-            err.contains("cannot be used with"),
-            "{}",
-            err
-        );
+        assert!(err.contains("cannot be used with"), "{}", err);
         assert!(err.contains("Usage:"))
     }
 
@@ -545,12 +545,7 @@ mod tests {
             } else {
                 let quote_str = with_quotes(*quotes);
                 assert!(
-                    err.contains(&format!(
-                        "{}{}{}",
-                        quote_str,
-                        string,
-                        quote_str
-                    )),
+                    err.contains(&format!("{}{}{}", quote_str, string, quote_str)),
                     "Substring {}{}{} was not found in:\n------\n{}\n------",
                     quote_str,
                     string,
@@ -604,11 +599,7 @@ mod tests {
             &err,
             &[("--receivable <RECEIVABLE>", false)],
         );
-        assert!(
-            err.contains("cannot be used with"),
-            "{}",
-            err
-        );
+        assert!(err.contains("cannot be used with"), "{}", err);
         assert!(err.contains("Usage"))
     }
 
