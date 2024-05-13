@@ -2,18 +2,16 @@
 
 use crate::schema::app;
 use clap::ArgMatches;
-use masq_lib::shared_schema::common_validators::InsecurePort;
+use masq_lib::shared_schema::InsecurePort;
 
-#[allow(clippy::upper_case_acronyms)]
-pub trait NIClapFactory {
+pub trait NonInteractiveClapFactory {
     fn make(&self) -> Box<dyn NonInteractiveClap>;
 }
 
-#[allow(clippy::upper_case_acronyms)]
-pub struct NIClapFactoryReal;
+pub struct NonInteractiveClapFactoryReal;
 
-//tested by integration tests
-impl NIClapFactory for NIClapFactoryReal {
+// Tested by integration tests
+impl NonInteractiveClapFactory for NonInteractiveClapFactoryReal {
     fn make(&self) -> Box<dyn NonInteractiveClap> {
         Box::new(NonInteractiveClapReal)
     }
@@ -25,19 +23,15 @@ pub trait NonInteractiveClap {
 
 pub struct NonInteractiveClapReal;
 
-//partly tested by integration tests
+// Partly tested by integration tests
 impl NonInteractiveClap for NonInteractiveClapReal {
     fn non_interactive_initial_clap_operations(&self, args: &[String]) -> u16 {
-        let matches = handle_help_or_version_if_required(args);
-        let insecure_port = matches
+        let matches = app().get_matches_from(args);
+        matches
             .get_one::<InsecurePort>("ui-port")
-            .expect("ui-port is not properly defaulted");
-        insecure_port.port
+            .expect("ui-port is not properly defaulted")
+            .port
     }
-}
-
-fn handle_help_or_version_if_required(args: &[String]) -> ArgMatches {
-    app().get_matches_from(args)
 }
 
 #[cfg(test)]

@@ -37,9 +37,6 @@ pub fn setup_subcommand() -> ClapCommand {
         .args(args_except_data_directory)
         .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()));
     command_with_new_data_directory
-
-    // shared_app(ClapCommand::new("setup").about(SETUP_COMMAND_ABOUT))
-    //     .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()))
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -6,6 +6,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -28,15 +29,15 @@ pub enum NodeConversationTermination {
 
 pub struct NodeConversation {
     context_id: u64,
-    conversations_to_manager_tx: Sender<OutgoingMessageType>,
-    manager_to_conversation_rx: Receiver<Result<MessageBody, NodeConversationTermination>>,
+    conversations_to_manager_tx: UnboundedSender<OutgoingMessageType>,
+    manager_to_conversation_rx: crossbeam_channel::Receiver<Result<MessageBody, NodeConversationTermination>>,
 }
 
 impl Drop for NodeConversation {
     fn drop(&mut self) {
         let _ = self
             .conversations_to_manager_tx
-            .try_send(OutgoingMessageType::SignOff(self.context_id()));
+            .send(OutgoingMessageType::SignOff(self.context_id()));
     }
 }
 
@@ -49,8 +50,8 @@ impl Debug for NodeConversation {
 impl NodeConversation {
     pub fn new(
         context_id: u64,
-        conversations_to_manager_tx: Sender<OutgoingMessageType>,
-        manager_to_conversation_rx: Receiver<Result<MessageBody, NodeConversationTermination>>,
+        conversations_to_manager_tx: UnboundedSender<OutgoingMessageType>,
+        manager_to_conversation_rx: crossbeam_channel::Receiver<Result<MessageBody, NodeConversationTermination>>,
     ) -> Self {
         Self {
             context_id,
@@ -129,8 +130,8 @@ impl NodeConversation {
     pub fn tx_rx(
         &self,
     ) -> (
-        Sender<OutgoingMessageType>,
-        Receiver<Result<MessageBody, NodeConversationTermination>>,
+        UnboundedSender<OutgoingMessageType>,
+        crossbeam_channel::Receiver<Result<MessageBody, NodeConversationTermination>>,
     ) {
         (
             self.conversations_to_manager_tx.clone(),
@@ -145,16 +146,18 @@ mod tests {
     use crate::communications::node_conversation::NodeConversationTermination::FiredAndForgotten;
     use crossbeam_channel::unbounded;
     use crossbeam_channel::TryRecvError;
+    use tokio::sync::mpsc::unbounded_channel;
     use masq_lib::messages::FromMessageBody;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, UiUnmarshalError};
+    use masq_lib::test_utils::utils::make_rt;
 
     fn make_subject() -> (
         NodeConversation,
         Sender<Result<MessageBody, NodeConversationTermination>>,
-        Receiver<OutgoingMessageType>,
+        UnboundedReceiver<OutgoingMessageType>,
     ) {
-        let (message_body_send_tx, message_body_send_rx) = unbounded();
+        let (message_body_send_tx, message_body_send_rx) = unbounded_channel();
         let (message_body_receive_tx, message_body_receive_rx) = unbounded();
         let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx);
         (subject, message_body_receive_tx, message_body_send_rx)
@@ -162,7 +165,7 @@ mod tests {
 
     #[test]
     fn transact_handles_successful_transaction() {
-        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Ok(UiShutdownResponse {}.tmb(42)))
             .unwrap();
@@ -170,7 +173,7 @@ mod tests {
         let result = subject.transact(UiShutdownRequest {}.tmb(0), 1000).unwrap();
 
         assert_eq!(result, UiShutdownResponse {}.tmb(42));
-        let outgoing_message = message_body_send_rx.recv().unwrap();
+        let outgoing_message = make_rt().block_on(message_body_send_rx.recv()).unwrap();
         assert_eq!(
             outgoing_message,
             OutgoingMessageType::ConversationMessage(UiShutdownRequest {}.tmb(42))
@@ -211,7 +214,7 @@ mod tests {
 
     #[test]
     fn transact_handles_resend_order() {
-        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Err(NodeConversationTermination::Resend))
             .unwrap();
@@ -232,12 +235,12 @@ mod tests {
             outgoing_message,
             OutgoingMessageType::ConversationMessage(UiShutdownRequest {}.tmb(42))
         );
-        assert_eq!(message_body_send_rx.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(message_body_send_rx.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty));
     }
 
     #[test]
     fn transact_handles_broken_connection() {
-        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Err(NodeConversationTermination::Fatal))
             .unwrap();
@@ -245,7 +248,7 @@ mod tests {
         let result = subject.transact(UiShutdownRequest {}.tmb(0), 1000);
 
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        let outgoing_message = match message_body_send_rx.recv().unwrap() {
+        let outgoing_message = match make_rt().block_on(message_body_send_rx.recv()).unwrap() {
             OutgoingMessageType::ConversationMessage(message_body) => message_body,
             x => panic!("Expected ConversationMessage; got {:?}", x),
         };
@@ -266,7 +269,7 @@ mod tests {
 
     #[test]
     fn transact_handles_receive_error() {
-        let (message_body_send_tx, _) = unbounded();
+        let (message_body_send_tx, _) = unbounded_channel();
         let (_, message_body_receive_rx) = unbounded();
         let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx);
 
@@ -292,7 +295,7 @@ mod tests {
 
     #[test]
     fn send_handles_successful_transmission() {
-        let (subject, message_body_send_tx, message_body_send_rx) = make_subject();
+        let (subject, message_body_send_tx, mut message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -301,7 +304,7 @@ mod tests {
 
         subject.send(message.clone().tmb(0)).unwrap();
 
-        let (outgoing_message, context_id) = match message_body_send_rx.recv().unwrap() {
+        let (outgoing_message, context_id) = match make_rt().block_on(message_body_send_rx.recv()).unwrap() {
             OutgoingMessageType::FireAndForgetMessage(message_body, context_id) => {
                 (message_body, context_id)
             }

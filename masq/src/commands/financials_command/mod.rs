@@ -30,6 +30,7 @@ use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
 use std::io::Write;
+use tokio::io::AsyncWrite;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {

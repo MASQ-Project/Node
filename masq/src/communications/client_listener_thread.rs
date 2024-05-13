@@ -1,14 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use async_channel::{Receiver as WSReceiver, Sender as WSSender};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use websocket::receiver::Reader;
-use websocket::ws::receiver::Receiver as WsReceiver;
-use websocket::OwnedMessage;
+use workflow_websocket::client::Message;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ClientListenerError {
@@ -36,23 +36,26 @@ pub struct ClientListener {
 impl ClientListener {
     pub fn new() -> Self {
         Self {
+            // TODO Mutex in Async isn't safe
             signal_opt: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn start(
         &self,
-        listener_half: Reader<TcpStream>,
-        message_body_tx: Sender<Result<MessageBody, ClientListenerError>>,
+        listener_half: WSReceiver<Message>,
+        is_closing: Arc<AtomicBool>,
+        message_body_tx: tokio::sync::mpsc::UnboundedSender<Result<MessageBody, ClientListenerError>>,
     ) {
-        let thread = ClientListenerThread::new(listener_half, message_body_tx);
+        let thread = ClientListenerEventLoopStarter::new(listener_half,message_body_tx, is_closing);
         self.signal_opt
             .lock()
             .expect("ClientListener thread handle poisoned")
             .replace(thread.start());
     }
 
-    #[allow(dead_code)]
+    //TODO is it necessary to use these hacks in tests?
+    #[cfg(test)]
     pub fn is_running(&self) -> bool {
         let mut handle_opt_guard = self
             .signal_opt
@@ -71,58 +74,56 @@ impl ClientListener {
     }
 }
 
-struct ClientListenerThread {
-    listener_half: Reader<TcpStream>,
-    message_body_tx: Sender<Result<MessageBody, ClientListenerError>>,
+struct ClientListenerEventLoopStarter {
+    listener_half: WSReceiver<Message>,
+    message_body_tx: tokio::sync::mpsc::UnboundedSender<Result<MessageBody, ClientListenerError>>,
+    is_closing: Arc<AtomicBool>
 }
 
-impl ClientListenerThread {
+impl ClientListenerEventLoopStarter {
     pub fn new(
-        listener_half: Reader<TcpStream>,
-        message_body_tx: Sender<Result<MessageBody, ClientListenerError>>,
+        listener_half: WSReceiver<Message>,
+        message_body_tx: tokio::sync::mpsc::UnboundedSender<Result<MessageBody, ClientListenerError>>,
+        is_closing: Arc<AtomicBool>
     ) -> Self {
         Self {
             listener_half,
             message_body_tx,
+            is_closing
         }
     }
 
     pub fn start(mut self) -> Receiver<()> {
         let (tx, rx) = unbounded();
-        thread::spawn(move || {
+        let future = async move {
             loop {
-                match self
-                    .listener_half
-                    .receiver
-                    .recv_message(&mut self.listener_half.stream)
-                {
-                    Ok(OwnedMessage::Text(string)) => {
-                        match UiTrafficConverter::new_unmarshal(&string) {
-                            Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
-                                Ok(_) => (),
-                                Err(_) => break,
-                            },
-                            Err(_) => match self
-                                .message_body_tx
-                                .send(Err(ClientListenerError::UnexpectedPacket))
-                            {
-                                Ok(_) => (),
-                                Err(_) => break,
-                            },
-                        }
-                    }
-                    Ok(OwnedMessage::Close(_)) => {
+                match (self.listener_half.recv().await, self.is_closing.load(Ordering::Relaxed)) {
+                    (_, true) => todo!(),
+                    (Ok(Message::Text(string)),_) => match UiTrafficConverter::new_unmarshal(&string) {
+                        Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
+                            Ok(_) => (),
+                            Err(_) => break,
+                        },
+                        Err(_) => match self
+                            .message_body_tx
+                            .send(Err(ClientListenerError::UnexpectedPacket))
+                        {
+                            Ok(_) => (),
+                            Err(_) => break,
+                        },
+                    },
+                    (Ok(Message::Close),_) => {
                         let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
                         break;
                     }
-                    Ok(_unexpected) => match self
+                    (Ok(_unexpected),_) => match self
                         .message_body_tx
                         .send(Err(ClientListenerError::UnexpectedPacket))
                     {
                         Ok(_) => (),
                         Err(_) => break,
                     },
-                    Err(error) => {
+                    (Err(error),_) => {
                         let _ = self
                             .message_body_tx
                             .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
@@ -131,7 +132,52 @@ impl ClientListenerThread {
                 }
             }
             let _ = tx.send(());
-        });
+        };
+        // TODO maybe you want to use the handle in place of the single-message channel to detect
+        // that thread is dead
+        tokio::spawn(future);
+        // thread::spawn(move || {
+        //     loop {
+        //         match self
+        //             .listener_half
+        //             .recv_message(&mut self.listener_half.stream)
+        //         {
+        //             Ok(OwnedMessage::Text(string)) => {
+        //                 match UiTrafficConverter::new_unmarshal(&string) {
+        //                     Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
+        //                         Ok(_) => (),
+        //                         Err(_) => break,
+        //                     },
+        //                     Err(_) => match self
+        //                         .message_body_tx
+        //                         .send(Err(ClientListenerError::UnexpectedPacket))
+        //                     {
+        //                         Ok(_) => (),
+        //                         Err(_) => break,
+        //                     },
+        //                 }
+        //             }
+        //             Ok(OwnedMessage::Close(_)) => {
+        //                 let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
+        //                 break;
+        //             }
+        //             Ok(_unexpected) => match self
+        //                 .message_body_tx
+        //                 .send(Err(ClientListenerError::UnexpectedPacket))
+        //             {
+        //                 Ok(_) => (),
+        //                 Err(_) => break,
+        //             },
+        //             Err(error) => {
+        //                 let _ = self
+        //                     .message_body_tx
+        //                     .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     let _ = tx.send(());
+        // });
         rx
     }
 }
@@ -139,14 +185,17 @@ impl ClientListenerThread {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::client_utils::make_client;
+    use crate::test_utils::client_utils::WSTestClient;
     use crossbeam_channel::unbounded;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::test_utils::utils::make_rt;
     use masq_lib::utils::find_free_port;
     use std::time::Duration;
-    use websocket::ws::sender::Sender;
+    use tokio::sync::mpsc::unbounded_channel;
+    use workflow_websocket::client::Message as ClientMessage;
+    use workflow_websocket::server::Message as ServerMessage;
 
     #[test]
     fn listens_and_passes_data_through() {
@@ -155,20 +204,19 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let stop_handle = server.start();
-        let client = make_client(port);
-        let (listener_half, mut talker_half) = client.split().unwrap();
-        let (message_body_tx, message_body_rx) = unbounded();
+        let client = WSTestClient::new(port);
+        let (listener_half, mut talker_half) = client.split();
+        let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        subject.start(listener_half, message_body_tx);
+        subject.start(listener_half, Arc::new(AtomicBool::new(false)), message_body_tx);
         let message =
-            OwnedMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
+            ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        talker_half
-            .sender
-            .send_message(&mut talker_half.stream, &message)
-            .unwrap();
+        let message_body: MessageBody = make_rt().block_on(async {
+            talker_half.send((message, None)).await.unwrap();
+            message_body_rx.recv().await.unwrap().unwrap()
+        });
 
-        let message_body = message_body_rx.recv().unwrap().unwrap();
         assert_eq!(message_body, expected_message.tmb(1));
         assert_eq!(subject.is_running(), true);
         let _ = stop_handle.stop();
@@ -183,20 +231,18 @@ mod tests {
             .queue_string("close")
             .queue_string("disconnect");
         let stop_handle = server.start();
-        let client = make_client(port);
-        let (listener_half, mut talker_half) = client.split().unwrap();
-        let (message_body_tx, message_body_rx) = unbounded();
+        let client = WSTestClient::new(port);
+        let (listener_half, mut talker_half) = client.split();
+        let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        subject.start(listener_half, message_body_tx);
+        subject.start(listener_half, Arc::new(AtomicBool::new(false)), message_body_tx);
         let message =
-            OwnedMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
+            ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        talker_half
-            .sender
-            .send_message(&mut talker_half.stream, &message)
-            .unwrap();
+        let error = make_rt().block_on(async {
+            talker_half.send((message, None)).await.unwrap();
+            message_body_rx.recv().await.unwrap().err().unwrap()});
 
-        let error = message_body_rx.recv().unwrap().err().unwrap();
         assert_eq!(error, ClientListenerError::Closed);
         wait_for_stop(&subject);
         assert_eq!(subject.is_running(), false);
@@ -208,20 +254,19 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start();
-        let client = make_client(port);
-        let (listener_half, mut talker_half) = client.split().unwrap();
-        let (message_body_tx, message_body_rx) = unbounded();
+        let client = WSTestClient::new(port);
+        let (listener_half, mut talker_half) = client.split();
+        let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        subject.start(listener_half, message_body_tx);
+        subject.start(listener_half, Arc::new(AtomicBool::new(false)), message_body_tx);
         let message =
-            OwnedMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
+            ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        talker_half
-            .sender
-            .send_message(&mut talker_half.stream, &message)
-            .unwrap();
+        let error = make_rt().block_on(async {
+            talker_half.send((message, None)).await.unwrap();
+            message_body_rx.recv().await.unwrap().err().unwrap()
+        });
 
-        let error = message_body_rx.recv().unwrap().err().unwrap();
         assert_eq!(
             error,
             ClientListenerError::Broken("NoDataAvailable".to_string())
@@ -235,22 +280,20 @@ mod tests {
     fn processes_bad_owned_message_correctly() {
         let port = find_free_port();
         let server =
-            MockWebSocketsServer::new(port).queue_owned_message(OwnedMessage::Binary(vec![]));
+            MockWebSocketsServer::new(port).queue_owned_message(ServerMessage::Binary(vec![]));
         let stop_handle = server.start();
-        let client = make_client(port);
-        let (listener_half, mut talker_half) = client.split().unwrap();
-        let (message_body_tx, message_body_rx) = unbounded();
+        let client = WSTestClient::new(port);
+        let (listener_half, mut talker_half) = client.split();
+        let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        subject.start(listener_half, message_body_tx);
-        let message =
-            OwnedMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
+        subject.start(listener_half, Arc::new(AtomicBool::new(false)), message_body_tx);
+        let message = Message::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        talker_half
-            .sender
-            .send_message(&mut talker_half.stream, &message)
-            .unwrap();
+        let error = make_rt().block_on(async {
+            talker_half.send((message, None)).await.unwrap();
+            message_body_rx.recv().await.unwrap().err().unwrap()
+        });
 
-        let error = message_body_rx.recv().unwrap().err().unwrap();
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
         assert_eq!(subject.is_running(), true);
         let _ = stop_handle.stop();
@@ -263,20 +306,18 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("booga");
         let stop_handle = server.start();
-        let client = make_client(port);
-        let (listener_half, mut talker_half) = client.split().unwrap();
-        let (message_body_tx, message_body_rx) = unbounded();
+        let client = WSTestClient::new(port);
+        let (listener_half, mut talker_half) = client.split();
+        let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        subject.start(listener_half, message_body_tx);
-        let message =
-            OwnedMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
+        subject.start(listener_half, Arc::new(AtomicBool::new(false)), message_body_tx);
+        let message = Message::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        talker_half
-            .sender
-            .send_message(&mut talker_half.stream, &message)
-            .unwrap();
+        let error = make_rt().block_on(async {
+            talker_half.send((message, None)).await.unwrap();
+            message_body_rx.recv().await.unwrap().err().unwrap()
+        });
 
-        let error = message_body_rx.recv().unwrap().err().unwrap();
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
         assert_eq!(subject.is_running(), true);
         let _ = stop_handle.stop();

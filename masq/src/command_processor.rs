@@ -5,12 +5,15 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::terminal::terminal_interface::TerminalWrapper;
+use async_trait::async_trait;
+use tokio::runtime::Handle;
 use masq_lib::utils::ExpectValue;
 
 pub trait CommandProcessorFactory {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
+        runtime_handle: &Handle,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
@@ -23,10 +26,11 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
+        runtime_handle: &Handle,
         generic_broadcast_handle: Box<dyn BroadcastHandle>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        match CommandContextReal::new(ui_port, terminal_interface, generic_broadcast_handle) {
+        match CommandContextReal::new(ui_port, runtime_handle, terminal_interface, generic_broadcast_handle) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -88,6 +92,7 @@ mod tests {
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
     use std::time::Duration;
+    use masq_lib::test_utils::utils::make_rt;
 
     #[derive(Debug)]
     struct TestCommand {}
@@ -106,8 +111,9 @@ mod tests {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactoryReal::new();
         let broadcast_handle = BroadcastHandleInactive;
+        let rt = make_rt();
 
-        let result = subject.make(None, Box::new(broadcast_handle), ui_port);
+        let result = subject.make(None, rt.handle(),Box::new(broadcast_handle), ui_port);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -126,6 +132,7 @@ mod tests {
             opcode: "whateverTheOpcodeIs".to_string(),
         }
         .tmb(0);
+        let rt = make_rt();
         let (tx, rx) = bounded(1);
         let server = MockWebSocketsServer::new(ui_port)
             //This message serves to loose the broadcasts so that they can start coming.
@@ -150,9 +157,12 @@ mod tests {
         let generic_broadcast_handle =
             generic_broadcast_handler.start(Box::new(stream_factory_handler));
         let p_f = CommandProcessorFactoryReal::new();
-        let stop_handle = server.start();
+        let stop_handle = {
+            let _enter_guard = rt.enter();
+            server.start()
+        };
         let mut processor = p_f
-            .make(Some(terminal_interface), generic_broadcast_handle, ui_port)
+            .make(Some(terminal_interface), rt.handle(), generic_broadcast_handle, ui_port)
             .unwrap();
         processor
             .process(Box::new(CheckPasswordCommand {

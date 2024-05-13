@@ -469,7 +469,7 @@ impl StreamHandlerPool {
 
     // fn write_and_tend(
     //     &mut self,
-    //     sender: &mut dyn AsyncWrite,
+    //     sender: &mut dyn Write,
     //     peer_addr: SocketAddr,
     //     payload: ClientRequestPayload_0v1,
     //     paying_wallet_opt: Option<Wallet>,

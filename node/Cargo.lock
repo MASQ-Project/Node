@@ -248,9 +248,9 @@ dependencies = [
 
 [[package]]
 name = "async-channel"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f28243a43d821d11341ab73c80bed182dc015c514b951616cf79bd4af39af0c3"
+checksum = "136d4d23bcc79e27423727b36823d86233aad06dfea531837b038394d11e9928"
 dependencies = [
  "concurrent-queue 2.4.0",
  "event-listener 5.2.0",
@@ -582,7 +582,7 @@ version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a37913e8dc4ddcc604f0c6d3bf2887c995153af3611de9e23c352b44c1b9118"
 dependencies = [
- "async-channel 2.2.0",
+ "async-channel 2.2.1",
  "async-lock 3.3.0",
  "async-task",
  "fastrand 2.0.2",
@@ -2605,6 +2605,8 @@ dependencies = [
 name = "masq"
 version = "0.7.3"
 dependencies = [
+ "async-channel 2.2.1",
+ "async-trait",
  "atty",
  "clap",
  "crossbeam-channel",
@@ -2618,7 +2620,8 @@ dependencies = [
  "regex",
  "thousands",
  "time 0.3.30",
- "websocket 0.26.5",
+ "tokio",
+ "workflow-websocket",
 ]
 
 [[package]]
@@ -2822,7 +2825,7 @@ dependencies = [
  "tiny-hderive",
  "uint",
  "web3",
- "websocket 0.27.0",
+ "websocket",
 ]
 
 [[package]]
@@ -2960,7 +2963,7 @@ dependencies = [
  "unindent",
  "variant_count",
  "web3",
- "websocket 0.27.0",
+ "websocket",
  "winreg 0.52.0",
 ]
 
@@ -5393,19 +5396,6 @@ dependencies = [
 
 [[package]]
 name = "websocket"
-version = "0.26.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92aacab060eea423e4036820ddd28f3f9003b2c4d8048cbda985e5a14e18038d"
-dependencies = [
- "hyper 0.10.16",
- "rand 0.6.5",
- "unicase",
- "url 1.7.2",
- "websocket-base",
-]
-
-[[package]]
-name = "websocket"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a1aba896516545a4cea196a12c04074854ab85d53bbaf22f9b79eddadde75a2"
@@ -5747,7 +5737,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44f68af522d57d7d037c31e45704eb7ec4c4f5a526817074cfb4a605e4db5666"
 dependencies = [
- "async-channel 2.2.0",
+ "async-channel 2.2.1",
  "async-std",
  "borsh",
  "bs58",
@@ -5899,7 +5889,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9312c48cfd89a83e9e53ff5b41654c024fa60da17e902d394111fd2cb87d657"
 dependencies = [
  "ahash 0.8.11",
- "async-channel 2.2.0",
+ "async-channel 2.2.1",
  "async-std",
  "async-trait",
  "cfg-if 1.0.0",

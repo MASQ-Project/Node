@@ -149,6 +149,7 @@ mod tests {
     use std::sync::{Barrier, Mutex};
     use std::thread;
     use std::time::Duration;
+    use tokio::io::AsyncWrite;
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {

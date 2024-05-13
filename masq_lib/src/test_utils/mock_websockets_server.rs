@@ -144,7 +144,9 @@ impl MockWebSocketsServer {
             )
             .await
         };
+
         task::spawn(future);
+
         MockWebSocketsServerStopHandle {
             index,
             log: self.do_log,

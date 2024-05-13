@@ -61,8 +61,7 @@ impl MasqTerminal for TerminalReal {
             } else {
                 &mut streams.stderr
             },
-            "{}",
-            format!("{}{}", MASQ_PROMPT, kept_buffer)
+            "{}{}", MASQ_PROMPT, kept_buffer
         );
         lock
     }

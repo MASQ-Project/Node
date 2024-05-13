@@ -10,15 +10,16 @@ use crate::communications::broadcast_handler::{
     StreamFactory, StreamFactoryReal,
 };
 use crate::interactive_mode::go_interactive;
-use crate::non_interactive_clap::{NIClapFactory, NIClapFactoryReal};
+use crate::non_interactive_clap::{NonInteractiveClapFactory, NonInteractiveClapFactoryReal};
 use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::ops::Not;
+use tokio::io::AsyncWrite;
 
 pub struct Main {
-    non_interactive_clap_factory: Box<dyn NIClapFactory>,
+    non_interactive_clap_factory: Box<dyn NonInteractiveClapFactory>,
     command_factory: Box<dyn CommandFactory>,
     processor_factory: Box<dyn CommandProcessorFactory>,
 }
@@ -32,7 +33,7 @@ impl Default for Main {
 impl Main {
     pub fn new() -> Self {
         Self {
-            non_interactive_clap_factory: Box::new(NIClapFactoryReal),
+            non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryReal),
             command_factory: Box::new(CommandFactoryReal),
             processor_factory: Box::new(CommandProcessorFactoryReal),
         }
@@ -86,6 +87,7 @@ impl Command<u8> for Main {
             .make()
             .non_interactive_initial_clap_operations(args);
         let subcommand_opt = Self::extract_subcommand(args);
+
         let (generic_broadcast_handle, terminal_interface) = match subcommand_opt {
             Some(_) => Self::populate_non_interactive_dependencies(),
             None => match Self::populate_interactive_dependencies(StreamFactoryReal) {
@@ -96,33 +98,42 @@ impl Command<u8> for Main {
                 } //tested by an integration test
             },
         };
-        let mut command_processor = match self.processor_factory.make(
-            terminal_interface,
-            generic_broadcast_handle,
-            ui_port,
-        ) {
-            Ok(processor) => processor,
-            Err(error) => {
-                short_writeln!(
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("Failed to build a Runtime");
+
+            //TODO block on just on creating the processor???
+            let mut command_processor = match self.processor_factory.make(
+                terminal_interface,
+                runtime.handle(),
+                generic_broadcast_handle,
+                ui_port,
+            ) {
+                Ok(processor) => processor,
+                Err(error) => {
+                    short_writeln!(
                         streams.stderr,
                         "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.",
                         error
                     );
-                return bool_into_numeric_code(false);
-            }
-        };
+                    return bool_into_numeric_code(false);
+                }
+            };
 
-        let result = match subcommand_opt {
-            Some(command_parts) => handle_command_common(
-                &*self.command_factory,
-                &mut *command_processor,
-                &command_parts,
-                streams.stderr,
-            ),
-            None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
-        };
-        command_processor.close();
-        bool_into_numeric_code(result)
+            let result = match subcommand_opt {
+                Some(command_parts) => handle_command_common(
+                    &*self.command_factory,
+                    &mut *command_processor,
+                    &command_parts,
+                    streams.stderr,
+                ),
+                None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
+            };
+            command_processor.close();
+            bool_into_numeric_code(result)
     }
 }
 
@@ -425,7 +436,7 @@ mod tests {
         let processor_factory = CommandProcessorFactoryMock::new()
             .make_params(&p_make_params_arc)
             .make_result(Ok(Box::new(processor)));
-        let clap_factory = NIClapFactoryReal;
+        let clap_factory = NonInteractiveClapFactoryReal;
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(clap_factory),
             command_factory: Box::new(command_factory),

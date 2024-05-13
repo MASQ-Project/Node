@@ -8,6 +8,7 @@ use masq_lib::utils::exit_process;
 #[cfg(not(target_os = "windows"))]
 use masq_lib::utils::exit_process_with_sigterm;
 use std::io::Write;
+use tokio::io::AsyncWrite;
 
 pub struct CrashNotifier {}
 

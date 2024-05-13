@@ -11,6 +11,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use std::io::Write;
+use tokio::io::AsyncWrite;
 
 #[derive(Debug, PartialEq, Eq)]
 enum InteractiveEvent {
@@ -97,11 +98,11 @@ fn handle_help_or_version(
     terminal_interface: &TerminalWrapper,
 ) -> InteractiveEvent {
     let _lock = terminal_interface.lock();
-    let _ = match arg {
-        "help" => writeln!(&mut stdout, "{}", app().render_help()),
-        "version" => writeln!(&mut stdout, "{}", app().render_version()),
+    match arg {
+        "help" => short_writeln!(&mut stdout, "{}", app().render_help()),
+        "version" => short_writeln!(&mut stdout, "{}", app().render_version()),
         _ => unreachable!("should have been treated before"),
-    };
+    }
     short_writeln!(stdout, "");
     InteractiveEvent::Continue
 }
