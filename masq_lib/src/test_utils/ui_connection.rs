@@ -19,18 +19,17 @@ pub struct UiConnection {
 impl UiConnection {
     pub async fn make(port: u16, protocol: &str) -> Result<UiConnection, String> {
         let ws = match WebSocket::new(Some(format!("ws://localhost:{}", port).as_str()), None) {
-            Err(e) => Err(format!("{:?}", e)),
+            Err(e) => return Err(format!("{:?}", e)),
             Ok(ws) => ws,
         };
         match ws.connect(ConnectOptions::default()).await {
             Err(e) => Err(format!("{:?}", e)),
-            Ok(_) => (),
-        };
-        Ok(UiConnection {
-            context_id: 0,
-            local_addr: SocketAddr::new(localhost(), port),
-            websocket: ws,
-        })
+            Ok(_) => Ok(UiConnection {
+                context_id: 0,
+                local_addr: SocketAddr::new(localhost(), port),
+                websocket: ws,
+            }),
+        }
     }
     //
     // fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
@@ -79,8 +78,8 @@ impl UiConnection {
         self.send_message(&Message::Text(string))
     }
 
-    pub fn send_message(&mut self, message: &Message) {
-        self.websocket.send(message.clone()); // TODO Consume this message, and eliminate the clone.
+    pub fn send_message(&mut self, message: Message) {
+        self.websocket.send(message.into());
     }
 
     fn receive_main<T: FromMessageBody>(&mut self, context_id: Option<u64>) -> ReceiveResult<T> {

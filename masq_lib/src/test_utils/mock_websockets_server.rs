@@ -12,10 +12,10 @@ use std::sync::{Arc, Mutex};
 use std::{thread};
 use std::time::Duration;
 use futures_util::SinkExt;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::{pin, task};
+use tokio::{task};
 use workflow_websocket::server::{WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketSink};
 use workflow_websocket::server::{Error, Message};
+use async_trait::async_trait;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -26,12 +26,12 @@ pub struct MockWebSocketsServerStopHandle {
     log: bool,
     requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
     looping_rx: Receiver<()>,
-    stop_tx: Sender<bool>
+    stop_tx: Sender<bool>,
 }
 
 struct NodeUiProtocolWebSocketHandler {
     requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
-    responses_ref: RefCell<Vec<Message>>,
+    responses_arc: Arc<Mutex<Vec<Message>>>,
     looping_tx: Sender<()>,
     stop_rx: Receiver<bool>,
     first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
@@ -39,10 +39,11 @@ struct NodeUiProtocolWebSocketHandler {
     index: u64,
 }
 
+#[async_trait]
 impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
     type Context = ();
 
-    fn handshake(
+    async fn handshake(
         self: &Arc<Self>,
         peer: &SocketAddr,
         sender: &mut WebSocketSender,
@@ -60,13 +61,13 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
 
     async fn message(
         self: &Arc<Self>,
-        ctx: &Self::Context,
+        _ctx: &Self::Context,
         msg: Message,
         sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<()> {
-        log(do_log, index, "Checking for fire-and-forget messages");
+        log(self.do_log, self.index, "Checking for fire-and-forget messages");
         self.handle_all_f_f_messages_introducing_the_queue(sink);
-        log(do_log, index, "Checking for message from client");
+        log(self.do_log, self.index, "Checking for message from client");
         if let Some(incoming) = self.handle_incoming_msg_raw(msg) {
             log(
                 self.do_log,
@@ -105,16 +106,19 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         }
         // TODO: This isn't going to work anymore: we're not in a polling loop.
         log(self.do_log, self.index, "Checking for termination directive");
-        if let Ok(kill) = stop_rx.try_recv() {
+        if let Ok(kill) = self.stop_rx.try_recv() {
             log(
                 self.do_log,
                 self.index,
                 &format!("Received termination directive with kill = {}", kill),
             );
             if !kill {
-                ws_transmitter.send(Message::Close(None)).await.unwrap();
+                sink.send(Message::Close(None)).unwrap();
             }
             return Err(Error::AbnormalClose);
+        }
+        else {
+            return Ok(())
         }
     }
 }
@@ -124,10 +128,10 @@ impl NodeUiProtocolWebSocketHandler {
         let mut counter = 0usize;
         loop {
             let should_signal_first_f_f_msg = self.first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
-            if self.responses_ref.borrow_ref().is_empty() {
+            if self.responses_arc.lock().unwrap().is_empty() {
                 break;
             }
-            let temporarily_owned_possible_f_f = self.responses_ref.borrow_mut().remove(0);
+            let temporarily_owned_possible_f_f = self.responses_arc.lock().unwrap().remove(0);
             if match &temporarily_owned_possible_f_f {
                 Message::Text(text) =>
                     match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
@@ -149,7 +153,7 @@ impl NodeUiProtocolWebSocketHandler {
                     }
                 _ => false
             }.not() {
-                self.responses_ref.borrow_mut().insert(0, temporarily_owned_possible_f_f);
+                self.responses_arc.lock().unwrap().insert(0, temporarily_owned_possible_f_f);
                 log(self.do_log, self.index, "No fire-and-forget message found; heading over to conversational messages");
                 break
             }
@@ -164,31 +168,16 @@ impl NodeUiProtocolWebSocketHandler {
         incoming: Message,
     ) -> Option<Result<MessageBody, String>> {
         match incoming {
-            None => None,
-            Some(result) => match result {
-                // TODO: Dunno what kind of errors we're going to get from the new library, but
-                // the handlers from the old library are commented below.
-                Err(e) => todo!("{:?}", e),
-                // Err(WebSocketError::NoDataAvailable) => {
-                //     log(do_log, index, "No data available");
-                //     None
-                // }
-                // Err(WebSocketError::IoError(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                //     log(do_log, index, "No message waiting");
-                //     None
-                // }
-                // Err(e) => Some(Err(format!("Error serving WebSocket: {:?}", e))),
-                Ok(Message::Text(json)) => {
-                    log(do_log, index, &format!("Received '{}'", json));
-                    Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
-                        Ok(msg) => Ok(msg.body),
-                        Err(_) => Err(json),
-                    })
-                }
-                Ok(x) => {
-                    log(do_log, index, &format!("Received {:?}", x));
-                    Some(Err(format!("{:?}", x)))
-                }
+            Message::Text(json) => {
+                log(self.do_log, self.index, &format!("Received '{}'", json));
+                Some(match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
+                    Ok(msg) => Ok(msg.body),
+                    Err(_) => Err(json),
+                })
+            },
+            x => {
+                log(self.do_log, self.index, &format!("Received unexpected message {:?} - discarding", x));
+                Some(Err(format!("{:?}", x)))
             }
         }
     }
@@ -198,40 +187,39 @@ impl NodeUiProtocolWebSocketHandler {
         sink: &WebSocketSink,
     ) -> bool
     {
-        let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
-        if temporary_access_to_inner_responses_arc.len() != 0 {
-            match temporary_access_to_inner_responses_arc.remove(0) {
+        let mut temporary_access_to_responses = self.responses_arc.lock().unwrap();
+        if temporary_access_to_responses.len() != 0 {
+            match temporary_access_to_responses.remove(0) {
                 Message::Text(outgoing) => {
                     if outgoing == "disconnect" {
-                        log(do_log, index, "Executing 'disconnect' directive");
+                        log(self.do_log, self.index, "Executing 'disconnect' directive");
                         return false;
                     }
                     if outgoing == "close" {
-                        log(do_log, index, "Sending Close message");
-                        ws_transmitter.send(Message::Close(None)).await.unwrap();
+                        log(self.do_log, self.index, "Sending Close message");
+                        sink.send(Message::Close(None)).unwrap();
                     } else {
                         log(
-                            do_log,
-                            index,
+                            self.do_log,
+                            self.index,
                             &format!("Responding with preset message: '{}'", &outgoing),
                         );
-                        ws_transmitter.send(Message::Text(outgoing)).await.unwrap();
+                        sink.send(Message::Text(outgoing)).unwrap();
                     }
                 }
                 om => {
                     log(
-                        do_log,
-                        index,
+                        self.do_log,
+                        self.index,
                         &format!("Responding with preset Message: {:?}", om),
                     );
-                    ws_transmitter.send(om).await.unwrap()
+                    sink.send(om).unwrap()
                 }
             }
         } else {
-            log(do_log, index, "Sending Close message");
-            ws_transmitter
+            log(self.do_log, self.index, "Sending Close message");
+            sink
                 .send(Message::Binary(b"EMPTY QUEUE".to_vec()))
-                .await
                 .unwrap()
         };
         true
@@ -297,11 +285,13 @@ impl MockWebSocketsServer {
         let (stop_tx, stop_rx) = unbounded();
 
         let handler = NodeUiProtocolWebSocketHandler {
-            requests_arc_inner,
-            responses_ref: self.responses.drain(..).collect(),
+            requests_arc,
+            responses_arc: Arc::new(Mutex::new(self.responses)),
             looping_tx,
             stop_rx,
+            first_f_f_msg_sent_tx_opt: None, // TODO Probably shouldn't be None. Bert?
             do_log: self.do_log,
+            index,
         };
         let server = WebSocketServer::new(Arc::new(handler), None);
         let socket_addr = SocketAddr::new(localhost(), self.port);
@@ -337,105 +327,105 @@ impl MockWebSocketsServer {
         // };
     }
 
-    async fn process_connection(
-        stream: TcpStream,
-        peer_addr: SocketAddr,
-        requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
-        responses_arc: Arc<Mutex<Vec<Message>>>,
-        looping_tx: Sender<()>,
-        stop_rx: Receiver<bool>,
-        first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
-        do_log: bool,
-        index: u64,
-    ) {
-        let ws_connection = tokio_tungstenite::accept_hdr_async(
-            stream,
-            AcceptHdrCallback::new(/* TODO Put something here */)
-        ).await.unwrap();
-        log(do_log, index, format!("New WebSocket connection from: {}", peer_addr).as_str());
-        let (ws_transmitter_sink, mut ws_receiver) = ws_connection.split();
-        let ws_transmitter = ws_transmitter_sink.with(|item| async { Ok(item) });
-        pin!(ws_transmitter);
-        log(do_log, index, "Entering background loop");
-        match looping_tx.send(()) {
-            Ok(_) => (),
-            Err(e) => {
-                log(do_log, index, &format!("MockWebSocketsServerStopHandle died before loop could start: {:?}", e));
-                return;
-            }
-        }
-        loop {
-            log(do_log, index, "Checking for fire-and-forget messages");
-            Self::handle_all_f_f_messages_introducing_the_queue(
-                first_f_f_msg_sent_tx_opt.clone(),
-                &mut ws_transmitter,
-                &responses_arc.clone(),
-                index,
-                do_log,
-            ).await;
-            log(do_log, index, "Checking for message from client");
-            if let Some(incoming) =
-                Self::handle_incoming_msg_raw(ws_receiver.next().await, do_log, index)
-            {
-                log(
-                    do_log,
-                    index,
-                    &format!("Recording incoming message: {:?}", incoming),
-                );
-                {
-                    requests_arc.lock().unwrap().push(incoming.clone());
-                }
-                if let Ok(message_body) = incoming {
-                    match message_body.path {
-                        MessagePath::Conversation(_) => {
-                            if Self::handle_conversational_incoming_message(
-                                &mut ws_transmitter,
-                                &responses_arc.clone(),
-                                index,
-                                do_log,
-                            ).await.not() {
-                                break; //"disconnect" received
-                            }
-                        }
-
-                        MessagePath::FireAndForget => {
-                            log(
-                                do_log,
-                                index,
-                                "Responding to FireAndForget message by forgetting",
-                            );
-                        }
-                    }
-                } else {
-                    log(
-                        do_log,
-                        index,
-                        "Going to panic: Unrecognizable form of a text message",
-                    );
-                    panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
-                }
-            }
-            log(do_log, index, "Checking for termination directive");
-            if let Ok(kill) = stop_rx.try_recv() {
-                log(
-                    do_log,
-                    index,
-                    &format!("Received termination directive with kill = {}", kill),
-                );
-                if !kill {
-                    ws_transmitter.send(Message::Close(None)).await.unwrap();
-                }
-                break;
-            }
-            log(
-                do_log,
-                index,
-                "No termination directive. Sleeping for 50ms before the next iteration",
-            );
-            thread::sleep(Duration::from_millis(50))
-        }
-        log(do_log, index, "Connection-handling future completed");
-    }
+    // async fn process_connection(
+    //     stream: TcpStream,
+    //     peer_addr: SocketAddr,
+    //     requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
+    //     responses_arc: Arc<Mutex<Vec<Message>>>,
+    //     looping_tx: Sender<()>,
+    //     stop_rx: Receiver<bool>,
+    //     first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
+    //     do_log: bool,
+    //     index: u64,
+    // ) {
+    //     let ws_connection = tokio_tungstenite::accept_hdr_async(
+    //         stream,
+    //         AcceptHdrCallback::new(/* TODO Put something here */)
+    //     ).await.unwrap();
+    //     log(do_log, index, format!("New WebSocket connection from: {}", peer_addr).as_str());
+    //     let (ws_transmitter_sink, mut ws_receiver) = ws_connection.split();
+    //     let ws_transmitter = ws_transmitter_sink.with(|item| async { Ok(item) });
+    //     pin!(ws_transmitter);
+    //     log(do_log, index, "Entering background loop");
+    //     match looping_tx.send(()) {
+    //         Ok(_) => (),
+    //         Err(e) => {
+    //             log(do_log, index, &format!("MockWebSocketsServerStopHandle died before loop could start: {:?}", e));
+    //             return;
+    //         }
+    //     }
+    //     loop {
+    //         log(do_log, index, "Checking for fire-and-forget messages");
+    //         Self::handle_all_f_f_messages_introducing_the_queue(
+    //             first_f_f_msg_sent_tx_opt.clone(),
+    //             &mut ws_transmitter,
+    //             &responses_arc.clone(),
+    //             index,
+    //             do_log,
+    //         ).await;
+    //         log(do_log, index, "Checking for message from client");
+    //         if let Some(incoming) =
+    //             Self::handle_incoming_msg_raw(ws_receiver.next().await, do_log, index)
+    //         {
+    //             log(
+    //                 do_log,
+    //                 index,
+    //                 &format!("Recording incoming message: {:?}", incoming),
+    //             );
+    //             {
+    //                 requests_arc.lock().unwrap().push(incoming.clone());
+    //             }
+    //             if let Ok(message_body) = incoming {
+    //                 match message_body.path {
+    //                     MessagePath::Conversation(_) => {
+    //                         if Self::handle_conversational_incoming_message(
+    //                             &mut ws_transmitter,
+    //                             &responses_arc.clone(),
+    //                             index,
+    //                             do_log,
+    //                         ).await.not() {
+    //                             break; //"disconnect" received
+    //                         }
+    //                     }
+    //
+    //                     MessagePath::FireAndForget => {
+    //                         log(
+    //                             do_log,
+    //                             index,
+    //                             "Responding to FireAndForget message by forgetting",
+    //                         );
+    //                     }
+    //                 }
+    //             } else {
+    //                 log(
+    //                     do_log,
+    //                     index,
+    //                     "Going to panic: Unrecognizable form of a text message",
+    //                 );
+    //                 panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
+    //             }
+    //         }
+    //         log(do_log, index, "Checking for termination directive");
+    //         if let Ok(kill) = stop_rx.try_recv() {
+    //             log(
+    //                 do_log,
+    //                 index,
+    //                 &format!("Received termination directive with kill = {}", kill),
+    //             );
+    //             if !kill {
+    //                 ws_transmitter.send(Message::Close(None)).await.unwrap();
+    //             }
+    //             break;
+    //         }
+    //         log(
+    //             do_log,
+    //             index,
+    //             "No termination directive. Sleeping for 50ms before the next iteration",
+    //         );
+    //         thread::sleep(Duration::from_millis(50))
+    //     }
+    //     log(do_log, index, "Connection-handling future completed");
+    // }
 
     fn handle_incoming_msg_raw(
         incoming: Option<Result<Message, Error>>,

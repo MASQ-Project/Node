@@ -2593,6 +2593,7 @@ name = "masq_lib"
 version = "0.7.3"
 dependencies = [
  "actix",
+ "async-trait",
  "base64 0.21.5",
  "clap",
  "const_format",
