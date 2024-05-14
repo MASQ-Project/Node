@@ -41,6 +41,11 @@ use crate::blockchain::blockchain_interface::lower_level_interface::ResultForNon
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::test_utils::make_paying_wallet;
 
+pub struct BlockchainAgentFutureResult {
+    pub transaction_fee_balance: U256,
+    pub masq_token_balance: U256,
+    pub pending_transaction_id: U256
+}
 fn base_gas_limit(chain: Chain) -> u64 {
     //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
     match chain {
@@ -547,47 +552,39 @@ pub fn get_transaction_id(
     )
 }
 
-pub struct BlockchainAgentFutureResult {
-    pub transaction_fee_balance: U256,
-    pub masq_token_balance: U256,
-    pub pending_transaction_id: U256
-}
-pub fn blockchain_agent_future(web3: Web3<Http>, contract: Contract<Http>, consuming_wallet: Wallet
-) -> Box<dyn Future<Item = BlockchainAgentFutureResult, Error = BlockchainAgentBuildError>> {
-
-    let wallet_address = consuming_wallet.address();
-    let consuming_wallet_2 = consuming_wallet.clone();
-    let consuming_wallet_3 = consuming_wallet.clone();
-
-    Box::new(
-        get_transaction_fee_balance(web3.clone(), wallet_address)
-            .map_err(move |e| {
-                BlockchainAgentBuildError::TransactionFeeBalance(consuming_wallet.clone(), e.clone())
-            }).and_then(move |transaction_fee_balance| {
-            get_service_fee_balance(contract, wallet_address)
-                .map_err(move |e| {
-                    BlockchainAgentBuildError::ServiceFeeBalance(consuming_wallet_2, e.clone())
-                }).and_then(move |masq_token_balance| {
-                get_transaction_id(web3, wallet_address)
-                    .map_err(move |e| {
-                        BlockchainAgentBuildError::TransactionID(consuming_wallet_3, e.clone())
-                    }).and_then(move |pending_transaction_id| {
 
 
-                        Ok(BlockchainAgentFutureResult{
-                            transaction_fee_balance,
-                            masq_token_balance,
-                            pending_transaction_id,
-                        })
-
-                        // Ok((transaction_fee_balance, masq_token_balance, pending_transaction_id))
-
-
-                })
-            })
-        })
-    )
-}
+// TODO GH-744 - Delete this
+// pub fn blockchain_agent_future(web3: Web3<Http>, contract: Contract<Http>, consuming_wallet: Wallet
+// ) -> Box<dyn Future<Item = BlockchainAgentFutureResult, Error = BlockchainAgentBuildError>> {
+//
+//     let wallet_address = consuming_wallet.address();
+//     let consuming_wallet_2 = consuming_wallet.clone();
+//     let consuming_wallet_3 = consuming_wallet.clone();
+//
+//     Box::new(
+//         get_transaction_fee_balance(web3.clone(), wallet_address)
+//             .map_err(move |e| {
+//                 BlockchainAgentBuildError::TransactionFeeBalance(consuming_wallet.clone(), e.clone())
+//             }).and_then(move |transaction_fee_balance| {
+//             get_service_fee_balance(contract, wallet_address)
+//                 .map_err(move |e| {
+//                     BlockchainAgentBuildError::ServiceFeeBalance(consuming_wallet_2, e.clone())
+//                 }).and_then(move |masq_token_balance| {
+//                 get_transaction_id(web3, wallet_address)
+//                     .map_err(move |e| {
+//                         BlockchainAgentBuildError::TransactionID(consuming_wallet_3, e.clone())
+//                     }).and_then(move |pending_transaction_id| {
+//                         Ok(BlockchainAgentFutureResult{
+//                             transaction_fee_balance,
+//                             masq_token_balance,
+//                             pending_transaction_id,
+//                         })
+//                 })
+//             })
+//         })
+//     )
+// }
 
 pub fn create_blockchain_agent_web3(
     gas_price_gwei: u64,
