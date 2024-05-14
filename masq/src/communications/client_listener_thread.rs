@@ -48,7 +48,7 @@ impl ClientListener {
     ) {
         let thread =
             ClientListenerEventLoopStarter::new(listener_half, message_body_tx, is_closing);
-        self.signal_opt.lock().await.replace(thread.start());
+        self.signal_opt.lock().await.replace(thread.spawn());
     }
 
     //TODO is it necessary to use these hacks in tests?
@@ -83,7 +83,7 @@ impl ClientListenerEventLoopStarter {
         }
     }
 
-    pub fn start(self) -> JoinHandle<()> {
+    pub fn spawn(self) -> JoinHandle<()> {
         let future = async move {
             loop {
                 match (

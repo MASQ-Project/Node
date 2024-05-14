@@ -1,10 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::communications::broadcast_handler::{
-    BroadcastHandle, BroadcastHandler, StreamFactory, StreamFactoryReal,
+use crate::communications::broadcast_handlers::{
+    BroadcastHandle, BroadcastHandleGeneric, BroadcastHandler, BroadcastHandlerReal,
+    BroadcastHandles, RedirectBroadcastHandler, StandardBroadcastHandlerFactory, StreamFactory,
+    StreamFactoryNull, StreamFactoryReal,
 };
 use crate::communications::client_listener_thread::{ClientListener, ClientListenerError};
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
+use crate::terminal::terminal_interface::TerminalWrapper;
 use async_channel::Sender as WSSender;
 use async_trait::async_trait;
 use crossbeam_channel::{unbounded, RecvTimeoutError};
@@ -63,16 +66,18 @@ pub struct ConnectionManager {
 }
 
 #[derive(Default)]
-pub struct ConnectionManagerBootstrapper {}
+pub struct ConnectionManagerBootstrapper {
+    standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
+    stream_factory: Box<dyn StreamFactory>,
+}
 
 impl ConnectionManagerBootstrapper {
-    pub async fn spawn_event_loop(
-        &self,
+    pub async fn spawn_background_loops(
+        &mut self,
         port: u16,
-        standard_broadcast_handle: Box<dyn BroadcastHandle>,
+        terminal_interface_opt: Option<TerminalWrapper>,
         timeout_millis: u64,
     ) -> Result<ConnectionManagerConnectors, ClientListenerError> {
-        let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let closing_stage = Arc::new(AtomicBool::new(false));
         let talker_half = make_client_listener(
@@ -82,16 +87,18 @@ impl ConnectionManagerBootstrapper {
             timeout_millis,
         )
         .await?;
-        let (conversation_return_tx, conversation_return_rx) = unbounded();
+
+        let standard_broadcast_handle = self.spawn_standard_broadcast_handler(terminal_interface_opt);
         let (redirect_order_tx, redirect_order_rx) = unbounded_channel();
+        let redirect_broadcast_handle = Self::spawn_redirect_broadcast_handler(redirect_order_tx);
+
+        let broadcast_handles = BroadcastHandles::new(standard_broadcast_handle, redirect_broadcast_handle);
+
+        let (demand_tx, demand_rx) = unbounded_channel();
+        let (conversation_return_tx, conversation_return_rx) = unbounded();
         let (redirect_response_tx, redirect_response_rx) = unbounded();
         let (active_port_response_tx, active_port_response_rx) = unbounded();
-        let redirect_broadcast_handler =
-            RedirectBroadcastHandler::new(standard_broadcast_handle, redirect_order_tx);
-        // self.demand_tx = demand_tx;
-        // self.conversation_return_rx = conversation_return_rx;
-        // self.redirect_response_rx = redirect_response_rx;
-        // self.active_port_response_rx = active_port_response_rx;
+
         let inner = CmsInner {
             active_port: Some(port),
             daemon_port: port,
@@ -105,23 +112,43 @@ impl ConnectionManagerBootstrapper {
             conversations_to_manager_rx: unbounded_channel().1,
             listener_to_manager_rx,
             talker_half,
-            broadcast_handle: redirect_broadcast_handler.start(Box::new(StreamFactoryReal::new())),
+            broadcast_handles,
             redirect_order_rx,
             redirect_response_tx,
             active_port_response_tx,
             closing_stage,
         };
 
-        ConnectionManagerEventLoop::start(inner);
+        Self::spawn_inner(inner);
 
-        let connectors = ConnectionManagerConnectors {
+        Ok(ConnectionManagerConnectors {
             demand_tx,
             conversation_return_rx,
             redirect_response_rx,
             active_port_response_rx,
-        };
+        })
+    }
 
-        Ok(connectors)
+
+
+    fn spawn_standard_broadcast_handler(&self, terminal_interface_opt: Option<TerminalWrapper>)-> Box<dyn BroadcastHandle>{
+        let mut standard_broadcast_handler = self
+            .standard_broadcast_handler_factory
+            .make(terminal_interface_opt);
+            standard_broadcast_handler.spawn(self.stream_factory.as_ref())
+    }
+
+    fn spawn_redirect_broadcast_handler(   redirect_order_tx: UnboundedSender<RedirectOrder>)->Box<dyn BroadcastHandle>{
+        let mut redirect_broadcast_handler =
+            Box::new(RedirectBroadcastHandler::new(redirect_order_tx));
+            redirect_broadcast_handler.spawn(&StreamFactoryNull)
+    }
+
+    fn spawn_inner(mut inner: CmsInner){
+            let (conversations_to_manager_tx, conversations_to_manager_rx) = unbounded_channel();
+            inner.conversations_to_manager_tx = conversations_to_manager_tx;
+            inner.conversations_to_manager_rx = conversations_to_manager_rx;
+            let _join_handle = ConnectionManagerEventLoop::spawn(inner);
     }
 }
 
@@ -263,7 +290,7 @@ struct CmsInner {
     conversations_to_manager_rx: UnboundedReceiver<OutgoingMessageType>,
     listener_to_manager_rx: UnboundedReceiver<Result<MessageBody, ClientListenerError>>,
     talker_half: WSSender<(Message, Ack)>,
-    broadcast_handle: Box<dyn BroadcastHandle>,
+    broadcast_handles: BroadcastHandles,
     redirect_order_rx: UnboundedReceiver<RedirectOrder>,
     redirect_response_tx: crossbeam_channel::Sender<Result<(), ClientListenerError>>,
     active_port_response_tx: crossbeam_channel::Sender<Option<u16>>,
@@ -273,14 +300,7 @@ struct CmsInner {
 pub struct ConnectionManagerEventLoop {}
 
 impl ConnectionManagerEventLoop {
-    fn start(mut inner: CmsInner) {
-        let (conversations_to_manager_tx, conversations_to_manager_rx) = unbounded_channel();
-        inner.conversations_to_manager_tx = conversations_to_manager_tx;
-        inner.conversations_to_manager_rx = conversations_to_manager_rx;
-        let _join_handle = Self::spawn_loop(inner);
-    }
-
-    fn spawn_loop(mut inner: CmsInner) -> JoinHandle<()> {
+    fn spawn(mut inner: CmsInner) -> JoinHandle<()> {
         tokio::task::spawn(async move {
             loop {
                 match (
@@ -363,7 +383,9 @@ impl ConnectionManagerEventLoop {
                             }
                         }
                     }
-                    MessagePath::FireAndForget => inner.broadcast_handle.send(message_body),
+                    MessagePath::FireAndForget => {
+                        inner.broadcast_handles.handle_broadcast(message_body)
+                    }
                 },
                 Err(e) => {
                     if e.is_fatal() {
@@ -563,58 +585,7 @@ impl ConnectionManagerEventLoop {
             process_id: 0,
             crash_reason: CrashReason::DaemonCrashed,
         };
-        inner.broadcast_handle.send(crash_msg.tmb(0))
-    }
-}
-
-struct BroadcastHandleRedirect {
-    next_handle: Box<dyn BroadcastHandle>,
-    redirect_order_tx: UnboundedSender<RedirectOrder>,
-}
-
-impl BroadcastHandle for BroadcastHandleRedirect {
-    fn send(&self, message_body: MessageBody) {
-        match UiRedirect::fmb(message_body.clone()) {
-            Ok((redirect, _)) => {
-                let context_id = redirect.context_id.unwrap_or(0);
-                self.redirect_order_tx
-                    .send(RedirectOrder::new(
-                        redirect.port,
-                        context_id,
-                        REDIRECT_TIMEOUT_MILLIS,
-                    ))
-                    .expect("ConnectionManagerThread is dead");
-            }
-            Err(_) => {
-                self.next_handle.send(message_body);
-            }
-        };
-    }
-}
-
-struct RedirectBroadcastHandler {
-    next_handle: Box<dyn BroadcastHandle>,
-    redirect_order_tx: UnboundedSender<RedirectOrder>,
-}
-
-impl BroadcastHandler for RedirectBroadcastHandler {
-    fn start(self, _stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
-        Box::new(BroadcastHandleRedirect {
-            next_handle: self.next_handle,
-            redirect_order_tx: self.redirect_order_tx,
-        })
-    }
-}
-
-impl RedirectBroadcastHandler {
-    pub fn new(
-        next_handle: Box<dyn BroadcastHandle>,
-        redirect_order_tx: UnboundedSender<RedirectOrder>,
-    ) -> Self {
-        Self {
-            next_handle,
-            redirect_order_tx,
-        }
+        inner.broadcast_handles.send(crash_msg.tmb(0))
     }
 }
 
@@ -682,7 +653,7 @@ mod tests {
         let stop_handle = server.start().await;
         tokio::time::sleep(Duration::from_millis(400)).await; // let the server get started
         let connectors = ConnectionManagerBootstrapper::default()
-            .spawn_event_loop(port, Box::new(BroadcastHandleMock::new()), 1000)
+            .spawn_background_loops(port, None, 1000)
             .await
             .unwrap();
         let subject = ConnectionManager::new(connectors);
@@ -933,7 +904,7 @@ mod tests {
 
         let join_handle = {
             let _enter_guard = rt.enter();
-            ConnectionManagerEventLoop::spawn_loop(inner)
+            ConnectionManagerEventLoop::spawn(inner)
         };
 
         let _ = rt.block_on(join_handle);
@@ -1247,7 +1218,7 @@ mod tests {
         inner.conversations_waiting.insert(4);
         inner.broadcast_handle =
             RedirectBroadcastHandler::new(Box::new(broadcast_handler), unbounded_channel().0)
-                .start(Box::new(StreamFactoryReal::new()));
+                .spawn(Box::new(StreamFactoryReal::new()));
 
         let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
             inner,
@@ -1302,11 +1273,13 @@ mod tests {
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handler = BroadcastHandleMock::new().send_params(&send_params_arc);
         let connectors = make_rt()
-            .block_on(ConnectionManagerBootstrapper::default().spawn_event_loop(
-                daemon_port,
-                Box::new(broadcast_handler),
-                1000,
-            ))
+            .block_on(
+                ConnectionManagerBootstrapper::default().spawn_background_loops(
+                    daemon_port,
+                    Box::new(broadcast_handler),
+                    1000,
+                ),
+            )
             .unwrap();
         let subject = ConnectionManager::new(connectors);
         let conversation = subject.start_conversation();
@@ -1578,11 +1551,13 @@ mod tests {
         let stop_handle = rt.block_on(server.start());
         thread::sleep(Duration::from_millis(500)); // let the server get started
         let connectors = rt
-            .block_on(ConnectionManagerBootstrapper::default().spawn_event_loop(
-                port,
-                Box::new(BroadcastHandleMock::new()),
-                1000,
-            ))
+            .block_on(
+                ConnectionManagerBootstrapper::default().spawn_background_loops(
+                    port,
+                    Box::new(BroadcastHandleMock::new()),
+                    1000,
+                ),
+            )
             .unwrap();
         let subject = ConnectionManager::new(connectors);
         let conversation1 = subject.start_conversation();

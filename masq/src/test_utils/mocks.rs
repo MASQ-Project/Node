@@ -5,8 +5,14 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
-use crate::non_interactive_clap::{NonInteractiveClap, NonInteractiveClapFactory};
+use crate::communications::broadcast_handlers::{
+    BroadcastHandle, BroadcastHandler, StandardBroadcastHandlerFactory, StreamFactory,
+};
+use crate::communications::connection_manager::ConnectionManagerBootstrapper;
+use crate::non_interactive_clap::{
+    InitializationArgs, NonInteractiveClap, NonInteractiveClapFactory,
+};
+use crate::non_interactive_mode::CommandContextDependencies;
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use crate::terminal::terminal_interface::TerminalWrapper;
@@ -221,23 +227,22 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
+    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, u16)>>>,
     make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        terminal_interface: Option<TerminalWrapper>,
         _runtime_ref: &Runtime,
-        standard_broadcast_handle: Box<dyn BroadcastHandle>,
+        terminal_interface_opt: Option<TerminalWrapper>,
+        bootstrapper: ConnectionManagerBootstrapper,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        self.make_params.lock().unwrap().push((
-            terminal_interface,
-            standard_broadcast_handle,
-            ui_port,
-        ));
+        self.make_params
+            .lock()
+            .unwrap()
+            .push((terminal_interface_opt, ui_port));
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -249,7 +254,7 @@ impl CommandProcessorFactoryMock {
 
     pub fn make_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
+        params: &Arc<Mutex<Vec<(CommandContextDependencies, u16)>>>,
     ) -> Self {
         self.make_params = params.clone();
         self
@@ -272,8 +277,8 @@ impl NonInteractiveClapFactory for NIClapFactoryMock {
 pub struct NonInteractiveClapMock;
 
 impl NonInteractiveClap for NonInteractiveClapMock {
-    fn non_interactive_initial_clap_operations(&self, _args: &[String]) -> u16 {
-        DEFAULT_UI_PORT
+    fn parse_initialization_args(&self, _args: &[String]) -> InitializationArgs {
+        InitializationArgs::new(DEFAULT_UI_PORT)
     }
 }
 
@@ -427,16 +432,20 @@ impl TestStreamFactoryHandle {
 
 impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        let (stdout, stderr) = self.stream_factory.make();
-        let stream_with_checker = TestStreamWithThreadLifeChecker {
-            stream: stdout,
-            threads_connector: self.threads_connector.borrow_mut().take().unwrap(),
-        };
-        (Box::new(stream_with_checker), stderr)
+        //TODO could I refactor this out, using just one test factory??
+
+        // let (stdout, stderr) = self.stream_factory.make();
+        // let stream_with_checker = TestStreamWithThreadLifeChecker {
+        //     stream: stdout,
+        //     threads_connector: self.threads_connector.borrow_mut().take().unwrap(),
+        // };
+        // (Box::new(stream_with_checker), stderr)
+        todo!()
     }
 }
 
-//this set is invented just for a single special test; checking that the background thread doesn't outlive the foreground thread
+// TODO review this and other uts with comments
+// This set is invented just for a single special test; checking that the background thread doesn't outlive the foreground thread
 #[derive(Debug)]
 pub struct TestStreamsWithThreadLifeCheckerFactory {
     stream_factory: TestStreamFactory,
@@ -480,7 +489,7 @@ pub fn make_tools_for_test_streams_with_thread_life_checker() -> (
     )
 }
 
-//this is used in tests aimed at synchronization
+// This is used in tests aimed at synchronization
 #[derive(Clone)]
 pub struct StdoutBlender {
     channel_half: Sender<String>,
@@ -708,5 +717,21 @@ impl InterfaceRawMock {
     pub fn lock_writer_append_result(self, result: std::io::Result<Box<WriterInactive>>) -> Self {
         self.lock_writer_append_results.lock().unwrap().push(result);
         self
+    }
+}
+
+#[derive(Default)]
+pub struct StandardBroadcastHandlerFactoryMock {
+    make_params: Arc<Mutex<Vec<Option<TerminalWrapper>>>>,
+    make_results: RefCell<Vec<Box<dyn BroadcastHandler>>>,
+}
+
+impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
+    fn make(&self, terminal_interface_opt: Option<TerminalWrapper>) -> Box<dyn BroadcastHandler> {
+        self.make_params
+            .lock()
+            .unwrap()
+            .push(terminal_interface_opt);
+        self.make_results.borrow_mut().remove(0)
     }
 }

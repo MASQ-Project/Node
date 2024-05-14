@@ -3,7 +3,9 @@
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::BroadcastHandle;
+use crate::communications::broadcast_handlers::BroadcastHandle;
+use crate::communications::connection_manager::ConnectionManagerBootstrapper;
+use crate::non_interactive_mode::CommandContextDependencies;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::utils::ExpectValue;
 use tokio::runtime::Runtime;
@@ -11,9 +13,9 @@ use tokio::runtime::Runtime;
 pub trait CommandProcessorFactory {
     fn make(
         &self,
-        terminal_interface: Option<TerminalWrapper>,
         rt_ref: &Runtime,
-        standard_broadcast_handle: Box<dyn BroadcastHandle>,
+        terminal_interface_opt: Option<TerminalWrapper>,
+        bootstrapper: ConnectionManagerBootstrapper,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
 }
@@ -24,18 +26,16 @@ pub struct CommandProcessorFactoryReal;
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
-        terminal_interface: Option<TerminalWrapper>,
         rt_ref: &Runtime,
-        standard_broadcast_handle: Box<dyn BroadcastHandle>,
+        terminal_interface_opt: Option<TerminalWrapper>,
+        bootstrapper: ConnectionManagerBootstrapper,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        match CommandContextReal::new(
-            ui_port,
-            rt_ref,
-            terminal_interface,
-            standard_broadcast_handle,
-        ) {
-            Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
+        match CommandContextReal::new(ui_port, rt_ref, terminal_interface_opt, bootstrapper) {
+            Ok(context) => {
+                let processor = Box::new(CommandProcessorReal { context });
+                Ok(processor)
+            }
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
         }
@@ -61,7 +61,7 @@ pub struct CommandProcessorReal {
 impl CommandProcessor for CommandProcessorReal {
     #[allow(clippy::branches_sharing_code)]
     fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        if let Some(synchronizer) = self.context.terminal_interface.clone() {
+        if let Some(synchronizer) = self.context.terminal_interface_opt.clone() {
             let _lock = synchronizer.lock();
             return command.execute(&mut self.context);
         }
@@ -74,7 +74,7 @@ impl CommandProcessor for CommandProcessorReal {
 
     fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
         self.context
-            .terminal_interface
+            .terminal_interface_opt
             .as_ref()
             .expectv("TerminalWrapper")
     }
@@ -85,7 +85,7 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::commands::check_password_command::CheckPasswordCommand;
-    use crate::communications::broadcast_handler::{
+    use crate::communications::broadcast_handlers::{
         BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
     use crate::test_utils::mocks::TestStreamFactory;
@@ -102,9 +102,11 @@ mod tests {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactoryReal::new();
         let broadcast_handle = BroadcastHandleInactive;
+        let dependencies =
+            CommandContextDependencies::new_in_test(Box::new(broadcast_handle), None);
         let rt = make_rt();
 
-        let result = subject.make(None, &rt, Box::new(broadcast_handle), ui_port);
+        let result = subject.make(&rt, dependencies, ui_port);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -146,17 +148,14 @@ mod tests {
             BroadcastHandlerReal::new(Some(background_terminal_interface));
         //Another instance of the same sender will be taken here inside; will serve to the "broadcast handler thread".
         let standard_broadcast_handle =
-            standard_broadcast_handler.start(Box::new(stream_factory_handler));
+            standard_broadcast_handler.spawn(Box::new(stream_factory_handler));
+        let dependencies = CommandContextDependencies::new_in_test(
+            standard_broadcast_handle,
+            Some(terminal_interface),
+        );
         let p_f = CommandProcessorFactoryReal::new();
         let stop_handle = rt.block_on(server.start());
-        let mut processor = p_f
-            .make(
-                Some(terminal_interface),
-                &rt,
-                standard_broadcast_handle,
-                ui_port,
-            )
-            .unwrap();
+        let mut processor = p_f.make(&rt, dependencies, ui_port).unwrap();
         processor
             .process(Box::new(CheckPasswordCommand {
                 db_password_opt: None,
