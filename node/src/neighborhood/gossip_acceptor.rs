@@ -2033,10 +2033,13 @@ mod tests {
             ),
             handle_result
         );
-        let expected_introducer = NodeRecord::from(&agrs[0]);
+        let mut expected_introducer = NodeRecord::from(&agrs[0]);
+        let result_introducer = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+        expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
+        expected_introducer.resign();
         assert_eq!(
-            Some(&expected_introducer),
-            dest_db.node_by_key(&agrs[0].inner.public_key)
+            Some(&mut expected_introducer),
+            Some(result_introducer)
         );
         assert_eq!(
             true,
@@ -2088,10 +2091,13 @@ mod tests {
             ),
             handle_result
         );
-        let expected_introducer = NodeRecord::from(&agrs[0]);
+        let mut expected_introducer = NodeRecord::from(&agrs[0]);
+        let result_introducer = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+        expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
+        expected_introducer.resign();
         assert_eq!(
-            Some(&expected_introducer),
-            dest_db.node_by_key(&agrs[0].inner.public_key)
+            Some(&mut expected_introducer),
+            Some(result_introducer)
         );
         assert_eq!(
             true,
@@ -2933,7 +2939,7 @@ mod tests {
             .unwrap()
             .resign();
         dest_db.node_by_key_mut(existing_node_key).unwrap().resign();
-        let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
+        let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
 
@@ -2964,10 +2970,18 @@ mod tests {
             .add_half_neighbor_key(existing_node_key.clone())
             .unwrap();
         root_node.increment_version();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.inner.country_code = "AU".to_string();
+        root_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
+        let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
+        debut_node.metadata.last_update = reference_node.metadata.last_update;
+        debut_node.inner.country_code = "FR".to_string();
+        debut_node.metadata.node_location_opt = Some(NodeLocation { country_code: "FR".to_string(), free_world_bit: true });
+        debut_node.resign();
         assert_node_records_eq(
-            dest_db.node_by_key_mut(debut_node.public_key()).unwrap(),
+            reference_node,
             &debut_node,
             before,
             after,
@@ -3004,7 +3018,7 @@ mod tests {
             .unwrap()
             .resign();
 
-        let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
+        let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
 
@@ -3054,10 +3068,18 @@ mod tests {
             .add_half_neighbor_key(existing_node_3_key.clone())
             .unwrap();
         root_node.increment_version();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.inner.country_code = "AU".to_string();
+        root_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
+        let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
+        debut_node.metadata.last_update = reference_node.metadata.last_update;
+        debut_node.inner.country_code = "FR".to_string();
+        debut_node.metadata.node_location_opt = Some(NodeLocation { country_code: "FR".to_string(), free_world_bit: true });
+        debut_node.resign();
         assert_node_records_eq(
-            dest_db.node_by_key_mut(debut_node.public_key()).unwrap(),
+            reference_node,
             &debut_node,
             before,
             after,
@@ -3849,25 +3871,39 @@ mod tests {
         dest_node_mut.increment_version();
         dest_node_mut.resign();
         assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let mut result_node = dest_db.node_by_key_mut(third_node.public_key()).unwrap();
+        let mut expected_node = expected_dest_db
+            .node_by_key_mut(third_node.public_key())
+            .unwrap();
+        expected_node.metadata.last_update = result_node.metadata.last_update;
+        expected_node.resign();
         assert_node_records_eq(
-            dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
-            expected_dest_db
-                .node_by_key(third_node.public_key())
-                .unwrap(),
+            result_node,
+            expected_node,
             before,
             after,
         );
+        result_node = dest_db.node_by_key_mut(src_node.public_key()).unwrap();
+        expected_node = expected_dest_db.node_by_key_mut(src_node.public_key()).unwrap();
+        expected_node.metadata.last_update = result_node.metadata.last_update;
+        expected_node.resign();
         assert_node_records_eq(
-            dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
-            expected_dest_db.node_by_key(src_node.public_key()).unwrap(),
+            result_node,
+            expected_node,
             before,
             after,
         );
+        result_node = dest_db.node_by_key_mut(dest_node.public_key()).unwrap();
+        expected_node = expected_dest_db
+            .node_by_key_mut(dest_node.public_key())
+            .unwrap();
+        expected_node.metadata.last_update = result_node.metadata.last_update;
+        expected_node.inner.country_code = "AU".to_string();
+        expected_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
+        expected_node.resign();
         assert_node_records_eq(
-            dest_db.node_by_key_mut(dest_node.public_key()).unwrap(),
-            expected_dest_db
-                .node_by_key(dest_node.public_key())
-                .unwrap(),
+            result_node,
+            expected_node,
             before,
             after,
         );
