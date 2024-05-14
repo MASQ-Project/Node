@@ -10,7 +10,6 @@ use regex::{Captures, Regex};
 use std::fmt::Debug;
 use std::io::Write;
 use std::str::FromStr;
-use tokio::io::AsyncWrite;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";

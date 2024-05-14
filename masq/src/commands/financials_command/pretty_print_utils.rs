@@ -9,11 +9,9 @@ pub(in crate::commands::financials_command) mod restricted {
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use masq_lib::short_writeln;
-    use tokio::io::AsyncWriteExt;
     use std::fmt::{Debug, Display};
     use std::io::Write;
     use thousands::Separable;
-    use tokio::io::AsyncWrite;
 
     pub trait StringValuesFormattableAccount {
         fn convert_to_strings(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String>;
@@ -186,7 +184,7 @@ pub(in crate::commands::financials_command) mod restricted {
         words.iter().zip(optimal_widths.iter()).collect()
     }
 
-    async fn write_column_formatted(
+    fn write_column_formatted(
         stdout: &mut dyn Write,
         account_segments_values_as_strings_and_widths: &[(&String, &usize)],
     ) {

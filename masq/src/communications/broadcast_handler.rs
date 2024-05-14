@@ -19,7 +19,6 @@ use std::thread;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 #[cfg(test)]
 use std::any::Any;
-use tokio::io::AsyncWrite;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);

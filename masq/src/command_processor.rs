@@ -5,16 +5,15 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::BroadcastHandle;
 use crate::terminal::terminal_interface::TerminalWrapper;
-use async_trait::async_trait;
-use tokio::runtime::Handle;
 use masq_lib::utils::ExpectValue;
+use tokio::runtime::Runtime;
 
 pub trait CommandProcessorFactory {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
-        runtime_handle: &Handle,
-        generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        rt_ref: &Runtime,
+        standard_broadcast_handle: Box<dyn BroadcastHandle>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
 }
@@ -26,11 +25,16 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
-        runtime_handle: &Handle,
-        generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        rt_ref: &Runtime,
+        standard_broadcast_handle: Box<dyn BroadcastHandle>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        match CommandContextReal::new(ui_port, runtime_handle, terminal_interface, generic_broadcast_handle) {
+        match CommandContextReal::new(
+            ui_port,
+            rt_ref,
+            terminal_interface,
+            standard_broadcast_handle,
+        ) {
             Ok(context) => Ok(Box::new(CommandProcessorReal { context })),
             Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
             Err(e) => panic!("Unexpected error: {:?}", e),
@@ -86,25 +90,12 @@ mod tests {
     };
     use crate::test_utils::mocks::TestStreamFactory;
     use crossbeam_channel::{bounded, Sender};
-    use masq_lib::messages::UiShutdownRequest;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
     use masq_lib::utils::{find_free_port, running_test};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::test_utils::utils::make_rt;
-
-    #[derive(Debug)]
-    struct TestCommand {}
-
-    impl Command for TestCommand {
-        fn execute<'a>(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
-            match context.transact(UiShutdownRequest {}.tmb(1), 1000) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(CommandError::Other(format!("{:?}", e))),
-            }
-        }
-    }
 
     #[test]
     fn handles_nonexistent_server() {
@@ -113,7 +104,7 @@ mod tests {
         let broadcast_handle = BroadcastHandleInactive;
         let rt = make_rt();
 
-        let result = subject.make(None, rt.handle(),Box::new(broadcast_handle), ui_port);
+        let result = subject.make(None, &rt, Box::new(broadcast_handle), ui_port);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -132,10 +123,10 @@ mod tests {
             opcode: "whateverTheOpcodeIs".to_string(),
         }
         .tmb(0);
-        let rt = make_rt();
+        let rt = make_multi_thread_rt();
         let (tx, rx) = bounded(1);
         let server = MockWebSocketsServer::new(ui_port)
-            //This message serves to loose the broadcasts so that they can start coming.
+            //This message serves to release the broadcasts so that they can start coming.
             .queue_response(UiCheckPasswordResponse { matches: false }.tmb(1))
             .queue_response(broadcast.clone())
             .queue_response(broadcast.clone())
@@ -151,18 +142,20 @@ mod tests {
         let (cloned_sender, _) = stream_factory_handler.clone_senders();
         let terminal_interface = TerminalWrapper::configure_interface().unwrap();
         let background_terminal_interface = terminal_interface.clone();
-        let generic_broadcast_handler =
+        let standard_broadcast_handler =
             BroadcastHandlerReal::new(Some(background_terminal_interface));
         //Another instance of the same sender will be taken here inside; will serve to the "broadcast handler thread".
-        let generic_broadcast_handle =
-            generic_broadcast_handler.start(Box::new(stream_factory_handler));
+        let standard_broadcast_handle =
+            standard_broadcast_handler.start(Box::new(stream_factory_handler));
         let p_f = CommandProcessorFactoryReal::new();
-        let stop_handle = {
-            let _enter_guard = rt.enter();
-            server.start()
-        };
+        let stop_handle = rt.block_on(server.start());
         let mut processor = p_f
-            .make(Some(terminal_interface), rt.handle(), generic_broadcast_handle, ui_port)
+            .make(
+                Some(terminal_interface),
+                &rt,
+                standard_broadcast_handle,
+                ui_port,
+            )
             .unwrap();
         processor
             .process(Box::new(CheckPasswordCommand {
@@ -205,8 +198,8 @@ mod tests {
     impl<'a> TameCommand {
         const MESSAGE_IN_PIECES: &'a [&'a str] = &[
             "This is a message ",
-            "which must be delivered as one piece ",
-            "; we'll do all possible for that. ",
+            "which must be delivered in one piece; ",
+            "we'll do all possible for that. ",
             "If only we have enough strength and spirit ",
             "and determination and support and... snacks. ",
             "Roger.",

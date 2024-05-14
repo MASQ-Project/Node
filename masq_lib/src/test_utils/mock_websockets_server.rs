@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::Runtime;
 use tokio::{pin, task};
 use workflow_websocket::server::{
     Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketSink,
@@ -102,7 +103,7 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub fn start(self) -> MockWebSocketsServerStopHandle {
+    pub async fn start(self) -> MockWebSocketsServerStopHandle {
         let index = {
             let mut guard = MWSS_INDEX.lock().unwrap();
             let index = *guard;

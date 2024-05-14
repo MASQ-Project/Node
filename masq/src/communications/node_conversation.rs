@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::communications::connection_manager::OutgoingMessageType;
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::{RecvTimeoutError, Sender};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
@@ -30,7 +30,8 @@ pub enum NodeConversationTermination {
 pub struct NodeConversation {
     context_id: u64,
     conversations_to_manager_tx: UnboundedSender<OutgoingMessageType>,
-    manager_to_conversation_rx: crossbeam_channel::Receiver<Result<MessageBody, NodeConversationTermination>>,
+    manager_to_conversation_rx:
+        crossbeam_channel::Receiver<Result<MessageBody, NodeConversationTermination>>,
 }
 
 impl Drop for NodeConversation {
@@ -51,7 +52,9 @@ impl NodeConversation {
     pub fn new(
         context_id: u64,
         conversations_to_manager_tx: UnboundedSender<OutgoingMessageType>,
-        manager_to_conversation_rx: crossbeam_channel::Receiver<Result<MessageBody, NodeConversationTermination>>,
+        manager_to_conversation_rx: crossbeam_channel::Receiver<
+            Result<MessageBody, NodeConversationTermination>,
+        >,
     ) -> Self {
         Self {
             context_id,
@@ -145,12 +148,11 @@ mod tests {
     use super::*;
     use crate::communications::node_conversation::NodeConversationTermination::FiredAndForgotten;
     use crossbeam_channel::unbounded;
-    use crossbeam_channel::TryRecvError;
-    use tokio::sync::mpsc::unbounded_channel;
     use masq_lib::messages::FromMessageBody;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, UiUnmarshalError};
     use masq_lib::test_utils::utils::make_rt;
+    use tokio::sync::mpsc::unbounded_channel;
 
     fn make_subject() -> (
         NodeConversation,
@@ -235,7 +237,10 @@ mod tests {
             outgoing_message,
             OutgoingMessageType::ConversationMessage(UiShutdownRequest {}.tmb(42))
         );
-        assert_eq!(message_body_send_rx.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Empty));
+        assert_eq!(
+            message_body_send_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        );
     }
 
     #[test]
@@ -304,12 +309,13 @@ mod tests {
 
         subject.send(message.clone().tmb(0)).unwrap();
 
-        let (outgoing_message, context_id) = match make_rt().block_on(message_body_send_rx.recv()).unwrap() {
-            OutgoingMessageType::FireAndForgetMessage(message_body, context_id) => {
-                (message_body, context_id)
-            }
-            x => panic!("Expected FireAndForgetMessage, got {:?}", x),
-        };
+        let (outgoing_message, context_id) =
+            match make_rt().block_on(message_body_send_rx.recv()).unwrap() {
+                OutgoingMessageType::FireAndForgetMessage(message_body, context_id) => {
+                    (message_body, context_id)
+                }
+                x => panic!("Expected FireAndForgetMessage, got {:?}", x),
+            };
         assert_eq!(
             UiUnmarshalError::fmb(outgoing_message).unwrap(),
             (message, 0)

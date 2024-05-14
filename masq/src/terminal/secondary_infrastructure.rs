@@ -6,7 +6,6 @@ use masq_lib::command::StdStreams;
 
 #[cfg(test)]
 mod test_cfg {
-    pub use linefeed::memory::MemoryTerminal;
     pub use masq_lib::intentionally_blank;
 }
 

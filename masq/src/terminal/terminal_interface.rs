@@ -20,7 +20,6 @@ mod prod_cfg {
 #[cfg(test)]
 mod test_cfg {
     pub use linefeed::memory::MemoryTerminal;
-    pub use masq_lib::intentionally_blank;
 }
 
 //Unlike the linefeed library is designed to be used, I stick with using the system stdout handles for writing into them instead of the custom handles provided from linefeed.
@@ -149,7 +148,6 @@ mod tests {
     use std::sync::{Barrier, Mutex};
     use std::thread;
     use std::time::Duration;
-    use tokio::io::AsyncWrite;
 
     #[test]
     fn terminal_wrapper_without_lock_does_not_block_others_from_writing_into_stdout() {

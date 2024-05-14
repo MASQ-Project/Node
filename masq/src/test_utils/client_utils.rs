@@ -2,9 +2,7 @@
 
 use crate::communications::connection_manager::WSClientHandshakeHandler;
 use async_channel::{Receiver, Sender};
-use masq_lib::messages::NODE_UI_PROTOCOL;
 use masq_lib::utils::localhost;
-use std::net::TcpStream;
 use std::sync::Arc;
 use workflow_websocket::client::{Ack, Handshake, Message, WebSocket, WebSocketConfig};
 

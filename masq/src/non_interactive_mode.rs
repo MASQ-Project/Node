@@ -16,7 +16,6 @@ use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use std::io::Write;
 use std::ops::Not;
-use tokio::io::AsyncWrite;
 
 pub struct Main {
     non_interactive_clap_factory: Box<dyn NonInteractiveClapFactory>,
@@ -69,12 +68,12 @@ impl Main {
     ) -> Result<(Box<dyn BroadcastHandle>, Option<TerminalWrapper>), String> {
         let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
         let background_terminal_interface = foreground_terminal_interface.clone();
-        let generic_broadcast_handler =
+        let standard_broadcast_handler =
             BroadcastHandlerReal::new(Some(background_terminal_interface));
-        let generic_broadcast_handle = generic_broadcast_handler.start(Box::new(stream_factory));
+        let standard_broadcast_handle = standard_broadcast_handler.start(Box::new(stream_factory));
 
         Ok((
-            generic_broadcast_handle,
+            standard_broadcast_handle,
             Some(foreground_terminal_interface),
         ))
     }
@@ -88,52 +87,52 @@ impl Command<u8> for Main {
             .non_interactive_initial_clap_operations(args);
         let subcommand_opt = Self::extract_subcommand(args);
 
-        let (generic_broadcast_handle, terminal_interface) = match subcommand_opt {
+        let (standard_broadcast_handle, terminal_interface) = match subcommand_opt {
             Some(_) => Self::populate_non_interactive_dependencies(),
             None => match Self::populate_interactive_dependencies(StreamFactoryReal) {
                 Ok(tuple) => tuple,
                 Err(error) => {
+                    // Tested via an integration test
                     short_writeln!(streams.stderr, "Pre-configuration error: {}", error);
                     return bool_into_numeric_code(false);
-                } //tested by an integration test
+                }
             },
         };
 
-        let runtime = tokio::runtime::Builder::new_multi_thread()
+        let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
             .expect("Failed to build a Runtime");
 
-            //TODO block on just on creating the processor???
-            let mut command_processor = match self.processor_factory.make(
-                terminal_interface,
-                runtime.handle(),
-                generic_broadcast_handle,
-                ui_port,
-            ) {
-                Ok(processor) => processor,
-                Err(error) => {
-                    short_writeln!(
-                        streams.stderr,
-                        "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.",
-                        error
-                    );
-                    return bool_into_numeric_code(false);
-                }
-            };
-
-            let result = match subcommand_opt {
-                Some(command_parts) => handle_command_common(
-                    &*self.command_factory,
-                    &mut *command_processor,
-                    &command_parts,
+        let mut command_processor = match self.processor_factory.make(
+            terminal_interface,
+            &rt,
+            standard_broadcast_handle,
+            ui_port,
+        ) {
+            Ok(processor) => processor,
+            Err(error) => {
+                short_writeln!(
                     streams.stderr,
-                ),
-                None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
-            };
-            command_processor.close();
-            bool_into_numeric_code(result)
+                    "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.",
+                    error
+                );
+                return bool_into_numeric_code(false);
+            }
+        };
+
+        let result = match subcommand_opt {
+            Some(command_parts) => handle_command_common(
+                &*self.command_factory,
+                &mut *command_processor,
+                &command_parts,
+                streams.stderr,
+            ),
+            None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
+        };
+        command_processor.close();
+        bool_into_numeric_code(result)
     }
 }
 
@@ -251,7 +250,6 @@ mod tests {
             .as_any()
             .downcast_ref::<BroadcastHandleInactive>()
             .is_some());
-
         let mut process_params = process_params_arc.lock().unwrap();
         let command = process_params.remove(0);
         let transact_params_arc = Arc::new(Mutex::new(vec![]));

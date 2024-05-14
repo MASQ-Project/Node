@@ -4,12 +4,11 @@ use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
 use masq_lib::short_writeln;
 use std::io::Write;
-use tokio::io::AsyncWrite;
 
 pub struct ConnectionChangeNotification {}
 
 impl ConnectionChangeNotification {
-    pub async fn handle_broadcast(
+    pub fn handle_broadcast(
         response: UiConnectionChangeBroadcast,
         stdout: &mut dyn Write,
         term_interface: &TerminalWrapper,

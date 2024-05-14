@@ -11,7 +11,6 @@ use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use std::io::Write;
-use tokio::io::AsyncWrite;
 
 #[derive(Debug, PartialEq, Eq)]
 enum InteractiveEvent {

@@ -6,11 +6,10 @@ use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
-use crate::non_interactive_clap::{NonInteractiveClapFactory, NonInteractiveClap};
+use crate::non_interactive_clap::{NonInteractiveClap, NonInteractiveClapFactory};
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use crate::terminal::terminal_interface::TerminalWrapper;
-use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Signal};
@@ -24,8 +23,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::runtime::Handle;
+use tokio::runtime::Runtime;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -101,7 +99,7 @@ impl CommandContext for CommandContextMock {
         &mut self.stdout
     }
 
-    fn stderr(&mut self) -> &mut dyn Write  {
+    fn stderr(&mut self) -> &mut dyn Write {
         &mut self.stderr
     }
 
@@ -231,13 +229,13 @@ impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
         terminal_interface: Option<TerminalWrapper>,
-        runtime_handle: &Handle,
-        generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        _runtime_ref: &Runtime,
+        standard_broadcast_handle: Box<dyn BroadcastHandle>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params.lock().unwrap().push((
             terminal_interface,
-            generic_broadcast_handle,
+            standard_broadcast_handle,
             ui_port,
         ));
         self.make_results.borrow_mut().remove(0)
