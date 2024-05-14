@@ -5,7 +5,9 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+    BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+};
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
 };
@@ -68,7 +70,7 @@ pub fn make_blockchain_interface(port_opt: Option<u16>) -> BlockchainInterfaceWe
         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
         REQUESTS_IN_PARALLEL,
     )
-        .unwrap();
+    .unwrap();
 
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }

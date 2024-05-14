@@ -1,19 +1,19 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use ethereum_types::U256;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
 use crate::sub_lib::wallet::Wallet;
+use ethereum_types::U256;
 use futures::Future;
+use masq_lib::blockchains::chains::Chain;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber};
 use web3::{BatchTransport, Web3};
-use masq_lib::blockchains::chains::Chain;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 
 pub struct LowBlockchainIntWeb3 {
     // web3: Rc<Web3<Http>>,
@@ -21,7 +21,7 @@ pub struct LowBlockchainIntWeb3 {
     // contract: Contract<Http>,
     // TODO waiting for GH-707 (note: consider to query the balances together with the id)
     transport: Http,
-    chain: Chain
+    chain: Chain,
 }
 
 impl LowBlockchainInt for LowBlockchainIntWeb3 {
@@ -40,7 +40,6 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     //             .map_err(|e| QueryFailed(e.to_string())),
     //     )
     // }
-
 
     fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.get_contract()
@@ -72,22 +71,17 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     }
 
     fn dup(&self) -> Box<dyn LowBlockchainInt> {
-        Box::new(
-            LowBlockchainIntWeb3::new(
-                // self.web3.clone(),
-                // self._batch_web3.clone(),
-                // self.contract.clone()
-                self.transport.clone(),
-                self.chain,
-            )
-        )
+        Box::new(LowBlockchainIntWeb3::new(
+            // self.web3.clone(),
+            // self._batch_web3.clone(),
+            // self.contract.clone()
+            self.transport.clone(),
+            self.chain,
+        ))
     }
-
-
-
 }
 
-impl LowBlockchainIntWeb3  {
+impl LowBlockchainIntWeb3 {
     // pub fn new(web3: Rc<Web3<Http>>, batch_web3: Rc<Web3<Batch<Http>>>, contract: Contract<Http>) -> Self {
     pub fn new(transport: Http, chain: Chain) -> Self {
         Self {
@@ -95,7 +89,7 @@ impl LowBlockchainIntWeb3  {
             // _batch_web3: batch_web3,
             // contract,
             transport,
-            chain
+            chain,
         }
     }
 
@@ -113,9 +107,8 @@ impl LowBlockchainIntWeb3  {
             self.chain.rec().contract,
             CONTRACT_ABI.as_bytes(),
         )
-            .expect("Unable to initialize contract.")
+        .expect("Unable to initialize contract.")
     }
-
 }
 
 #[cfg(test)]
@@ -145,9 +138,6 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::blockchain::blockchain_interface_utils::get_transaction_fee_balance;
     use crate::blockchain::test_utils::{make_blockchain_interface, TestTransport};
-
-
-
 
     #[test]
     fn low_interface_web3_transaction_fee_balance_works() {

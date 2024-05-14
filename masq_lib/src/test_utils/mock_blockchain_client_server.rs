@@ -7,15 +7,14 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use crate::test_utils::utils::UrlHolder;
+use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Either;
 use itertools::Either::{Left, Right};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
-use crate::test_utils::utils::UrlHolder;
-use crate::utils::localhost;
-
 
 // use crate::masq_node_cluster::DockerHostSocketAddr;
 // use crate::utils::UrlHolder;
@@ -60,8 +59,8 @@ impl MBCSBuilder {
     }
 
     pub fn response<R>(self, result: R, id: u64) -> Self
-        where
-            R: Serialize,
+    where
+        R: Serialize,
     {
         let result = serde_json::to_string(&result).unwrap();
         let body = format!(
@@ -72,8 +71,8 @@ impl MBCSBuilder {
     }
 
     pub fn err_response<R>(self, code: i64, message: R, id: u64) -> Self
-        where
-            R: Serialize,
+    where
+        R: Serialize,
     {
         let message = serde_json::to_string(&message).unwrap();
         let body = format!(
@@ -84,8 +83,8 @@ impl MBCSBuilder {
     }
 
     pub fn error<D>(self, code: u64, message: &str, data: Option<D>) -> Self
-        where
-            D: Serialize,
+    where
+        D: Serialize,
     {
         let data_str = match data.map(|d| serde_json::to_string(&d).unwrap()) {
             None => "".to_string(),
@@ -182,8 +181,8 @@ impl MockBlockchainClientServer {
         // let addr = DockerHostSocketAddr::new(self.port_or_local_addr.unwrap_left());
 
         let addr = match self.port_or_local_addr {
-            Left(port) => { SocketAddr::new(localhost(), port)  }
-            Right(addr) => { addr }
+            Left(port) => SocketAddr::new(localhost(), port),
+            Right(addr) => addr,
         };
         let listener = match TcpListener::bind(addr) {
             Ok(listener) => listener,
@@ -262,7 +261,7 @@ impl MockBlockchainClientServer {
                         requests.push(body);
                     }
                     if responses.len() == 0 {
-                        break
+                        break;
                     }
                     let response = responses.remove(0);
                     Self::send_body(conn_state, response);
@@ -401,6 +400,3 @@ struct ConnectionState {
     request_stage: RequestStage,
     request_accumulator: String,
 }
-
-
-

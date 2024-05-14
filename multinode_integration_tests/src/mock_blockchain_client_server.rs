@@ -1,5 +1,5 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-//
+
 // use std::io::{ErrorKind, Read, Write};
 // use std::net::{SocketAddr, TcpListener, TcpStream};
 // use std::sync::{Arc, Mutex};
@@ -57,7 +57,7 @@
 //         self
 //     }
 //
-c//     pub fn response<R>(self, result: R, id: u64) -> Self
+//     pub fn response<R>(self, result: R, id: u64) -> Self
 //     where
 //         R: Serialize,
 //     {
@@ -381,23 +381,24 @@ c//     pub fn response<R>(self, result: R, id: u64) -> Self
 // }
 //
 
-
 // TODO: GH-744: Write a card about fixing this.
 
 #[cfg(test)]
 mod tests {
+    use crossbeam_channel::unbounded;
+    use masq_lib::test_utils::mock_blockchain_client_server::{
+        MockBlockchainClientServer, CONTENT_LENGTH_DETECTOR,
+    };
     use serde_derive::{Deserialize, Serialize};
     use std::io::{ErrorKind, Read, Write};
     use std::net::TcpStream;
     use std::ops::Add;
     use std::thread;
     use std::time::{Duration, Instant};
-    use crossbeam_channel::unbounded;
-    use masq_lib::test_utils::mock_blockchain_client_server::{CONTENT_LENGTH_DETECTOR, MockBlockchainClientServer};
 
+    use super::*;
     use crate::masq_node_cluster::{DockerHostSocketAddr, MASQNodeCluster};
     use masq_lib::utils::find_free_port;
-    use super::*;
 
     #[derive(Serialize, Deserialize)]
     struct Person {

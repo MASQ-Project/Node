@@ -258,48 +258,68 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             // )
             get_transaction_fee_balance(web3.clone(), wallet_address)
                 .map_err(move |e| {
-                    BlockchainAgentBuildError::TransactionFeeBalance(consuming_wallet_clone_1, e.clone())
-                }).and_then(move |transaction_fee_balance| {
-                get_service_fee_balance(contract, wallet_address)
-                    .map_err(move |e| {
-                        BlockchainAgentBuildError::ServiceFeeBalance(consuming_wallet_clone_2, e.clone())
-                    }).and_then(move |masq_token_balance| {
-                    get_transaction_id(web3, wallet_address)
-                        .map_err(move |e| {
-                            BlockchainAgentBuildError::TransactionID(consuming_wallet_clone_3, e.clone())
-                        }).and_then(move |pending_transaction_id| {
-                        let blockchain_agent_future_result = BlockchainAgentFutureResult{
-                            transaction_fee_balance,
-                            masq_token_balance,
-                            pending_transaction_id,
-                        };
-                        Ok(create_blockchain_agent_web3(gas_price_gwei, gas_limit_const_part, blockchain_agent_future_result, consuming_wallet_clone_4))
-                    })
+                    BlockchainAgentBuildError::TransactionFeeBalance(
+                        consuming_wallet_clone_1,
+                        e.clone(),
+                    )
                 })
-            })
+                .and_then(move |transaction_fee_balance| {
+                    get_service_fee_balance(contract, wallet_address)
+                        .map_err(move |e| {
+                            BlockchainAgentBuildError::ServiceFeeBalance(
+                                consuming_wallet_clone_2,
+                                e.clone(),
+                            )
+                        })
+                        .and_then(move |masq_token_balance| {
+                            get_transaction_id(web3, wallet_address)
+                                .map_err(move |e| {
+                                    BlockchainAgentBuildError::TransactionID(
+                                        consuming_wallet_clone_3,
+                                        e.clone(),
+                                    )
+                                })
+                                .and_then(move |pending_transaction_id| {
+                                    let blockchain_agent_future_result =
+                                        BlockchainAgentFutureResult {
+                                            transaction_fee_balance,
+                                            masq_token_balance,
+                                            pending_transaction_id,
+                                        };
+                                    Ok(create_blockchain_agent_web3(
+                                        gas_price_gwei,
+                                        gas_limit_const_part,
+                                        blockchain_agent_future_result,
+                                        consuming_wallet_clone_4,
+                                    ))
+                                })
+                        })
+                }),
         )
     }
 
-    fn get_service_fee_balance( // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
+    fn get_service_fee_balance(
+        // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
         wallet_address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         // Box::new(
 
-            todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
-            // self.get_contract()
-            //     .query("balanceOf", wallet_address, None, Options::default(), None)
-            //     .map_err(move |e| {
-            //         BlockchainError::QueryFailed(format!("{:?} for wallet {}", e, wallet_address))
-            //     }),
+        todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
+        // self.get_contract()
+        //     .query("balanceOf", wallet_address, None, Options::default(), None)
+        //     .map_err(move |e| {
+        //         BlockchainError::QueryFailed(format!("{:?} for wallet {}", e, wallet_address))
+        //     }),
         // )
     }
 
-    fn get_transaction_fee_balance( // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
+    fn get_transaction_fee_balance(
+        // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-            todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
+        todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
         // Box::new(
         //     // self.get_web3()
         //     //     .eth()
@@ -308,7 +328,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         // )
     }
 
-    fn get_token_balance( // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
+    fn get_token_balance(
+        // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
@@ -326,7 +347,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn  get_transaction_count(
+    fn get_transaction_count(
         &self,
         wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
@@ -441,7 +462,10 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface, make_fake_event_loop_handle, make_tx_hash, TestTransport};
+    use crate::blockchain::test_utils::{
+        all_chains, make_blockchain_interface, make_fake_event_loop_handle, make_tx_hash,
+        TestTransport,
+    };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
@@ -634,11 +658,11 @@ mod tests {
         let result = subject.get_transaction_count(&wallet).wait();
         assert_eq!(
             result,
-            Err(QueryFailed("Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()))
+            Err(QueryFailed(
+                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()
+            ))
         );
     }
-
-
 
     #[test]
     fn blockchain_interface_web3_handles_no_retrieved_transactions() {
@@ -891,8 +915,9 @@ mod tests {
         // subject.lower_interface = Box::new(lower_blockchain_interface);
 
         let result = subject
-            .build_blockchain_agent(&wallet, &persistent_config).wait().unwrap(); // TODO GH-744 Remove wait
-
+            .build_blockchain_agent(&wallet, &persistent_config)
+            .wait()
+            .unwrap(); // TODO GH-744 Remove wait
 
         let get_transaction_fee_balance_params =
             get_transaction_fee_balance_params_arc.lock().unwrap();
@@ -975,8 +1000,6 @@ mod tests {
         // assert_eq!(err, expected_err)
     }
 
-
-
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(
         lower_blockchain_interface: LowBlockchainIntMock,
         expected_err_factory: F,
@@ -990,7 +1013,9 @@ mod tests {
         // TODO: GH-744: Come back to this
         // subject.lower_interface = Box::new(lower_blockchain_interface);
 
-        let result = subject.build_blockchain_agent(&wallet, &persistent_config).wait();
+        let result = subject
+            .build_blockchain_agent(&wallet, &persistent_config)
+            .wait();
 
         let err = match result {
             Err(e) => e,
@@ -1059,7 +1084,6 @@ mod tests {
         //     expected_err_factory,
         // );
     }
-
 
     // TODO: GH-744 - We had removed this test, but master has some changes, so its been brought back
     // #[test]
@@ -1508,7 +1532,6 @@ mod tests {
     //             .into()
     //     );
     // }
-
 
     const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
     const TEST_GAS_PRICE_ETH: u64 = 110;

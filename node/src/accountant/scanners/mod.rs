@@ -1158,7 +1158,9 @@ mod tests {
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
-    use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
@@ -1700,7 +1702,10 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(payable_1), ProcessedPayableFallible::Correct(payable_2)]),
+            payment_procedure_result: Ok(vec![
+                ProcessedPayableFallible::Correct(payable_1),
+                ProcessedPayableFallible::Correct(payable_2),
+            ]),
             response_skeleton_opt: None,
         };
 

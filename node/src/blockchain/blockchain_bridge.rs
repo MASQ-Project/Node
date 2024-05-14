@@ -16,9 +16,12 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndA
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, PayableTransactionError,
 };
+use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, send_payables_within_batch};
+use crate::blockchain::blockchain_interface_utils::{
+    get_service_fee_balance, get_transaction_fee_balance, send_payables_within_batch,
+};
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
@@ -48,7 +51,6 @@ use std::time::SystemTime;
 use web3::transports::Batch;
 use web3::transports::Http;
 use web3::types::{BlockNumber, TransactionReceipt, H256};
-use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -364,36 +366,40 @@ impl BlockchainBridge {
             //
             //
             // });
-
-
-           get_service_fee_balance(contract, consuming_wallet_address)
+            get_service_fee_balance(contract, consuming_wallet_address)
                 .map_err(|e| {
-                    format!("Did not find out token balance of the consuming wallet: {:?}", e )
+                    format!(
+                        "Did not find out token balance of the consuming wallet: {:?}",
+                        e
+                    )
                 })
                 .and_then(move |token_balance| {
                     get_transaction_fee_balance(web3, consuming_wallet_address)
                         .map_err(|e| {
-                            format!("Did not find out gas balance of the consuming wallet: {:?}", e)
+                            format!(
+                                "Did not find out gas balance of the consuming wallet: {:?}",
+                                e
+                            )
                         })
                         .and_then(move |gas_balance| {
-                        let consuming_wallet_balances = {
-                            ConsumingWalletBalances {
-                                transaction_fee_balance_in_minor_units: gas_balance,
-                                masq_token_balance_in_minor_units: token_balance,
-                            }
-                        };
-                        todo!("TODO: GH-744: This needs to be updated with Masters code");
-                        // balances_and_payables_sub_opt
-                        //     .as_ref()
-                        //     .expect("Accountant is unbound")
-                        //     .try_send(ConsumingWalletBalancesAndQualifiedPayables {
-                        //         qualified_payables: incoming_message.accounts,
-                        //         consuming_wallet_balances,
-                        //         response_skeleton_opt: incoming_message.response_skeleton_opt,
-                        //     })
-                        //     .expect("Accountant is dead");
-                        Ok(())
-                    })
+                            let consuming_wallet_balances = {
+                                ConsumingWalletBalances {
+                                    transaction_fee_balance_in_minor_units: gas_balance,
+                                    masq_token_balance_in_minor_units: token_balance,
+                                }
+                            };
+                            todo!("TODO: GH-744: This needs to be updated with Masters code");
+                            // balances_and_payables_sub_opt
+                            //     .as_ref()
+                            //     .expect("Accountant is unbound")
+                            //     .try_send(ConsumingWalletBalancesAndQualifiedPayables {
+                            //         qualified_payables: incoming_message.accounts,
+                            //         consuming_wallet_balances,
+                            //         response_skeleton_opt: incoming_message.response_skeleton_opt,
+                            //     })
+                            //     .expect("Accountant is dead");
+                            Ok(())
+                        })
                 }),
         );
     }
@@ -623,7 +629,8 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         msg: OutboundPaymentsInstructions,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>> {
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => (consuming_wallet, gas_price),
@@ -1052,7 +1059,6 @@ mod tests {
         // );
     }
 
-
     fn assert_failure_during_balance_inspection(
         test_name: &str,
         blockchain_interface: BlockchainInterfaceMock,
@@ -1143,7 +1149,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant() {
+    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
+    ) {
         let system = System::new(
             "handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant",
         );
@@ -1151,11 +1158,12 @@ mod tests {
         let (event_loop_handle, http) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x20".to_string(),1 )
+            .response("0x20".to_string(), 1)
             .begin_batch()
-            .response("rpc result".to_string(),1 )
+            .response("rpc result".to_string(), 1)
             .end_batch()
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1201,18 +1209,20 @@ mod tests {
         system.run();
         let time_after = SystemTime::now();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
+        let pending_payable_fingerprint_seeds_msg =
+            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
         assert_eq!(
             sent_payables_msg,
-            &SentPayables{
-                payment_procedure_result: Ok(vec![
-                    Correct(PendingPayable{
-                        recipient_wallet: accounts[0].wallet.clone(),
-                        hash: H256::from_str("e07d59003dd23a9f5195ee76f25e2b26ced20cd1203a8540d7db5e4f1f10cc05").unwrap()
-                    })
-                ]),
-                response_skeleton_opt: Some(ResponseSkeleton{
+            &SentPayables {
+                payment_procedure_result: Ok(vec![Correct(PendingPayable {
+                    recipient_wallet: accounts[0].wallet.clone(),
+                    hash: H256::from_str(
+                        "e07d59003dd23a9f5195ee76f25e2b26ced20cd1203a8540d7db5e4f1f10cc05"
+                    )
+                    .unwrap()
+                })]),
+                response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 })
@@ -1222,12 +1232,13 @@ mod tests {
         assert!(pending_payable_fingerprint_seeds_msg.batch_wide_timestamp <= time_after);
         assert_eq!(
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![
-                HashAndAmount{
-                    hash: H256::from_str("e07d59003dd23a9f5195ee76f25e2b26ced20cd1203a8540d7db5e4f1f10cc05").unwrap(),
-                    amount: accounts[0].balance_wei
-                }
-            ]
+            vec![HashAndAmount {
+                hash: H256::from_str(
+                    "e07d59003dd23a9f5195ee76f25e2b26ced20cd1203a8540d7db5e4f1f10cc05"
+                )
+                .unwrap(),
+                amount: accounts[0].balance_wei
+            }]
         );
         assert_eq!(accountant_recording.len(), 2);
     }
@@ -1241,10 +1252,11 @@ mod tests {
         let (event_loop_handle, http) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         // To make submit_batch failed we didn't provide any responses for batch calls
         let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x20".to_string(),1 )
+            .response("0x20".to_string(), 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
@@ -1287,7 +1299,8 @@ mod tests {
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let pending_payable_fingerprint_seeds_msg = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
+        let pending_payable_fingerprint_seeds_msg =
+            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let sent_payables_msg = accountant_recording.get_record::<SentPayables>(1);
         let scan_error_msg = accountant_recording.get_record::<ScanError>(2);
         assert_sending_error(
@@ -1299,12 +1312,13 @@ mod tests {
         );
         assert_eq!(
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
-            vec![
-                HashAndAmount{
-                    hash: H256::from_str("e07d59003dd23a9f5195ee76f25e2b26ced20cd1203a8540d7db5e4f1f10cc05").unwrap(),
-                    amount: accounts[0].balance_wei
-                }
-            ]
+            vec![HashAndAmount {
+                hash: H256::from_str(
+                    "e07d59003dd23a9f5195ee76f25e2b26ced20cd1203a8540d7db5e4f1f10cc05"
+                )
+                .unwrap(),
+                amount: accounts[0].balance_wei
+            }]
         );
         assert_eq!(
             *scan_error_msg,
@@ -1379,12 +1393,13 @@ mod tests {
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x01".to_string(),1 )
+            .response("0x01".to_string(), 1)
             .begin_batch()
-            .response("rpc_result".to_string(),7 )
-            .response("rpc_result_2".to_string(),7 )
+            .response("rpc_result".to_string(), 7)
+            .response("rpc_result_2".to_string(), 7)
             .end_batch()
             .start();
         let blockchain_interface_web3 =
@@ -1396,30 +1411,43 @@ mod tests {
         let accounts = vec![accounts_1.clone(), accounts_2.clone()];
         let system = System::new(test_name);
         let msg = OutboundPaymentsInstructions::new(accounts, None);
-        let persistent_config = PersistentConfigurationMock::new()
-            .gas_price_result(Ok(gas_price));
+        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(gas_price));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet)
+            Some(consuming_wallet),
         );
         let (accountant, _, accountant_recording) = make_recorder();
-        subject.pending_payable_confirmation.new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+        subject
+            .pending_payable_confirmation
+            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
 
         let result = subject.process_payments(msg).wait();
 
         System::current().stop();
         system.run();
         let processed_payments = result.unwrap();
-        assert_eq!(processed_payments[0], ProcessedPayableFallible::Correct(PendingPayable {
-            recipient_wallet: accounts_1.wallet,
-            hash:  H256::from_str("24685f7c502c49e56ea572378f719aa88f8b5a521e21a9842a91607152ba8ff1").unwrap()
-        }));
-        assert_eq!(processed_payments[1], ProcessedPayableFallible::Correct(PendingPayable {
-            recipient_wallet: accounts_2.wallet,
-            hash:  H256::from_str("914a946a9876b2d6e1f114e260b062d5e3d9821433f2118a17bb81a4d7946831").unwrap()
-        }));
+        assert_eq!(
+            processed_payments[0],
+            ProcessedPayableFallible::Correct(PendingPayable {
+                recipient_wallet: accounts_1.wallet,
+                hash: H256::from_str(
+                    "24685f7c502c49e56ea572378f719aa88f8b5a521e21a9842a91607152ba8ff1"
+                )
+                .unwrap()
+            })
+        );
+        assert_eq!(
+            processed_payments[1],
+            ProcessedPayableFallible::Correct(PendingPayable {
+                recipient_wallet: accounts_2.wallet,
+                hash: H256::from_str(
+                    "914a946a9876b2d6e1f114e260b062d5e3d9821433f2118a17bb81a4d7946831"
+                )
+                .unwrap()
+            })
+        );
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 1);
     }
@@ -1431,9 +1459,10 @@ mod tests {
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash".to_string(),1 )
+            .response("trash".to_string(), 1)
             .start();
         let blockchain_interface_web3 =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
@@ -1441,16 +1470,18 @@ mod tests {
         let gas_price = 1u64;
         let system = System::new(test_name);
         let msg = OutboundPaymentsInstructions::new(vec![], None);
-        let persistent_config = configure_default_persistent_config(ZERO)
-            .gas_price_result(Ok(gas_price));
+        let persistent_config =
+            configure_default_persistent_config(ZERO).gas_price_result(Ok(gas_price));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet)
+            Some(consuming_wallet),
         );
         let (accountant, _, accountant_recording) = make_recorder();
-        subject.pending_payable_confirmation.new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+        subject
+            .pending_payable_confirmation
+            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
 
         let result = subject.process_payments(msg).wait();
 
@@ -1459,7 +1490,9 @@ mod tests {
         let error_result = result.unwrap_err();
         assert_eq!(
             error_result,
-            TransactionID(BlockchainError::QueryFailed("Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()))
+            TransactionID(BlockchainError::QueryFailed(
+                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()
+            ))
         );
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -1472,31 +1505,32 @@ mod tests {
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let blockchain_interface_web3 =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let system = System::new(test_name);
         let msg = OutboundPaymentsInstructions::new(vec![], None);
-        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Err(PersistentConfigError::NotPresent));
+        let persistent_config = PersistentConfigurationMock::new()
+            .gas_price_result(Err(PersistentConfigError::NotPresent));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet)
+            Some(consuming_wallet),
         );
         let (accountant, _, accountant_recording) = make_recorder();
-        subject.pending_payable_confirmation.new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+        subject
+            .pending_payable_confirmation
+            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
 
         let result = subject.process_payments(msg).wait();
 
         System::current().stop();
         system.run();
         let error_result = result.unwrap_err();
-        assert_eq!(
-            error_result,
-            GasPriceQueryFailed("NotPresent".to_string())
-        );
+        assert_eq!(error_result, GasPriceQueryFailed("NotPresent".to_string()));
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -1508,7 +1542,8 @@ mod tests {
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let blockchain_interface_web3 =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let gas_price = 1u64;
@@ -1519,20 +1554,19 @@ mod tests {
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            None
+            None,
         );
         let (accountant, _, accountant_recording) = make_recorder();
-        subject.pending_payable_confirmation.new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
+        subject
+            .pending_payable_confirmation
+            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
 
         let result = subject.process_payments(msg).wait();
 
         System::current().stop();
         system.run();
         let error_result = result.unwrap_err();
-        assert_eq!(
-            error_result,
-            MissingConsumingWallet
-        );
+        assert_eq!(error_result, MissingConsumingWallet);
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }

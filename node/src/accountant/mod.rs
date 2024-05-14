@@ -1383,12 +1383,10 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![
-                ProcessedPayableFallible::Correct(PendingPayable {
-                    recipient_wallet: make_wallet("blah"),
-                    hash: make_tx_hash(123),
-                })
-            ]),
+            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(PendingPayable {
+                recipient_wallet: make_wallet("blah"),
+                hash: make_tx_hash(123),
+            })]),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1785,7 +1783,9 @@ mod tests {
             .build();
         let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(expected_payable.clone())]),
+            payment_procedure_result: Ok(vec![ProcessedPayableFallible::Correct(
+                expected_payable.clone(),
+            )]),
             response_skeleton_opt: None,
         };
         let subject = accountant.start();

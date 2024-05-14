@@ -153,7 +153,9 @@ pub mod payable_scanner_utils {
         logger: &'b Logger,
     ) -> SeparateTxsByResult<'a> {
         match rpc_result {
-            ProcessedPayableFallible::Correct(pending_payable) => add_pending_payable(acc, pending_payable),
+            ProcessedPayableFallible::Correct(pending_payable) => {
+                add_pending_payable(acc, pending_payable)
+            }
             ProcessedPayableFallible::Failed(RpcPayableFailure {
                 rpc_error,
                 recipient_wallet,
@@ -568,7 +570,7 @@ mod tests {
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
                 ProcessedPayableFallible::Correct(payable_ok.clone()),
-                ProcessedPayableFallible::Failed(bad_rpc_call.clone())
+                ProcessedPayableFallible::Failed(bad_rpc_call.clone()),
             ]),
             response_skeleton_opt: None,
         };
