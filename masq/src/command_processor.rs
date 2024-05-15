@@ -5,7 +5,6 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
-use crate::non_interactive_mode::CommandContextDependencies;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::utils::ExpectValue;
 use tokio::runtime::Runtime;
@@ -15,23 +14,22 @@ pub trait CommandProcessorFactory {
         &self,
         rt_ref: &Runtime,
         terminal_interface_opt: Option<TerminalWrapper>,
-        bootstrapper: ConnectionManagerBootstrapper,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
 }
 
-#[derive(Default)]
-pub struct CommandProcessorFactoryReal;
+pub struct CommandProcessorFactoryReal {
+    bootstrapper: ConnectionManagerBootstrapper,
+}
 
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     fn make(
         &self,
         rt_ref: &Runtime,
         terminal_interface_opt: Option<TerminalWrapper>,
-        bootstrapper: ConnectionManagerBootstrapper,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        match CommandContextReal::new(ui_port, rt_ref, terminal_interface_opt, bootstrapper) {
+        match CommandContextReal::new(ui_port, rt_ref, terminal_interface_opt, &self.bootstrapper) {
             Ok(context) => {
                 let processor = Box::new(CommandProcessorReal { context });
                 Ok(processor)
@@ -42,9 +40,15 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
     }
 }
 
+impl Default for CommandProcessorFactoryReal {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
 impl CommandProcessorFactoryReal {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(bootstrapper: ConnectionManagerBootstrapper) -> Self {
+        Self { bootstrapper }
     }
 }
 
@@ -86,9 +90,12 @@ mod tests {
     use crate::command_context::CommandContext;
     use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handlers::{
-        BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
+        BroadcastHandleInactive, BroadcastHandler, InteractiveModeDependencies,
+        StandardBroadcastHandlerReal, StreamFactoryNull,
     };
-    use crate::test_utils::mocks::TestStreamFactory;
+    use crate::test_utils::mocks::{
+        StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock, TestStreamFactory,
+    };
     use crossbeam_channel::{bounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
@@ -100,13 +107,10 @@ mod tests {
     #[test]
     fn handles_nonexistent_server() {
         let ui_port = find_free_port();
-        let subject = CommandProcessorFactoryReal::new();
-        let broadcast_handle = BroadcastHandleInactive;
-        let dependencies =
-            CommandContextDependencies::new_in_test(Box::new(broadcast_handle), None);
+        let subject = CommandProcessorFactoryReal::default();
         let rt = make_rt();
 
-        let result = subject.make(&rt, dependencies, ui_port);
+        let result = subject.make(&rt, None, ui_port);
 
         match result.err() {
             Some(CommandError::ConnectionProblem(_)) => (),
@@ -119,7 +123,7 @@ mod tests {
 
     #[test]
     fn process_locks_writing_and_prevents_interferences_from_unexpected_broadcast_messages() {
-        running_test(); //don't remove
+        running_test();
         let ui_port = find_free_port();
         let broadcast = UiUndeliveredFireAndForget {
             opcode: "whateverTheOpcodeIs".to_string(),
@@ -136,37 +140,43 @@ mod tests {
             .queue_response(broadcast.clone())
             .queue_response(broadcast)
             .inject_signal_sender(tx);
-        let (stream_factory_handler, stream_factory_handle) = TestStreamFactory::new();
+        let (stream_factory, stream_factory_handle) = TestStreamFactory::new();
         //The following two senders stands for stdout stream handles here - we want to get all written to them by receiving it from a single receiver
         //so that some input sent from two different threads will mix in one piece of literal data;
         //that's how the real program's stdout output presents itself to one's eyes.
         //At the line below, we get a sender for the TameCommand; will serve to the 'main thread'.
-        let (cloned_sender, _) = stream_factory_handler.clone_senders();
+        let cloned_writer = stream_factory.clone_stdout_writer();
         let terminal_interface = TerminalWrapper::configure_interface().unwrap();
         let background_terminal_interface = terminal_interface.clone();
-        let standard_broadcast_handler =
-            BroadcastHandlerReal::new(Some(background_terminal_interface));
-        //Another instance of the same sender will be taken here inside; will serve to the "broadcast handler thread".
-        let standard_broadcast_handle =
-            standard_broadcast_handler.spawn(Box::new(stream_factory_handler));
-        let dependencies = CommandContextDependencies::new_in_test(
-            standard_broadcast_handle,
-            Some(terminal_interface),
+        // Spawning a real broadcast handler "outside"
+        let dependencies = InteractiveModeDependencies::new(
+            background_terminal_interface,
+            Box::new(stream_factory),
         );
-        let p_f = CommandProcessorFactoryReal::new();
+        let mut standard_broadcast_handler = StandardBroadcastHandlerReal::new(Some(dependencies));
+        let standard_broadcast_handle = standard_broadcast_handler.spawn();
+        let standard_broadcast_handler_mock =
+            StandardBroadcastHandlerMock::default().spawn_result(standard_broadcast_handle);
+        let mut bootstrapper = ConnectionManagerBootstrapper::default();
+        bootstrapper.standard_broadcast_handler_factory = Box::new(
+            StandardBroadcastHandlerFactoryMock::default()
+                .make_result(Box::new(standard_broadcast_handler)),
+        );
+        let mut c_p_f = CommandProcessorFactoryReal::default();
+        c_p_f.bootstrapper = bootstrapper;
         let stop_handle = rt.block_on(server.start());
-        let mut processor = p_f.make(&rt, dependencies, ui_port).unwrap();
+        let mut processor = c_p_f.make(&rt, Some(terminal_interface), ui_port).unwrap();
         processor
             .process(Box::new(CheckPasswordCommand {
                 db_password_opt: None,
             }))
             .unwrap();
-        //Waiting for a signal from the MockWebSocket server meaning that the queued broadcasts started coming out.
+        // Waiting for a signal from the MockWebSocket server meaning that the queued broadcasts started coming out.
         rx.recv_timeout(Duration::from_millis(200)).unwrap();
 
         processor
             .process(Box::new(TameCommand {
-                sender: cloned_sender,
+                stdout_writer: cloned_writer,
             }))
             .unwrap();
 
@@ -191,7 +201,7 @@ mod tests {
 
     #[derive(Debug)]
     struct TameCommand {
-        sender: Sender<String>,
+        stdout_writer: Sender<String>,
     }
 
     impl<'a> TameCommand {
@@ -204,8 +214,8 @@ mod tests {
             "Roger.",
         ];
 
-        fn send_piece_of_whole_message(&self, piece: &str) {
-            self.sender.send(piece.to_string()).unwrap();
+        fn send_small_piece_of_message(&self, piece: &str) {
+            self.stdout_writer.send(piece.to_string()).unwrap();
             thread::sleep(Duration::from_millis(1));
         }
 
@@ -221,7 +231,7 @@ mod tests {
         fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
             Self::MESSAGE_IN_PIECES
                 .iter()
-                .for_each(|piece| self.send_piece_of_whole_message(piece));
+                .for_each(|piece| self.send_small_piece_of_message(piece));
             Ok(())
         }
     }

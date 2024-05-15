@@ -6,9 +6,10 @@ use crate::command_processor::{
     CommandProcessor, CommandProcessorFactory, CommandProcessorFactoryReal,
 };
 use crate::communications::broadcast_handlers::{
-    BroadcastHandle, BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
+    BroadcastHandle, BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal,
     StreamFactory, StreamFactoryReal,
 };
+use crate::communications::connection_manager::ConnectionManagerBootstrapper;
 use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{
     InitializationArgs, NonInteractiveClapFactory, NonInteractiveClapFactoryReal,
@@ -17,6 +18,7 @@ use crate::terminal::terminal_interface::TerminalWrapper;
 use itertools::Either;
 use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
+use masq_lib::ui_gateway::MessageBody;
 use std::io::Write;
 use std::ops::Not;
 use tokio::runtime::Runtime;
@@ -89,7 +91,9 @@ impl Main {
         Self {
             non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryReal),
             command_factory: Box::new(CommandFactoryReal),
-            processor_factory: Box::new(CommandProcessorFactoryReal),
+            processor_factory: Box::new(CommandProcessorFactoryReal::new(
+                ConnectionManagerBootstrapper::default(),
+            )),
         }
     }
 
@@ -102,7 +106,11 @@ impl Main {
     fn initialize_terminal_interface(
         is_interactive: bool,
     ) -> Result<Option<TerminalWrapper>, String> {
-        todo!()
+        if is_interactive {
+            TerminalWrapper::configure_interface().map(|interface| Some(interface))
+        } else {
+            Ok(None)
+        }
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
@@ -133,59 +141,59 @@ impl Main {
         }
     }
 }
-
-pub struct CommandContextDependencies {
-    pub standard_broadcast_handle: Box<dyn BroadcastHandle>,
-    pub terminal_wrapper_opt: Option<TerminalWrapper>,
-}
-
-impl CommandContextDependencies {
-    fn new(is_interactive: bool, rt_ref: &Runtime) -> Result<Self, String> {
-        let (standard_broadcast_handle, terminal_wrapper_opt) = if is_interactive {
-            Self::populate_interactive_dependencies(StreamFactoryReal, rt_ref)?
-        } else {
-            Self::populate_non_interactive_dependencies()
-        };
-
-        Ok(Self {
-            standard_broadcast_handle,
-            terminal_wrapper_opt,
-        })
-    }
-
-    fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
-    {
-        (Box::new(BroadcastHandleInactive), None)
-    }
-
-    fn populate_interactive_dependencies(
-        stream_factory: impl StreamFactory + 'static,
-        rt_ref: &Runtime,
-    ) -> Result<(Box<dyn BroadcastHandle>, Option<TerminalWrapper>), String> {
-        let foreground_terminal_interface = TerminalWrapper::configure_interface()?;
-        let background_terminal_interface = foreground_terminal_interface.clone();
-
-        let standard_broadcast_handler =
-            BroadcastHandlerReal::new(Some(background_terminal_interface));
-        let standard_broadcast_handle = standard_broadcast_handler.spawn(Box::new(stream_factory));
-
-        Ok((
-            standard_broadcast_handle,
-            Some(foreground_terminal_interface),
-        ))
-    }
-
-    #[cfg(test)]
-    pub fn new_in_test(
-        standard_broadcast_handle: Box<dyn BroadcastHandle>,
-        terminal_wrapper_opt: Option<TerminalWrapper>,
-    ) -> Self {
-        Self {
-            standard_broadcast_handle,
-            terminal_wrapper_opt,
-        }
-    }
-}
+//
+// pub struct CommandContextDependencies {
+//     pub standard_broadcast_handle: Box<dyn BroadcastHandle<MessageBody>>,
+//     pub terminal_wrapper_opt: Option<TerminalWrapper>,
+// }
+//
+// impl CommandContextDependencies {
+//     fn new(is_interactive: bool, rt_ref: &Runtime) -> Result<Self, String> {
+//         let (standard_broadcast_handle, terminal_wrapper_opt) = if is_interactive {
+//             Self::populate_interactive_dependencies(StreamFactoryReal, rt_ref)?
+//         } else {
+//             Self::populate_non_interactive_dependencies()
+//         };
+//
+//         Ok(Self {
+//             standard_broadcast_handle,
+//             terminal_wrapper_opt,
+//         })
+//     }
+//
+//     fn populate_non_interactive_dependencies() -> (Box<dyn BroadcastHandle>, Option<TerminalWrapper>)
+//     {
+//         (Box::new(BroadcastHandleInactive), None)
+//     }
+//
+//     fn populate_interactive_dependencies(
+//         stream_factory: impl StreamFactory + 'static,
+//         rt_ref: &Runtime,
+//     ) -> Result<(Box<dyn BroadcastHandle>, Option<TerminalWrapper>), String> {
+//         let foreground_terminal_interface = ;
+//         let background_terminal_interface = foreground_terminal_interface.clone();
+//
+//         let standard_broadcast_handler =
+//             BroadcastHandlerReal::new(Some(background_terminal_interface));
+//         let standard_broadcast_handle = standard_broadcast_handler.spawn(Box::new(stream_factory));
+//
+//         Ok((
+//             standard_broadcast_handle,
+//             Some(foreground_terminal_interface),
+//         ))
+//     }
+//
+//     #[cfg(test)]
+//     pub fn new_in_test(
+//         standard_broadcast_handle: Box<dyn BroadcastHandle>,
+//         terminal_wrapper_opt: Option<TerminalWrapper>,
+//     ) -> Self {
+//         Self {
+//             standard_broadcast_handle,
+//             terminal_wrapper_opt,
+//         }
+//     }
+// }
 
 pub fn handle_command_common(
     command_factory: &dyn CommandFactory,
@@ -286,14 +294,9 @@ mod tests {
             ]
         );
         let mut p_make_params = p_make_params_arc.lock().unwrap();
-        let (command_context_dependencies, ui_port) = p_make_params.pop().unwrap();
+        let (terminal_wrapper_opt, ui_port) = p_make_params.pop().unwrap();
         assert_eq!(ui_port, 5333);
-        assert!(command_context_dependencies.terminal_wrapper_opt.is_none());
-        assert!(command_context_dependencies
-            .standard_broadcast_handle
-            .as_any()
-            .downcast_ref::<BroadcastHandleInactive>()
-            .is_some());
+        assert!(terminal_wrapper_opt.is_none());
         let mut process_params = process_params_arc.lock().unwrap();
         let command = process_params.remove(0);
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
@@ -441,28 +444,29 @@ mod tests {
     #[test]
     fn populate_interactive_dependencies_produces_all_needed_to_block_printing_from_another_thread_when_the_lock_is_acquired(
     ) {
-        let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
-        let (broadcast_handle, terminal_interface) =
-            CommandContextDependencies::populate_interactive_dependencies(test_stream_factory)
-                .unwrap();
-        {
-            let _lock = terminal_interface.as_ref().unwrap().lock();
-            broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
-
-            let output = test_stream_handle.stdout_so_far();
-
-            assert_eq!(output, "")
-        }
-        //because of Win from Actions
-        #[cfg(target_os = "windows")]
-        win_test_import::thread::sleep(win_test_import::Duration::from_millis(200));
-
-        let output_when_unlocked = test_stream_handle.stdout_so_far();
-
-        assert_eq!(
-            output_when_unlocked,
-            "\nThe Node\'s database password has changed.\n\n"
-        )
+        //TODO rewrite me
+        // let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
+        // let (broadcast_handle, terminal_interface) =
+        //     CommandContextDependencies::populate_interactive_dependencies(test_stream_factory)
+        //         .unwrap();
+        // {
+        //     let _lock = terminal_interface.as_ref().unwrap().lock();
+        //     broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
+        //
+        //     let output = test_stream_handle.stdout_so_far();
+        //
+        //     assert_eq!(output, "")
+        // }
+        // // Because of Win from Actions
+        // #[cfg(target_os = "windows")]
+        // win_test_import::thread::sleep(win_test_import::Duration::from_millis(200));
+        //
+        // let output_when_unlocked = test_stream_handle.stdout_so_far();
+        //
+        // assert_eq!(
+        //     output_when_unlocked,
+        //     "\nThe Node\'s database password has changed.\n\n"
+        // )
     }
 
     #[test]
@@ -500,14 +504,9 @@ mod tests {
         let c_make_params = c_make_params_arc.lock().unwrap();
         assert_eq!(*c_make_params, vec![vec!["setup".to_string(),],]);
         let mut p_make_params = p_make_params_arc.lock().unwrap();
-        let (command_context_dependencies, ui_port) = p_make_params.pop().unwrap();
+        let (terminal_wrapper_opt, ui_port) = p_make_params.pop().unwrap();
         assert_eq!(ui_port, 10000);
-        assert!(command_context_dependencies.terminal_wrapper_opt.is_none());
-        assert!(command_context_dependencies
-            .standard_broadcast_handle
-            .as_any()
-            .downcast_ref::<BroadcastHandleInactive>()
-            .is_some());
+        assert!(terminal_wrapper_opt.is_none());
         let mut process_params = process_params_arc.lock().unwrap();
         assert_eq!(
             *(*process_params)

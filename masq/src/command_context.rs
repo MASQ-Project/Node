@@ -6,7 +6,6 @@ use crate::communications::connection_manager::{
     ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
-use crate::non_interactive_mode::CommandContextDependencies;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use async_trait::async_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
@@ -131,18 +130,18 @@ impl CommandContextReal {
         daemon_ui_port: u16,
         rt_ref: &Runtime,
         terminal_interface_opt: Option<TerminalWrapper>,
-        mut bootstrapper: ConnectionManagerBootstrapper,
+        bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = rt_ref.block_on(bootstrapper.spawn_background_loops(
             daemon_ui_port,
             terminal_interface_opt.clone(),
             REDIRECT_TIMEOUT_MILLIS,
         ));
-        let manager_connectors = match result {
-            Ok(connectors) => connectors,
+        let connectors = match result {
+            Ok(c) => c,
             Err(e) => return Err(ConnectionRefused(format!("{:?}", e))),
         };
-        let connection: ConnectionManager = bootstrapper.into();
+        let connection = ConnectionManager::new(connectors);
 
         Ok(Self {
             connection,
@@ -224,7 +223,7 @@ mod tests {
             Box::new(StandardBroadcastHandlerFactoryMock::default());
         let bootstrapper = ConnectionManagerBootstrapper::default();
 
-        let subject = CommandContextReal::new(port, &rt, None, bootstrapper).unwrap();
+        let subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
 
         assert_eq!(subject.active_port(), Some(port));
         handle.stop();
@@ -245,7 +244,7 @@ mod tests {
         let standard_broadcast_handler_factory =
             Box::new(StandardBroadcastHandlerFactoryMock::default());
         let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, &rt, None, bootstrapper).unwrap();
+        let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
         subject.stderr = Box::new(stderr);
@@ -277,11 +276,10 @@ mod tests {
         running_test();
         let port = find_free_port();
         let broadcast_handle = BroadcastHandleInactive;
-        let dependencies =
-            CommandContextDependencies::new_in_test(Box::new(broadcast_handle), None);
+        let bootstrapper = ConnectionManagerBootstrapper::default();
         let rt = make_rt();
 
-        let result = CommandContextReal::new(port, &rt, dependencies);
+        let result = CommandContextReal::new(port, &rt, None, &bootstrapper);
 
         match result {
             Err(ConnectionRefused(_)) => (),
@@ -302,9 +300,8 @@ mod tests {
         let rt = make_rt();
         let stop_handle = rt.block_on(server.start());
         let broadcast_handle = BroadcastHandleInactive;
-        let dependencies =
-            CommandContextDependencies::new_in_test(Box::new(broadcast_handle), None);
-        let mut subject = CommandContextReal::new(port, &rt, dependencies).unwrap();
+        let bootstrapper = ConnectionManagerBootstrapper::default();
+        let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -320,9 +317,8 @@ mod tests {
         let rt = make_rt();
         let stop_handle = rt.block_on(server.start());
         let broadcast_handle = BroadcastHandleInactive;
-        let dependencies =
-            CommandContextDependencies::new_in_test(Box::new(broadcast_handle), None);
-        let mut subject = CommandContextReal::new(port, &rt, dependencies).unwrap();
+        let bootstrapper = ConnectionManagerBootstrapper::default();
+        let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -346,9 +342,8 @@ mod tests {
         let rt = make_rt();
         let stop_handle = rt.block_on(server.start());
         let broadcast_handle = BroadcastHandleInactive;
-        let dependencies =
-            CommandContextDependencies::new_in_test(Box::new(broadcast_handle), None);
-        let subject_result = CommandContextReal::new(port, &rt, dependencies);
+        let bootstrapper = ConnectionManagerBootstrapper::default();
+        let subject_result = CommandContextReal::new(port, &rt, None, &bootstrapper);
         let mut subject = subject_result.unwrap();
         subject.stdin = Box::new(stdin);
         subject.stdout = Box::new(stdout);
