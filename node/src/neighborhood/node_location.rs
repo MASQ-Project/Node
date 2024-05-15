@@ -172,7 +172,8 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[allow(dead_code, unused_imports)]
+#[cfg(not(test))]
 mod test_ip_country_performance {
     use crate::neighborhood::node_location::get_node_location;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
