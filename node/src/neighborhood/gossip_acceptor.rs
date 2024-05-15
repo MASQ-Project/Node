@@ -1957,10 +1957,13 @@ mod tests {
             ),
             handle_result
         );
-        let expected_introducer = NodeRecord::from(&agrs[0]);
+        let mut expected_introducer = NodeRecord::from(&agrs[0]);
+        let result_introducer = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+        expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
+        expected_introducer.resign();
         assert_eq!(
-            Some(&expected_introducer),
-            dest_db.node_by_key(&agrs[0].inner.public_key)
+            Some(&mut expected_introducer),
+            Some(result_introducer)
         );
         assert_eq!(
             true,
@@ -3683,13 +3686,13 @@ mod tests {
 
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
-        let node_a = make_node_record(2345, true);
+        let mut node_a = make_node_record(2345, true);
         let mut src_db = db_from_node(&node_a);
-        let node_b = make_node_record(3456, true);
-        let node_c = make_node_record(4567, false);
-        let node_d = make_node_record(5678, false);
-        let node_e = make_node_record(6789, true);
-        let node_f = make_node_record(7890, true);
+        let mut node_b = make_node_record(3456, true);
+        let mut node_c = make_node_record(4567, false);
+        let mut node_d = make_node_record(5678, false);
+        let mut node_e = make_node_record(6789, true);
+        let mut node_f = make_node_record(7890, true);
         dest_db.add_node(node_a.clone()).unwrap();
         dest_db.add_node(node_b.clone()).unwrap();
         dest_db.add_node(node_d.clone()).unwrap();
@@ -3749,6 +3752,7 @@ mod tests {
             &mut expected_dest_db,
             vec![&node_a, &node_b, &node_d, &node_e, &node_f],
         );
+
         assert_node_records_eq(
             dest_db.node_by_key_mut(root_node.public_key()).unwrap(),
             expected_dest_db
@@ -3783,6 +3787,14 @@ mod tests {
         );
         assert_eq!(dest_db.node_by_key(node_e.public_key()), None);
         assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
+    }
+
+    fn fix_last_update_nodes(db: &mut NeighborhoodDatabase, ref_db: &NeighborhoodDatabase) -> NeighborhoodDatabase {
+        db.by_public_key.into_iter().map(|(pubkey, mut node_record)|
+            node_record.metadata.last_update = ref_db.by_public_key(pubkey).metadata.last_update;
+            node_record.resign();
+        ).collect();
+        db
     }
 
     #[test]

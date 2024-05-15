@@ -26,7 +26,7 @@ pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 #[derive(Clone)]
 pub struct NeighborhoodDatabase {
     this_node: PublicKey,
-    by_public_key: HashMap<PublicKey, NodeRecord>,
+    pub(crate) by_public_key: HashMap<PublicKey, NodeRecord>,
     by_ip_addr: HashMap<IpAddr, PublicKey>,
     logger: Logger,
 }
