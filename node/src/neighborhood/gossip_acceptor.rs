@@ -3686,13 +3686,13 @@ mod tests {
 
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
-        let mut node_a = make_node_record(2345, true);
+        let node_a = make_node_record(2345, true);
         let mut src_db = db_from_node(&node_a);
-        let mut node_b = make_node_record(3456, true);
-        let mut node_c = make_node_record(4567, false);
-        let mut node_d = make_node_record(5678, false);
-        let mut node_e = make_node_record(6789, true);
-        let mut node_f = make_node_record(7890, true);
+        let node_b = make_node_record(3456, true);
+        let node_c = make_node_record(4567, false);
+        let node_d = make_node_record(5678, false);
+        let node_e = make_node_record(6789, true);
+        let node_f = make_node_record(7890, true);
         dest_db.add_node(node_a.clone()).unwrap();
         dest_db.add_node(node_b.clone()).unwrap();
         dest_db.add_node(node_d.clone()).unwrap();
@@ -3752,7 +3752,9 @@ mod tests {
             &mut expected_dest_db,
             vec![&node_a, &node_b, &node_d, &node_e, &node_f],
         );
-
+        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
+        dest_db.node_by_key_mut(root_node.public_key()).unwrap().metadata.last_update = before;
+        expected_dest_db.node_by_key_mut(root_node.public_key()).unwrap().metadata.last_update = before;
         assert_node_records_eq(
             dest_db.node_by_key_mut(root_node.public_key()).unwrap(),
             expected_dest_db
@@ -3789,12 +3791,18 @@ mod tests {
         assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
     }
 
-    fn fix_last_update_nodes(db: &mut NeighborhoodDatabase, ref_db: &NeighborhoodDatabase) -> NeighborhoodDatabase {
-        db.by_public_key.into_iter().map(|(pubkey, mut node_record)|
-            node_record.metadata.last_update = ref_db.by_public_key(pubkey).metadata.last_update;
-            node_record.resign();
-        ).collect();
-        db
+    fn fix_last_update_nodes(expected_db: &mut NeighborhoodDatabase, dest_db: &NeighborhoodDatabase) {
+        let keys = expected_db.keys().iter().map(|key| (*key).clone()).collect::<Vec<_>>();
+        keys.into_iter().for_each(| pubkey|
+            match dest_db.node_by_key(&pubkey) {
+                Some(node_record) => {
+                    expected_db.node_by_key_mut(&pubkey).unwrap().metadata = node_record.metadata.clone();
+                    expected_db.node_by_key_mut(&pubkey).unwrap().inner.country_code = node_record.inner.country_code.clone();
+                    expected_db.node_by_key_mut(&pubkey).unwrap().resign();
+                },
+                None => {}
+            }
+        );
     }
 
     #[test]
@@ -3883,39 +3891,28 @@ mod tests {
         dest_node_mut.increment_version();
         dest_node_mut.resign();
         assert_eq!(result, GossipAcceptanceResult::Accepted);
-        let mut result_node = dest_db.node_by_key_mut(third_node.public_key()).unwrap();
-        let mut expected_node = expected_dest_db
-            .node_by_key_mut(third_node.public_key())
-            .unwrap();
-        expected_node.metadata.last_update = result_node.metadata.last_update;
-        expected_node.resign();
+        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
+        dest_db.node_by_key_mut(dest_node.public_key()).unwrap().metadata.last_update = before;
+        expected_dest_db.node_by_key_mut(dest_node.public_key()).unwrap().metadata.last_update = before;
         assert_node_records_eq(
-            result_node,
-            expected_node,
+            dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
+            expected_dest_db
+                .node_by_key_mut(third_node.public_key())
+                .unwrap(),
             before,
             after,
         );
-        result_node = dest_db.node_by_key_mut(src_node.public_key()).unwrap();
-        expected_node = expected_dest_db.node_by_key_mut(src_node.public_key()).unwrap();
-        expected_node.metadata.last_update = result_node.metadata.last_update;
-        expected_node.resign();
         assert_node_records_eq(
-            result_node,
-            expected_node,
+            dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
+            expected_dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
             before,
             after,
         );
-        result_node = dest_db.node_by_key_mut(dest_node.public_key()).unwrap();
-        expected_node = expected_dest_db
-            .node_by_key_mut(dest_node.public_key())
-            .unwrap();
-        expected_node.metadata.last_update = result_node.metadata.last_update;
-        expected_node.inner.country_code = "AU".to_string();
-        expected_node.metadata.node_location_opt = Some(NodeLocation { country_code: "AU".to_string(), free_world_bit: true });
-        expected_node.resign();
         assert_node_records_eq(
-            result_node,
-            expected_node,
+            dest_db.node_by_key_mut(dest_node.public_key()).unwrap(),
+            expected_dest_db
+                .node_by_key_mut(dest_node.public_key())
+                .unwrap(),
             before,
             after,
         );
@@ -3956,7 +3953,7 @@ mod tests {
             .node(obsolete_node.public_key(), false)
             .build();
         let subject = make_subject(main_cryptde());
-        let original_dest_db = dest_db.clone();
+        let mut original_dest_db = dest_db.clone();
         let before = time_t_timestamp();
 
         let result = subject.handle(
@@ -3968,6 +3965,10 @@ mod tests {
 
         let after = time_t_timestamp();
         assert_eq!(result, GossipAcceptanceResult::Ignored);
+        dest_db.node_by_key_mut(dest_root.public_key()).unwrap().metadata.last_update = before;
+        original_dest_db.node_by_key_mut(dest_root.public_key()).unwrap().metadata.last_update = before;
+        dest_db.node_by_key_mut(src_root.public_key()).unwrap().metadata.last_update = before;
+        original_dest_db.node_by_key_mut(src_root.public_key()).unwrap().metadata.last_update = before;
         assert_node_records_eq(
             dest_db.node_by_key_mut(dest_root.public_key()).unwrap(),
             original_dest_db
