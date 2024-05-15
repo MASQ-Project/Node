@@ -10,16 +10,16 @@ workspace = "../node"
 # See more keys and their definitions at  https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "4.4.6"
-crossbeam-channel = { version = "0.5.1" }
+clap = "4.5.4"
+crossbeam-channel = { version = "0.5.12" }
 ctrlc = "3.2.1"
 itertools = "0.8.0"
-time = {version = "0.3.11", features = [ "macros" ]}
+time = {version = "0.3.36", features = [ "macros" ]}
 lazy_static = "1.4.0"
 linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
-num = "0.4.0"
-regex = "1.5.4"
+num = "0.4.3"
+regex = "1.10.4"
 thousands = "0.2.0"
 websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
 

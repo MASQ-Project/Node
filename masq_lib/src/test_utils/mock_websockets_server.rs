@@ -599,8 +599,8 @@ mod tests {
     use crate::utils::find_free_port;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
-    #[test]
-    fn conversational_communication_happy_path_with_full_assertion() {
+    #[tokio::test]
+    async fn conversational_communication_happy_path_with_full_assertion() {
         let port = find_free_port();
         let expected_response = UiCheckPasswordResponse { matches: false };
         let stop_handle = MockWebSocketsServer::new(port)
