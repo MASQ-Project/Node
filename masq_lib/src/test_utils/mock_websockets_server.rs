@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use futures_util::SinkExt;
-use tokio::runtime::Runtime;
 use tokio::{task};
 use workflow_websocket::server::{
     WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketSink, Error, Message
