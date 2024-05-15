@@ -5,7 +5,6 @@ authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = "Library full of code to make routers map ports through firewalls"
 edition = "2021"
-#workspace = "../node"
 
 [dependencies]
 crossbeam-channel = "0.5.12"
@@ -20,7 +19,7 @@ pretty-hex = "0.4.1"
 rand = {version = "0.8.5", features = ["getrandom", "small_rng"]}
 
 [dev-dependencies]
-regex = "1.5.4"
+regex = "1.10.4"
 
 [[bin]]
 name = "automap"

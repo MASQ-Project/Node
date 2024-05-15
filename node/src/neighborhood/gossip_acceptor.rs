@@ -654,13 +654,13 @@ impl GossipHandler for IntroductionHandler {
                     ));
                 }
             }
-            let connection_progess_message = ConnectionProgressMessage {
+            let connection_progress_message = ConnectionProgressMessage {
                 peer_addr: introducer_ip_addr,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
             neighborhood_metadata
                 .cpm_recipient
-                .try_send(connection_progess_message)
+                .try_send(connection_progress_message)
                 .expect("Neighborhood is dead");
             let (debut, target_key, target_node_addr) =
                 GossipAcceptorReal::make_debut_triple(database, &introducee)
@@ -878,6 +878,9 @@ impl GossipHandler for StandardGossipHandler {
         let root_node = database.root();
         if root_node.accepts_connections() {
             if let Some(impostor) = agrs_next_door.iter().find(|agr| {
+                // TODO Somewhere here we should also check that the AGR really is an immediate neighbor.
+                // If it isn't, the Gossipping Node is telling tales and needs to be Malefactor banned
+                // with a Qualification::Malformed.
                 Self::ip_of(agr)
                     == root_node
                         .node_addr_opt()
@@ -1064,7 +1067,6 @@ impl StandardGossipHandler {
             .collect::<HashSet<PublicKey>>();
         agrs.iter()
             .filter(|agr| !all_keys.contains(&agr.inner.public_key))
-            // TODO: A node that tells us the IP Address of the node that isn't in our database should be malefactor banned
             .filter(|agr| match &agr.node_addr_opt {
                 None => true,
                 Some(node_addr) => {
