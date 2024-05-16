@@ -3683,7 +3683,7 @@ mod tests {
 
         <------------------------------------->
          */
-
+        let before = time_t_timestamp();
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
         let node_a = make_node_record(2345, true);
@@ -3693,6 +3693,7 @@ mod tests {
         let node_d = make_node_record(5678, false);
         let node_e = make_node_record(6789, true);
         let node_f = make_node_record(7890, true);
+
         dest_db.add_node(node_a.clone()).unwrap();
         dest_db.add_node(node_b.clone()).unwrap();
         dest_db.add_node(node_d.clone()).unwrap();
@@ -3731,7 +3732,6 @@ mod tests {
             .node(node_f.public_key(), true)
             .build();
         let subject = make_subject(main_cryptde());
-        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -3752,17 +3752,12 @@ mod tests {
             &mut expected_dest_db,
             vec![&node_a, &node_b, &node_d, &node_e, &node_f],
         );
-        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
-        dest_db
-            .node_by_key_mut(root_node.public_key())
-            .unwrap()
-            .metadata
-            .last_update = before;
+        fix_last_update_nodes(&mut expected_dest_db, &dest_db, &root_node);
         expected_dest_db
-            .node_by_key_mut(root_node.public_key())
+            .node_by_key_mut(node_c.public_key())
             .unwrap()
             .metadata
-            .last_update = before;
+            .node_location_opt = None;
         assert_node_records_eq(
             dest_db.node_by_key_mut(root_node.public_key()).unwrap(),
             expected_dest_db
@@ -3802,7 +3797,17 @@ mod tests {
     fn fix_last_update_nodes(
         expected_db: &mut NeighborhoodDatabase,
         dest_db: &NeighborhoodDatabase,
+        root_node: &NodeRecord
     ) {
+        expected_db
+            .node_by_key_mut(root_node.public_key())
+            .unwrap()
+            .metadata
+            .last_update = dest_db
+            .node_by_key(root_node.public_key())
+            .unwrap()
+            .metadata
+            .last_update;
         let keys = expected_db
             .keys()
             .iter()
@@ -3811,13 +3816,13 @@ mod tests {
         keys.into_iter()
             .for_each(|pubkey| match dest_db.node_by_key(&pubkey) {
                 Some(node_record) => {
-                    expected_db.node_by_key_mut(&pubkey).unwrap().metadata =
-                        node_record.metadata.clone();
-                    expected_db
-                        .node_by_key_mut(&pubkey)
-                        .unwrap()
-                        .inner
-                        .country_code = node_record.inner.country_code.clone();
+                    expected_db.node_by_key_mut(&pubkey).unwrap().metadata.last_update =
+                        node_record.metadata.last_update;
+                    // expected_db
+                    //     .node_by_key_mut(&pubkey)
+                    //     .unwrap()
+                    //     .inner
+                    //     .country_code = node_record.inner.country_code.clone();
                     expected_db.node_by_key_mut(&pubkey).unwrap().resign();
                 }
                 None => {}
@@ -3910,17 +3915,7 @@ mod tests {
         dest_node_mut.increment_version();
         dest_node_mut.resign();
         assert_eq!(result, GossipAcceptanceResult::Accepted);
-        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
-        dest_db
-            .node_by_key_mut(dest_node.public_key())
-            .unwrap()
-            .metadata
-            .last_update = before;
-        expected_dest_db
-            .node_by_key_mut(dest_node.public_key())
-            .unwrap()
-            .metadata
-            .last_update = before;
+        fix_last_update_nodes(&mut expected_dest_db, &dest_db, &dest_node);
         assert_node_records_eq(
             dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
             expected_dest_db

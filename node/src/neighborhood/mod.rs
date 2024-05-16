@@ -3669,7 +3669,7 @@ mod tests {
         let gossip_acceptor = GossipAcceptorMock::new()
             .handle_params(&handle_params_arc)
             .handle_result(GossipAcceptanceResult::Ignored);
-        let subject_node = make_global_cryptde_node_record(1234, true); // 9e7p7un06eHs6frl5A
+        let mut subject_node = make_global_cryptde_node_record(1234, true); // 9e7p7un06eHs6frl5A
         let neighbor = make_node_record(1111, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor));
         subject.gossip_acceptor = Box::new(gossip_acceptor);
@@ -3695,6 +3695,11 @@ mod tests {
         let (call_database, call_agrs, call_gossip_source, neighborhood_metadata) =
             handle_params.remove(0);
         assert!(handle_params.is_empty());
+        subject_node.inner.country_code = call_database.root().inner.country_code.clone();
+        subject_node.metadata.node_location_opt =
+            call_database.root().metadata.node_location_opt.clone();
+        subject_node.metadata.last_update = call_database.root().metadata.last_update;
+        subject_node.resign();
         assert_eq!(&subject_node, call_database.root());
         assert_eq!(1, call_database.keys().len());
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();

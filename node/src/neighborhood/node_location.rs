@@ -46,48 +46,8 @@ mod tests {
     use crate::neighborhood::node_location::{get_node_location, NodeLocation};
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use lazy_static::lazy_static;
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, pick_country_code_record};
     use std::net::{IpAddr, Ipv4Addr};
-
-    lazy_static! {
-        pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
-            (
-                IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
-                "FR".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
-                "CN".to_string(),
-                false
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),
-                "US".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(180, 223, 223, 123)),
-                "AU".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)),
-                "CZ".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)),
-                "CA".to_string(),
-                true
-            ),
-        ];
-    }
-
-    fn pick_country_code_record(n: u32) -> (IpAddr, String, bool) {
-        COUNTRY_CODE_DIGEST[n as usize % COUNTRY_CODE_DIGEST.len()].clone()
-    }
 
     #[test]
     fn test_node_location() {

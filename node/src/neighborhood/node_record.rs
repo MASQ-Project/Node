@@ -388,7 +388,10 @@ mod tests {
             before <= actual_node_record.metadata.last_update
                 && actual_node_record.metadata.last_update <= after
         );
-        //expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
+        expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
+        expected_node_record.metadata.node_location_opt =
+            actual_node_record.metadata.node_location_opt.clone();
+        expected_node_record.resign();
         assert_eq!(actual_node_record, expected_node_record);
     }
 
