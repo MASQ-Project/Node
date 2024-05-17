@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use actix::Recipient;
 use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
 use masq_lib::constants::UNMARSHAL_ERROR;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
@@ -22,13 +23,15 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task;
-use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
-use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
-use workflow_websocket::server::{Error, Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketSink};
-use workflow_websocket::server::Error::{Done, ServerClose};
+use tungstenite::protocol::CloseFrame;
 use workflow_websocket::server::handshake::greeting;
 use workflow_websocket::server::result::Result as WWResult;
+use workflow_websocket::server::Error::{Done, ServerClose};
+use workflow_websocket::server::{
+    Error, Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer,
+    WebSocketSink,
+};
 
 trait WebSocketSupervisor {
     fn send_msg(&self, msg: NodeToUiMessage);
@@ -88,12 +91,12 @@ impl WebSocketSupervisorReal {
     async fn listen_for_connections_on(
         socket_addr: SocketAddr,
         from_ui_message_sub: Recipient<NodeFromUiMessage>,
-        mut connections_to_accept: usize // TODO: Figure a way to bring this back into service
+        mut connections_to_accept: usize, // TODO: Figure a way to bring this back into service
     ) -> WWResult<()> {
         let handler = MasqNodeUiv2Handler::new(socket_addr.port(), from_ui_message_sub);
         let server = WebSocketServer::new(Arc::new(handler), None);
         let future = server.listen(socket_addr.to_string().as_str(), None);
-        return future
+        return future;
     }
 
     fn filter_clients<'a, P>(
@@ -125,9 +128,7 @@ impl WebSocketSupervisorReal {
                     return;
                 }
             }
-            AllExcept(n) => {
-                Self::filter_clients(&mut locked_inner, |(id, _)| **id != n)
-            }
+            AllExcept(n) => Self::filter_clients(&mut locked_inner, |(id, _)| **id != n),
             AllClients => Self::filter_clients(&mut locked_inner, |_| true),
         };
         let json = UiTrafficConverter::new_marshal(msg.body);
@@ -303,12 +304,21 @@ impl WebSocketHandler for MasqNodeUiv2Handler {
         peer_addr: &SocketAddr,
         sender: &mut WebSocketSender,
         receiver: &mut WebSocketReceiver,
-        sink: &WebSocketSink
+        sink: &WebSocketSink,
     ) -> WWResult<Self::Context> {
         info!(self.logger, "New WebSocket connection from: {}", peer_addr);
-        greeting(Duration::from_millis(5000), sender, receiver, Box::pin(Self::verify_subprotocol)).await?;
+        greeting(
+            Duration::from_millis(5000),
+            sender,
+            receiver,
+            Box::pin(Self::verify_subprotocol),
+        )
+        .await?;
         let client_id = {
-            let mut inner = self.inner_mutex.lock().expect("Client futures are panicking");
+            let mut inner = self
+                .inner_mutex
+                .lock()
+                .expect("Client futures are panicking");
             let client_id = inner.next_client_id;
             inner.next_client_id += 1;
             inner.client_id_by_socket_addr.insert(*peer_addr, client_id);
@@ -353,13 +363,10 @@ impl WebSocketHandler for MasqNodeUiv2Handler {
         self: &Arc<Self>,
         client_id: &u64,
         msg: Message,
-        _sink: &WebSocketSink
+        _sink: &WebSocketSink,
     ) -> WWResult<()> {
         match msg {
-            Message::Text(message) => self.handle_text_message(
-                *client_id,
-                message.as_str()
-            ).await,
+            Message::Text(message) => self.handle_text_message(*client_id, message.as_str()).await,
             Message::Close(_) => self.handle_close_message(*client_id).await,
             Message::Binary(_) => self.handle_other_message(*client_id, "binary").await,
             Message::Ping(payload) => self.handle_ping_message(*client_id, payload).await,
@@ -389,14 +396,17 @@ impl MasqNodeUiv2Handler {
     }
 
     async fn handle_text_message(self: &Arc<Self>, client_id: u64, message: &str) -> WWResult<()> {
-        let mut locked_inner = self.inner_mutex.lock().expect("Client futures are panicking");
+        let mut locked_inner = self
+            .inner_mutex
+            .lock()
+            .expect("Client futures are panicking");
         match UiTrafficConverter::new_unmarshal_from_ui(message, client_id) {
             Ok(from_ui_message) => {
                 locked_inner
                     .from_ui_message_sub
                     .try_send(from_ui_message)
                     .expect("UiGateway is dead");
-                return Ok(())
+                return Ok(());
             }
             Err(Critical(e)) => {
                 error!(
@@ -415,10 +425,11 @@ impl MasqNodeUiv2Handler {
                             message: e.to_string(),
                             bad_data: message.to_string(),
                         }
-                            .tmb(0),
+                        .tmb(0),
                     },
-                ).await;
-                return Ok(())
+                )
+                .await;
+                return Ok(());
             }
             Err(NonCritical(opcode, context_id_opt, e)) => {
                 error!(
@@ -430,36 +441,45 @@ impl MasqNodeUiv2Handler {
                     message
                 );
                 match context_id_opt {
-                    None => Self::send_msg(
-                        locked_inner,
-                        NodeToUiMessage {
-                            target: ClientId(client_id),
-                            body: UiUnmarshalError {
-                                message: e.to_string(),
-                                bad_data: message.to_string(),
-                            }
+                    None => {
+                        Self::send_msg(
+                            locked_inner,
+                            NodeToUiMessage {
+                                target: ClientId(client_id),
+                                body: UiUnmarshalError {
+                                    message: e.to_string(),
+                                    bad_data: message.to_string(),
+                                }
                                 .tmb(0),
-                        },
-                    ).await,
-                    Some(context_id) => Self::send_msg(
-                        locked_inner,
-                        NodeToUiMessage {
-                            target: ClientId(client_id),
-                            body: MessageBody {
-                                opcode,
-                                path: Conversation(context_id),
-                                payload: Err((UNMARSHAL_ERROR, e.to_string())),
                             },
-                        },
-                    ).await,
+                        )
+                        .await
+                    }
+                    Some(context_id) => {
+                        Self::send_msg(
+                            locked_inner,
+                            NodeToUiMessage {
+                                target: ClientId(client_id),
+                                body: MessageBody {
+                                    opcode,
+                                    path: Conversation(context_id),
+                                    payload: Err((UNMARSHAL_ERROR, e.to_string())),
+                                },
+                            },
+                        )
+                        .await
+                    }
                 };
-                return Ok(())
+                return Ok(());
             }
         }
     }
 
     async fn handle_close_message(self: &Arc<Self>, client_id: u64) -> WWResult<()> {
-        let mut locked_inner = self.inner_mutex.lock().expect("Client futures are panicking");
+        let mut locked_inner = self
+            .inner_mutex
+            .lock()
+            .expect("Client futures are panicking");
         let socket_addr_opt = locked_inner.socket_addr_by_client_id.get(&client_id);
         info!(
             &self.logger,
@@ -468,18 +488,37 @@ impl MasqNodeUiv2Handler {
             Self::peer_addr_str(client_id, &locked_inner),
             locked_inner.port
         );
-        Self::close_connection(&mut locked_inner, client_id, &self.logger, Done("Client close".to_string()))
+        Self::close_connection(
+            &mut locked_inner,
+            client_id,
+            &self.logger,
+            Done("Client close".to_string()),
+        )
     }
 
-    async fn handle_ping_message(self: &Arc<Self>, client_id: u64, payload: Vec<u8>) -> WWResult<()> {
+    async fn handle_ping_message(
+        self: &Arc<Self>,
+        client_id: u64,
+        payload: Vec<u8>,
+    ) -> WWResult<()> {
         todo!()
     }
 
-    async fn handle_other_message(self: &Arc<Self>, client_id: u64, message_type_name: &str) -> WWResult<()> {
+    async fn handle_other_message(
+        self: &Arc<Self>,
+        client_id: u64,
+        message_type_name: &str,
+    ) -> WWResult<()> {
         info!(
             &self.logger,
             "UI at {} sent unexpected {} message; ignoring",
-            Self::peer_addr_str(client_id, &self.inner_mutex.lock().expect("Client futures are panicking")),
+            Self::peer_addr_str(
+                client_id,
+                &self
+                    .inner_mutex
+                    .lock()
+                    .expect("Client futures are panicking")
+            ),
             message_type_name
         );
         Ok(())
@@ -489,7 +528,7 @@ impl MasqNodeUiv2Handler {
         locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
         client_id: u64,
         logger: &Logger,
-        reason: Error
+        reason: Error,
     ) -> WWResult<()> {
         let _ = locked_inner.socket_addr_by_client_id.remove(&client_id);
         let mut client = match locked_inner.client_by_id.remove(&client_id) {
@@ -500,9 +539,9 @@ impl MasqNodeUiv2Handler {
         if let Some(socket_addr) = socket_addr_opt {
             locked_inner.client_id_by_socket_addr.remove(&socket_addr);
         }
-        let close_message = Message::Close(Some(CloseFrame{
+        let close_message = Message::Close(Some(CloseFrame {
             code: CloseCode::Normal,
-            reason: Cow::Owned("Client initiated closure")
+            reason: Cow::Owned("Client initiated closure"),
         }));
         match client.send(close_message).await {
             Err(e) => warning!(
@@ -526,12 +565,14 @@ impl MasqNodeUiv2Handler {
         Err(reason)
     }
 
-    fn peer_addr_str<'a>(client_id: u64, locked_inner: &'a MutexGuard<WebSocketSupervisorInner>) -> &'a str {
+    fn peer_addr_str<'a>(
+        client_id: u64,
+        locked_inner: &'a MutexGuard<WebSocketSupervisorInner>,
+    ) -> &'a str {
         let socket_addr_opt = locked_inner.socket_addr_by_client_id.remove(&client_id);
         if let Some(socket_addr) = socket_addr_opt {
             socket_addr.to_string().as_str()
-        }
-        else {
+        } else {
             "an unknown address"
         }
     }
@@ -574,9 +615,7 @@ mod tests {
             let mut locked_inner = self.inner_arc.lock().unwrap();
             let client_id = locked_inner.next_client_id;
             locked_inner.next_client_id += 1;
-            locked_inner
-                .client_by_id
-                .insert(client_id, web_socket_sink);
+            locked_inner.client_by_id.insert(client_id, web_socket_sink);
             client_id
         }
     }
@@ -586,35 +625,35 @@ mod tests {
     }
 
     /*
-let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
-    ws.connect(ConnectOptions::default()).await?;
+    let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
+        ws.connect(ConnectOptions::default()).await?;
 
-    let ws_ = ws.clone();
-    workflow_core::task::spawn(async move {
-        let mut seq = 0;
-        loop {
-            log_info!("▷ sending message {seq}");
-            let msg = format!("message {seq}");
-            // let result = ws_.post(Message::Text(msg)).await;;
-            let result = ws_.send(Message::Text(msg)).await;
-            match result {
-                Ok(_) => {}
-                Err(err) => {
-                    log_error!("Error sending message: {}", err);
+        let ws_ = ws.clone();
+        workflow_core::task::spawn(async move {
+            let mut seq = 0;
+            loop {
+                log_info!("▷ sending message {seq}");
+                let msg = format!("message {seq}");
+                // let result = ws_.post(Message::Text(msg)).await;;
+                let result = ws_.send(Message::Text(msg)).await;
+                match result {
+                    Ok(_) => {}
+                    Err(err) => {
+                        log_error!("Error sending message: {}", err);
+                    }
                 }
+
+                workflow_core::task::sleep(message_delay).await;
+
+                seq += 1;
             }
+        });
 
-            workflow_core::task::sleep(message_delay).await;
-
-            seq += 1;
-        }
-    });
-
-    let ws_ = ws.clone();
-    loop {
-        let message = ws_.recv().await.unwrap();
-        log_info!("◁ receiving message: {:?}", message);
-    }     */
+        let ws_ = ws.clone();
+        loop {
+            let message = ws_.recv().await.unwrap();
+            log_info!("◁ receiving message: {:?}", message);
+        }     */
 
     async fn make_client(port: u16, protocol: &str) -> WWResult<WebSocket> {
         let url = format!("ws://{}:{}", localhost(), port);
@@ -1031,10 +1070,7 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         sink_failure_test_body(client, false)
     }
 
-    fn sink_failure_test_body(
-        client_mock: WebSocketSink,
-        client_is_retained_after_error: bool,
-    ) {
+    fn sink_failure_test_body(client_mock: WebSocketSink, client_is_retained_after_error: bool) {
         let (ui_gateway, _, _) = make_recorder();
         let from_ui_message_sub = subs(ui_gateway);
         let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from([1, 2, 4, 5])), 4455);
@@ -1152,7 +1188,10 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
         assert_eq!(ui_gateway_recording.len(), 1);
     }
 
-    fn msg_received_assertion(mut client_rx: UnboundedReceiver<Message>, expected_target: MessageTarget) -> NodeToUiMessage {
+    fn msg_received_assertion(
+        mut client_rx: UnboundedReceiver<Message>,
+        expected_target: MessageTarget,
+    ) -> NodeToUiMessage {
         match client_rx.recv() {
             Some(Message::Text(json)) =>
                 UiTrafficConverter::new_unmarshal_to_ui(json.as_str(), expected_target).unwrap(),
@@ -1208,7 +1247,8 @@ let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
 
         subject.send_msg(msg.clone());
 
-        let actual_message = msg_received_assertion(one_mock_client_rx, AllExcept(another_client_id));
+        let actual_message =
+            msg_received_assertion(one_mock_client_rx, AllExcept(another_client_id));
         assert_eq!(actual_message, msg);
         assert_eq!(another_mock_client_rx.recv(), None);
     }

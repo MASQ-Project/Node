@@ -4,19 +4,20 @@ use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
+use async_trait::async_trait;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use futures_util::SinkExt;
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
 use std::ops::Not;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use futures_util::SinkExt;
-use tokio::{task};
+use tokio::task;
 use workflow_websocket::server::{
-    WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketSink, Error, Message
+    Error, Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer,
+    WebSocketSink,
 };
-use async_trait::async_trait;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -51,11 +52,19 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         receiver: &mut WebSocketReceiver,
         sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<Self::Context> {
-        log(self.do_log, self.index, format!("Accepted TCP connection from {}", peer).as_str());
+        log(
+            self.do_log,
+            self.index,
+            format!("Accepted TCP connection from {}", peer).as_str(),
+        );
 
         // TODO Real handshake stuff, if any, goes here
 
-        log(self.do_log, self.index, "Checking for initial fire-and-forget messages");
+        log(
+            self.do_log,
+            self.index,
+            "Checking for initial fire-and-forget messages",
+        );
         self.handle_all_f_f_messages_introducing_the_queue(sink);
         Ok(())
     }
@@ -66,7 +75,11 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         msg: Message,
         sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<()> {
-        log(self.do_log, self.index, "Checking for fire-and-forget messages");
+        log(
+            self.do_log,
+            self.index,
+            "Checking for fire-and-forget messages",
+        );
         self.handle_all_f_f_messages_introducing_the_queue(sink);
         log(self.do_log, self.index, "Checking for message from client");
         if let Some(incoming) = self.handle_incoming_msg_raw(msg) {
@@ -81,10 +94,8 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             if let Ok(message_body) = incoming {
                 match message_body.path {
                     MessagePath::Conversation(_) => {
-                        if self.handle_conversational_incoming_message(
-                            sink,
-                        ).not() {
-                            return Err(Error::ServerClose) // "disconnect" received
+                        if self.handle_conversational_incoming_message(sink).not() {
+                            return Err(Error::ServerClose); // "disconnect" received
                         }
                     }
 
@@ -106,7 +117,11 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             }
         }
         // TODO: This isn't going to work anymore: we're not in a polling loop.
-        log(self.do_log, self.index, "Checking for termination directive");
+        log(
+            self.do_log,
+            self.index,
+            "Checking for termination directive",
+        );
         if let Ok(kill) = self.stop_rx.try_recv() {
             log(
                 self.do_log,
@@ -117,9 +132,8 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
                 sink.send(Message::Close(None)).unwrap();
             }
             return Err(Error::AbnormalClose);
-        }
-        else {
-            return Ok(())
+        } else {
+            return Ok(());
         }
     }
 }
@@ -128,7 +142,8 @@ impl NodeUiProtocolWebSocketHandler {
     fn handle_all_f_f_messages_introducing_the_queue(&self, sink: &WebSocketSink) {
         let mut counter = 0usize;
         loop {
-            let should_signal_first_f_f_msg = self.first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
+            let should_signal_first_f_f_msg =
+                self.first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
             if self.responses_arc.lock().unwrap().is_empty() {
                 break;
             }
@@ -164,10 +179,7 @@ impl NodeUiProtocolWebSocketHandler {
         }
     }
 
-    fn handle_incoming_msg_raw(
-        &self,
-        incoming: Message,
-    ) -> Option<Result<MessageBody, String>> {
+    fn handle_incoming_msg_raw(&self, incoming: Message) -> Option<Result<MessageBody, String>> {
         match incoming {
             Message::Text(json) => {
                 log(self.do_log, self.index, &format!("Received '{}'", json));
@@ -175,19 +187,19 @@ impl NodeUiProtocolWebSocketHandler {
                     Ok(msg) => Ok(msg.body),
                     Err(_) => Err(json),
                 })
-            },
+            }
             x => {
-                log(self.do_log, self.index, &format!("Received unexpected message {:?} - discarding", x));
+                log(
+                    self.do_log,
+                    self.index,
+                    &format!("Received unexpected message {:?} - discarding", x),
+                );
                 Some(Err(format!("{:?}", x)))
             }
         }
     }
 
-    fn handle_conversational_incoming_message(
-        &self,
-        sink: &WebSocketSink,
-    ) -> bool
-    {
+    fn handle_conversational_incoming_message(&self, sink: &WebSocketSink) -> bool {
         let mut temporary_access_to_responses = self.responses_arc.lock().unwrap();
         if temporary_access_to_responses.len() != 0 {
             match temporary_access_to_responses.remove(0) {
@@ -219,9 +231,7 @@ impl NodeUiProtocolWebSocketHandler {
             }
         } else {
             log(self.do_log, self.index, "Sending Close message");
-            sink
-                .send(Message::Binary(b"EMPTY QUEUE".to_vec()))
-                .unwrap()
+            sink.send(Message::Binary(b"EMPTY QUEUE".to_vec())).unwrap()
         };
         true
     }
@@ -305,8 +315,13 @@ impl MockWebSocketsServer {
         };
         let server = WebSocketServer::new(Arc::new(handler), None);
         let socket_addr = SocketAddr::new(localhost(), self.port);
-        log(self.do_log, index, format!("Listening on: {}", socket_addr).as_str());
-        let static_socket_addr_str: &'static str = Box::leak(socket_addr.to_string().into_boxed_str());
+        log(
+            self.do_log,
+            index,
+            format!("Listening on: {}", socket_addr).as_str(),
+        );
+        let static_socket_addr_str: &'static str =
+            Box::leak(socket_addr.to_string().into_boxed_str());
         let future = server.listen(static_socket_addr_str, None);
         task::spawn(future);
 

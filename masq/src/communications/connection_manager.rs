@@ -103,34 +103,29 @@ impl ConnectionManagerBootstrapper {
         terminal_interface_opt: Option<TerminalWrapper>,
         timeout_millis: u64,
     ) -> Result<ConnectionManagerConnectors, ClientListenerError> {
-        let (prepared_spawns, connectors) =
-            self.prepare_spawns(port, terminal_interface_opt, timeout_millis);
+        let (launch_platform, connectors) =
+            self.prepare_launch(port, terminal_interface_opt, timeout_millis);
 
-        let talker_half = (prepared_spawns.spawn_client_listener)().await?;
-        let standard_broadcast_handle = (prepared_spawns.spawn_standard_broadcast_handler)();
-        let redirect_broadcast_handle = prepared_spawns.redirect_broadcast_handle;
-        let broadcast_handles =
-            BroadcastHandles::new(standard_broadcast_handle, redirect_broadcast_handle);
-        (prepared_spawns.spawn_communications_even_loop)(talker_half, broadcast_handles);
+        let talker_half = (launch_platform.spawn_ws_client_listener)().await?;
+
+        let standard_broadcast_handle = (launch_platform.spawn_standard_broadcast_handler)();
+
+        (launch_platform.spawn_cms_event_loop)(talker_half, standard_broadcast_handle);
 
         Ok(connectors)
     }
 
-    fn prepare_spawns(
+    fn prepare_launch(
         &self,
         port: u16,
         terminal_interface_opt: Option<TerminalWrapper>,
         timeout_millis: u64,
-    ) -> (Spawners, ConnectionManagerConnectors) {
+    ) -> (LaunchPlatform, ConnectionManagerConnectors) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let closing_stage = Arc::new(AtomicBool::new(false));
         let closing_stage_clone = closing_stage.clone();
 
-        let spawn_client_listener: Box<
-            dyn FnOnce() -> Pin<
-                Box<dyn Future<Output = Result<WSSender<(Message, Ack)>, ClientListenerError>>>,
-            >,
-        > = Box::new(move || {
+        let spawn_ws_client_listener: ClientListenerSpawner = Box::new(move || {
             Box::pin(make_client_listener(
                 port,
                 listener_to_manager_tx,
@@ -139,10 +134,12 @@ impl ConnectionManagerBootstrapper {
             ))
         });
 
-        let mut standard_broadcast_handler = self
-            .standard_broadcast_handler_factory
-            .make(terminal_interface_opt);
-        let spawn_standard_broadcast_handler = Box::new(move || standard_broadcast_handler.spawn());
+        let spawn_standard_broadcast_handler = {
+            let mut standard_broadcast_handler = self
+                .standard_broadcast_handler_factory
+                .make(terminal_interface_opt);
+            Box::new(move || standard_broadcast_handler.spawn())
+        };
 
         let (redirect_order_tx, redirect_order_rx) = unbounded_channel();
         let redirect_broadcast_handle = Box::new(RedirectBroadcastHandle::new(redirect_order_tx));
@@ -153,8 +150,12 @@ impl ConnectionManagerBootstrapper {
         let (active_port_response_tx, active_port_response_rx) = unbounded();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = unbounded_channel();
 
-        let spawn_communications_even_loop = Box::new(
-            move |talker_half: WSSender<(Message, Ack)>, broadcast_handles: BroadcastHandles| {
+        let spawn_cms_event_loop = Box::new(
+            move |talker_half: WSSender<(Message, Ack)>,
+                  standard_broadcast_handle: Box<dyn BroadcastHandle<MessageBody>>| {
+                let broadcast_handles =
+                    BroadcastHandles::new(standard_broadcast_handle, redirect_broadcast_handle);
+
                 let inner = CmsInner {
                     active_port: Some(port),
                     daemon_port: port,
@@ -180,11 +181,10 @@ impl ConnectionManagerBootstrapper {
         );
 
         (
-            Spawners {
-                spawn_client_listener,
+            LaunchPlatform {
+                spawn_ws_client_listener,
                 spawn_standard_broadcast_handler,
-                redirect_broadcast_handle,
-                spawn_communications_even_loop,
+                spawn_cms_event_loop,
             },
             ConnectionManagerConnectors {
                 demand_tx,
@@ -196,16 +196,17 @@ impl ConnectionManagerBootstrapper {
     }
 }
 
-struct Spawners {
-    //TODO can be a future alone? ...without a closure around
-    spawn_client_listener: Box<
-        dyn FnOnce() -> Pin<
-            Box<dyn Future<Output = Result<WSSender<(Message, Ack)>, ClientListenerError>>>,
-        >,
+type ClientListenerSpawner = Box<
+    dyn FnOnce() -> Pin<
+        Box<dyn Future<Output = Result<WSSender<(Message, Ack)>, ClientListenerError>>>,
     >,
+>;
+
+struct LaunchPlatform {
+    spawn_ws_client_listener: ClientListenerSpawner,
     spawn_standard_broadcast_handler: Box<dyn FnOnce() -> Box<dyn BroadcastHandle<MessageBody>>>,
-    redirect_broadcast_handle: Box<dyn BroadcastHandle<RedirectOrder>>,
-    spawn_communications_even_loop: Box<dyn FnOnce(WSSender<(Message, Ack)>, BroadcastHandles)>,
+    spawn_cms_event_loop:
+        Box<dyn FnOnce(WSSender<(Message, Ack)>, Box<dyn BroadcastHandle<MessageBody>>)>,
 }
 
 pub struct ConnectionManagerConnectors {
@@ -257,7 +258,7 @@ impl ConnectionManager {
 
 async fn make_client_listener(
     port: u16,
-    listener_to_manager_tx: tokio::sync::mpsc::UnboundedSender<
+    listener_to_manager_tx: UnboundedSender<
         Result<MessageBody, ClientListenerError>,
     >,
     closing_stage: Arc<AtomicBool>,
@@ -290,21 +291,9 @@ async fn make_client_listener(
     client_listener
         .start(listener_half, closing_stage, listener_to_manager_tx)
         .await;
+
     Ok(talker_half)
 }
-
-//hack a time-out around connection attempt to the Node or Daemon. Leaks a thread if the attempt times out
-// fn connect_insecure_timeout(
-//     mut builder: ClientBuilder<'static>,
-//     timeout_millis: u64,
-// ) -> Result<WebSocketResult<Client<TcpStream>>, RecvTimeoutError> {
-//     let (tx, rx) = unbounded();
-//     thread::spawn(move || {
-//         let result = builder.connect_insecure();
-//         let _ = tx.send(result);
-//     });
-//     rx.recv_timeout(Duration::from_millis(timeout_millis))
-// }
 
 #[derive(Default)]
 pub struct WSClientHandshakeHandler {}
