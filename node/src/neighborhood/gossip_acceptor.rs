@@ -3767,7 +3767,7 @@ mod tests {
     fn fix_last_update_nodes(
         expected_db: &mut NeighborhoodDatabase,
         dest_db: &NeighborhoodDatabase,
-        root_node: &NodeRecord
+        root_node: &NodeRecord,
     ) {
         expected_db
             .node_by_key_mut(root_node.public_key())
@@ -3786,8 +3786,11 @@ mod tests {
         keys.into_iter()
             .for_each(|pubkey| match dest_db.node_by_key(&pubkey) {
                 Some(node_record) => {
-                    expected_db.node_by_key_mut(&pubkey).unwrap().metadata.last_update =
-                        node_record.metadata.last_update;
+                    expected_db
+                        .node_by_key_mut(&pubkey)
+                        .unwrap()
+                        .metadata
+                        .last_update = node_record.metadata.last_update;
                     expected_db.node_by_key_mut(&pubkey).unwrap().resign();
                 }
                 None => {}

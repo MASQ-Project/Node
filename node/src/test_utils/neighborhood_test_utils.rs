@@ -23,38 +23,38 @@ pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
 pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
 
 lazy_static! {
-        pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
-            (
-                IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
-                "FR".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
-                "US".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),
-                "AU".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(180, 223, 223, 123)),
-                "AU".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)),
-                "AU".to_string(),
-                true
-            ),
-            (
-                IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)),
-                "FR".to_string(),
-                true
-            ),
-        ];
+    pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
+        (
+            IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
+            "FR".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
+            "US".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),
+            "AU".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(180, 223, 223, 123)),
+            "AU".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)),
+            "AU".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)),
+            "FR".to_string(),
+            true
+        ),
+    ];
 }
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
@@ -76,8 +76,11 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
     let (_ip, country_code, free_world_bit) = pick_country_code_record(n as u32 % 6);
     let location = match country_code.is_empty() {
-        false => Some(NodeLocation { country_code, free_world_bit }),
-        true => None
+        false => Some(NodeLocation {
+            country_code,
+            free_world_bit,
+        }),
+        true => None,
     };
 
     NodeRecord::new_for_tests(

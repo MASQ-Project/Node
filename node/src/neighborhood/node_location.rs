@@ -46,7 +46,9 @@ mod tests {
     use crate::neighborhood::node_location::{get_node_location, NodeLocation};
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
     use crate::sub_lib::node_addr::NodeAddr;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, pick_country_code_record};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, pick_country_code_record,
+    };
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
