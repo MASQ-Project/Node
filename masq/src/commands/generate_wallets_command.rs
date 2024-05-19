@@ -1,15 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use async_trait::async_trait;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use async_trait::async_trait;
+use std::sync::Arc;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
@@ -18,7 +20,6 @@ use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerat
 use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 lazy_static! {
     static ref CONSUMING_PATH_HELP: String = format!(
@@ -224,7 +225,11 @@ impl GenerateWalletsCommand {
         })
     }
 
-    async fn process_response(response: UiGenerateWalletsResponse, stdout: &TerminalWriter, stderr: &TerminalWriter) {
+    async fn process_response(
+        response: UiGenerateWalletsResponse,
+        stdout: &TerminalWriter,
+        stderr: &TerminalWriter,
+    ) {
         if let Some(mnemonic_phrase) = response.mnemonic_phrase_opt {
             short_writeln!(
                 stdout,
@@ -257,7 +262,11 @@ impl GenerateWalletsCommand {
 
 #[async_trait]
 impl Command for GenerateWalletsCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiGenerateWalletsRequest {
@@ -349,7 +358,7 @@ mod tests {
     };
 
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
 
     use super::*;
     use crate::command_context::ContextError;
@@ -830,12 +839,13 @@ mod tests {
         assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
-    #[test]
-    fn command_with_both_paths_is_correctly_translated() {
+    #[tokio::test]
+    async fn command_with_both_paths_is_correctly_translated() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -847,7 +857,11 @@ mod tests {
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        subject.execute(&mut context).err().unwrap(); // don't need success, just request translation
+        Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await
+            .err()
+            .unwrap(); // don't need success, just request translation
 
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -869,12 +883,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn command_with_neither_path_is_correctly_translated() {
+    #[tokio::test]
+    async fn command_with_neither_path_is_correctly_translated() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -882,7 +897,11 @@ mod tests {
             earning_path_opt: None,
         };
 
-        subject.execute(&mut context).err().unwrap(); // don't need success, just request translation
+        Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await
+            .err()
+            .unwrap(); // don't need success, just request translation
 
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -900,11 +919,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn response_with_mnemonic_phrase_is_processed() {
+    #[tokio::test]
+    async fn response_with_mnemonic_phrase_is_processed() {
         let mut context = CommandContextMock::new();
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
             mnemonic_phrase_opt: Some(vec![
                 "taxation".to_string(),
@@ -917,8 +939,10 @@ mod tests {
             earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
         };
 
-        GenerateWalletsCommand::process_response(response, &mut context);
+        GenerateWalletsCommand::process_response(response, stdout, stderr).await;
 
+        stdout_flush_handle.flush().await.unwrap();
+        stderr_flush_handle.flush().await.unwrap();
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(*stderr.get_string(), String::new());
         let stdout = stdout_arc.lock().unwrap();
@@ -934,11 +958,13 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
         );
     }
 
-    #[test]
-    fn response_without_mnemonic_phrase_is_processed() {
-        let mut context = CommandContextMock::new();
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+    #[tokio::test]
+    async fn response_without_mnemonic_phrase_is_processed() {
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc();
+        let stderr_arc = term_interface.stderr_arc();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
             mnemonic_phrase_opt: None,
             consuming_wallet_address: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
@@ -947,7 +973,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
         };
 
-        GenerateWalletsCommand::process_response(response, &mut context);
+        GenerateWalletsCommand::process_response(response, stdout, stderr).await;
 
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(*stderr.get_string(), String::new());
@@ -963,8 +989,8 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
         );
     }
 
-    #[test]
-    fn successful_result_is_printed() {
+    #[tokio::test]
+    async fn successful_result_is_printed() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -981,8 +1007,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
             }
             .tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -994,7 +1021,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();

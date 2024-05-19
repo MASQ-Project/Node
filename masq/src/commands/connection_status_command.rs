@@ -5,6 +5,8 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
@@ -15,8 +17,8 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::pin::Pin;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConnectionStatusCommand {}
@@ -35,7 +37,11 @@ pub fn connection_status_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for ConnectionStatusCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiConnectionStatusRequest {};
@@ -59,11 +65,7 @@ impl Command for ConnectionStatusCommand {
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(
-                    stderr,
-                    "Connection status retrieval failed: {:?}",
-                    e
-                );
+                short_writeln!(stderr, "Connection status retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -124,11 +126,13 @@ mod tests {
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
         let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConnectionStatusCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,
@@ -181,11 +185,13 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
         let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConnectionStatusCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -203,7 +209,10 @@ mod tests {
         );
     }
 
-    async fn assert_on_connection_status_response(stage: UiConnectionStage, response: (&str, &str)) {
+    async fn assert_on_connection_status_response(
+        stage: UiConnectionStage,
+        response: (&str, &str),
+    ) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConnectionStatusResponse { stage };
         let mut context = CommandContextMock::new()
@@ -214,7 +223,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConnectionStatusCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap().clone();

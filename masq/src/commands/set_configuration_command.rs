@@ -1,5 +1,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::builder::ValueRange;
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::implement_as_any;
@@ -9,8 +11,7 @@ use masq_lib::short_writeln;
 use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -39,14 +40,20 @@ impl SetConfigurationCommand {
 
 #[async_trait]
 impl Command for SetConfigurationCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiSetConfigurationRequest {
             name: self.name.clone(),
             value: self.value.clone(),
         };
 
-        let _: UiSetConfigurationResponse = transaction(input, context, 1000)?;
-        short_writeln!(context.stdout(), "Parameter was successfully set");
+        let _: UiSetConfigurationResponse = transaction(input, context, stderr, 1000).await?;
+        short_writeln!(stdout, "Parameter was successfully set");
         Ok(())
     }
 
@@ -89,7 +96,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
     };
@@ -122,20 +129,23 @@ mod tests {
         assert!(result.contains("cannot be used with"), "{}", result);
     }
 
-    #[test]
-    fn command_execution_works_all_fine() {
+    #[tokio::test]
+    async fn command_execution_works_all_fine() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = SetConfigurationCommand {
             name: "start-block".to_string(),
             value: "123456".to_string(),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();

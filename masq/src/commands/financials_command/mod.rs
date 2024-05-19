@@ -21,6 +21,8 @@ use crate::commands::financials_command::pretty_print_utils::restricted::{
     render_accounts_generic, subtitle_for_tops, triple_or_single_blank_line,
     StringValuesFormattableAccount,
 };
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
+use async_trait::async_trait;
 use clap::ArgMatches;
 use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, TopRecordsOrdering,
@@ -30,8 +32,7 @@ use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
 use std::io::{Stderr, Write};
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -44,7 +45,11 @@ pub struct FinancialsCommand {
 
 #[async_trait]
 impl Command for FinancialsCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiFinancialsRequest {
@@ -56,7 +61,10 @@ impl Command for FinancialsCommand {
         let output: Result<UiFinancialsResponse, CommandError> =
             transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
-            Ok(response) => self.process_command_response(queries_opt, response, stdout).await,
+            Ok(response) => {
+                self.process_command_response(queries_opt, response, stdout)
+                    .await
+            }
             Err(e) => {
                 short_writeln!(stderr, "Financials retrieval failed: {:?}", e);
                 Err(e)
@@ -112,7 +120,8 @@ impl FinancialsCommand {
                 results,
                 response.stats_opt.is_none(),
                 self.gwei_precision,
-            ).await
+            )
+            .await
         }
         Ok(())
     }
@@ -287,9 +296,9 @@ mod tests {
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
+    use nix::libc::clone;
     use regex::Regex;
     use std::sync::{Arc, Mutex};
-    use nix::libc::clone;
 
     fn meaningless_financials_response() -> MessageBody {
         UiFinancialsResponse {
@@ -630,7 +639,9 @@ mod tests {
         let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -669,7 +680,9 @@ mod tests {
         let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -717,7 +730,9 @@ mod tests {
         let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -833,7 +848,9 @@ mod tests {
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -994,7 +1011,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1062,7 +1081,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1132,7 +1153,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1202,7 +1225,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1294,7 +1319,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1364,7 +1391,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1448,7 +1477,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1556,7 +1587,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1643,7 +1676,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1721,7 +1756,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1770,7 +1807,9 @@ mod tests {
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();

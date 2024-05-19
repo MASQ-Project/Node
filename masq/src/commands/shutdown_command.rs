@@ -5,6 +5,8 @@ use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -13,10 +15,9 @@ use masq_lib::utils::localhost;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpStream};
 use std::ops::Add;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
@@ -38,12 +39,16 @@ pub fn shutdown_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for ShutdownCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiShutdownRequest {};
         let output: Result<UiShutdownResponse, CommandError> =
-            transaction(input, context, SHUTDOWN_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, stderr, SHUTDOWN_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {
@@ -81,11 +86,11 @@ impl Command for ShutdownCommand {
                 Ok(())
             }
             Some(active_port) => {
-                if self.shutdown_awaiter.wait(
-                    active_port,
-                    self.attempt_interval,
-                    self.attempt_limit,
-                ) {
+                if self
+                    .shutdown_awaiter
+                    .wait(active_port, self.attempt_interval, self.attempt_limit)
+                    .await
+                {
                     short_writeln!(
                         stdout,
                         "MASQNode was instructed to shut down and has stopped answering"
@@ -119,15 +124,18 @@ impl ShutdownCommand {
     }
 }
 
-trait ShutdownAwaiter: Debug + Send{
-    fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool;
+#[async_trait]
+trait ShutdownAwaiter: Debug + Send + Sync {
+    async fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool;
 }
 
 #[derive(Debug)]
 struct ShutdownAwaiterReal {}
 
+#[async_trait]
 impl ShutdownAwaiter for ShutdownAwaiterReal {
-    fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool {
+    async fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool {
+        todo!("rewrite me to async");
         let interval = Duration::from_millis(interval_ms);
         let timeout_at = Instant::now().add(Duration::from_millis(timeout_ms));
         let address = SocketAddr::new(localhost(), active_port);
@@ -147,7 +155,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use crossbeam_channel::unbounded;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -172,16 +180,17 @@ mod tests {
     #[derive(Debug)]
     struct ShutdownAwaiterMock {
         wait_params: Arc<Mutex<Vec<(u16, u64, u64)>>>,
-        wait_results: RefCell<Vec<bool>>,
+        wait_results: Arc<Mutex<Vec<bool>>>,
     }
 
+    #[async_trait]
     impl ShutdownAwaiter for ShutdownAwaiterMock {
-        fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool {
+        async fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool {
             self.wait_params
                 .lock()
                 .unwrap()
                 .push((active_port, interval_ms, timeout_ms));
-            self.wait_results.borrow_mut().remove(0)
+            self.wait_results.lock().unwrap().remove(0)
         }
     }
 
@@ -189,7 +198,7 @@ mod tests {
         pub fn new() -> Self {
             Self {
                 wait_params: Arc::new(Mutex::new(vec![])),
-                wait_results: RefCell::new(vec![]),
+                wait_results: Arc::new(Mutex::new(vec![])),
             }
         }
 
@@ -198,8 +207,8 @@ mod tests {
             self
         }
 
-        pub fn wait_result(self, result: bool) -> Self {
-            self.wait_results.borrow_mut().push(result);
+        pub fn wait_result(mut self, result: bool) -> Self {
+            self.wait_results.lock().unwrap().push(result);
             self
         }
     }
@@ -212,28 +221,32 @@ mod tests {
         assert_eq!(subject.attempt_limit, DEFAULT_SHUTDOWN_ATTEMPT_LIMIT);
     }
 
-    #[test]
-    fn testing_command_factory_here() {
+    #[tokio::test]
+    async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = factory.make(&["shutdown".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
     }
 
-    #[test]
-    fn shutdown_command_doesnt_work_if_node_is_not_running() {
+    #[tokio::test]
+    async fn shutdown_command_doesnt_work_if_node_is_not_running() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ShutdownCommand::new();
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,
@@ -249,14 +262,15 @@ mod tests {
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn shutdown_command_happy_path_immediate_receive() {
+    #[tokio::test]
+    async fn shutdown_command_happy_path_immediate_receive() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new().wait_params(&wait_params_arc);
         let mut subject = ShutdownCommand::new();
@@ -264,7 +278,9 @@ mod tests {
         subject.attempt_interval = 10;
         subject.attempt_limit = 3;
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -280,14 +296,15 @@ mod tests {
         assert_eq!(wait_params_arc.lock().unwrap().is_empty(), true);
     }
 
-    #[test]
-    fn shutdown_command_happy_path_immediate_transmit() {
+    #[tokio::test]
+    async fn shutdown_command_happy_path_immediate_transmit() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new().wait_params(&wait_params_arc);
         let mut subject = ShutdownCommand::new();
@@ -295,7 +312,9 @@ mod tests {
         subject.attempt_interval = 10;
         subject.attempt_limit = 3;
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -311,8 +330,8 @@ mod tests {
         assert_eq!(wait_params_arc.lock().unwrap().is_empty(), true);
     }
 
-    #[test]
-    fn shutdown_command_happy_path_delayed() {
+    #[tokio::test]
+    async fn shutdown_command_happy_path_delayed() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let msg = UiShutdownResponse {}.tmb(0);
         let port = find_free_port();
@@ -320,8 +339,9 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(Some(port));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -331,7 +351,9 @@ mod tests {
         subject.attempt_interval = 10;
         subject.attempt_limit = 3;
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -348,16 +370,17 @@ mod tests {
         assert_eq!(*wait_params, vec![(port, 10, 3)])
     }
 
-    #[test]
-    fn shutdown_command_happy_path_daemon_crash() {
+    #[tokio::test]
+    async fn shutdown_command_happy_path_daemon_crash() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let msg = UiShutdownResponse {}.tmb(0);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(None);
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -367,7 +390,9 @@ mod tests {
         subject.attempt_interval = 10;
         subject.attempt_limit = 3;
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -384,8 +409,8 @@ mod tests {
         assert_eq!(*wait_params, vec![]);
     }
 
-    #[test]
-    fn shutdown_command_sad_path() {
+    #[tokio::test]
+    async fn shutdown_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let msg = UiShutdownResponse {}.tmb(0);
         let port = find_free_port();
@@ -393,8 +418,9 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(Some(port));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -404,7 +430,9 @@ mod tests {
         subject.attempt_interval = 10;
         subject.attempt_limit = 3;
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(Other("Shutdown failed".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -421,8 +449,8 @@ mod tests {
         assert_eq!(*wait_params, vec![(port, 10, 3)])
     }
 
-    #[test]
-    fn shutdown_awaiter_sad_path() {
+    #[tokio::test]
+    async fn shutdown_awaiter_sad_path() {
         let port = find_free_port();
         let server = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
         server.set_nonblocking(true).unwrap();
@@ -435,15 +463,15 @@ mod tests {
         });
         let subject = ShutdownAwaiterReal {};
 
-        let result = subject.wait(port, 50, 150);
+        let result = subject.wait(port, 50, 150).await;
 
         term_tx.send(()).unwrap();
         handle.join().unwrap();
         assert_eq!(result, false);
     }
 
-    #[test]
-    fn shutdown_awaiter_happy_path() {
+    #[tokio::test]
+    async fn shutdown_awaiter_happy_path() {
         let port = find_free_port();
         let server = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
         let handle = thread::spawn(move || {
@@ -455,7 +483,7 @@ mod tests {
         });
         let subject = ShutdownAwaiterReal {};
 
-        let result = subject.wait(port, 25, 1000);
+        let result = subject.wait(port, 25, 1000).await;
 
         handle.join().unwrap();
         assert_eq!(result, true);

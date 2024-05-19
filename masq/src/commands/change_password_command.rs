@@ -4,6 +4,9 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::TerminalWriter;
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
@@ -12,9 +15,8 @@ use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::io::Write;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
-use crate::terminal::terminal_interface::TerminalWriter;
+use std::pin::Pin;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
@@ -60,18 +62,22 @@ impl ChangePasswordCommand {
         }
     }
 
-    pub fn handle_broadcast(
+    pub async fn handle_broadcast(
         _body: UiNewPasswordBroadcast,
         stdout: &TerminalWriter,
-        stderr: &TerminalWriter,
+        _stderr: &TerminalWriter,
     ) {
-        stdout.write("\nThe Node's database password has changed.\n\n");
+        short_writeln!(stdout, "\nThe Node's database password has changed.\n\n");
     }
 }
 
 #[async_trait]
 impl Command for ChangePasswordCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiChangePasswordRequest {
@@ -124,10 +130,10 @@ pub fn set_password_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
+    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
-    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
 
     #[test]
     fn constants_have_correct_values() {
@@ -184,7 +190,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn change_password_command_changed_db_password_successfully_with_both_parameters_supplied() {
+    async fn change_password_command_changed_db_password_successfully_with_both_parameters_supplied(
+    ) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)

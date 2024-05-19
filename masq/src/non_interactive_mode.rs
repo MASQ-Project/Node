@@ -14,16 +14,16 @@ use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{
     InitializationArgs, NonInteractiveClapFactory, NonInteractiveClapFactoryReal,
 };
+use crate::terminal::terminal_interface::TerminalWriter;
+use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::short_writeln;
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::ui_traffic_converter::TrafficConversionError;
 use std::io::Write;
 use std::ops::Not;
-use async_trait::async_trait;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
-use masq_lib::ui_traffic_converter::TrafficConversionError;
-use crate::terminal::terminal_interface::TerminalWriter;
 
 pub struct Main {
     non_interactive_clap_factory: Box<dyn NonInteractiveClapFactory>,
@@ -34,7 +34,6 @@ pub struct Main {
 #[async_trait]
 pub trait Command {
     async fn go(&mut self, args: &[String], stderr: &dyn AsyncWrite) -> u8;
-
 }
 
 impl Default for Main {
@@ -57,28 +56,26 @@ impl Command for Main {
         //     }
         // };
 
-
-
-        let mut command_processor =
-            match self
-                .processor_factory
-                .make(subcommand_opt.is_none(), initialization_args.ui_port)
-            {
-                Ok(processor) => processor,
-                Err(error) => {
-                    short_writeln!(
-                        stderr,
-                        "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon \
+        let mut command_processor = match self
+            .processor_factory
+            .make(subcommand_opt.is_none(), initialization_args.ui_port)
+            .await
+        {
+            Ok(processor) => processor,
+            Err(error) => {
+                short_writeln!(
+                    stderr,
+                    "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon \
                     isn't running.",
-                        error
-                    );
-                    return Self::bool_into_numeric_code(false);
-                }
-            };
+                    error
+                );
+                return Self::bool_into_numeric_code(false);
+            }
+        };
 
-        let result = match command_processor.process(subcommand_opt){
+        let result = match command_processor.process(subcommand_opt) {
             Ok(_) => todo!(),
-            Err(e) => todo!()
+            Err(e) => todo!(),
         };
         command_processor.close();
         Self::bool_into_numeric_code(result)
@@ -230,16 +227,16 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
     use crate::terminal::line_reader::TerminalEvent;
+    use crate::terminal::terminal_interface::WTermInterface;
     use crate::test_utils::mocks::{
         CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory,
+        MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory, WTermInterfaceMock,
     };
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::any::Any;
     use std::sync::{Arc, Mutex};
-    use crate::terminal::terminal_interface::WTermInterface;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -247,8 +244,8 @@ mod tests {
         pub use std::time::Duration;
     }
 
-    #[test]
-    fn noninteractive_mode_works_when_everything_is_copacetic() {
+    #[tokio::test]
+    async fn noninteractive_mode_works_when_everything_is_copacetic() {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
@@ -304,10 +301,11 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(Other("not really an error".to_string())));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
 
-        let result = command.execute(&mut context);
+        let result = command.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(
             result,
@@ -574,7 +572,11 @@ mod tests {
 
     #[async_trait]
     impl commands_common::Command for FakeCommand {
-        async fn execute(&self, _context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+        async fn execute(
+            self: Arc<Self>,
+            _context: &mut dyn CommandContext,
+            term_interface: &mut dyn WTermInterface,
+        ) -> Result<(), CommandError> {
             intentionally_blank!()
         }
         fn as_any(&self) -> &dyn Any {

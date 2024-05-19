@@ -5,6 +5,7 @@ use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
@@ -21,7 +22,6 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -88,7 +88,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
     }
 }
 
-pub trait StandardBroadcastHandlerFactory: Send{
+pub trait StandardBroadcastHandlerFactory: Send {
     fn make(
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterface>>,
@@ -114,7 +114,7 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
     }
 }
 
-pub trait BroadcastHandler<Message>: Send{
+pub trait BroadcastHandler<Message>: Send {
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<Message>>;
 }
 
@@ -163,7 +163,7 @@ impl StandardBroadcastHandlerReal {
         }
     }
 
-    fn handle_message_body(
+    async fn handle_message_body(
         message_body_result: Result<MessageBody, RecvError>,
         terminal_interface: &mut dyn WTermInterface,
     ) -> bool {
@@ -173,28 +173,21 @@ impl StandardBroadcastHandlerReal {
             Err(_) => false, // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
-                    handle_ui_log_broadcast(body, terminal_interface)
+                    handle_ui_log_broadcast(body, stdout, stderr).await
                 } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast(body, terminal_interface);
+                    SetupCommand::handle_broadcast(body, stdout, stderr).await;
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast(body, terminal_interface);
+                    CrashNotifier::handle_broadcast(body, stdout, stderr).await;
                 } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast(body, terminal_interface);
+                    ChangePasswordCommand::handle_broadcast(body, stdout, stderr).await;
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_is_dead_while_f_f_on_the_way_broadcast(
-                        body,
-                        stdout,
-                        terminal_interface,
-                    );
+                    handle_node_is_dead_while_f_f_on_the_way_broadcast(body, stdout, stderr).await;
                 } else if let Ok((body, _)) = UiConnectionChangeBroadcast::fmb(message_body.clone())
                 {
-                    ConnectionChangeNotification::handle_broadcast(
-                        body,
-                        terminal_interface,
-                    );
+                    ConnectionChangeNotification::handle_broadcast(body, stdout, stderr).await;
                 } else {
-                    handle_unrecognized_broadcast(message_body, terminal_interface)
+                    handle_unrecognized_broadcast(message_body, stdout, stderr).await
                 }
                 true
             }
@@ -232,32 +225,36 @@ impl StreamFactory for StreamFactoryNull {
     }
 }
 
-pub fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
+async fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
     body: UiUndeliveredFireAndForget,
-    stdout: &mut dyn WTermInterface,
-    stderr: &mut dyn WTermInterface,
+    _stdout: &TerminalWriter,
+    stderr: &TerminalWriter,
 ) {
-    stdout.write(&format!("\nCannot handle {} request: Node is not running.\n",
+    short_writeln!(
+        stderr,
+        "\nCannot handle {} request: Node is not running.\n",
         body.opcode
-    ))
+    )
 }
 
-pub fn handle_unrecognized_broadcast(
+async fn handle_unrecognized_broadcast(
     message_body: MessageBody,
-    stdout: &mut dyn WTermInterface,
-    stderr: &mut dyn WTermInterface,
+    stdout: &TerminalWriter,
+    _stderr: &TerminalWriter,
 ) {
-    stderr.write(&format!("Discarding unrecognized broadcast with opcode '{}'\n",
+    short_writeln!(
+        stdout,
+        "Discarding unrecognized broadcast with opcode '{}'\n",
         message_body.opcode
-    ))
+    )
 }
 
-pub fn handle_ui_log_broadcast(
+async fn handle_ui_log_broadcast(
     body: UiLogBroadcast,
-    stdout: &mut dyn WTermInterface,
-    stderr: &mut dyn WTermInterface,
+    stdout: &TerminalWriter,
+    _stderr: &TerminalWriter,
 ) {
-    stdout.write(&format!("\n\n>>  {:?}: {}\n", body.log_level, body.msg))
+    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg)
 }
 
 pub struct RedirectBroadcastHandle {

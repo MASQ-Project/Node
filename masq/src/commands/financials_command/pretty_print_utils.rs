@@ -6,14 +6,14 @@ pub(in crate::commands::financials_command) mod restricted {
     };
     use crate::commands::financials_command::parsing_and_value_dressing::restricted::convert_masq_from_gwei_and_dress_well;
     use crate::commands::financials_command::FinancialsCommand;
+    use crate::terminal::terminal_interface::TerminalWriter;
+    use futures::future::join_all;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use masq_lib::short_writeln;
     use std::fmt::{Debug, Display};
     use std::io::Write;
-    use futures::future::join_all;
     use thousands::Separable;
-    use crate::terminal::terminal_interface::TerminalWriter;
 
     pub trait StringValuesFormattableAccount {
         fn convert_to_strings(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String>;
@@ -191,18 +191,23 @@ pub(in crate::commands::financials_command) mod restricted {
         account_segments_values_as_strings_and_widths: &[(&String, &usize)],
     ) {
         let column_count = account_segments_values_as_strings_and_widths.len();
-        join_all(account_segments_values_as_strings_and_widths
-            .iter()
-            .enumerate()
-            .map(|(idx, (value, optimal_width))| async move{
-
-                    stdout.write(&format!(
-                    "{:<width$}{:gap$}",
-                    value,
-                    "",
-                    width = optimal_width,
-                    gap = if idx + 1 == column_count { 0 } else { 3 }
-                )).await})).await;
+        join_all(
+            account_segments_values_as_strings_and_widths
+                .iter()
+                .enumerate()
+                .map(|(idx, (value, optimal_width))| async move {
+                    stdout
+                        .write(&format!(
+                            "{:<width$}{:gap$}",
+                            value,
+                            "",
+                            width = optimal_width,
+                            gap = if idx + 1 == column_count { 0 } else { 3 }
+                        ))
+                        .await
+                }),
+        )
+        .await;
         short_writeln!(stdout, "")
     }
 

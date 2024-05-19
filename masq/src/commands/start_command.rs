@@ -2,13 +2,14 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 const START_SUBCOMMAND_ABOUT: &str =
@@ -24,14 +25,20 @@ pub struct StartCommand {}
 
 #[async_trait]
 impl Command for StartCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let out_message = UiStartOrder {};
         let result: Result<UiStartResponse, CommandError> =
-            transaction(out_message, context, START_COMMAND_TIMEOUT_MILLIS);
+            transaction(out_message, context, stderr, START_COMMAND_TIMEOUT_MILLIS).await;
         match result {
             Ok(response) => {
                 short_writeln!(
-                    context.stdout(),
+                    stdout,
                     "MASQNode successfully started in process {} on port {}",
                     response.new_process_id,
                     response.redirect_ui_port
@@ -53,7 +60,7 @@ impl StartCommand {
 mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use std::string::ToString;
@@ -69,8 +76,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn start_command_happy_path() {
+    #[tokio::test]
+    async fn start_command_happy_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -79,12 +86,13 @@ mod tests {
                 redirect_ui_port: 4321,
             }
             .tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["start".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();

@@ -4,6 +4,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
@@ -12,8 +14,7 @@ use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWa
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -95,7 +96,13 @@ impl RecoverWalletsCommand {
 
 #[async_trait]
 impl Command for RecoverWalletsCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiRecoverWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self
@@ -124,8 +131,8 @@ impl Command for RecoverWalletsCommand {
             },
         };
         let _: UiRecoverWalletsResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        short_writeln!(context.stdout(), "Wallets were successfully recovered");
+            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+        short_writeln!(stdout, "Wallets were successfully recovered");
         Ok(())
     }
 
@@ -253,7 +260,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
 
@@ -493,14 +500,15 @@ mod tests {
         assert_eq!(msg.contains("cannot be used with"), true, "{}", msg);
     }
 
-    #[test]
-    fn execute_works_with_derivation_paths() {
+    #[tokio::test]
+    async fn execute_works_with_derivation_paths() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -512,7 +520,9 @@ mod tests {
             earning: Either::Right("earning path".to_string()),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -544,14 +554,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn execute_works_with_key_and_address() {
+    #[tokio::test]
+    async fn execute_works_with_key_and_address() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -559,7 +570,9 @@ mod tests {
             earning: Either::Left("earning address".to_string()),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();

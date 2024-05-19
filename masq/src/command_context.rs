@@ -6,6 +6,7 @@ use crate::communications::connection_manager::{
     ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
+use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
@@ -13,7 +14,6 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use tokio::runtime::Runtime;
-use crate::terminal::terminal_interface::WTermInterface;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -127,9 +127,7 @@ impl CommandContextReal {
         };
         let connection = ConnectionManager::new(connectors);
 
-        Ok(Self {
-            connection,
-        })
+        Ok(Self { connection })
     }
 }
 
@@ -140,6 +138,7 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handlers::BroadcastHandleInactive;
+    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
     use crate::test_utils::mocks::StandardBroadcastHandlerFactoryMock;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
@@ -150,7 +149,6 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
-    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
 
     #[test]
     fn error_conversion_happy_path() {

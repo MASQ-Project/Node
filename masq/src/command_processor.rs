@@ -1,18 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::sync::Arc;
-use async_trait::async_trait;
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
+use async_trait::async_trait;
 use masq_lib::utils::ExpectValue;
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 #[async_trait]
-pub trait CommandProcessorFactory
-{
+pub trait CommandProcessorFactory {
     async fn make(
         &self,
         is_interactive: bool,
@@ -30,7 +29,8 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
         &self,
         is_interactive: bool,
         ui_port: u16,
-    ) -> Result<Box<dyn CommandProcessor>, CommandError> { //TODO is CommandError proper?
+    ) -> Result<Box<dyn CommandProcessor>, CommandError> {
+        //TODO is CommandError proper?
 
         if is_interactive {
             todo!()
@@ -79,7 +79,7 @@ impl CommandProcessor for CommandProcessorNonInteractive {
         //     return command.execute(&mut self.context);
         // }
         todo!()
-       // command.execute(&mut self.context)
+        // command.execute(&mut self.context)
     }
 
     fn close(&mut self) {
@@ -114,23 +114,23 @@ mod tests {
     use crate::command_context::CommandContext;
     use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handlers::{
-        BroadcastHandleInactive, BroadcastHandler,
-        StandardBroadcastHandlerReal, StreamFactoryNull,
+        BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal, StreamFactoryNull,
     };
+    use crate::terminal::terminal_interface::WTermInterface;
     use crate::test_utils::mocks::{
         StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock, TestStreamFactory,
     };
+    use async_trait::async_trait;
     use crossbeam_channel::{bounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
     use masq_lib::utils::{find_free_port, running_test};
+    use std::pin::Pin;
     use std::thread;
     use std::time::Duration;
-    use async_trait::async_trait;
-    use crate::terminal::terminal_interface::WTermInterface;
 
-    async fn test_handles_nonexistent_server(is_interactive: bool){
+    async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactoryReal::default();
         let rt = make_rt();
@@ -265,7 +265,11 @@ mod tests {
 
     #[async_trait]
     impl Command for TameCommand {
-        async fn execute(&self, _context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+        async fn execute(
+            self: Arc<Self>,
+            _context: &mut dyn CommandContext,
+            term_interface: &mut dyn WTermInterface,
+        ) -> Result<(), CommandError> {
             Self::MESSAGE_IN_PIECES
                 .iter()
                 .for_each(|piece| self.send_small_piece_of_message(piece));

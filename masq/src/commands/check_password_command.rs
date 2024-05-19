@@ -4,14 +4,15 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
@@ -37,7 +38,11 @@ pub fn check_password_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for CheckPasswordCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
 
@@ -209,7 +214,9 @@ mod tests {
             CheckPasswordCommand::new(&["check-password".to_string(), "bonkers".to_string()])
                 .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,

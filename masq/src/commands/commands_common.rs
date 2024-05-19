@@ -4,6 +4,8 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Reception, Transmission, UnexpectedResponse,
 };
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
+use async_trait::async_trait;
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::short_writeln;
@@ -12,8 +14,8 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::io::Write;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
+use std::pin::Pin;
+use std::sync::Arc;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
@@ -54,14 +56,21 @@ impl Display for CommandError {
 
 #[async_trait]
 pub trait Command: Debug + Send {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError>;
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError>;
 
     fn as_any(&self) -> &dyn Any {
         intentionally_blank!()
     }
 }
 
-pub fn send_non_conversational_msg<I>(input: I, context: &mut dyn CommandContext) -> Result<(), CommandError>
+pub fn send_non_conversational_msg<I>(
+    input: I,
+    context: &mut dyn CommandContext,
+) -> Result<(), CommandError>
 where
     I: ToMessageBody,
 {
@@ -89,11 +98,7 @@ where
         Ok((r, _)) => r,
         Err(e) => {
             //TODO do I want to flush it here?
-            short_writeln!(
-                stderr,
-                "Node or Daemon is acting erratically: {}",
-                e
-            );
+            short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
             return Err(UnexpectedResponse(e));
         }
     };
@@ -112,7 +117,11 @@ impl From<ContextError> for CommandError {
     }
 }
 
-pub(in crate::commands) async fn dump_parameter_line(stdout: &TerminalWriter, name: &str, value: &str) {
+pub(in crate::commands) async fn dump_parameter_line(
+    stdout: &TerminalWriter,
+    name: &str,
+    value: &str,
+) {
     short_writeln!(
         stdout,
         "{:width$} {}",
@@ -146,7 +155,7 @@ mod tests {
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
         let mut term_interface = WTermInterfaceMock::default();
         let stderr_arc = term_interface.stderr_arc().clone();
-        let (mut stderr, mut flush_handle) = term_interface.stderr();
+        let (mut stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, stderr, 1000).await;

@@ -2,12 +2,13 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send_non_conversational_msg, Command, CommandError};
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct CrashCommand {
@@ -56,7 +57,11 @@ pub fn crash_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for CrashCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let input = UiCrashRequest {
             actor: self.actor.clone(),
             panic_message: self.panic_message.clone(),
@@ -218,7 +223,9 @@ mod tests {
         ])
         .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,

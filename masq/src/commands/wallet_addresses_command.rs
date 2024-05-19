@@ -4,13 +4,14 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -53,19 +54,25 @@ pub fn wallet_addresses_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for WalletAddressesCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiWalletAddressesRequest {
             db_password: self.db_password.clone(),
         };
         let msg: UiWalletAddressesResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
+            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Your consuming wallet address: {}",
             msg.consuming_wallet_address
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Your   earning wallet address: {}",
             msg.earning_wallet_address
         );
@@ -80,7 +87,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
 
@@ -98,8 +105,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn wallet_addresses_with_password_right() {
+    #[tokio::test]
+    async fn wallet_addresses_with_password_right() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -108,14 +115,15 @@ mod tests {
                 earning_wallet_address: "0x454654klljkjk".to_string(),
             }
             .tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["wallet-addresses".to_string(), "bonkers".to_string()])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         assert_eq!(
@@ -136,18 +144,19 @@ mod tests {
         )
     }
 
-    #[test]
-    fn wallet_addresses_handles_error_due_to_a_complain_from_database() {
+    #[tokio::test]
+    async fn wallet_addresses_handles_error_due_to_a_complain_from_database() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(4644, "bad bad bad thing".to_string()),
         ));
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["wallet-addresses".to_string(), "some password".to_string()])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(
             result,
@@ -156,16 +165,19 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn wallet_addresses_handles_send_failure() {
+    #[tokio::test]
+    async fn wallet_addresses_handles_send_failure() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject =
             WalletAddressesCommand::new(&["wallet-addresses".to_string(), "bonkers".to_string()])
                 .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,

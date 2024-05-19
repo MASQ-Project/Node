@@ -5,13 +5,14 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::WTermInterface;
+use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::short_writeln;
 use std::fmt::Debug;
-use async_trait::async_trait;
-use crate::terminal::terminal_interface::WTermInterface;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct DescriptorCommand {}
@@ -25,7 +26,11 @@ pub fn descriptor_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for DescriptorCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiDescriptorRequest {};
@@ -115,7 +120,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = DescriptorCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,
@@ -145,7 +152,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = DescriptorCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -174,7 +183,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = DescriptorCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -203,7 +214,9 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = DescriptorCommand::new();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();

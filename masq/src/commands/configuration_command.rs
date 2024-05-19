@@ -5,6 +5,8 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
@@ -15,9 +17,8 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
-use async_trait::async_trait;
+use std::sync::Arc;
 use thousands::Separable;
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 const COLUMN_WIDTH: usize = 33;
 
@@ -43,7 +44,11 @@ pub fn configuration_subcommand() -> ClapCommand {
 
 #[async_trait]
 impl Command for ConfigurationCommand {
-    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+    async fn execute(
+        self: Arc<Self>,
+        context: &mut dyn CommandContext,
+        term_interface: &mut dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiConfigurationRequest {
@@ -284,11 +289,13 @@ mod tests {
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
         let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,
@@ -344,13 +351,15 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
         let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject =
             ConfigurationCommand::new(&["configuration".to_string(), "password".to_string()])
                 .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -443,11 +452,13 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
         let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -506,11 +517,13 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
         let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = Arc::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
