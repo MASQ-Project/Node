@@ -9,6 +9,8 @@ use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -49,8 +51,9 @@ pub fn wallet_addresses_subcommand() -> ClapCommand {
         )
 }
 
+#[async_trait]
 impl Command for WalletAddressesCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         let input = UiWalletAddressesRequest {
             db_password: self.db_password.clone(),
         };

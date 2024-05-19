@@ -7,6 +7,8 @@ use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::WTermInterface;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 const START_SUBCOMMAND_ABOUT: &str =
@@ -20,8 +22,9 @@ pub fn start_subcommand() -> ClapCommand {
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct StartCommand {}
 
+#[async_trait]
 impl Command for StartCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         let out_message = UiStartOrder {};
         let result: Result<UiStartResponse, CommandError> =
             transaction(out_message, context, START_COMMAND_TIMEOUT_MILLIS);

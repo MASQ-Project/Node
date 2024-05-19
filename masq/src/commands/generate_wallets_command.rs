@@ -4,6 +4,7 @@
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use async_trait::async_trait;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
@@ -17,6 +18,7 @@ use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerat
 use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 lazy_static! {
     static ref CONSUMING_PATH_HELP: String = format!(
@@ -222,39 +224,42 @@ impl GenerateWalletsCommand {
         })
     }
 
-    fn process_response(response: UiGenerateWalletsResponse, context: &mut dyn CommandContext) {
+    async fn process_response(response: UiGenerateWalletsResponse, stdout: &TerminalWriter, stderr: &TerminalWriter) {
         if let Some(mnemonic_phrase) = response.mnemonic_phrase_opt {
             short_writeln!(
-                context.stdout(),
+                stdout,
                 "Copy this phrase down and keep it safe; you'll need it to restore your wallet:"
             );
-            short_writeln!(context.stdout(), "'{}'", mnemonic_phrase.join(" "));
+            short_writeln!(stdout, "'{}'", mnemonic_phrase.join(" "));
         }
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Address of     consuming wallet: {}",
             response.consuming_wallet_address
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Private key of consuming wallet: {}",
             response.consuming_wallet_private_key
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Address of       earning wallet: {}",
             response.earning_wallet_address
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Private key of   earning wallet: {}",
             response.earning_wallet_private_key
         );
     }
 }
 
+#[async_trait]
 impl Command for GenerateWalletsCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiGenerateWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self
@@ -269,8 +274,8 @@ impl Command for GenerateWalletsCommand {
             earning_derivation_path_opt: self.earning_path_opt.as_ref().cloned(),
         };
         let response: UiGenerateWalletsResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        Self::process_response(response, context);
+            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+        Self::process_response(response, stdout, stderr).await;
         Ok(())
     }
 

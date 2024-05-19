@@ -3,4 +3,5 @@
 pub mod integration_test_utils;
 pub mod line_reader;
 pub mod secondary_infrastructure;
+pub mod terminal_interface_old;
 pub mod terminal_interface;

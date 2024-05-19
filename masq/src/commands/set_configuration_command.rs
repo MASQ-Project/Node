@@ -9,6 +9,8 @@ use masq_lib::short_writeln;
 use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -35,8 +37,9 @@ impl SetConfigurationCommand {
     }
 }
 
+#[async_trait]
 impl Command for SetConfigurationCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         let input = UiSetConfigurationRequest {
             name: self.name.clone(),
             value: self.value.clone(),

@@ -7,6 +7,8 @@ use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::WTermInterface;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -34,8 +36,9 @@ pub fn scan_subcommand() -> ClapCommand {
     )
 }
 
+#[async_trait]
 impl Command for ScanCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         let input = UiScanRequest {
             scan_type: match ScanType::from_str(&self.name) {
                 Ok(st) => st,

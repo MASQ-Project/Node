@@ -539,11 +539,13 @@ where
 
 #[macro_export]
 macro_rules! short_writeln {
-    ($dst:expr) => (
-         writeln!($dst).expect("writeln failed")
+    ($term_interface: expr) => (
+             $term_interface.writeln("").await
     );
-    ( $form: expr, $($arg:tt)*) => {
-         writeln!($form, $($arg)*).expect("writeln failed")
+    ( $term_interface: expr, $($arg:tt)*) => {
+         {
+             $term_interface.writeln(&format!($($arg)*)).await
+         };
     };
 }
 

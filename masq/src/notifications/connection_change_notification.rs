@@ -1,19 +1,18 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::terminal_interface::TerminalWrapper;
 use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
 use masq_lib::short_writeln;
 use std::io::Write;
+use crate::terminal::terminal_interface::WTermInterface;
 
 pub struct ConnectionChangeNotification {}
 
 impl ConnectionChangeNotification {
     pub fn handle_broadcast(
         response: UiConnectionChangeBroadcast,
-        stdout: &mut dyn Write,
-        term_interface: &TerminalWrapper,
+        term_interface: &mut dyn WTermInterface,
     ) {
-        let _lock = term_interface.lock();
+        let mut stdout = term_interface.stdout();
         let output_string = match response.stage {
             UiConnectionStage::NotConnected => {
                 todo!("This code is unreachable before GH-623 gets implemented. Hence this todo should be replaced with some code once the card is played.")
@@ -25,7 +24,7 @@ impl ConnectionChangeNotification {
                 "\nRouteFound: You can now relay data over the network.\n"
             }
         };
-        short_writeln!(stdout, "{}", output_string);
+        stdout.write(output_string);
         stdout.flush().expect("flush failed");
     }
 }

@@ -15,6 +15,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::ops::Add;
 use std::thread;
 use std::time::{Duration, Instant};
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::WTermInterface;
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
@@ -34,8 +36,11 @@ pub fn shutdown_subcommand() -> ClapCommand {
     ClapCommand::new("shutdown").about(SHUTDOWN_SUBCOMMAND_ABOUT)
 }
 
+#[async_trait]
 impl Command for ShutdownCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiShutdownRequest {};
         let output: Result<UiShutdownResponse, CommandError> =
             transaction(input, context, SHUTDOWN_COMMAND_TIMEOUT_MILLIS);
@@ -43,21 +48,21 @@ impl Command for ShutdownCommand {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {
                 short_writeln!(
-                    context.stdout(),
+                    stdout,
                     "MASQNode was instructed to shut down and has broken its connection"
                 );
                 return Ok(());
             }
             Err(Transmission(_)) => {
                 short_writeln!(
-                    context.stdout(),
+                    stdout,
                     "MASQNode was instructed to shut down and has broken its connection"
                 );
                 return Ok(());
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
                 short_writeln!(
-                    context.stderr(),
+                    stderr,
                     "MASQNode is not running; therefore it cannot be shut down"
                 );
                 return Err(Payload(code, message));
@@ -70,7 +75,7 @@ impl Command for ShutdownCommand {
         match context.active_port() {
             None => {
                 short_writeln!(
-                    context.stdout(),
+                    stdout,
                     "MASQNode was instructed to shut down and has stopped answering; but the Daemon seems to be down as well"
                 );
                 Ok(())
@@ -82,13 +87,13 @@ impl Command for ShutdownCommand {
                     self.attempt_limit,
                 ) {
                     short_writeln!(
-                        context.stdout(),
+                        stdout,
                         "MASQNode was instructed to shut down and has stopped answering"
                     );
                     Ok(())
                 } else {
                     short_writeln!(
-                        context.stderr(),
+                        stderr,
                         "MASQNode ignored the instruction to shut down and is still running"
                     );
                     Err(Other("Shutdown failed".to_string()))
@@ -114,7 +119,7 @@ impl ShutdownCommand {
     }
 }
 
-trait ShutdownAwaiter: Debug {
+trait ShutdownAwaiter: Debug + Send{
     fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool;
 }
 

@@ -4,11 +4,10 @@ use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, BroadcastHandles, RedirectBroadcastHandle,
     RedirectBroadcastHandleFactory, RedirectBroadcastHandleFactoryReal,
     StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal, StreamFactory,
-    StreamFactoryNull, StreamFactoryReal,
+    StreamFactoryReal,
 };
 use crate::communications::client_listener_thread::{ClientListener, ClientListenerError};
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::terminal::terminal_interface::TerminalWrapper;
 use crate::test_utils::mocks::RedirectBroadcastHandleFactoryMock;
 use async_channel::Sender as WSSender;
 use async_trait::async_trait;
@@ -30,6 +29,7 @@ use tokio::task::JoinHandle;
 use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, WebSocket, WebSocketConfig,
 };
+use crate::terminal::terminal_interface::WTermInterface;
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
@@ -71,8 +71,8 @@ pub struct ConnectionManager {
 }
 
 pub struct ConnectionManagerBootstrapper {
-    pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-    pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
+    // pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
+    // pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
 }
 
 impl Default for ConnectionManagerBootstrapper {
@@ -100,7 +100,7 @@ impl ConnectionManagerBootstrapper {
     pub async fn spawn_background_loops(
         &self,
         port: u16,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
         timeout_millis: u64,
     ) -> Result<ConnectionManagerConnectors, ClientListenerError> {
         let (launch_platform, connectors) =
@@ -118,7 +118,7 @@ impl ConnectionManagerBootstrapper {
     fn prepare_launch(
         &self,
         port: u16,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
         timeout_millis: u64,
     ) -> (LaunchPlatform, ConnectionManagerConnectors) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();

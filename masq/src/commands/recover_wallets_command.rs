@@ -12,6 +12,8 @@ use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWa
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -91,8 +93,9 @@ impl RecoverWalletsCommand {
     }
 }
 
+#[async_trait]
 impl Command for RecoverWalletsCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         let input = UiRecoverWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self

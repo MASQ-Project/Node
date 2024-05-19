@@ -14,19 +14,27 @@ use crate::interactive_mode::go_interactive;
 use crate::non_interactive_clap::{
     InitializationArgs, NonInteractiveClapFactory, NonInteractiveClapFactoryReal,
 };
-use crate::terminal::terminal_interface::TerminalWrapper;
 use itertools::Either;
-use masq_lib::command::{Command, StdStreams};
 use masq_lib::short_writeln;
 use masq_lib::ui_gateway::MessageBody;
 use std::io::Write;
 use std::ops::Not;
+use async_trait::async_trait;
+use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
+use masq_lib::ui_traffic_converter::TrafficConversionError;
+use crate::terminal::terminal_interface::TerminalWriter;
 
 pub struct Main {
     non_interactive_clap_factory: Box<dyn NonInteractiveClapFactory>,
     command_factory: Box<dyn CommandFactory>,
     processor_factory: Box<dyn CommandProcessorFactory>,
+}
+
+#[async_trait]
+pub trait Command {
+    async fn go(&mut self, args: &[String], stderr: &dyn AsyncWrite) -> u8;
+
 }
 
 impl Default for Main {
@@ -35,35 +43,31 @@ impl Default for Main {
     }
 }
 
-impl Command<u8> for Main {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> u8 {
+#[async_trait]
+impl Command for Main {
+    async fn go(&mut self, args: &[String], stderr: &dyn AsyncWrite) -> u8 {
         let initialization_args = self.parse_initialization_args(args);
         let subcommand_opt = Self::extract_subcommand(args);
+        // let terminal_interface = match Self::initialize_terminal_interface(subcommand_opt.is_none())
+        // {
+        //     Ok(d) => d,
+        //     Err(e) => {
+        //         short_writeln!(streams.stderr, "Pre-configuration error: {}", e);
+        //         return Self::bool_into_numeric_code(false);
+        //     }
+        // };
 
-        let terminal_interface = match Self::initialize_terminal_interface(subcommand_opt.is_none())
-        {
-            Ok(d) => d,
-            Err(e) => {
-                short_writeln!(streams.stderr, "Pre-configuration error: {}", e);
-                return Self::bool_into_numeric_code(false);
-            }
-        };
 
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("Failed to build a Runtime");
 
         let mut command_processor =
             match self
                 .processor_factory
-                .make(&rt, terminal_interface, initialization_args.ui_port)
+                .make(subcommand_opt.is_none(), initialization_args.ui_port)
             {
                 Ok(processor) => processor,
                 Err(error) => {
                     short_writeln!(
-                        streams.stderr,
+                        stderr,
                         "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon \
                     isn't running.",
                         error
@@ -72,14 +76,9 @@ impl Command<u8> for Main {
                 }
             };
 
-        let result = match subcommand_opt {
-            Some(command_parts) => handle_command_common(
-                &*self.command_factory,
-                &mut *command_processor,
-                &command_parts,
-                streams.stderr,
-            ),
-            None => go_interactive(&*self.command_factory, &mut *command_processor, streams),
+        let result = match command_processor.process(subcommand_opt){
+            Ok(_) => todo!(),
+            Err(e) => todo!()
         };
         command_processor.close();
         Self::bool_into_numeric_code(result)
@@ -103,15 +102,15 @@ impl Main {
             .parse_initialization_args(args)
     }
 
-    fn initialize_terminal_interface(
-        is_interactive: bool,
-    ) -> Result<Option<TerminalWrapper>, String> {
-        if is_interactive {
-            TerminalWrapper::configure_interface().map(|interface| Some(interface))
-        } else {
-            Ok(None)
-        }
-    }
+    // fn initialize_terminal_interface(
+    //     is_interactive: bool,
+    // ) -> Result<Option<TerminalWrapper>, String> {
+    //     if is_interactive {
+    //         TerminalWrapper::configure_interface().map(|interface| Some(interface))
+    //     } else {
+    //         Ok(None)
+    //     }
+    // }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
         fn both_do_not_start_with_two_dashes(
@@ -195,29 +194,30 @@ impl Main {
 //     }
 // }
 
-pub fn handle_command_common(
+pub async fn handle_command_common(
     command_factory: &dyn CommandFactory,
     processor: &mut dyn CommandProcessor,
     command_parts: &[String],
-    stderr: &mut dyn Write,
+    stderr: &TerminalWriter,
 ) -> bool {
-    let command = match command_factory.make(command_parts) {
-        Ok(c) => c,
-        Err(UnrecognizedSubcommand(msg)) => {
-            short_writeln!(stderr, "Unrecognized command: '{}'", msg);
-            return false;
-        }
-        Err(CommandSyntax(msg)) => {
-            short_writeln!(stderr, "{}", msg);
-            return false;
-        }
-    };
-    if let Err(e) = processor.process(command) {
-        short_writeln!(stderr, "{}", e);
-        false
-    } else {
-        true
-    }
+    todo!()
+    // let command = match command_factory.make(command_parts) {
+    //     Ok(c) => c,
+    //     Err(UnrecognizedSubcommand(msg)) => {
+    //         short_writeln!(stderr, "Unrecognized command: '{}'", msg);
+    //         return false;
+    //     }
+    //     Err(CommandSyntax(msg)) => {
+    //         short_writeln!(stderr, "{}", msg);
+    //         return false;
+    //     }
+    // };
+    // if let Err(e) = processor.process(command) {
+    //     short_writeln!(stderr, "{}", e);
+    //     false
+    // } else {
+    //     true
+    // }
 }
 
 #[cfg(test)]
@@ -239,6 +239,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use std::any::Any;
     use std::sync::{Arc, Mutex};
+    use crate::terminal::terminal_interface::WTermInterface;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -571,8 +572,9 @@ mod tests {
         output: String,
     }
 
+    #[async_trait]
     impl commands_common::Command for FakeCommand {
-        fn execute(&self, _context: &mut dyn CommandContext) -> Result<(), CommandError> {
+        async fn execute(&self, _context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
             intentionally_blank!()
         }
         fn as_any(&self) -> &dyn Any {

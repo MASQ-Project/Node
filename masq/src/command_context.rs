@@ -6,7 +6,6 @@ use crate::communications::connection_manager::{
     ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
-use crate::terminal::terminal_interface::TerminalWrapper;
 use async_trait::async_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
@@ -14,6 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use tokio::runtime::Runtime;
+use crate::terminal::terminal_interface::WTermInterface;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -50,26 +50,22 @@ impl From<ClientError> for ContextError {
 }
 
 #[async_trait]
-pub trait CommandContext {
+pub trait CommandContext: Send {
     fn active_port(&self) -> Option<u16>;
-    fn send(&mut self, message: MessageBody) -> Result<(), ContextError>;
+    fn send_one_way(&mut self, message: MessageBody) -> Result<(), ContextError>;
     fn transact(
         &mut self,
         message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError>;
-    fn stdin(&mut self) -> &mut dyn Read;
-    fn stdout(&mut self) -> &mut dyn Write;
-    fn stderr(&mut self) -> &mut dyn Write;
+    // fn stdin(&mut self) -> &mut dyn Read;
+    // fn stdout(&mut self) -> &mut dyn Write;
+    // fn stderr(&mut self) -> &mut dyn Write;
     fn close(&mut self);
 }
 
 pub struct CommandContextReal {
     connection: ConnectionManager,
-    pub stdin: Box<dyn Read>,
-    pub stdout: Box<dyn Write>,
-    pub stderr: Box<dyn Write>,
-    pub terminal_interface_opt: Option<TerminalWrapper>,
 }
 
 impl Debug for CommandContextReal {
@@ -83,7 +79,7 @@ impl CommandContext for CommandContextReal {
         self.connection.active_ui_port()
     }
 
-    fn send(&mut self, outgoing_message: MessageBody) -> Result<(), ContextError> {
+    fn send_one_way(&mut self, outgoing_message: MessageBody) -> Result<(), ContextError> {
         let conversation = self.connection.start_conversation();
         match conversation.send(outgoing_message) {
             Ok(_) => Ok(()),
@@ -108,18 +104,6 @@ impl CommandContext for CommandContextReal {
         Ok(incoming_message)
     }
 
-    fn stdin(&mut self) -> &mut dyn Read {
-        &mut self.stdin
-    }
-
-    fn stdout(&mut self) -> &mut dyn Write {
-        &mut self.stdout
-    }
-
-    fn stderr(&mut self) -> &mut dyn Write {
-        &mut self.stderr
-    }
-
     fn close(&mut self) {
         self.connection.close();
     }
@@ -129,12 +113,12 @@ impl CommandContextReal {
     pub fn new(
         daemon_ui_port: u16,
         rt_ref: &Runtime,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
         bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = rt_ref.block_on(bootstrapper.spawn_background_loops(
             daemon_ui_port,
-            terminal_interface_opt.clone(),
+            terminal_interface_opt,
             REDIRECT_TIMEOUT_MILLIS,
         ));
         let connectors = match result {
@@ -145,10 +129,6 @@ impl CommandContextReal {
 
         Ok(Self {
             connection,
-            stdin: Box::new(io::stdin()),
-            stdout: Box::new(io::stdout()),
-            stderr: Box::new(io::stderr()),
-            terminal_interface_opt,
         })
     }
 }
@@ -170,6 +150,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
+    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
 
     #[test]
     fn error_conversion_happy_path() {
@@ -231,44 +212,39 @@ mod tests {
 
     #[test]
     fn transact_works_when_everything_is_fine() {
-        running_test();
-        let port = find_free_port();
-        let stdin = ByteArrayReader::new(b"This is stdin.");
-        let stdout = ByteArrayWriter::new();
-        let stdout_arc = stdout.inner_arc();
-        let stderr = ByteArrayWriter::new();
-        let stderr_arc = stderr.inner_arc();
-        let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
-        let rt = make_rt();
-        let stop_handle = rt.block_on(server.start());
-        let standard_broadcast_handler_factory =
-            Box::new(StandardBroadcastHandlerFactoryMock::default());
-        let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
-        subject.stdin = Box::new(stdin);
-        subject.stdout = Box::new(stdout);
-        subject.stderr = Box::new(stderr);
-
-        let response = subject.transact(UiShutdownRequest {}.tmb(1), 1000).unwrap();
-        let mut input = String::new();
-        subject.stdin().read_to_string(&mut input).unwrap();
-        write!(subject.stdout(), "This is stdout.").unwrap();
-        write!(subject.stderr(), "This is stderr.").unwrap();
-
-        assert_eq!(
-            UiShutdownResponse::fmb(response).unwrap(),
-            (UiShutdownResponse {}, 1)
-        );
-        assert_eq!(input, "This is stdin.".to_string());
-        assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "This is stdout.".to_string()
-        );
-        assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
-            "This is stderr.".to_string()
-        );
-        stop_handle.stop();
+        todo!("should I save this test???")
+        // running_test();
+        // let port = find_free_port();
+        // let stdout = ByteArrayWriter::new();
+        // let stdout_arc = stdout.inner_arc();
+        // let stderr = ByteArrayWriter::new();
+        // let stderr_arc = stderr.inner_arc();
+        // let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
+        // let rt = make_rt();
+        // let stop_handle = rt.block_on(server.start());
+        // let standard_broadcast_handler_factory =
+        //     Box::new(StandardBroadcastHandlerFactoryMock::default());
+        // let bootstrapper = ConnectionManagerBootstrapper::default();
+        // let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
+        // let mut term_interface = NonInteractiveWTermInterface::new(Box::new(stdout), Box::new(stderr));
+        //
+        // let response = subject.transact(UiShutdownRequest {}.tmb(1),1000).unwrap();
+        // write!(term_interface.stdout(), "This is stdout.").unwrap();
+        // write!(term_interface.stderr(), "This is stderr.").unwrap();
+        //
+        // assert_eq!(
+        //     UiShutdownResponse::fmb(response).unwrap(),
+        //     (UiShutdownResponse {}, 1)
+        // );
+        // assert_eq!(
+        //     stdout_arc.lock().unwrap().get_string(),
+        //     "This is stdout.".to_string()
+        // );
+        // assert_eq!(
+        //     stderr_arc.lock().unwrap().get_string(),
+        //     "This is stderr.".to_string()
+        // );
+        // stop_handle.stop();
     }
 
     #[test]
@@ -331,46 +307,47 @@ mod tests {
 
     #[test]
     fn send_works_when_everythings_fine() {
-        running_test();
-        let port = find_free_port();
-        let stdin = ByteArrayReader::new(b"This is stdin.");
-        let stdout = ByteArrayWriter::new();
-        let stdout_arc = stdout.inner_arc();
-        let stderr = ByteArrayWriter::new();
-        let stderr_arc = stderr.inner_arc();
-        let server = MockWebSocketsServer::new(port);
-        let rt = make_rt();
-        let stop_handle = rt.block_on(server.start());
-        let broadcast_handle = BroadcastHandleInactive;
-        let bootstrapper = ConnectionManagerBootstrapper::default();
-        let subject_result = CommandContextReal::new(port, &rt, None, &bootstrapper);
-        let mut subject = subject_result.unwrap();
-        subject.stdin = Box::new(stdin);
-        subject.stdout = Box::new(stdout);
-        subject.stderr = Box::new(stderr);
-        let msg = UiCrashRequest {
-            actor: "Dispatcher".to_string(),
-            panic_message: "Message".to_string(),
-        }
-        .tmb(0);
-
-        let result = subject.send(msg);
-
-        assert_eq!(result, Ok(()));
-        let mut input = String::new();
-        subject.stdin().read_to_string(&mut input).unwrap();
-        write!(subject.stdout(), "This is stdout.").unwrap();
-        write!(subject.stderr(), "This is stderr.").unwrap();
-
-        assert_eq!(input, "This is stdin.".to_string());
-        assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "This is stdout.".to_string()
-        );
-        assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
-            "This is stderr.".to_string()
-        );
-        stop_handle.stop();
+        todo!("should I preserve this test?");
+        // running_test();
+        // let port = find_free_port();
+        // let stdin = ByteArrayReader::new(b"This is stdin.");
+        // let stdout = ByteArrayWriter::new();
+        // let stdout_arc = stdout.inner_arc();
+        // let stderr = ByteArrayWriter::new();
+        // let stderr_arc = stderr.inner_arc();
+        // let server = MockWebSocketsServer::new(port);
+        // let rt = make_rt();
+        // let stop_handle = rt.block_on(server.start());
+        // let broadcast_handle = BroadcastHandleInactive;
+        // let bootstrapper = ConnectionManagerBootstrapper::default();
+        // let subject_result = CommandContextReal::new(port, &rt, None, &bootstrapper);
+        // let mut subject = subject_result.unwrap();
+        // subject.stdin = Box::new(stdin);
+        // subject.stdout = Box::new(stdout);
+        // subject.stderr = Box::new(stderr);
+        // let msg = UiCrashRequest {
+        //     actor: "Dispatcher".to_string(),
+        //     panic_message: "Message".to_string(),
+        // }
+        // .tmb(0);
+        //
+        // let result = subject.send_one_way(msg);
+        //
+        // assert_eq!(result, Ok(()));
+        // let mut input = String::new();
+        // subject.stdin().read_to_string(&mut input).unwrap();
+        // write!(subject.stdout(), "This is stdout.").unwrap();
+        // write!(subject.stderr(), "This is stderr.").unwrap();
+        //
+        // assert_eq!(input, "This is stdin.".to_string());
+        // assert_eq!(
+        //     stdout_arc.lock().unwrap().get_string(),
+        //     "This is stdout.".to_string()
+        // );
+        // assert_eq!(
+        //     stderr_arc.lock().unwrap().get_string(),
+        //     "This is stderr.".to_string()
+        // );
+        // stop_handle.stop();
     }
 }

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::terminal_interface::TerminalWrapper;
+use std::fmt::format;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
 #[cfg(target_os = "windows")]
@@ -8,16 +8,16 @@ use masq_lib::utils::exit_process;
 #[cfg(not(target_os = "windows"))]
 use masq_lib::utils::exit_process_with_sigterm;
 use std::io::Write;
+use crate::terminal::terminal_interface::WTermInterface;
 
 pub struct CrashNotifier {}
 
 impl CrashNotifier {
     pub fn handle_broadcast(
         response: UiNodeCrashedBroadcast,
-        stdout: &mut dyn Write,
-        term_interface: &TerminalWrapper,
+        term_interface: &mut dyn WTermInterface
     ) {
-        let _lock = term_interface.lock();
+        let mut stdout = term_interface.stdout();
         if response.crash_reason == CrashReason::DaemonCrashed {
             #[cfg(target_os = "windows")]
             exit_process(
@@ -28,12 +28,11 @@ impl CrashNotifier {
             #[cfg(not(target_os = "windows"))]
             exit_process_with_sigterm("\nThe Daemon is no longer running; masq is terminating.\n")
         }
-        short_writeln!(
-            stdout,
+        stdout.write(&format!(
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
             response.process_id,
             Self::dress_message (response.crash_reason)
-        );
+        ));
         stdout.flush().expect("flush failed");
     }
 

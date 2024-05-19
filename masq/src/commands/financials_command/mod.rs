@@ -29,7 +29,9 @@ use masq_lib::messages::{
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
-use std::io::Write;
+use std::io::{Stderr, Write};
+use async_trait::async_trait;
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -40,8 +42,11 @@ pub struct FinancialsCommand {
     // custom_queries_opt: Option<CustomQueryInput>,
 }
 
+#[async_trait]
 impl Command for FinancialsCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
@@ -49,11 +54,11 @@ impl Command for FinancialsCommand {
         };
         let queries_opt = input.custom_queries_opt.clone();
         let output: Result<UiFinancialsResponse, CommandError> =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
-            Ok(response) => self.process_command_response(queries_opt, response, context),
+            Ok(response) => self.process_command_response(queries_opt, response, stdout).await,
             Err(e) => {
-                short_writeln!(context.stderr(), "Financials retrieval failed: {:?}", e);
+                short_writeln!(stderr, "Financials retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -91,13 +96,12 @@ impl FinancialsCommand {
         })
     }
 
-    fn process_command_response(
+    async fn process_command_response(
         &self,
         queries_opt: Option<CustomQueries>,
         response: UiFinancialsResponse,
-        context: &mut dyn CommandContext,
+        stdout: &TerminalWriter,
     ) -> Result<(), CommandError> {
-        let stdout = context.stdout();
         if let Some(ref stats) = response.stats_opt {
             self.process_financial_statistics(stdout, stats, self.gwei_precision)
         };
@@ -108,14 +112,14 @@ impl FinancialsCommand {
                 results,
                 response.stats_opt.is_none(),
                 self.gwei_precision,
-            )
+            ).await
         }
         Ok(())
     }
 
     fn process_financial_statistics(
         &self,
-        stdout: &mut dyn Write,
+        stdout: &TerminalWriter,
         stats: &UiFinancialStatistics,
         gwei_flag: bool,
     ) {
@@ -135,10 +139,10 @@ impl FinancialsCommand {
         );
     }
 
-    fn process_queried_records(
+    async fn process_queried_records(
         &self,
         queries_opt: Option<CustomQueries>,
-        stdout: &mut dyn Write,
+        stdout: &TerminalWriter,
         returned_records: QueryResults,
         is_first_printed_thing: bool,
         gwei_flag: bool,
@@ -146,8 +150,8 @@ impl FinancialsCommand {
         let is_both_sets = self.are_both_sets_to_be_displayed();
         let (payable_metadata, receivable_metadata) = prepare_metadata(gwei_flag);
 
-        triple_or_single_blank_line(stdout, is_first_printed_thing);
-        main_title_for_tops_opt(self, stdout);
+        triple_or_single_blank_line(stdout, is_first_printed_thing).await;
+        main_title_for_tops_opt(self, stdout).await;
         self.process_returned_records_in_requested_mode(
             returned_records.payable_opt,
             stdout,
@@ -155,7 +159,7 @@ impl FinancialsCommand {
             Self::flat_map_option(&queries_opt, |q| q.payable_opt.clone()),
         );
         if is_both_sets {
-            triple_or_single_blank_line(stdout, false)
+            triple_or_single_blank_line(stdout, false).await
         }
         self.process_returned_records_in_requested_mode(
             returned_records.receivable_opt,
@@ -184,10 +188,10 @@ impl FinancialsCommand {
             })
     }
 
-    fn process_returned_records_in_requested_mode<A, R>(
+    async fn process_returned_records_in_requested_mode<A, R>(
         &self,
         returned_records_opt: Option<Vec<A>>,
-        stdout: &mut dyn Write,
+        stdout: &TerminalWriter,
         metadata: ProcessAccountsMetadata,
         range_query_opt: Option<RangeQuery<R>>,
     ) where
@@ -195,19 +199,19 @@ impl FinancialsCommand {
         R: ToPrimitive,
     {
         if self.top_records_opt.is_some() {
-            subtitle_for_tops(stdout, metadata.table_type);
+            subtitle_for_tops(stdout, metadata.table_type).await;
             let accounts = returned_records_opt.expectv(metadata.table_type);
             if !accounts.is_empty() {
-                render_accounts_generic(stdout, accounts, &metadata.headings);
+                render_accounts_generic(stdout, accounts, &metadata.headings).await;
             } else {
-                no_records_found(stdout, metadata.headings.words.as_slice())
+                no_records_found(stdout, metadata.headings.words.as_slice()).await
             }
         } else if let Some(range_query) = range_query_opt {
-            TwoRanges::title_for_custom_query(stdout, metadata.table_type, range_query);
+            TwoRanges::title_for_custom_query(stdout, metadata.table_type, range_query).await;
             if let Some(accounts) = returned_records_opt {
-                render_accounts_generic(stdout, accounts, &metadata.headings)
+                render_accounts_generic(stdout, accounts, &metadata.headings).await
             } else {
-                no_records_found(stdout, metadata.headings.words.as_slice())
+                no_records_found(stdout, metadata.headings.words.as_slice()).await
             }
         }
     }
@@ -275,7 +279,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
@@ -285,6 +289,7 @@ mod tests {
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use regex::Regex;
     use std::sync::{Arc, Mutex};
+    use nix::libc::clone;
 
     fn meaningless_financials_response() -> MessageBody {
         UiFinancialsResponse {
@@ -294,16 +299,17 @@ mod tests {
         .tmb(0)
     }
 
-    #[test]
-    fn command_factory_default_command() {
+    #[tokio::test]
+    async fn command_factory_default_command() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = factory.make(&["financials".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -321,13 +327,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn command_factory_top_records_without_stats() {
+    #[tokio::test]
+    async fn command_factory_top_records_without_stats() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -337,7 +344,7 @@ mod tests {
             ]))
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -358,13 +365,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn command_factory_everything_demanded_with_top_records() {
+    #[tokio::test]
+    async fn command_factory_everything_demanded_with_top_records() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -374,7 +382,7 @@ mod tests {
             ]))
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -395,13 +403,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn command_factory_everything_demanded_with_custom_queries() {
+    #[tokio::test]
+    async fn command_factory_everything_demanded_with_custom_queries() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -413,7 +422,7 @@ mod tests {
             ]))
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -603,8 +612,8 @@ mod tests {
         assert!(err.contains("Usage"))
     }
 
-    #[test]
-    fn financials_command_allows_shorthands_including_top_records() {
+    #[tokio::test]
+    async fn financials_command_allows_shorthands_including_top_records() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
@@ -618,9 +627,10 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -641,8 +651,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn financials_command_allows_shorthands_including_custom_query() {
+    #[tokio::test]
+    async fn financials_command_allows_shorthands_including_custom_query() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
@@ -656,9 +666,10 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -689,8 +700,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn financials_command_top_records_ordered_by_age_instead_of_balance() {
+    #[tokio::test]
+    async fn financials_command_top_records_ordered_by_age_instead_of_balance() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
@@ -703,9 +714,10 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
+        let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -800,8 +812,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn default_financials_command_happy_path() {
+    #[tokio::test]
+    async fn default_financials_command_happy_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
@@ -815,12 +827,13 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -968,19 +981,20 @@ mod tests {
         }
     }
 
-    #[test]
-    fn financials_command_stats_and_top_records_default_units_as_masq() {
+    #[tokio::test]
+    async fn financials_command_stats_and_top_records_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(true);
         let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "123"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1029,8 +1043,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_stats_and_custom_query_demanded_default_units_as_masq() {
+    #[tokio::test]
+    async fn financials_command_stats_and_custom_query_demanded_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(false);
         let args = slice_of_strs_to_vec_of_strings(&[
@@ -1043,11 +1057,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1104,19 +1119,20 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_statistics_and_top_records_with_gwei_precision() {
+    #[tokio::test]
+    async fn financials_command_statistics_and_top_records_with_gwei_precision() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(true);
         let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "123", "--gwei"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1166,8 +1182,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_statistics_and_custom_query_with_gwei_precision() {
+    #[tokio::test]
+    async fn financials_command_statistics_and_custom_query_with_gwei_precision() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(false);
         let args = slice_of_strs_to_vec_of_strings(&[
@@ -1181,11 +1197,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1240,8 +1257,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn custom_query_balance_range_can_be_shorthanded() {
+    #[tokio::test]
+    async fn custom_query_balance_range_can_be_shorthanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
@@ -1272,11 +1289,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1322,8 +1340,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_no_records_found_with_stats_and_top_records() {
+    #[tokio::test]
+    async fn financials_command_no_records_found_with_stats_and_top_records() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
@@ -1341,11 +1359,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1399,8 +1418,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_no_records_found_with_stats_and_custom_query() {
+    #[tokio::test]
+    async fn financials_command_no_records_found_with_stats_and_custom_query() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
@@ -1424,11 +1443,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1490,8 +1510,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_only_top_records_demanded() {
+    #[tokio::test]
+    async fn financials_command_only_top_records_demanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
@@ -1531,11 +1551,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1576,8 +1597,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_only_payable_demanded() {
+    #[tokio::test]
+    async fn financials_command_only_payable_demanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
@@ -1617,11 +1638,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1658,8 +1680,8 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_only_receivable_demanded() {
+    #[tokio::test]
+    async fn financials_command_only_receivable_demanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
@@ -1694,11 +1716,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1735,18 +1758,19 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[test]
-    fn financials_command_sad_path() {
+    #[tokio::test]
+    async fn financials_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();

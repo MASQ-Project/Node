@@ -10,6 +10,7 @@ use regex::{Captures, Regex};
 use std::fmt::Debug;
 use std::io::Write;
 use std::str::FromStr;
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
@@ -353,8 +354,8 @@ impl TwoRanges {
         captures.get(idx).map(|catch| catch.as_str().to_owned())
     }
 
-    pub fn title_for_custom_query<R>(
-        stdout: &mut dyn Write,
+    pub async fn title_for_custom_query<R>(
+        stdout: &TerminalWriter,
         table_type: &str,
         range_query: RangeQuery<R>,
     ) where

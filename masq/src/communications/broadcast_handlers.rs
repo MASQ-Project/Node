@@ -5,7 +5,6 @@ use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
@@ -22,6 +21,7 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -88,10 +88,10 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
     }
 }
 
-pub trait StandardBroadcastHandlerFactory {
+pub trait StandardBroadcastHandlerFactory: Send{
     fn make(
         &self,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>>;
 }
 
@@ -108,18 +108,18 @@ impl StandardBroadcastHandlerFactoryReal {
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
     fn make(
         &self,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         todo!()
     }
 }
 
-pub trait BroadcastHandler<Message> {
+pub trait BroadcastHandler<Message>: Send{
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<Message>>;
 }
 
 pub struct StandardBroadcastHandlerReal {
-    interactive_mode_dependencies_opt: Option<InteractiveModeDependencies>,
+    interactive_mode_dependencies_opt: Option<Box<dyn WTermInterface>>,
 }
 
 impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
@@ -157,7 +157,7 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
 }
 
 impl StandardBroadcastHandlerReal {
-    pub fn new(interactive_mode_dependencies_opt: Option<InteractiveModeDependencies>) -> Self {
+    pub fn new(interactive_mode_dependencies_opt: Option<Box<dyn WTermInterface>>) -> Self {
         Self {
             interactive_mode_dependencies_opt,
         }
@@ -165,21 +165,21 @@ impl StandardBroadcastHandlerReal {
 
     fn handle_message_body(
         message_body_result: Result<MessageBody, RecvError>,
-        stdout: &mut dyn Write,
-        stderr: &mut dyn Write,
-        terminal_interface: &TerminalWrapper,
+        terminal_interface: &mut dyn WTermInterface,
     ) -> bool {
+        let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
+        let (stderr, _stderr_flush_handle) = terminal_interface.stderr();
         match message_body_result {
             Err(_) => false, // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
-                    handle_ui_log_broadcast(body, stdout, terminal_interface)
+                    handle_ui_log_broadcast(body, terminal_interface)
                 } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast(body, stdout, terminal_interface);
+                    SetupCommand::handle_broadcast(body, terminal_interface);
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast(body, stdout, terminal_interface);
+                    CrashNotifier::handle_broadcast(body, terminal_interface);
                 } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast(body, stdout, terminal_interface);
+                    ChangePasswordCommand::handle_broadcast(body, terminal_interface);
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
                     handle_node_is_dead_while_f_f_on_the_way_broadcast(
@@ -191,31 +191,13 @@ impl StandardBroadcastHandlerReal {
                 {
                     ConnectionChangeNotification::handle_broadcast(
                         body,
-                        stdout,
                         terminal_interface,
                     );
                 } else {
-                    handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
+                    handle_unrecognized_broadcast(message_body, terminal_interface)
                 }
                 true
             }
-        }
-    }
-}
-
-pub struct InteractiveModeDependencies {
-    terminal_interface: TerminalWrapper,
-    stream_factory: Box<dyn StreamFactory>,
-}
-
-impl InteractiveModeDependencies {
-    pub fn new(
-        terminal_interface: TerminalWrapper,
-        stream_factory: Box<dyn StreamFactory>,
-    ) -> Self {
-        Self {
-            terminal_interface,
-            stream_factory,
         }
     }
 }
@@ -252,40 +234,30 @@ impl StreamFactory for StreamFactoryNull {
 
 pub fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
     body: UiUndeliveredFireAndForget,
-    stdout: &mut dyn Write,
-    term_interface: &TerminalWrapper,
+    stdout: &mut dyn WTermInterface,
+    stderr: &mut dyn WTermInterface,
 ) {
-    let _lock = term_interface.lock();
-    short_writeln!(
-        stdout,
-        "\nCannot handle {} request: Node is not running.\n",
+    stdout.write(&format!("\nCannot handle {} request: Node is not running.\n",
         body.opcode
-    );
-    stdout.flush().expect("flush failed");
+    ))
 }
 
 pub fn handle_unrecognized_broadcast(
     message_body: MessageBody,
-    stderr: &mut dyn Write,
-    term_interface: &TerminalWrapper,
+    stdout: &mut dyn WTermInterface,
+    stderr: &mut dyn WTermInterface,
 ) {
-    let _lock = term_interface.lock();
-    short_writeln!(
-        stderr,
-        "Discarding unrecognized broadcast with opcode '{}'\n",
+    stderr.write(&format!("Discarding unrecognized broadcast with opcode '{}'\n",
         message_body.opcode
-    );
-    stderr.flush().expect("flush failed");
+    ))
 }
 
 pub fn handle_ui_log_broadcast(
     body: UiLogBroadcast,
-    stdout: &mut dyn Write,
-    term_interface: &TerminalWrapper,
+    stdout: &mut dyn WTermInterface,
+    stderr: &mut dyn WTermInterface,
 ) {
-    let _lock = term_interface.lock();
-    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg);
-    stdout.flush().expect("flush failed");
+    stdout.write(&format!("\n\n>>  {:?}: {}\n", body.log_level, body.msg))
 }
 
 pub struct RedirectBroadcastHandle {
@@ -332,7 +304,7 @@ impl RedirectBroadcastHandle {
 //     }
 // }
 
-pub trait RedirectBroadcastHandleFactory {
+pub trait RedirectBroadcastHandleFactory: Send {
     fn make(
         &self,
         redirect_order_tx: UnboundedSender<RedirectOrder>,
@@ -741,114 +713,115 @@ Cannot handle crash request: Node is not running.
         broadcast_msg: U,
         broadcast_desired_output: &str,
     ) where
-        F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
+        F: FnOnce(U, &mut dyn WTermInterface) + Copy,
         U: Debug + PartialEq + Clone,
     {
-        let (tx, rx) = unbounded();
-        let mut stdout = StdoutBlender::new(tx);
-        let stdout_clone = stdout.clone();
-        let stdout_second_clone = stdout.clone();
-        let synchronizer = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
-        let synchronizer_clone_idle = synchronizer.clone();
-
-        //synchronized part proving that the broadcast print is synchronized
-        let full_stdout_output_sync = background_thread_making_interferences(
-            true,
-            &mut stdout,
-            Box::new(stdout_clone),
-            synchronizer,
-            broadcast_handler,
-            broadcast_msg.clone(),
-            rx.clone(),
-        );
-
-        assert!(
-            full_stdout_output_sync.contains(broadcast_desired_output),
-            "The message from the broadcast handle isn't correct or entire: {}",
-            full_stdout_output_sync
-        );
-        assert!(
-            full_stdout_output_sync.contains(&format!("{}", "*".repeat(40))),
-            "Each group of 40 asterisks must keep together: {}",
-            full_stdout_output_sync
-        );
-
-        //unsynchronized part proving that the broadcast print would be messed without synchronization
-        let full_stdout_output_without_sync = background_thread_making_interferences(
-            false,
-            &mut stdout,
-            Box::new(stdout_second_clone),
-            synchronizer_clone_idle,
-            broadcast_handler,
-            broadcast_msg,
-            rx,
-        );
-
-        let prefabricated_string = full_stdout_output_without_sync
-            .chars()
-            .filter(|char| *char == '*' || *char == ' ')
-            .collect::<String>();
-        let incomplete_row = prefabricated_string
-            .split(' ')
-            .find(|row| !row.contains(&"*".repeat(40)) && row.contains("*"));
-        assert!(
-            incomplete_row.is_some(),
-            "There mustn't be 40 asterisks together at one of these: {}",
-            full_stdout_output_without_sync
-        );
-        let asterisks_count = full_stdout_output_without_sync
-            .chars()
-            .filter(|char| *char == '*')
-            .count();
-        assert_eq!(
-            asterisks_count, 40,
-            "The count of asterisks isn't 40 but: {}",
-            asterisks_count
-        );
+        todo!()
+        // let (tx, rx) = unbounded();
+        // let mut stdout = StdoutBlender::new(tx);
+        // let stdout_clone = stdout.clone();
+        // let stdout_second_clone = stdout.clone();
+        // let synchronizer = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
+        // let synchronizer_clone_idle = synchronizer.clone();
+        //
+        // //synchronized part proving that the broadcast print is synchronized
+        // let full_stdout_output_sync = background_thread_making_interferences(
+        //     true,
+        //     &mut stdout,
+        //     Box::new(stdout_clone),
+        //     synchronizer,
+        //     broadcast_handler,
+        //     broadcast_msg.clone(),
+        //     rx.clone(),
+        // );
+        //
+        // assert!(
+        //     full_stdout_output_sync.contains(broadcast_desired_output),
+        //     "The message from the broadcast handle isn't correct or entire: {}",
+        //     full_stdout_output_sync
+        // );
+        // assert!(
+        //     full_stdout_output_sync.contains(&format!("{}", "*".repeat(40))),
+        //     "Each group of 40 asterisks must keep together: {}",
+        //     full_stdout_output_sync
+        // );
+        //
+        // //unsynchronized part proving that the broadcast print would be messed without synchronization
+        // let full_stdout_output_without_sync = background_thread_making_interferences(
+        //     false,
+        //     &mut stdout,
+        //     Box::new(stdout_second_clone),
+        //     synchronizer_clone_idle,
+        //     broadcast_handler,
+        //     broadcast_msg,
+        //     rx,
+        // );
+        //
+        // let prefabricated_string = full_stdout_output_without_sync
+        //     .chars()
+        //     .filter(|char| *char == '*' || *char == ' ')
+        //     .collect::<String>();
+        // let incomplete_row = prefabricated_string
+        //     .split(' ')
+        //     .find(|row| !row.contains(&"*".repeat(40)) && row.contains("*"));
+        // assert!(
+        //     incomplete_row.is_some(),
+        //     "There mustn't be 40 asterisks together at one of these: {}",
+        //     full_stdout_output_without_sync
+        // );
+        // let asterisks_count = full_stdout_output_without_sync
+        //     .chars()
+        //     .filter(|char| *char == '*')
+        //     .count();
+        // assert_eq!(
+        //     asterisks_count, 40,
+        //     "The count of asterisks isn't 40 but: {}",
+        //     asterisks_count
+        // );
     }
 
-    fn background_thread_making_interferences<F, U>(
-        sync: bool,
-        stdout: &mut dyn Write,
-        mut stdout_clone: Box<dyn Write + Send>,
-        synchronizer: TerminalWrapper,
-        broadcast_handler: F,
-        broadcast_message_body: U,
-        mixed_stdout_receiver: Receiver<String>,
-    ) -> String
-    where
-        F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
-        U: Debug + PartialEq + Clone,
-    {
-        let synchronizer_clone = synchronizer.clone();
-        let (sync_tx, sync_rx) = bounded(1);
-        let interference_thread_handle = thread::spawn(move || {
-            let _lock = if sync {
-                Some(synchronizer.lock())
-            } else {
-                None
-            };
-            (0..40).into_iter().for_each(|i| {
-                stdout_clone.write(b"*").unwrap();
-                thread::sleep(Duration::from_millis(1));
-                if i == 5 {
-                    sync_tx.send(()).unwrap()
-                };
-            });
-            drop(_lock)
-        });
-        sync_rx.recv().unwrap();
-        broadcast_handler(broadcast_message_body.clone(), stdout, &synchronizer_clone);
-
-        interference_thread_handle.join().unwrap();
-
-        let mut buffer = String::new();
-        let full_stdout_output = loop {
-            match mixed_stdout_receiver.try_recv() {
-                Ok(string) => buffer.push_str(&string),
-                Err(_) => break buffer,
-            }
-        };
-        full_stdout_output
-    }
+    // fn background_thread_making_interferences<F, U>(
+    //     sync: bool,
+    //     stdout: &mut dyn Write,
+    //     mut stdout_clone: Box<dyn Write + Send>,
+    //     synchronizer: TerminalWrapper,
+    //     broadcast_handler: F,
+    //     broadcast_message_body: U,
+    //     mixed_stdout_receiver: Receiver<String>,
+    // ) -> String
+    // where
+    //     F: FnOnce(U, &mut dyn WTermInterface) + Copy,
+    //     U: Debug + PartialEq + Clone,
+    // {
+    //     let synchronizer_clone = synchronizer.clone();
+    //     let (sync_tx, sync_rx) = bounded(1);
+    //     let interference_thread_handle = thread::spawn(move || {
+    //         let _lock = if sync {
+    //             Some(synchronizer.lock())
+    //         } else {
+    //             None
+    //         };
+    //         (0..40).into_iter().for_each(|i| {
+    //             stdout_clone.write(b"*").unwrap();
+    //             thread::sleep(Duration::from_millis(1));
+    //             if i == 5 {
+    //                 sync_tx.send(()).unwrap()
+    //             };
+    //         });
+    //         drop(_lock)
+    //     });
+    //     sync_rx.recv().unwrap();
+    //     broadcast_handler(broadcast_message_body.clone(), stdout, &synchronizer_clone);
+    //
+    //     interference_thread_handle.join().unwrap();
+    //
+    //     let mut buffer = String::new();
+    //     let full_stdout_output = loop {
+    //         match mixed_stdout_receiver.try_recv() {
+    //             Ok(string) => buffer.push_str(&string),
+    //             Err(_) => break buffer,
+    //         }
+    //     };
+    //     full_stdout_output
+    // }
 }

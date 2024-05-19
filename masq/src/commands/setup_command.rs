@@ -2,7 +2,6 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::Command as ClapCommand;
 use itertools::Itertools;
 use masq_lib::constants::SETUP_ERROR;
@@ -19,6 +18,9 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::iter::Iterator;
+use async_trait::async_trait;
+use futures::future::join_all;
+use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -44,8 +46,9 @@ pub struct SetupCommand {
     pub values: Vec<UiSetupRequestValue>,
 }
 
+#[async_trait]
 impl Command for SetupCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         let out_message = UiSetupRequest {
             values: self.values.clone(),
         };
@@ -98,11 +101,10 @@ impl SetupCommand {
 
     pub fn handle_broadcast(
         response: UiSetupBroadcast,
-        stdout: &mut dyn Write,
-        term_interface: &TerminalWrapper,
+        term_interface: &mut dyn WTermInterface,
     ) {
-        let _lock = term_interface.lock();
-        short_writeln!(stdout, "\nDaemon setup has changed:\n");
+        let mut stdout = term_interface.stdout();
+        stdout.write("\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout);
         stdout.flush().expect("flush failed");
     }
@@ -116,7 +118,7 @@ impl SetupCommand {
         }
     }
 
-    fn dump_setup(mut inner: UiSetupInner, stdout: &mut dyn Write) {
+    async fn dump_setup(mut inner: UiSetupInner, stdout: &TerminalWriter) {
         inner.values.sort_by(|a, b| {
             a.name
                 .partial_cmp(&b.name)
@@ -138,7 +140,7 @@ impl SetupCommand {
             .map(chain_and_data_dir)
             .expect("data-directory is missing in setup cluster!");
 
-        inner.values.into_iter().for_each(|value| {
+        join_all(inner.values.into_iter().map(|value| async move{
             short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
@@ -146,13 +148,13 @@ impl SetupCommand {
                 value.value,
                 value.status
             );
-        });
+        })).await;
         short_writeln!(stdout);
         if !inner.errors.is_empty() {
             short_writeln!(stdout, "ERRORS:");
-            inner.errors.into_iter().for_each(|(parameter, reason)| {
+            join_all(inner.errors.into_iter().map(|(parameter, reason)| async move{
                 short_writeln!(stdout, "{:29} {}", parameter, reason)
-            });
+            })).await;
             short_writeln!(stdout);
         }
         if inner.running {

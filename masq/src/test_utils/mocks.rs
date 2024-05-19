@@ -15,7 +15,6 @@ use crate::non_interactive_clap::{
 };
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
-use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Signal};
@@ -29,8 +28,10 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+use async_trait::async_trait;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
+use crate::terminal::terminal_interface::{FlushHandle, TerminalWriter, WTermInterface};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -66,14 +67,14 @@ impl CommandFactoryMock {
 
 pub struct CommandContextMock {
     active_port_results: RefCell<Vec<Option<u16>>>,
-    send_params: Arc<Mutex<Vec<MessageBody>>>,
-    send_results: RefCell<Vec<Result<(), ContextError>>>,
+    send_one_way_params: Arc<Mutex<Vec<MessageBody>>>,
+    send_one_way_results: RefCell<Vec<Result<(), ContextError>>>,
     transact_params: Arc<Mutex<Vec<(MessageBody, u64)>>>,
     transact_results: RefCell<Vec<Result<MessageBody, ContextError>>>,
-    stdout: Box<dyn Write>,
-    stdout_arc: Arc<Mutex<ByteArrayWriterInner>>,
-    stderr: Box<dyn Write>,
-    stderr_arc: Arc<Mutex<ByteArrayWriterInner>>,
+    // stdout: Box<dyn Write>,
+    // stdout_arc: Arc<Mutex<ByteArrayWriterInner>>,
+    // stderr: Box<dyn Write>,
+    // stderr_arc: Arc<Mutex<ByteArrayWriterInner>>,
 }
 
 impl CommandContext for CommandContextMock {
@@ -81,9 +82,9 @@ impl CommandContext for CommandContextMock {
         self.active_port_results.borrow_mut().remove(0)
     }
 
-    fn send(&mut self, message: MessageBody) -> Result<(), ContextError> {
-        self.send_params.lock().unwrap().push(message);
-        self.send_results.borrow_mut().remove(0)
+    fn send_one_way(&mut self, message: MessageBody) -> Result<(), ContextError> {
+        self.send_one_way_params.lock().unwrap().push(message);
+        self.send_one_way_results.borrow_mut().remove(0)
     }
 
     fn transact(
@@ -96,18 +97,6 @@ impl CommandContext for CommandContextMock {
             .unwrap()
             .push((message, timeout_millis));
         self.transact_results.borrow_mut().remove(0)
-    }
-
-    fn stdin(&mut self) -> &mut dyn Read {
-        unimplemented!()
-    }
-
-    fn stdout(&mut self) -> &mut dyn Write {
-        &mut self.stdout
-    }
-
-    fn stderr(&mut self) -> &mut dyn Write {
-        &mut self.stderr
     }
 
     fn close(&mut self) {
@@ -123,14 +112,14 @@ impl Default for CommandContextMock {
         let stderr_arc = stderr.inner_arc();
         Self {
             active_port_results: RefCell::new(vec![]),
-            send_params: Arc::new(Mutex::new(vec![])),
-            send_results: RefCell::new(vec![]),
+            send_one_way_params: Arc::new(Mutex::new(vec![])),
+            send_one_way_results: RefCell::new(vec![]),
             transact_params: Arc::new(Mutex::new(vec![])),
             transact_results: RefCell::new(vec![]),
-            stdout: Box::new(stdout),
-            stdout_arc,
-            stderr: Box::new(stderr),
-            stderr_arc,
+            // stdout: Box::new(stdout),
+            // stdout_arc,
+            // stderr: Box::new(stderr),
+            // stderr_arc,
         }
     }
 }
@@ -145,13 +134,13 @@ impl CommandContextMock {
         self
     }
 
-    pub fn send_params(mut self, params: &Arc<Mutex<Vec<MessageBody>>>) -> Self {
-        self.send_params = params.clone();
+    pub fn send_one_way_params(mut self, params: &Arc<Mutex<Vec<MessageBody>>>) -> Self {
+        self.send_one_way_params = params.clone();
         self
     }
 
-    pub fn send_result(self, result: Result<(), ContextError>) -> Self {
-        self.send_results.borrow_mut().push(result);
+    pub fn send_one_way_result(self, result: Result<(), ContextError>) -> Self {
+        self.send_one_way_results.borrow_mut().push(result);
         self
     }
 
@@ -165,49 +154,38 @@ impl CommandContextMock {
         self
     }
 
-    pub fn stdout_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
-        self.stdout_arc.clone()
-    }
-
-    pub fn stderr_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
-        self.stderr_arc.clone()
-    }
+    // pub fn stdout_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
+    //     self.stdout_arc.clone()
+    // }
+    //
+    // pub fn stderr_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
+    //     self.stderr_arc.clone()
+    // }
 }
 
 #[derive(Default)]
 pub struct CommandProcessorMock {
     process_params: Arc<Mutex<Vec<Box<dyn Command>>>>,
     process_results: RefCell<Vec<Result<(), CommandError>>>,
-    close_params: Arc<Mutex<Vec<()>>>,
-    terminal_interface: Option<TerminalWrapper>,
+    close_params: Arc<Mutex<Vec<()>>>
 }
 
+#[async_trait]
 impl CommandProcessor for CommandProcessorMock {
-    fn process(&mut self, command: Box<dyn Command>) -> Result<(), CommandError> {
-        self.process_params.lock().unwrap().push(command);
-        self.process_results.borrow_mut().remove(0)
+    async fn process(&mut self, init_args_opt: Option<&[String]>) -> Result<(), CommandError> {
+        todo!()
+        // self.process_params.lock().unwrap().push(command);
+        // self.process_results.borrow_mut().remove(0)
     }
 
     fn close(&mut self) {
         self.close_params.lock().unwrap().push(());
-    }
-
-    fn terminal_wrapper_ref(&self) -> &TerminalWrapper {
-        self.terminal_interface.as_ref().unwrap()
     }
 }
 
 impl CommandProcessorMock {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn inject_terminal_interface(
-        mut self,
-        terminal_interface_arc_clone: TerminalWrapper,
-    ) -> Self {
-        self.terminal_interface = Some(terminal_interface_arc_clone);
-        self
     }
 
     pub fn process_params(mut self, params: &Arc<Mutex<Vec<Box<dyn Command>>>>) -> Self {
@@ -228,21 +206,21 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, u16)>>>,
+    make_params: Arc<Mutex<Vec<(bool, u16)>>>,
     make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
+#[async_trait]
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
-    fn make(
+    async fn make(
         &self,
-        _runtime_ref: &Runtime,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        is_interactive: bool,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params
             .lock()
             .unwrap()
-            .push((terminal_interface_opt, ui_port));
+            .push((is_interactive, ui_port));
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -252,7 +230,7 @@ impl CommandProcessorFactoryMock {
         Self::default()
     }
 
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(Option<TerminalWrapper>, u16)>>>) -> Self {
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(bool, u16)>>>) -> Self {
         self.make_params = params.clone();
         self
     }
@@ -290,8 +268,9 @@ impl std::fmt::Debug for MockCommand {
     }
 }
 
+#[async_trait]
 impl Command for MockCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(&self, context: &mut dyn CommandContext, term_interface: &mut dyn WTermInterface) -> Result<(), CommandError> {
         write!(context.stdout(), "MockCommand output").unwrap();
         write!(context.stderr(), "MockCommand error").unwrap();
         match context.transact(self.message.clone(), 1000) {
@@ -724,14 +703,14 @@ impl StandardBroadcastHandlerMock {
 
 #[derive(Default)]
 pub struct StandardBroadcastHandlerFactoryMock {
-    make_params: Arc<Mutex<Vec<Option<TerminalWrapper>>>>,
+    make_params: Arc<Mutex<Vec<Option<Box<dyn WTermInterface>>>>>,
     make_results: RefCell<Vec<Box<dyn BroadcastHandler<MessageBody>>>>,
 }
 
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
     fn make(
         &self,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         self.make_params
             .lock()
@@ -768,4 +747,30 @@ impl RedirectBroadcastHandleFactoryMock {
         self.make_results.borrow_mut().push(result);
         self
     }
+}
+
+#[derive(Default)]
+pub struct WTermInterfaceMock{
+
+}
+
+impl WTermInterface for WTermInterfaceMock{
+    fn stdout(&self) -> (&TerminalWriter, &dyn FlushHandle) {
+        todo!()
+    }
+
+    fn stderr(&self) -> (&TerminalWriter, &dyn FlushHandle) {
+        todo!()
+    }
+}
+
+impl WTermInterfaceMock {
+    pub fn stdout_arc(&self)->&Arc<Mutex<ByteArrayWriter>>{
+        todo!()
+    }
+
+    pub fn stderr_arc(&self)->&Arc<Mutex<ByteArrayWriter>>{
+        todo!()
+    }
+
 }
