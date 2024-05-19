@@ -45,7 +45,7 @@ pub fn configuration_subcommand() -> ClapCommand {
 #[async_trait]
 impl Command for ConfigurationCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -226,6 +226,7 @@ mod tests {
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
@@ -293,7 +294,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -357,7 +358,7 @@ mod tests {
             ConfigurationCommand::new(&["configuration".to_string(), "password".to_string()])
                 .unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -456,7 +457,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -521,7 +522,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

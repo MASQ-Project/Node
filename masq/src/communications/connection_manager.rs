@@ -71,8 +71,8 @@ pub struct ConnectionManager {
 }
 
 pub struct ConnectionManagerBootstrapper {
-    // pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-    // pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
+    pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
+    pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
 }
 
 impl Default for ConnectionManagerBootstrapper {

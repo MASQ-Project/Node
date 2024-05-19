@@ -58,7 +58,7 @@ pub fn crash_subcommand() -> ClapCommand {
 #[async_trait]
 impl Command for CrashCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -98,6 +98,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
@@ -223,7 +224,7 @@ mod tests {
         ])
         .unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

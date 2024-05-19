@@ -9,6 +9,7 @@ use log::Metadata;
 use log::Record;
 use regex::Regex;
 use std::cell::RefCell;
+use crate::test_utils::fake_stream_holder::ByteArrayHelperMethods;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;

@@ -97,7 +97,7 @@ impl RecoverWalletsCommand {
 #[async_trait]
 impl Command for RecoverWalletsCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -261,6 +261,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
 
@@ -520,7 +521,7 @@ mod tests {
             earning: Either::Right("earning path".to_string()),
         };
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -570,7 +571,7 @@ mod tests {
             earning: Either::Left("earning address".to_string()),
         };
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

@@ -13,6 +13,7 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
+use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
@@ -38,7 +39,7 @@ pub fn connection_status_subcommand() -> ClapCommand {
 #[async_trait]
 impl Command for ConnectionStatusCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -130,7 +131,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConnectionStatusCommand::new();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -189,7 +190,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConnectionStatusCommand::new();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -223,7 +224,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = ConnectionStatusCommand::new();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

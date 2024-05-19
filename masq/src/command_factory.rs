@@ -25,66 +25,66 @@ pub enum CommandFactoryError {
     CommandSyntax(String),
 }
 
-pub trait CommandFactory {
-    fn make(&self, pieces: &[String]) -> Result<Arc<dyn Command>, CommandFactoryError>;
+pub trait CommandFactory: Send{
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError>;
 }
 
 #[derive(Default)]
 pub struct CommandFactoryReal;
 
 impl CommandFactory for CommandFactoryReal {
-    fn make(&self, pieces: &[String]) -> Result<Arc<dyn Command>, CommandFactoryError> {
-        let boxed_command: Arc<dyn Command> = match pieces[0].as_str() {
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
+        let boxed_command: Box<dyn Command> = match pieces[0].as_str() {
             "change-password" => match ChangePasswordCommand::new_change(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "check-password" => match CheckPasswordCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "configuration" => match ConfigurationCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
-            "connection-status" => Arc::new(ConnectionStatusCommand::new()),
+            "connection-status" => Box::new(ConnectionStatusCommand::new()),
             "crash" => match CrashCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
-            "descriptor" => Arc::new(DescriptorCommand::new()),
+            "descriptor" => Box::new(DescriptorCommand::new()),
             "financials" => match FinancialsCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "recover-wallets" => match RecoverWalletsCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "scan" => match ScanCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "set-configuration" => match SetConfigurationCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "set-password" => match ChangePasswordCommand::new_set(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "setup" => match SetupCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
-            "shutdown" => Arc::new(ShutdownCommand::new()),
-            "start" => Arc::new(StartCommand::new()),
+            "shutdown" => Box::new(ShutdownCommand::new()),
+            "start" => Box::new(StartCommand::new()),
             "wallet-addresses" => match WalletAddressesCommand::new(pieces) {
-                Ok(command) => Arc::new(command),
+                Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             unrecognized => return Err(UnrecognizedSubcommand(unrecognized.to_string())),

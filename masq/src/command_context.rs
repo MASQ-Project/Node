@@ -110,17 +110,16 @@ impl CommandContext for CommandContextReal {
 }
 
 impl CommandContextReal {
-    pub fn new(
+    pub async fn new(
         daemon_ui_port: u16,
-        rt_ref: &Runtime,
         terminal_interface_opt: Option<Box<dyn WTermInterface>>,
         bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
-        let result = rt_ref.block_on(bootstrapper.spawn_background_loops(
+        let result = bootstrapper.spawn_background_loops(
             daemon_ui_port,
             terminal_interface_opt,
             REDIRECT_TIMEOUT_MILLIS,
-        ));
+        ).await;
         let connectors = match result {
             Ok(c) => c,
             Err(e) => return Err(ConnectionRefused(format!("{:?}", e))),
@@ -191,18 +190,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sets_active_port_correctly_initially() {
+    #[tokio::test]
+    async fn sets_active_port_correctly_initially() {
         running_test();
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let rt = make_rt();
-        let handle = rt.block_on(server.start());
+        let handle = server.start().await;
         let standard_broadcast_handler_factory =
             Box::new(StandardBroadcastHandlerFactoryMock::default());
         let bootstrapper = ConnectionManagerBootstrapper::default();
 
-        let subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
+        let subject = CommandContextReal::new(port, None, &bootstrapper).await.unwrap();
 
         assert_eq!(subject.active_port(), Some(port));
         handle.stop();
@@ -245,15 +243,14 @@ mod tests {
         // stop_handle.stop();
     }
 
-    #[test]
-    fn works_when_server_isnt_present() {
+    #[tokio::test]
+    async fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
         let broadcast_handle = BroadcastHandleInactive;
         let bootstrapper = ConnectionManagerBootstrapper::default();
-        let rt = make_rt();
 
-        let result = CommandContextReal::new(port, &rt, None, &bootstrapper);
+        let result = CommandContextReal::new(port, None, &bootstrapper).await;
 
         match result {
             Err(ConnectionRefused(_)) => (),
@@ -262,8 +259,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn transact_works_when_server_sends_payload_error() {
+    #[tokio::test]
+    async fn transact_works_when_server_sends_payload_error() {
         running_test();
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_response(MessageBody {
@@ -271,11 +268,10 @@ mod tests {
             path: Conversation(1),
             payload: Err((101, "booga".to_string())),
         });
-        let rt = make_rt();
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let broadcast_handle = BroadcastHandleInactive;
         let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
+        let mut subject = CommandContextReal::new(port, None, &bootstrapper).await.unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -283,16 +279,15 @@ mod tests {
         stop_handle.stop();
     }
 
-    #[test]
-    fn transact_works_when_server_sends_connection_error() {
+    #[tokio::test]
+    async fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
-        let rt = make_rt();
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let broadcast_handle = BroadcastHandleInactive;
         let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, &rt, None, &bootstrapper).unwrap();
+        let mut subject = CommandContextReal::new(port, None, &bootstrapper).await.unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 

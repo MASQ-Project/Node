@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::pin::Pin;
 use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
@@ -9,11 +10,12 @@ use async_trait::async_trait;
 use masq_lib::utils::ExpectValue;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use crate::terminal::terminal_interface::WTermInterface;
 
 #[async_trait]
-pub trait CommandProcessorFactory {
+pub trait CommandProcessorFactory: Send + Sync{
     async fn make(
-        &self,
+        self: Arc<Self>,
         is_interactive: bool,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
@@ -26,26 +28,28 @@ pub struct CommandProcessorFactoryReal {
 #[async_trait]
 impl CommandProcessorFactory for CommandProcessorFactoryReal {
     async fn make(
-        &self,
+        self: Arc<Self>,
         is_interactive: bool,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         //TODO is CommandError proper?
 
+        let make_context = |term_interface_opt| async {
+            match CommandContextReal::new(ui_port, term_interface_opt, &self.bootstrapper).await {
+                Ok(context) => Ok(context),
+                Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
+                Err(e) => panic!("Unexpected error: {:?}", e),
+            }
+        };
+
         if is_interactive {
             todo!()
         } else {
             todo!()
-        }
+        };
 
-        // match CommandContextReal::new(ui_port, rt_ref, &self.bootstrapper) {
-        //     Ok(context) => {
-        //         let processor = Box::new(CommandProcessorReal { context });
-        //         Ok(processor)
-        //     }
-        //     Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
-        //     Err(e) => panic!("Unexpected error: {:?}", e),
-        // }
+
+
     }
 }
 
@@ -114,7 +118,7 @@ mod tests {
     use crate::command_context::CommandContext;
     use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handlers::{
-        BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal, StreamFactoryNull,
+        BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal,
     };
     use crate::terminal::terminal_interface::WTermInterface;
     use crate::test_utils::mocks::{
@@ -133,7 +137,6 @@ mod tests {
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactoryReal::default();
-        let rt = make_rt();
 
         let result = Arc::new(subject).make(is_interactive, ui_port).await;
 
@@ -266,7 +269,7 @@ mod tests {
     #[async_trait]
     impl Command for TameCommand {
         async fn execute(
-            self: Arc<Self>,
+            self: Box<Self>,
             _context: &mut dyn CommandContext,
             term_interface: &mut dyn WTermInterface,
         ) -> Result<(), CommandError> {

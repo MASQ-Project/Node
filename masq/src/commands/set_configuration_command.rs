@@ -41,7 +41,7 @@ impl SetConfigurationCommand {
 #[async_trait]
 impl Command for SetConfigurationCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -97,6 +97,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
     };
@@ -143,7 +144,7 @@ mod tests {
             value: "123456".to_string(),
         };
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

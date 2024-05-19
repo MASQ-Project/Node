@@ -22,18 +22,21 @@ use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::TrafficConversionError;
 use std::io::Write;
 use std::ops::Not;
-use tokio::io::AsyncWrite;
+use std::pin::pin;
+use std::sync::Arc;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::runtime::Runtime;
+use masq_lib::test_utils::fake_stream_holder::AsyncByteArrayWriter;
 
 pub struct Main {
     non_interactive_clap_factory: Box<dyn NonInteractiveClapFactory>,
     command_factory: Box<dyn CommandFactory>,
-    processor_factory: Box<dyn CommandProcessorFactory>,
+    processor_factory: Arc<dyn CommandProcessorFactory>,
 }
 
 #[async_trait]
-pub trait Command {
-    async fn go(&mut self, args: &[String], stderr: &dyn AsyncWrite) -> u8;
+pub trait Command: Send {
+    async fn go(self: Box<Self>, args: &[String], stderr:  &mut (dyn AsyncWrite + Send + Unpin)) -> u8;
 }
 
 impl Default for Main {
@@ -44,7 +47,7 @@ impl Default for Main {
 
 #[async_trait]
 impl Command for Main {
-    async fn go(&mut self, args: &[String], stderr: &dyn AsyncWrite) -> u8 {
+    async fn go(self: Box<Self>, args: &[String], stderr: &mut (dyn AsyncWrite + Send + Unpin)) -> u8 {
         let initialization_args = self.parse_initialization_args(args);
         let subcommand_opt = Self::extract_subcommand(args);
         // let terminal_interface = match Self::initialize_terminal_interface(subcommand_opt.is_none())
@@ -63,17 +66,17 @@ impl Command for Main {
         {
             Ok(processor) => processor,
             Err(error) => {
-                short_writeln!(
-                    stderr,
+                //TODO maybe hide into a fn
+                    stderr.write(format!(
                     "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon \
-                    isn't running.",
+                    isn't running.\n",
                     error
-                );
+                ).as_bytes()).await.expect("Error writing failed");
                 return Self::bool_into_numeric_code(false);
             }
         };
 
-        let result = match command_processor.process(subcommand_opt) {
+        let result = match command_processor.process(subcommand_opt.as_deref()).await {
             Ok(_) => todo!(),
             Err(e) => todo!(),
         };
@@ -87,7 +90,7 @@ impl Main {
         Self {
             non_interactive_clap_factory: Box::new(NonInteractiveClapFactoryReal),
             command_factory: Box::new(CommandFactoryReal),
-            processor_factory: Box::new(CommandProcessorFactoryReal::new(
+            processor_factory: Arc::new(CommandProcessorFactoryReal::new(
                 ConnectionManagerBootstrapper::default(),
             )),
         }
@@ -228,10 +231,8 @@ mod tests {
     use crate::commands::setup_command::SetupCommand;
     use crate::terminal::line_reader::TerminalEvent;
     use crate::terminal::terminal_interface::WTermInterface;
-    use crate::test_utils::mocks::{
-        CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock,
-        MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory, WTermInterfaceMock,
-    };
+    use masq_lib::test_utils::fake_stream_holder::{ByteArrayHelperMethods};
+    use crate::test_utils::mocks::{CommandContextMock, CommandFactoryMock, CommandProcessorFactoryMock, CommandProcessorMock, make_terminal_writer, MockCommand, NIClapFactoryMock, TerminalPassiveMock, TestStreamFactory, WTermInterfaceMock};
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -262,11 +263,11 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
+        let (mut stderr, stderr_clone) = make_async_std_stream();
 
-        let result = subject.go(
-            &mut FakeStreamHolder::new().streams(),
+        let result = Box::new(subject).go(
             &[
                 "command",
                 "subcommand",
@@ -278,7 +279,8 @@ mod tests {
             .iter()
             .map(|str| str.to_string())
             .collect::<Vec<String>>(),
-        );
+            stderr.as_mut()
+        ).await;
 
         assert_eq!(result, 0);
         let c_make_params = c_make_params_arc.lock().unwrap();
@@ -292,9 +294,10 @@ mod tests {
             ]
         );
         let mut p_make_params = p_make_params_arc.lock().unwrap();
-        let (terminal_wrapper_opt, ui_port) = p_make_params.pop().unwrap();
+        let (is_interactive, ui_port) = p_make_params.pop().unwrap();
         assert_eq!(ui_port, 5333);
-        assert!(terminal_wrapper_opt.is_none());
+        assert!(is_interactive);
+        assert_eq!(stderr_clone.get_string(), String::new());
         let mut process_params = process_params_arc.lock().unwrap();
         let command = process_params.remove(0);
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
@@ -323,8 +326,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn go_works_when_command_is_unrecognized() {
+    #[tokio::test]
+    async fn go_works_when_command_is_unrecognized() {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
@@ -336,14 +339,14 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = subject.go(
+        let result = Box::new(subject).fgo(
             &mut stream_holder.streams(),
             &["command".to_string(), "subcommand".to_string()],
-        );
+        ).await;
 
         assert_eq!(result, 1);
         let c_make_params = c_make_params_arc.lock().unwrap();
@@ -356,8 +359,8 @@ mod tests {
         assert_eq!(close_params.len(), 1);
     }
 
-    #[test]
-    fn go_works_when_command_has_bad_syntax() {
+    #[tokio::test]
+    async fn go_works_when_command_has_bad_syntax() {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
@@ -368,14 +371,14 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = subject.go(
+        let result = Box::new(subject).go(
             &mut stream_holder.streams(),
             &["command".to_string(), "subcommand".to_string()],
-        );
+        ).await;
 
         assert_eq!(result, 1);
         let c_make_params = c_make_params_arc.lock().unwrap();
@@ -384,8 +387,8 @@ mod tests {
         assert_eq!(stream_holder.stderr.get_string(), "booga\n".to_string());
     }
 
-    #[test]
-    fn go_works_when_command_execution_fails() {
+    #[tokio::test]
+    async fn go_works_when_command_execution_fails() {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1)).execute_result(Ok(())); // irrelevant
         let command_factory = CommandFactoryMock::new().make_result(Ok(Box::new(command)));
         let process_params_arc = Arc::new(Mutex::new(vec![]));
@@ -397,14 +400,14 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = subject.go(
+        let result = Box::new(subject).go(
             &mut stream_holder.streams(),
             &["command".to_string(), "subcommand".to_string()],
-        );
+        ).await;
 
         assert_eq!(result, 1);
         assert_eq!(stream_holder.stdout.get_string(), "".to_string());
@@ -414,21 +417,21 @@ mod tests {
         );
     }
 
-    #[test]
-    fn go_works_when_daemon_is_not_running() {
+    #[tokio::test]
+    async fn go_works_when_daemon_is_not_running() {
         let processor_factory = CommandProcessorFactoryMock::new()
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock {}),
             command_factory: Box::new(CommandFactoryMock::new()),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = subject.go(
+        let result = Box::new(subject).go(
             &mut stream_holder.streams(),
             &["command".to_string(), "subcommand".to_string()],
-        );
+        ).await;
 
         assert_eq!(result, 1);
         assert_eq!(stream_holder.stdout.get_string(), "".to_string());
@@ -468,8 +471,8 @@ mod tests {
         // )
     }
 
-    #[test]
-    fn noninteractive_mode_works_when_special_ui_port_is_required() {
+    #[tokio::test]
+    async fn noninteractive_mode_works_when_special_ui_port_is_required() {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
             .make_params(&c_make_params_arc)
@@ -486,10 +489,10 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(clap_factory),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
 
-        let result = subject.go(
+        let result = Box::new(subject).go(
             &mut FakeStreamHolder::new().streams(),
             &[
                 "masq".to_string(),
@@ -497,15 +500,15 @@ mod tests {
                 "10000".to_string(),
                 "setup".to_string(),
             ],
-        );
+        ).await;
 
         assert_eq!(result, 0);
         let c_make_params = c_make_params_arc.lock().unwrap();
         assert_eq!(*c_make_params, vec![vec!["setup".to_string(),],]);
         let mut p_make_params = p_make_params_arc.lock().unwrap();
-        let (terminal_wrapper_opt, ui_port) = p_make_params.pop().unwrap();
+        let (is_interactive, ui_port) = p_make_params.pop().unwrap();
         assert_eq!(ui_port, 10000);
-        assert!(terminal_wrapper_opt.is_none());
+        assert!(is_interactive);
         let mut process_params = process_params_arc.lock().unwrap();
         assert_eq!(
             *(*process_params)
@@ -573,7 +576,7 @@ mod tests {
     #[async_trait]
     impl commands_common::Command for FakeCommand {
         async fn execute(
-            self: Arc<Self>,
+            self: Box<Self>,
             _context: &mut dyn CommandContext,
             term_interface: &mut dyn WTermInterface,
         ) -> Result<(), CommandError> {
@@ -592,8 +595,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn interactive_mode_works_when_everything_is_copacetic() {
+    #[tokio::test]
+    async fn interactive_mode_works_when_everything_is_copacetic() {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let process_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::new()
@@ -614,18 +617,19 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = subject.go(
+        let result = Box::new(subject).go(
             &mut stream_holder.streams(),
             &[
                 "command".to_string(),
                 "--param".to_string(),
                 "value".to_string(),
             ],
-        );
+        ).await;
+
         assert_eq!(result, 0);
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(
@@ -646,8 +650,8 @@ mod tests {
         assert_eq!(second_command.output, "start command".to_string())
     }
 
-    #[test]
-    fn interactive_mode_works_for_stdin_read_error() {
+    #[tokio::test]
+    async fn interactive_mode_works_for_stdin_read_error() {
         let command_factory = CommandFactoryMock::new();
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandProcessorMock::new()
@@ -661,11 +665,11 @@ mod tests {
         let mut subject = Main {
             non_interactive_clap_factory: Box::new(NIClapFactoryMock),
             command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
+            processor_factory: Arc::new(processor_factory),
         };
         let mut stream_holder = FakeStreamHolder::new();
 
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
+        let result = Box::new(subject).go(&mut stream_holder.streams(), &["command".to_string()]).await;
 
         assert_eq!(result, 1);
         assert_eq!(
@@ -675,4 +679,9 @@ mod tests {
         let close_params = close_params_arc.lock().unwrap();
         assert_eq!(close_params.len(), 1);
     }
+}
+
+pub fn make_async_std_stream()-> (Box<dyn AsyncWrite + Send + Unpin>, AsyncByteArrayWriter, ){
+    let writer = AsyncByteArrayWriter::default();
+    (Box::new(writer.clone()), writer)
 }

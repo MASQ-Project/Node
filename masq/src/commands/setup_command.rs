@@ -50,7 +50,7 @@ pub struct SetupCommand {
 #[async_trait]
 impl Command for SetupCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -201,6 +201,7 @@ mod tests {
     use masq_lib::messages::UiSetupResponseValueStatus::{
         Configured, Default as DefaultStatus, Set,
     };
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
     use std::sync::{Arc, Mutex};
 
@@ -515,7 +516,6 @@ NAME                          VALUE                                             
             errors: vec![],
         };
         let (stream_factory, handle) = TestStreamFactory::new();
-        let (mut stdout, _) = stream_factory.make();
         let (stdout, stdout_arc) = make_terminal_writer();
 
         SetupCommand::dump_setup(UiSetupInner::from(message), &stdout).await;

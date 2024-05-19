@@ -55,7 +55,7 @@ pub fn wallet_addresses_subcommand() -> ClapCommand {
 #[async_trait]
 impl Command for WalletAddressesCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -87,6 +87,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
@@ -175,7 +176,7 @@ mod tests {
             WalletAddressesCommand::new(&["wallet-addresses".to_string(), "bonkers".to_string()])
                 .unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

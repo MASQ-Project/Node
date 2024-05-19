@@ -74,7 +74,7 @@ impl ChangePasswordCommand {
 #[async_trait]
 impl Command for ChangePasswordCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -131,6 +131,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};

@@ -46,7 +46,7 @@ pub struct FinancialsCommand {
 #[async_trait]
 impl Command for FinancialsCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -288,6 +288,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{
@@ -639,7 +640,7 @@ mod tests {
         let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -680,7 +681,7 @@ mod tests {
         let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -730,7 +731,7 @@ mod tests {
         let mut term_interface = WTermInterfaceMock::default();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -848,7 +849,7 @@ mod tests {
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1011,7 +1012,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1081,7 +1082,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1153,7 +1154,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1225,7 +1226,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1319,7 +1320,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1391,7 +1392,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1477,7 +1478,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1587,7 +1588,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1676,7 +1677,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1756,7 +1757,7 @@ mod tests {
         let stderr_arc = term_interface.stderr_arc().clone();
         let subject = FinancialsCommand::new(&args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
@@ -1807,7 +1808,7 @@ mod tests {
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

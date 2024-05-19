@@ -3,11 +3,15 @@
 use crate::command::StdStreams;
 use std::cmp::min;
 use std::io;
+use core::pin::Pin;
+use core::task::Poll;
 use std::io::Read;
 use std::io::Write;
 use std::io::{BufRead, Error};
 use std::sync::{Arc, Mutex};
+use tokio::io::AsyncWrite;
 
+#[derive(Default)]
 pub struct ByteArrayWriter {
     inner_arc: Arc<Mutex<ByteArrayWriterInner>>,
 }
@@ -26,35 +30,45 @@ impl ByteArrayWriterInner {
     }
 }
 
-impl Default for ByteArrayWriter {
+impl Default for ByteArrayWriterInner{
     fn default() -> Self {
-        ByteArrayWriter {
-            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner {
-                byte_array: vec![],
-                next_error: None,
-            })),
+        ByteArrayWriterInner {
+            byte_array: vec![],
+            next_error: None,
         }
     }
 }
 
-impl ByteArrayWriter {
-    pub fn new() -> ByteArrayWriter {
-        Self::default()
-    }
+pub trait ByteArrayHelperMethods: Default{
+    fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>>;
 
-    pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
+    fn get_bytes(&self) -> Vec<u8>;
+    fn get_string(&self) -> String;
+
+    fn reject_next_write(&mut self, error: Error);
+}
+
+impl ByteArrayHelperMethods for ByteArrayWriter{
+
+    fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
         self.inner_arc.clone()
     }
 
-    pub fn get_bytes(&self) -> Vec<u8> {
+    fn get_bytes(&self) -> Vec<u8> {
         self.inner_arc.lock().unwrap().byte_array.clone()
     }
-    pub fn get_string(&self) -> String {
+    fn get_string(&self) -> String {
         String::from_utf8(self.get_bytes()).unwrap()
     }
 
-    pub fn reject_next_write(&mut self, error: Error) {
+    fn reject_next_write(&mut self, error: Error) {
         self.inner_arc().lock().unwrap().next_error = Some(error);
+    }
+}
+
+impl ByteArrayWriter {
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -73,6 +87,32 @@ impl Write for ByteArrayWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct AsyncByteArrayWriter{
+   inner_arc: Arc<tokio::sync::Mutex<ByteArrayWriterInner>>
+}
+
+impl AsyncWrite for AsyncByteArrayWriter{
+    fn poll_write(self: Pin<&mut Self>, _: &mut std::task::Context<'_>, _: &[u8]) -> Poll<Result<usize, std::io::Error>> { todo!() }
+    fn poll_flush(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> { todo!() }
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> { todo!() }
+}
+
+impl ByteArrayHelperMethods for AsyncByteArrayWriter{
+    fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>>{todo!()}
+
+    fn get_bytes(&self) -> Vec<u8>{todo!()}
+    fn get_string(&self) -> String{todo!()}
+
+    fn reject_next_write(&mut self, error: Error){todo!()}
+}
+
+impl AsyncByteArrayWriter{
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

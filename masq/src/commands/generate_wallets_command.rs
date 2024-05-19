@@ -263,7 +263,7 @@ impl GenerateWalletsCommand {
 #[async_trait]
 impl Command for GenerateWalletsCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -356,7 +356,7 @@ mod tests {
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     };
-
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
 
@@ -857,7 +857,7 @@ mod tests {
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        Arc::new(subject)
+        Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await
             .err()
@@ -897,7 +897,7 @@ mod tests {
             earning_path_opt: None,
         };
 
-        Arc::new(subject)
+        Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await
             .err()
@@ -1021,7 +1021,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        let result = Arc::new(subject)
+        let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 

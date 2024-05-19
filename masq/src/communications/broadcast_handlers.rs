@@ -20,6 +20,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
+use async_trait::async_trait;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -88,7 +89,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
     }
 }
 
-pub trait StandardBroadcastHandlerFactory: Send {
+pub trait StandardBroadcastHandlerFactory: Send + Sync{
     fn make(
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterface>>,
@@ -203,25 +204,17 @@ impl BroadcastHandler<MessageBody> for BroadcastHandlerNull {
     }
 }
 
-pub trait StreamFactory: Send + Debug {
+pub trait StreamFactory: Send +  Sync + Debug {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>);
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct StreamFactoryReal;
 
+
 impl StreamFactory for StreamFactoryReal {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
         (Box::new(std::io::stdout()), Box::new(std::io::stderr()))
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct StreamFactoryNull;
-
-impl StreamFactory for StreamFactoryNull {
-    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        intentionally_blank!()
     }
 }
 
@@ -301,7 +294,7 @@ impl RedirectBroadcastHandle {
 //     }
 // }
 
-pub trait RedirectBroadcastHandleFactory: Send {
+pub trait RedirectBroadcastHandleFactory: Send + Sync{
     fn make(
         &self,
         redirect_order_tx: UnboundedSender<RedirectOrder>,
@@ -322,13 +315,13 @@ impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
 
 #[cfg(test)]
 mod tests {
+    use std::default::Default;
+    use std::future::Future;
+    use std::process::Output;
     use super::*;
-    use crate::test_utils::mocks::{
-        make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock,
-        TerminalPassiveMock, TestStreamFactory,
-    };
+    use crate::test_utils::mocks::{make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock, TerminalPassiveMock, TestStreamFactory, WTermInterfaceMock};
     use crossbeam_channel::{bounded, unbounded, Receiver};
-    use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default};
+    use masq_lib::messages::UiSetupResponseValueStatus::{Configured};
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
         UiConnectionStage, UiLogBroadcast, UiNodeCrashedBroadcast,
@@ -337,14 +330,14 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath;
     use std::sync::Arc;
     use std::time::Duration;
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
+    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
 
     fn make_subject(
         test_stream_factory: Box<(dyn StreamFactory)>,
     ) -> Box<dyn BroadcastHandle<MessageBody>> {
-        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
-        let dependencies =
-            InteractiveModeDependencies::new(terminal_interface, test_stream_factory);
-        StandardBroadcastHandlerReal::new(Some(dependencies)).spawn()
+        let terminal_interface = NonInteractiveWTermInterface::new();
+        StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn()
     }
 
     #[test]
@@ -355,7 +348,7 @@ mod tests {
             running: true,
             values: vec![
                 UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
-                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+                UiSetupResponseValue::new("data-directory", "/home/booga", UiSetupResponseValueStatus::Default),
             ],
             errors: vec![],
         }
@@ -476,12 +469,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ui_connection_change_broadcast_is_handled_properly() {
+    #[tokio::test]
+    async fn ui_connection_change_broadcast_is_handled_properly() {
         let (factory, handle) = TestStreamFactory::new();
-        let (mut stdout, mut stderr) = factory.make();
-        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
-
+        let mut term_interface = WTermInterfaceMock::default();
+        let stdout_arc = term_interface.stdout_arc().clone();
+        let stderr_arc = term_interface.stderr_arc().clone();
         let message_body = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::ConnectedToNeighbor,
         }
@@ -489,20 +482,19 @@ mod tests {
 
         let result = StandardBroadcastHandlerReal::handle_message_body(
             Ok(message_body),
-            &mut stdout,
-            &mut stderr,
-            &terminal_interface,
-        );
+            &mut term_interface
+        ).await;
 
         assert_eq!(result, true);
-        let stdout = handle.stdout_so_far();
+        let stdout = stdout_arc.lock().unwrap().get_string();
         assert_eq!(
             stdout,
             "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
                 .to_string()
         );
+        let stderr = stderr_arc.lock().unwrap().get_string();
         assert_eq!(
-            handle.stderr_so_far(),
+            stderr,
             "".to_string(),
             "stderr: '{}'",
             stdout
@@ -522,7 +514,7 @@ mod tests {
             running: true,
             values: vec![
                 UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
-                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+                UiSetupResponseValue::new("data-directory", "/home/booga", UiSetupResponseValueStatus::Default),
             ],
             errors: vec![],
         }
@@ -573,6 +565,12 @@ mod tests {
         assert!(result.is_ok())
     }
 
+    macro_rules! as_generic_broadcast {
+        ($broadcast_handler: expr) => {
+            |broadcast, stdout, stderr|Box::new($broadcast_handler(broadcast, stdout, stderr))
+        };
+    }
+
     #[test]
     fn setup_command_handle_broadcast_has_a_synchronizer_correctly_implemented() {
         let setup_body = UiSetupBroadcast {
@@ -619,7 +617,7 @@ log-level                     error                                             
 neighborhood-mode             standard                                                         Default
 ";
 
-        assertion_for_handle_broadcast(SetupCommand::handle_broadcast, setup_body, broadcast_output)
+        assertion_for_handle_broadcast(as_generic_broadcast!(SetupCommand::handle_broadcast), setup_body, broadcast_output)
     }
 
     #[test]
@@ -636,7 +634,7 @@ The Daemon is once more accepting setup changes.
 ";
 
         assertion_for_handle_broadcast(
-            CrashNotifier::handle_broadcast,
+            as_generic_broadcast!(CrashNotifier::handle_broadcast),
             crash_notifier_body,
             broadcast_output,
         )
@@ -652,7 +650,7 @@ The Node's database password has changed.
 ";
 
         assertion_for_handle_broadcast(
-            ChangePasswordCommand::handle_broadcast,
+            as_generic_broadcast!(ChangePasswordCommand::handle_broadcast),
             change_password_body,
             broadcast_output,
         )
@@ -670,7 +668,7 @@ Cannot handle crash request: Node is not running.
 ";
 
         assertion_for_handle_broadcast(
-            handle_node_is_dead_while_f_f_on_the_way_broadcast,
+            as_generic_broadcast!(handle_node_is_dead_while_f_f_on_the_way_broadcast),
             ffm_undelivered_body,
             broadcast_output,
         )
@@ -687,7 +685,7 @@ Cannot handle crash request: Node is not running.
         let broadcast_output = "Discarding unrecognized broadcast with opcode 'messageFromMars'\n";
 
         assertion_for_handle_broadcast(
-            handle_unrecognized_broadcast,
+            as_generic_broadcast!(handle_unrecognized_broadcast),
             unrecognizable_broadcast,
             broadcast_output,
         )
@@ -702,7 +700,7 @@ Cannot handle crash request: Node is not running.
 
         let broadcast_output = "\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n";
 
-        assertion_for_handle_broadcast(handle_ui_log_broadcast, ui_log_broadcast, broadcast_output)
+        assertion_for_handle_broadcast(as_generic_broadcast!(handle_ui_log_broadcast), ui_log_broadcast, broadcast_output)
     }
 
     fn assertion_for_handle_broadcast<F, U>(
@@ -710,7 +708,7 @@ Cannot handle crash request: Node is not running.
         broadcast_msg: U,
         broadcast_desired_output: &str,
     ) where
-        F: FnOnce(U, &mut dyn WTermInterface) + Copy,
+        F: for <'a> FnOnce(U, &'a TerminalWriter, &'a TerminalWriter) -> Box<dyn Future<Output=()> + 'a> + Copy,
         U: Debug + PartialEq + Clone,
     {
         todo!()

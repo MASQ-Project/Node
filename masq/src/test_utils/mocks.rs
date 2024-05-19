@@ -15,7 +15,7 @@ use crate::non_interactive_clap::{
 };
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
-use crate::terminal::terminal_interface::{FlushHandle, TerminalWriter, WTermInterface};
+use crate::terminal::terminal_interface::{FlushHandle, ReadInput, RWTermInterface, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use linefeed::memory::MemoryTerminal;
@@ -23,6 +23,7 @@ use linefeed::{Interface, ReadResult, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
+use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::fmt::Arguments;
@@ -37,13 +38,13 @@ use tokio::sync::mpsc::UnboundedSender;
 #[derive(Default)]
 pub struct CommandFactoryMock {
     make_params: Arc<Mutex<Vec<Vec<String>>>>,
-    make_results: RefCell<Vec<Result<Arc<dyn Command>, CommandFactoryError>>>,
+    make_results: Arc<Mutex<Vec<Result<Box<dyn Command>, CommandFactoryError>>>>,
 }
 
 impl CommandFactory for CommandFactoryMock {
-    fn make(&self, pieces: &[String]) -> Result<Arc<dyn Command>, CommandFactoryError> {
+    fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
         self.make_params.lock().unwrap().push(pieces.to_vec());
-        self.make_results.borrow_mut().remove(0)
+        self.make_results.lock().unwrap().remove(0)
     }
 }
 
@@ -51,7 +52,7 @@ impl CommandFactoryMock {
     pub fn new() -> Self {
         Self {
             make_params: Arc::new(Mutex::new(vec![])),
-            make_results: RefCell::new(vec![]),
+            make_results: Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -60,8 +61,8 @@ impl CommandFactoryMock {
         self
     }
 
-    pub fn make_result(self, result: Result<Arc<dyn Command>, CommandFactoryError>) -> Self {
-        self.make_results.borrow_mut().push(result);
+    pub fn make_result(self, result: Result<Box<dyn Command>, CommandFactoryError>) -> Self {
+        self.make_results.lock().unwrap().push(result);
         self
     }
 }
@@ -214,7 +215,7 @@ pub struct CommandProcessorFactoryMock {
 #[async_trait]
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     async fn make(
-        &self,
+        self: Arc<Self>,
         is_interactive: bool,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
@@ -272,7 +273,7 @@ impl std::fmt::Debug for MockCommand {
 #[async_trait]
 impl Command for MockCommand {
     async fn execute(
-        self: Arc<Self>,
+        self: Box<Self>,
         context: &mut dyn CommandContext,
         term_interface: &mut dyn WTermInterface,
     ) -> Result<(), CommandError> {
@@ -327,14 +328,19 @@ impl TestWrite {
 
 #[derive(Clone, Debug)]
 pub struct TestStreamFactory {
-    stdout_opt: RefCell<Option<TestWrite>>,
-    stderr_opt: RefCell<Option<TestWrite>>,
+    // I have an opinion that the standard Mutex is okay as long as we don't use it to keep multiple
+    // references to the product. We don't, we just create it once. It is important tokio::sync::Mutex
+    // would require the trait of the factory use an async method which makes everything much more
+    // complicated
+    // Eh, shouldn't it be implemented with a vector and not an option?
+    stdout_arc_opt: Arc<Mutex<Option<TestWrite>>>,
+    stderr_arc_opt: Arc<Mutex<Option<TestWrite>>>,
 }
 
 impl StreamFactory for TestStreamFactory {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        let stdout = self.stdout_opt.borrow_mut().take().unwrap();
-        let stderr = self.stderr_opt.borrow_mut().take().unwrap();
+        let stdout = self.stdout_arc_opt.lock().unwrap().take().unwrap();
+        let stderr = self.stderr_arc_opt.lock().unwrap().take().unwrap();
         (Box::new(stdout), Box::new(stderr))
     }
 }
@@ -346,8 +352,8 @@ impl TestStreamFactory {
         let stdout = TestWrite::new(stdout_tx);
         let stderr = TestWrite::new(stderr_tx);
         let factory = TestStreamFactory {
-            stdout_opt: RefCell::new(Some(stdout)),
-            stderr_opt: RefCell::new(Some(stderr)),
+            stdout_arc_opt: Arc::new(Mutex::new(Some(stdout))),
+            stderr_arc_opt: Arc::new(Mutex::new(Some(stderr))),
         };
         let handle = TestStreamFactoryHandle {
             stdout_rx,
@@ -357,7 +363,7 @@ impl TestStreamFactory {
     }
 
     pub fn clone_stdout_writer(&self) -> Sender<String> {
-        self.stdout_opt.borrow().as_ref().unwrap().write_tx.clone()
+        self.stdout_arc_opt.lock().unwrap().as_ref().unwrap().write_tx.clone()
     }
 }
 
@@ -418,7 +424,7 @@ impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
 #[derive(Debug)]
 pub struct TestStreamsWithThreadLifeCheckerFactory {
     stream_factory: TestStreamFactory,
-    threads_connector: RefCell<Option<Sender<()>>>,
+    threads_connector: Arc<Mutex<Option<Sender<()>>>>,
 }
 
 struct TestStreamWithThreadLifeChecker {
@@ -711,7 +717,7 @@ impl StandardBroadcastHandlerMock {
 #[derive(Default)]
 pub struct StandardBroadcastHandlerFactoryMock {
     make_params: Arc<Mutex<Vec<Option<Box<dyn WTermInterface>>>>>,
-    make_results: RefCell<Vec<Box<dyn BroadcastHandler<MessageBody>>>>,
+    make_results: Arc<Mutex<Vec<Box<dyn BroadcastHandler<MessageBody>>>>>,
 }
 
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
@@ -723,13 +729,13 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
             .lock()
             .unwrap()
             .push(terminal_interface_opt);
-        self.make_results.borrow_mut().remove(0)
+        self.make_results.lock().unwrap().remove(0)
     }
 }
 
 impl StandardBroadcastHandlerFactoryMock {
     pub fn make_result(self, result: Box<dyn BroadcastHandler<MessageBody>>) -> Self {
-        self.make_results.borrow_mut().push(result);
+        self.make_results.lock().unwrap().push(result);
         self
     }
 }
@@ -737,7 +743,7 @@ impl StandardBroadcastHandlerFactoryMock {
 #[derive(Default)]
 pub struct RedirectBroadcastHandleFactoryMock {
     make_params: Arc<Mutex<Vec<UnboundedSender<RedirectOrder>>>>,
-    make_results: RefCell<Vec<Box<dyn BroadcastHandle<RedirectOrder>>>>,
+    make_results: Arc<Mutex<Vec<Box<dyn BroadcastHandle<RedirectOrder>>>>>,
 }
 
 impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryMock {
@@ -745,13 +751,13 @@ impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryMock {
         &self,
         redirect_order_tx: UnboundedSender<RedirectOrder>,
     ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
-        self.make_results.borrow_mut().remove(0)
+        self.make_results.lock().unwrap().remove(0)
     }
 }
 
 impl RedirectBroadcastHandleFactoryMock {
     pub fn make_result(self, result: Box<dyn BroadcastHandle<RedirectOrder>>) -> Self {
-        self.make_results.borrow_mut().push(result);
+        self.make_results.lock().unwrap().push(result);
         self
     }
 }
@@ -781,4 +787,32 @@ impl WTermInterfaceMock {
 
 pub fn make_terminal_writer() -> (TerminalWriter, Arc<Mutex<ByteArrayWriter>>) {
     todo!()
+}
+
+#[derive(Default)]
+pub struct RWTermInterfaceMock{}
+
+#[async_trait]
+impl RWTermInterface for RWTermInterfaceMock{
+    async fn read_line(&self) -> Result<ReadInput, crate::terminal::terminal_interface::ReadResult> {
+        todo!()
+    }
+
+    fn write_only_ref(&mut self) -> &dyn WTermInterface {
+        todo!()
+    }
+
+    fn write_only_clone(&mut self) -> Box<dyn WTermInterface> {
+        todo!()
+    }
+}
+
+impl WTermInterface for RWTermInterfaceMock{
+    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+        todo!()
+    }
+
+    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+        todo!()
+    }
 }

@@ -19,6 +19,6 @@ fn main() {
         .build()
         .expect("Failed to build a Runtime");
 
-    let exit_code = rt.block_on(Main::default().go(&args));
+    let exit_code = rt.block_on(Main::default().go(&args, &tokio::io::stderr()));
     ::std::process::exit(i32::from(exit_code));
 }

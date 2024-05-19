@@ -43,7 +43,7 @@ pub trait FlushHandle: Drop + Send + Sync {
         todo!()
     }
 
-    async fn write_internal(self: Arc<Self>, text: String) -> Result<(), WriteResult>;
+    async fn write_internal(self: Box<Self>, text: String) -> Result<(), WriteResult>;
 }
 
 pub struct NonInteractiveFlushHandle {}
@@ -59,7 +59,9 @@ pub trait WTermInterface: Send {
 pub trait RWTermInterface: WTermInterface {
     async fn read_line(&self) -> Result<ReadInput, ReadResult>;
 
-    fn write_only(&mut self) -> &dyn WTermInterface;
+    fn write_only_ref(&mut self) -> &dyn WTermInterface;
+
+    fn write_only_clone(&mut self)-> Box<dyn WTermInterface>;
 }
 
 pub struct NonInteractiveWTermInterface {}
@@ -100,7 +102,11 @@ impl RWTermInterface for InteractiveRWTermInterface {
         todo!()
     }
 
-    fn write_only(&mut self) -> &dyn WTermInterface {
+    fn write_only_ref(&mut self) -> &dyn WTermInterface {
+        todo!()
+    }
+
+    fn write_only_clone(&mut self) -> Box<dyn WTermInterface> {
         todo!()
     }
 }

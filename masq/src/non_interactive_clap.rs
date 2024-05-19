@@ -4,7 +4,7 @@ use crate::schema::app;
 use clap::error::ErrorKind;
 use masq_lib::shared_schema::InsecurePort;
 
-pub trait NonInteractiveClapFactory {
+pub trait NonInteractiveClapFactory: Send{
     fn make(&self) -> Box<dyn NonInteractiveClap>;
 }
 
