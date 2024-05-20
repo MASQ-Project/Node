@@ -155,11 +155,11 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use crossbeam_channel::unbounded;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::net::TcpListener;

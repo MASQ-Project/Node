@@ -1,15 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command::StdStreams;
-use std::cmp::min;
-use std::io;
 use core::pin::Pin;
 use core::task::Poll;
+use std::cmp::min;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::io::{BufRead, Error};
 use std::sync::{Arc, Mutex};
-use tokio::io::AsyncWrite;
+use tokio::io::ReadBuf;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 #[derive(Default)]
 pub struct ByteArrayWriter {
@@ -30,7 +31,7 @@ impl ByteArrayWriterInner {
     }
 }
 
-impl Default for ByteArrayWriterInner{
+impl Default for ByteArrayWriterInner {
     fn default() -> Self {
         ByteArrayWriterInner {
             byte_array: vec![],
@@ -39,7 +40,7 @@ impl Default for ByteArrayWriterInner{
     }
 }
 
-pub trait ByteArrayHelperMethods: Default{
+pub trait ByteArrayHelperMethods: Default {
     fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>>;
 
     fn get_bytes(&self) -> Vec<u8>;
@@ -48,8 +49,7 @@ pub trait ByteArrayHelperMethods: Default{
     fn reject_next_write(&mut self, error: Error);
 }
 
-impl ByteArrayHelperMethods for ByteArrayWriter{
-
+impl ByteArrayHelperMethods for ByteArrayWriter {
     fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
         self.inner_arc.clone()
     }
@@ -62,7 +62,7 @@ impl ByteArrayHelperMethods for ByteArrayWriter{
     }
 
     fn reject_next_write(&mut self, error: Error) {
-        self.inner_arc().lock().unwrap().next_error = Some(error);
+        self.inner_arc.lock().unwrap().next_error = Some(error);
     }
 }
 
@@ -87,32 +87,6 @@ impl Write for ByteArrayWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-#[derive(Default, Clone)]
-pub struct AsyncByteArrayWriter{
-   inner_arc: Arc<tokio::sync::Mutex<ByteArrayWriterInner>>
-}
-
-impl AsyncWrite for AsyncByteArrayWriter{
-    fn poll_write(self: Pin<&mut Self>, _: &mut std::task::Context<'_>, _: &[u8]) -> Poll<Result<usize, std::io::Error>> { todo!() }
-    fn poll_flush(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> { todo!() }
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> { todo!() }
-}
-
-impl ByteArrayHelperMethods for AsyncByteArrayWriter{
-    fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>>{todo!()}
-
-    fn get_bytes(&self) -> Vec<u8>{todo!()}
-    fn get_string(&self) -> String{todo!()}
-
-    fn reject_next_write(&mut self, error: Error){todo!()}
-}
-
-impl AsyncByteArrayWriter{
-    pub fn new() -> Self {
-        Self::default()
     }
 }
 
@@ -154,22 +128,107 @@ impl Read for ByteArrayReader {
     }
 }
 
-impl BufRead for ByteArrayReader {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        match self.next_error.take() {
-            Some(error) => Err(error),
-            None => Ok(&self.byte_array[self.position..]),
-        }
+// impl BufRead for ByteArrayReader {
+//     fn fill_buf(&mut self) -> io::Result<&[u8]> {
+//         match self.next_error.take() {
+//             Some(error) => Err(error),
+//             None => Ok(&self.byte_array[self.position..]),
+//         }
+//     }
+//
+//     fn consume(&mut self, amt: usize) {
+//         let result = self.position + amt;
+//         self.position = if result < self.byte_array.len() {
+//             result
+//         } else {
+//             self.byte_array.len()
+//         }
+//     }
+// }
+
+#[derive(Default, Clone)]
+pub struct AsyncByteArrayWriter {
+    inner_arc: Arc<tokio::sync::Mutex<ByteArrayWriterInner>>,
+}
+
+impl AsyncWrite for AsyncByteArrayWriter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        _: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        todo!()
+    }
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        todo!()
+    }
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        todo!()
+    }
+}
+
+impl ByteArrayHelperMethods for AsyncByteArrayWriter {
+    fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
+        todo!()
     }
 
-    fn consume(&mut self, amt: usize) {
-        let result = self.position + amt;
-        self.position = if result < self.byte_array.len() {
-            result
-        } else {
-            self.byte_array.len()
-        }
+    fn get_bytes(&self) -> Vec<u8> {
+        todo!()
     }
+    fn get_string(&self) -> String {
+        todo!()
+    }
+
+    fn reject_next_write(&mut self, error: Error) {
+        todo!()
+    }
+}
+
+impl AsyncByteArrayWriter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[derive(Clone)]
+pub struct AsyncByteArrayReader {
+    byte_array_reader_inner: Arc<tokio::sync::Mutex<ByteArrayReaderInner>>,
+}
+
+impl AsyncRead for AsyncByteArrayReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        todo!()
+    }
+}
+
+impl AsyncByteArrayReader {
+    pub fn new(read_inputs: Vec<Vec<u8>>) -> Self {
+        todo!()
+    }
+
+    pub fn reading_attempted(&self) -> bool {
+        todo!()
+    }
+
+    pub fn reject_next_write(&mut self, error: Error) {
+        todo!()
+    }
+}
+
+pub struct ByteArrayReaderInner {
+    byte_arrays: Vec<Vec<u8>>,
+    position: usize,
+    next_error: Option<Error>,
 }
 
 pub struct FakeStreamHolder {

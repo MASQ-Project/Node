@@ -55,7 +55,7 @@ impl Display for CommandError {
 }
 
 #[async_trait]
-pub trait Command: Debug + Send + Sync{
+pub trait Command: Debug + Send + Sync {
     async fn execute(
         self: Box<Self>,
         context: &mut dyn CommandContext,
@@ -138,9 +138,9 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
 

@@ -97,10 +97,10 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
     };
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]

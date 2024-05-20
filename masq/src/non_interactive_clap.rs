@@ -4,15 +4,16 @@ use crate::schema::app;
 use clap::error::ErrorKind;
 use masq_lib::shared_schema::InsecurePort;
 
-pub trait NonInteractiveClapFactory: Send{
+pub trait NonInteractiveClapFactory: Send {
     fn make(&self) -> Box<dyn NonInteractiveClap>;
 }
 
-pub struct NonInteractiveClapFactoryReal;
+#[derive(Default)]
+pub struct NonInteractiveClapFactoryReal {}
 
 impl NonInteractiveClapFactory for NonInteractiveClapFactoryReal {
     fn make(&self) -> Box<dyn NonInteractiveClap> {
-        Box::new(NonInteractiveClapReal)
+        Box::new(NonInteractiveClapReal::default())
     }
 }
 
@@ -20,7 +21,8 @@ pub trait NonInteractiveClap {
     fn parse_initialization_args(&self, args: &[String]) -> InitializationArgs;
 }
 
-pub struct NonInteractiveClapReal;
+#[derive(Default)]
+pub struct NonInteractiveClapReal {}
 
 impl NonInteractiveClap for NonInteractiveClapReal {
     fn parse_initialization_args(&self, args: &[String]) -> InitializationArgs {
@@ -59,7 +61,7 @@ mod tests {
 
     #[test]
     fn non_interactive_clap_real_produces_default_values() {
-        let result = NonInteractiveClapReal.parse_initialization_args(
+        let result = NonInteractiveClapReal::default().parse_initialization_args(
             &vec!["masq", "setup", "--chain"]
                 .iter()
                 .map(|str| str.to_string())
@@ -71,7 +73,7 @@ mod tests {
 
     #[test]
     fn non_interactive_clap_real_produces_custom_values() {
-        let result = NonInteractiveClapReal.parse_initialization_args(
+        let result = NonInteractiveClapReal::default().parse_initialization_args(
             &vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
                 .iter()
                 .map(|str| str.to_string())

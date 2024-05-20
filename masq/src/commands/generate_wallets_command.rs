@@ -353,12 +353,12 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     };
     use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
 
     use super::*;
     use crate::command_context::ContextError;

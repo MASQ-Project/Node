@@ -82,10 +82,10 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]

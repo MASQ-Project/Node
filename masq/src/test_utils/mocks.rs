@@ -7,31 +7,40 @@ use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, RedirectBroadcastHandleFactory,
-    StandardBroadcastHandlerFactory, StreamFactory,
+    StandardBroadcastHandlerFactory,
 };
 use crate::communications::connection_manager::{ConnectionManagerBootstrapper, RedirectOrder};
 use crate::non_interactive_clap::{
     InitializationArgs, NonInteractiveClap, NonInteractiveClapFactory,
 };
+use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
-use crate::terminal::terminal_interface::{FlushHandle, ReadInput, RWTermInterface, TerminalWriter, WTermInterface};
+use crate::terminal::terminal_interface::{
+    FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
+};
+use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
+use itertools::Either;
 use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
-use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
+use masq_lib::test_utils::fake_stream_holder::{
+    AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
+};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
+use std::ops::Not;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -208,7 +217,14 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<Mutex<Vec<(bool, u16)>>>,
+    make_params: Arc<
+        Mutex<
+            Vec<(
+                Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
+                u16,
+            )>,
+        >,
+    >,
     make_results: Arc<Mutex<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>>,
 }
 
@@ -216,13 +232,13 @@ pub struct CommandProcessorFactoryMock {
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     async fn make(
         self: Arc<Self>,
-        is_interactive: bool,
+        term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         self.make_params
             .lock()
             .unwrap()
-            .push((is_interactive, ui_port));
+            .push((term_interface, ui_port));
         self.make_results.lock().unwrap().remove(0)
     }
 }
@@ -232,7 +248,17 @@ impl CommandProcessorFactoryMock {
         Self::default()
     }
 
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(bool, u16)>>>) -> Self {
+    pub fn make_params(
+        mut self,
+        params: &Arc<
+            Mutex<
+                Vec<(
+                    Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
+                    u16,
+                )>,
+            >,
+        >,
+    ) -> Self {
         self.make_params = params.clone();
         self
     }
@@ -337,11 +363,12 @@ pub struct TestStreamFactory {
     stderr_arc_opt: Arc<Mutex<Option<TestWrite>>>,
 }
 
-impl StreamFactory for TestStreamFactory {
-    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        let stdout = self.stdout_arc_opt.lock().unwrap().take().unwrap();
-        let stderr = self.stderr_arc_opt.lock().unwrap().take().unwrap();
-        (Box::new(stdout), Box::new(stderr))
+impl AsyncStdStreamsFactory for TestStreamFactory {
+    fn make(&self) -> AsyncStdStreams {
+        todo!()
+        // let stdout = self.stdout_arc_opt.lock().unwrap().take().unwrap();
+        // let stderr = self.stderr_arc_opt.lock().unwrap().take().unwrap();
+        // (Box::new(stdout), Box::new(stderr))
     }
 }
 
@@ -363,7 +390,13 @@ impl TestStreamFactory {
     }
 
     pub fn clone_stdout_writer(&self) -> Sender<String> {
-        self.stdout_arc_opt.lock().unwrap().as_ref().unwrap().write_tx.clone()
+        self.stdout_arc_opt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .write_tx
+            .clone()
     }
 }
 
@@ -405,8 +438,8 @@ impl TestStreamFactoryHandle {
     }
 }
 
-impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
-    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
+impl AsyncStdStreamsFactory for TestStreamsWithThreadLifeCheckerFactory {
+    fn make(&self) -> AsyncStdStreams {
         //TODO could I refactor this out, using just one test factory??
 
         // let (stdout, stderr) = self.stream_factory.make();
@@ -773,6 +806,10 @@ impl WTermInterface for WTermInterfaceMock {
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
         todo!()
     }
+
+    fn dup(&self) -> Box<dyn WTermInterface> {
+        todo!()
+    }
 }
 
 impl WTermInterfaceMock {
@@ -789,12 +826,17 @@ pub fn make_terminal_writer() -> (TerminalWriter, Arc<Mutex<ByteArrayWriter>>) {
     todo!()
 }
 
-#[derive(Default)]
-pub struct RWTermInterfaceMock{}
+pub struct TermInterfaceMock {
+    stdin_opt: Option<Box<dyn AsyncRead + Send + Unpin>>,
+    stdout: Box<dyn AsyncWrite + Send + Unpin>,
+    stderr: Box<dyn AsyncWrite + Send + Unpin>,
+}
 
 #[async_trait]
-impl RWTermInterface for RWTermInterfaceMock{
-    async fn read_line(&self) -> Result<ReadInput, crate::terminal::terminal_interface::ReadResult> {
+impl RWTermInterface for TermInterfaceMock {
+    async fn read_line(
+        &self,
+    ) -> Result<ReadInput, crate::terminal::terminal_interface::ReadResult> {
         todo!()
     }
 
@@ -802,17 +844,128 @@ impl RWTermInterface for RWTermInterfaceMock{
         todo!()
     }
 
-    fn write_only_clone(&mut self) -> Box<dyn WTermInterface> {
+    fn write_only_clone_opt(&mut self) -> Option<Box<dyn WTermInterface>> {
         todo!()
     }
 }
 
-impl WTermInterface for RWTermInterfaceMock{
+impl WTermInterface for TermInterfaceMock {
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
         todo!()
     }
 
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
         todo!()
+    }
+
+    fn dup(&self) -> Box<dyn WTermInterface> {
+        todo!()
+    }
+}
+
+pub fn make_async_std_write_stream() -> (Box<dyn AsyncWrite + Send + Unpin>, AsyncByteArrayWriter) {
+    let writer = AsyncByteArrayWriter::default();
+    (Box::new(writer.clone()), writer)
+}
+
+pub fn make_async_std_streams(
+    read_inputs: Vec<Vec<u8>>,
+) -> (AsyncStdStreams, AsyncTestStreamHandles) {
+    let mut stdin = AsyncByteArrayReader::new(read_inputs);
+    let (stdout, stdout_clone) = make_async_std_write_stream();
+    let (stderr, stderr_clone) = make_async_std_write_stream();
+    let std_streams = AsyncStdStreams {
+        stdin: Box::new(stdin.clone()),
+        stdout,
+        stderr,
+    };
+    let test_stream_handles = AsyncTestStreamHandles {
+        stdin_opt: Some(stdin),
+        stdout: stdout_clone,
+        stderr: stderr_clone,
+    };
+    (std_streams, test_stream_handles)
+}
+
+impl TermInterfaceMock {
+    pub fn new(read_inputs_opt: Option<Vec<Vec<u8>>>) -> (Self, AsyncTestStreamHandles) {
+        let read_inputs = read_inputs_opt.is_some();
+        let (mut streams, mut stream_handles) =
+            make_async_std_streams(read_inputs_opt.unwrap_or(vec![]));
+        let (stdin_opt, stream_handles) = if read_inputs {
+            (Some(streams.stdin), stream_handles)
+        } else {
+            stream_handles.stdin_opt = None;
+            (None, stream_handles)
+        };
+
+        let (stdout, stdout_clone) = make_async_std_write_stream();
+        let (stderr, stderr_clone) = make_async_std_write_stream();
+        let mock = TermInterfaceMock {
+            stdin_opt,
+            stdout,
+            stderr,
+        };
+        (mock, stream_handles)
+    }
+}
+
+pub struct AsyncTestStreamHandles {
+    pub stdin_opt: Option<AsyncByteArrayReader>,
+    pub stdout: AsyncByteArrayWriter,
+    pub stderr: AsyncByteArrayWriter,
+}
+
+#[derive(Default)]
+pub struct AsyncStdStreamFactoryMock {
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<AsyncStdStreams>>,
+}
+
+impl AsyncStdStreamsFactory for AsyncStdStreamFactoryMock {
+    fn make(&self) -> AsyncStdStreams {
+        todo!()
+    }
+}
+
+impl AsyncStdStreamFactoryMock {
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+    pub fn make_result(self, result: AsyncStdStreams) -> Self {
+        self.make_results.borrow_mut().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct RWTerminalInterfaceFactoryMock {
+    make_params: Arc<Mutex<Vec<(bool, AsyncStdStreams)>>>,
+    make_result: Arc<Mutex<Vec<Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>>>>,
+}
+
+impl TerminalInterfaceFactory for RWTerminalInterfaceFactoryMock {
+    fn make(
+        &self,
+        is_interactive: bool,
+        streams: AsyncStdStreams,
+    ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
+        todo!()
+    }
+}
+
+impl RWTerminalInterfaceFactoryMock {
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(bool, AsyncStdStreams)>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(
+        self,
+        result: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
+    ) -> Self {
+        self.make_result.lock().unwrap().push(result);
+        self
     }
 }

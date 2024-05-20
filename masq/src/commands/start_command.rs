@@ -61,9 +61,9 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
     use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::string::ToString;
     use std::sync::{Arc, Mutex};
 

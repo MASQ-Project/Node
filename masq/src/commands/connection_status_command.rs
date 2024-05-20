@@ -13,8 +13,8 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
-use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
 use masq_lib::short_writeln;
+use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;

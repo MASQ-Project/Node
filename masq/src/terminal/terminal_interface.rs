@@ -53,6 +53,8 @@ pub struct InteractiveFlushHandle {}
 pub trait WTermInterface: Send {
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>);
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>);
+
+    fn dup(&self) -> Box<dyn WTermInterface>;
 }
 
 #[async_trait]
@@ -61,7 +63,7 @@ pub trait RWTermInterface: WTermInterface {
 
     fn write_only_ref(&mut self) -> &dyn WTermInterface;
 
-    fn write_only_clone(&mut self)-> Box<dyn WTermInterface>;
+    fn write_only_clone_opt(&mut self) -> Option<Box<dyn WTermInterface>>;
 }
 
 pub struct NonInteractiveWTermInterface {}
@@ -72,6 +74,10 @@ impl WTermInterface for NonInteractiveWTermInterface {
     }
 
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+        todo!()
+    }
+
+    fn dup(&self) -> Box<dyn WTermInterface> {
         todo!()
     }
 }
@@ -94,6 +100,10 @@ impl WTermInterface for InteractiveWTermInterface {
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
         todo!()
     }
+
+    fn dup(&self) -> Box<dyn WTermInterface> {
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -106,7 +116,7 @@ impl RWTermInterface for InteractiveRWTermInterface {
         todo!()
     }
 
-    fn write_only_clone(&mut self) -> Box<dyn WTermInterface> {
+    fn write_only_clone_opt(&mut self) -> Option<Box<dyn WTermInterface>> {
         todo!()
     }
 }
@@ -117,6 +127,10 @@ impl WTermInterface for InteractiveRWTermInterface {
     }
 
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+        todo!()
+    }
+
+    fn dup(&self) -> Box<dyn WTermInterface> {
         todo!()
     }
 }

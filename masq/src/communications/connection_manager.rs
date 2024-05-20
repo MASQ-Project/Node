@@ -3,12 +3,12 @@
 use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, BroadcastHandles, RedirectBroadcastHandle,
     RedirectBroadcastHandleFactory, RedirectBroadcastHandleFactoryReal,
-    StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal, StreamFactory,
-    StreamFactoryReal,
+    StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::client_listener_thread::{ClientListener, ClientListenerError};
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::terminal::terminal_interface::WTermInterface;
+use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::test_utils::mocks::RedirectBroadcastHandleFactoryMock;
 use async_channel::Sender as WSSender;
 use async_trait::async_trait;
@@ -78,9 +78,7 @@ pub struct ConnectionManagerBootstrapper {
 impl Default for ConnectionManagerBootstrapper {
     fn default() -> Self {
         Self::new(
-            Box::new(StandardBroadcastHandlerFactoryReal::new(Box::new(
-                StreamFactoryReal::default(),
-            ))),
+            Box::new(StandardBroadcastHandlerFactoryReal::new()),
             Box::new(RedirectBroadcastHandleFactoryReal::default()),
         )
     }

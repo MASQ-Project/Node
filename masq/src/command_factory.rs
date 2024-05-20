@@ -25,12 +25,12 @@ pub enum CommandFactoryError {
     CommandSyntax(String),
 }
 
-pub trait CommandFactory: Send{
+pub trait CommandFactory: Send {
     fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError>;
 }
 
 #[derive(Default)]
-pub struct CommandFactoryReal;
+pub struct CommandFactoryReal {}
 
 impl CommandFactory for CommandFactoryReal {
     fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
@@ -94,7 +94,6 @@ impl CommandFactory for CommandFactoryReal {
 }
 
 impl CommandFactoryReal {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

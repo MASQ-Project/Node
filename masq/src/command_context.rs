@@ -115,11 +115,13 @@ impl CommandContextReal {
         terminal_interface_opt: Option<Box<dyn WTermInterface>>,
         bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
-        let result = bootstrapper.spawn_background_loops(
-            daemon_ui_port,
-            terminal_interface_opt,
-            REDIRECT_TIMEOUT_MILLIS,
-        ).await;
+        let result = bootstrapper
+            .spawn_background_loops(
+                daemon_ui_port,
+                terminal_interface_opt,
+                REDIRECT_TIMEOUT_MILLIS,
+            )
+            .await;
         let connectors = match result {
             Ok(c) => c,
             Err(e) => return Err(ConnectionRefused(format!("{:?}", e))),
@@ -200,7 +202,9 @@ mod tests {
             Box::new(StandardBroadcastHandlerFactoryMock::default());
         let bootstrapper = ConnectionManagerBootstrapper::default();
 
-        let subject = CommandContextReal::new(port, None, &bootstrapper).await.unwrap();
+        let subject = CommandContextReal::new(port, None, &bootstrapper)
+            .await
+            .unwrap();
 
         assert_eq!(subject.active_port(), Some(port));
         handle.stop();
@@ -271,7 +275,9 @@ mod tests {
         let stop_handle = server.start().await;
         let broadcast_handle = BroadcastHandleInactive;
         let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, &bootstrapper).await.unwrap();
+        let mut subject = CommandContextReal::new(port, None, &bootstrapper)
+            .await
+            .unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 
@@ -287,7 +293,9 @@ mod tests {
         let stop_handle = server.start().await;
         let broadcast_handle = BroadcastHandleInactive;
         let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, &bootstrapper).await.unwrap();
+        let mut subject = CommandContextReal::new(port, None, &bootstrapper)
+            .await
+            .unwrap();
 
         let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
 

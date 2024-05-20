@@ -191,7 +191,6 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::communications::broadcast_handlers::StreamFactory;
     use crate::test_utils::mocks::{
         make_terminal_writer, CommandContextMock, TerminalPassiveMock, TestStreamFactory,
         WTermInterfaceMock,
@@ -201,8 +200,8 @@ mod tests {
     use masq_lib::messages::UiSetupResponseValueStatus::{
         Configured, Default as DefaultStatus, Set,
     };
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
+    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]

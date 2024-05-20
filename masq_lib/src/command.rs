@@ -11,9 +11,3 @@ pub struct StdStreams<'a> {
 pub trait Command<T> {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> T;
 }
-
-pub struct AsyncStdStreams<'main_fn>{
-    pub stdin: &'main_fn mut (dyn AsyncWrite + Send + Unpin),
-    pub stdout: &'main_fn mut (dyn AsyncWrite + Send + Unpin),
-    pub stderr: &'main_fn mut  (dyn io::Write + Send + Unpin),
-}
