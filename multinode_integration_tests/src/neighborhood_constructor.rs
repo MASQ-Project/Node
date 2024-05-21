@@ -259,6 +259,8 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
             last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
             unreachable_hosts: Default::default(),
+            node_distrust_score: 0,
+            node_location_opt: None
         },
         signed_gossip: agr.signed_gossip.clone(),
         signature: agr.signature,

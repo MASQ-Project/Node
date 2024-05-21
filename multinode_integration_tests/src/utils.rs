@@ -138,6 +138,7 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
                 accepts_connections: masq_node.accepts_connections(),
                 routes_data: masq_node.routes_data(),
                 version: 0,
+                country_code: "".to_string()
             },
             node_addr_opt: Some(masq_node.node_addr()),
             signed_gossip: PlainData::new(b""),
