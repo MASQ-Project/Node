@@ -4,7 +4,7 @@ pub mod lower_level_interface_null;
 
 use ethereum_types::U256;
 use futures::Future;
-use futures::future::result;
+use futures::future::{err, result};
 use web3::contract::Contract;
 use web3::transports::{Batch, Http};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -67,8 +67,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
         _consuming_wallet: &Wallet,
         _persistent_config: &dyn PersistentConfiguration,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
-        todo!("GH-744")
-        // self.handle_uninitialized_interface("build blockchain agent")
+        self.build_blockchain_agent_error()
     }
 
     fn get_service_fee_balance(
@@ -171,6 +170,14 @@ impl BlockchainInterfaceNull {
         self.log_uninitialized_for_operation(operation);
         let err = E::error();
         Err(err)
+    }
+
+    fn build_blockchain_agent_error(&self) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+        let operation = "build blockchain agent";
+        self.log_uninitialized_for_operation(operation);
+        Box::new(
+            err(BlockchainAgentBuildError::UninitializedBlockchainInterface)
+        )
     }
 
     fn log_uninitialized_for_operation(&self, operation: &str) {

@@ -137,7 +137,7 @@ mod tests {
     use web3::{BatchTransport, Web3};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::blockchain::blockchain_interface_utils::get_transaction_fee_balance;
-    use crate::blockchain::test_utils::{make_blockchain_interface, TestTransport};
+    use crate::blockchain::test_utils::{make_blockchain_interface_web3, TestTransport};
 
     #[test]
     fn low_interface_web3_transaction_fee_balance_works() {

@@ -621,7 +621,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
     use crate::blockchain::blockchain_interface::BlockchainInterface;
-    use crate::blockchain::test_utils::{make_blockchain_interface, make_tx_hash, TestTransport};
+    use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, TestTransport};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_paying_wallet;
@@ -896,7 +896,7 @@ mod tests {
     fn send_and_append_multiple_payments_works() {
         let port = find_free_port();
         let logger = Logger::new("send_and_append_multiple_payments_works");
-        let blockchain_web3 = make_blockchain_interface(Some(port));
+        let blockchain_web3 = make_blockchain_interface_web3(Some(port));
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
@@ -1669,7 +1669,7 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0x23".to_string(), 1)
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let web3 = blockchain_interface_web3.get_web3();
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
 
@@ -1684,7 +1684,7 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0xFFFQ".to_string(), 0)
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let web3 = blockchain_interface_web3.get_web3();
 
         let result = get_transaction_id(
@@ -1709,7 +1709,7 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0x23".to_string(), 1)
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let web3 = blockchain_interface_web3.get_web3();
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
 
@@ -1725,7 +1725,7 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port)
             .response("0xFFFQ".to_string(), 0)
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let web3 = blockchain_interface_web3.get_web3();
 
         let result = get_transaction_fee_balance(
@@ -1753,7 +1753,7 @@ mod tests {
                 0,
             )
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let contract = blockchain_interface_web3.get_contract();
 
         let result = get_service_fee_balance(
@@ -1777,7 +1777,7 @@ mod tests {
                 0,
             )
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface(Some(port));
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let contract = blockchain_interface_web3.get_contract();
         let expected_err_msg = "Invalid hex";
 

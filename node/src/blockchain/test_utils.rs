@@ -62,7 +62,7 @@ pub fn make_meaningless_seed() -> Seed {
     Seed::new(&mnemonic, "passphrase")
 }
 
-pub fn make_blockchain_interface(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
+pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
     //TODO: GH-744: Turn this into a builder patten.
     let port = port_opt.unwrap_or_else(|| find_free_port());
     let chain = Chain::PolyMainnet;

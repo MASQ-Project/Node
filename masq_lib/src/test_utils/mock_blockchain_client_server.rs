@@ -58,6 +58,10 @@ impl MBCSBuilder {
         self
     }
 
+    pub fn raw_response(self, raw_string: String) -> Self {
+        self.store_response_string(raw_string)
+    }
+
     pub fn response<R>(self, result: R, id: u64) -> Self
     where
         R: Serialize,
