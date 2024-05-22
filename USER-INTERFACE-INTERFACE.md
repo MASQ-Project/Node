@@ -1095,6 +1095,16 @@ even for parameters whose values are natively of other types.
 ##### Description:
 If the value of the respective parameter was successfully changed, this is a simple acknowledgment that the change is complete.
 
+The following commands can be configured using the `setConfiguration`:
+
+```markdown
+| Name             | Parameter      | Possible Values  |
+|------------------|----------------|------------------|
+| Gas Price        | --gas-price    | [1, 6]           |
+| Start Block      | --start-block  | > 0              |
+| Min Hops         | --min-hops     | > 0              |
+```
+
 #### `setup`
 ##### Direction: Request
 ##### Correspondent: Daemon
