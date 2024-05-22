@@ -9,7 +9,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainAgentBuildError;
 use web3::types::U256;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockchainAgentWeb3 {
     gas_price_gwei: u64,
     gas_limit_const_part: u64,

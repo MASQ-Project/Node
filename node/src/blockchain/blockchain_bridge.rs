@@ -273,134 +273,40 @@ impl BlockchainBridge {
         }
     }
 
-    // fn handle_qualified_payable_msg(
-    //     &mut self,
-    //     incoming_message: QualifiedPayablesMessage,
-    // ) -> Result<(), String> {
-    //     let consuming_wallet = if let Some(wallet) = self.consuming_wallet_opt.as_ref() {
-    //         wallet
-    //     } else {
-    //         return Err(
-    //             "Cannot inspect available balances for payables while consuming wallet is missing"
-    //                 .to_string(),
-    //         );
-    //     };
-    //
-    //     let agent = self
-    //         .blockchain_interface
-    //         .build_blockchain_agent(consuming_wallet, &*self.persistent_config)
-    //         .map_err(to_string)?;
-    //
-    //     let outgoing_message = BlockchainAgentWithContextMessage::new(
-    //         incoming_message.protected_qualified_payables,
-    //         agent,
-    //         incoming_message.response_skeleton_opt,
-    //     );
-    //
-    //     self.payable_payments_setup_subs_opt
-    //         .as_ref()
-    //         .expect("Accountant is unbound")
-    //         .try_send(outgoing_message)
-    //         .expect("Accountant is dead");
-    //
-    //     Ok(())
-    // }
-
     fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        // TODO: GH-744: Need to test for panic on wallet address
-        let consuming_wallet_address = match self.consuming_wallet_opt.clone() {
-            Some(wallet) => wallet.address(),
+        let consuming_wallet = match self.consuming_wallet_opt.clone() {
+            Some(wallet) => wallet,
             None => {
                 return Box::new(err(
                     "Cannot inspect available balances for payables while consuming wallet \
-                    is missing"
-                        .to_string(),
+                    is missing".to_string(),
                 ))
             }
         };
-
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
-        // TODO: GH-744 This is from Master
+        let persistent_config = &*self.persistent_config;
+        let accountant_recipient =  self.payable_payments_setup_subs_opt.clone();
 
-        //     let agent = self
-        //         .blockchain_interface
-        //         .build_blockchain_agent(consuming_wallet, &*self.persistent_config)
-        //         .map_err(to_string)?;
-        //
-        //     let outgoing_message = BlockchainAgentWithContextMessage::new(
-        //         incoming_message.protected_qualified_payables,
-        //         agent,
-        //         incoming_message.response_skeleton_opt,
-        //     );
-        //
-        //     self.payable_payments_setup_subs_opt
-        //         .as_ref()
-        //         .expect("Accountant is unbound")
-        //         .try_send(outgoing_message)
-        //         .expect("Accountant is dead");
-
-        // let balances_and_payables_sub_opt = self.balances_and_payables_sub_opt.clone();
-        let web3 = self.blockchain_interface.get_web3();
-        let contract = self.blockchain_interface.get_contract();
+        // todo!("Looking for test handle_qualified_payable_msg");
 
         return Box::new(
-            // self.blockchain_interface.build_blockchain_agent(consuming_wallet, )
-            //     .map_err()
-            //     .and_then(|move agent| {
-            //             let outgoing_message = BlockchainAgentWithContextMessage::new(
-            //                 incoming_message.protected_qualified_payables,
-            //                 agent,
-            //                 incoming_message.response_skeleton_opt,
-            //             );
-            //             self.payable_payments_setup_subs_opt
-            //                 .as_ref()
-            //                 .expect("Accountant is unbound")
-            //                 .try_send(outgoing_message)
-            //                 .expect("Accountant is dead");
-            //
-            //
-            //         // ....
-            //
-            //
-            // });
-            get_service_fee_balance(contract, consuming_wallet_address)
-                .map_err(|e| {
-                    format!(
-                        "Did not find out token balance of the consuming wallet: {:?}",
-                        e
-                    )
+            self.blockchain_interface.build_blockchain_agent(&consuming_wallet, persistent_config)
+                .map_err(|e| format!("Blockchain agent build error: {:?}", e) )
+                .and_then(move |agent| {
+                    let outgoing_message = BlockchainAgentWithContextMessage::new(
+                        incoming_message.protected_qualified_payables,
+                        agent,
+                        incoming_message.response_skeleton_opt,
+                    );
+                    accountant_recipient
+                        .expect("Accountant is unbound")
+                        .try_send(outgoing_message)
+                        .expect("Accountant is dead");
+                    Ok(())
                 })
-                .and_then(move |token_balance| {
-                    get_transaction_fee_balance(web3, consuming_wallet_address)
-                        .map_err(|e| {
-                            format!(
-                                "Did not find out gas balance of the consuming wallet: {:?}",
-                                e
-                            )
-                        })
-                        .and_then(move |gas_balance| {
-                            let consuming_wallet_balances = {
-                                ConsumingWalletBalances {
-                                    transaction_fee_balance_in_minor_units: gas_balance,
-                                    masq_token_balance_in_minor_units: token_balance,
-                                }
-                            };
-                            todo!("TODO: GH-744: This needs to be updated with Masters code");
-                            // balances_and_payables_sub_opt
-                            //     .as_ref()
-                            //     .expect("Accountant is unbound")
-                            //     .try_send(ConsumingWalletBalancesAndQualifiedPayables {
-                            //         qualified_payables: incoming_message.accounts,
-                            //         consuming_wallet_balances,
-                            //         response_skeleton_opt: incoming_message.response_skeleton_opt,
-                            //     })
-                            //     .expect("Accountant is dead");
-                            Ok(())
-                        })
-                }),
         );
     }
 
@@ -737,7 +643,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::lower_level_interface::LatestBlockNumber;
     use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
-    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
+    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock, make_blockchain_interface_web3};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
@@ -773,6 +679,7 @@ mod tests {
     use web3::Web3;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::{GasPriceQueryFailed, MissingConsumingWallet, TransactionID};
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface_utils::transmission_log;
@@ -898,22 +805,23 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant(
-    ) {
+    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant() {
         let system = System::new(
         "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
         );
-        let build_blockchain_agent_params_arc = Arc::new(Mutex::new(vec![]));
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x23".to_string(), 1)
+            .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),0,)
+            .response("0x23".to_string(), 1)
+            .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let agent_id_stamp = ArbitraryIdStamp::new();
-        let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp);
-        let blockchain_interface = BlockchainInterfaceMock::default()
-            .build_blockchain_agent_params(&build_blockchain_agent_params_arc)
-            .build_blockchain_agent_result(Ok(Box::new(agent)));
+        let accountant_recipient = accountant.start().recipient();
+        let blockchain_interface=  make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
         let persistent_configuration = PersistentConfigurationMock::default()
-            .set_arbitrary_id_stamp(persistent_config_id_stamp);
+            .set_arbitrary_id_stamp(persistent_config_id_stamp).gas_price_result(Ok(1));
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("gulp");
         let qualified_payables = vec![
@@ -934,15 +842,13 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let subject = BlockchainBridge::new(
+        let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
             false,
             Some(consuming_wallet.clone()),
         );
-        let addr = subject.start();
-        let subject_subs = BlockchainBridge::make_subs_from(&addr);
-        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let qualified_payables = protect_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables.clone(),
@@ -951,18 +857,12 @@ mod tests {
                 context_id: 444,
             }),
         };
-        send_bind_message!(subject_subs, peer_actors);
 
-        addr.try_send(qualified_payables_msg).unwrap();
+        subject.handle_qualified_payable_msg(qualified_payables_msg).wait().unwrap();
 
         System::current().stop();
         system.run();
 
-        let build_blockchain_agent_params = build_blockchain_agent_params_arc.lock().unwrap();
-        assert_eq!(
-            *build_blockchain_agent_params,
-            vec![(consuming_wallet.clone(), persistent_config_id_stamp)]
-        );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
@@ -970,13 +870,70 @@ mod tests {
             blockchain_agent_with_context_msg_actual.protected_qualified_payables,
             qualified_payables
         );
+        assert_eq!(blockchain_agent_with_context_msg_actual.agent.consuming_wallet(), &consuming_wallet);
+        assert_eq!(blockchain_agent_with_context_msg_actual.agent.pending_transaction_id(), 35.into());
+        assert_eq!(blockchain_agent_with_context_msg_actual.agent.agreed_fee_per_computation_unit(), 1);
         assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
-                .arbitrary_id_stamp(),
-            agent_id_stamp
+            blockchain_agent_with_context_msg_actual.agent.consuming_wallet_balances(), 
+            ConsumingWalletBalances::new(35.into(), 65535.into())
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.agent.estimated_transaction_fee_total(1),
+            73328
+        );
+        assert_eq!(
+            blockchain_agent_with_context_msg_actual.response_skeleton_opt, 
+            Some(ResponseSkeleton{
+                client_id: 11122,
+                context_id: 444
+            })
         );
         assert_eq!(accountant_received_payment.len(), 1);
+    }
+
+    #[test]
+    fn qualified_payables_msg_is_handled_but_fails_on_build_blockchain_agent() {
+        let system = System::new("qualified_payables_msg_is_handled_but_fails_on_build_blockchain_agent");
+        let port = find_free_port();
+        // build blockchain agent fails by not providing the third response.
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x23".to_string(), 1)
+            .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),0,)
+            .start();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let accountant_recipient = accountant.start().recipient();
+        let blockchain_interface=  make_blockchain_interface_web3(Some(port));
+        let consuming_wallet = make_paying_wallet(b"somewallet");
+        let persistent_configuration = PersistentConfigurationMock::default()
+            .gas_price_result(Ok(1));
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_configuration),
+            false,
+            Some(consuming_wallet.clone()),
+        );
+        subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
+        let qualified_payables = protect_payables_in_test(vec![]);
+        let qualified_payables_msg = QualifiedPayablesMessage {
+            protected_qualified_payables: qualified_payables,
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 11122,
+                context_id: 444,
+            }),
+        };
+
+        let error_msg = subject.handle_qualified_payable_msg(qualified_payables_msg).wait().unwrap_err();
+
+        System::current().stop();
+        system.run();
+
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 0);
+        let transaction_id_error = BlockchainAgentBuildError::TransactionID(consuming_wallet, BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage) for wallet 0xc4e2…3ac6".to_string()));
+        assert_eq!(
+            error_msg,
+            format!("Blockchain agent build error: {:?}", transaction_id_error)
+        )
     }
 
     #[test]
