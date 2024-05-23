@@ -37,10 +37,10 @@ fn debtors_are_credited_once_but_not_twice() {
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     eprintln!("Setting up mock blockchain client");
     let blockchain_client_server = MBCSBuilder::new(mbcs_port)
-        .response(
-            //TODO find the structure of response on StartBlock from BlockChain and return it here
-            "0x7CF".to_string(), 1
-        )
+         .response(
+             //TODO find the structure of response on StartBlock from BlockChain and return it here
+             "0x3E7".to_string(), 1
+         )
         .response(
             vec![LogObject {
                 removed: false,
