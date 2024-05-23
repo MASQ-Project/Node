@@ -364,6 +364,13 @@ pub fn type_name_of<T>(_examined: T) -> &'static str {
     std::any::type_name::<T>()
 }
 
+pub fn convert_collection<Convertable, Product>(inputs: Vec<Convertable>) -> Vec<Product>
+where
+    Product: From<Convertable>,
+{
+    inputs.into_iter().map(Product::from).collect()
+}
+
 pub trait MutabilityConflictHelper<T>
 where
     T: 'static,
@@ -376,7 +383,7 @@ where
         F: FnOnce(&T, &mut Self) -> Self::Result,
     {
         //TODO we should seriously think about rewriting this in well tested unsafe code,
-        // Rust is unnecessarily strict as for this conflicting situation
+        // Rust is unnecessarily strict in this conflicting situation
         let helper = self.helper_access().take().expectv("helper");
         let result = closure(&helper, self);
         self.helper_access().replace(helper);
@@ -455,7 +462,7 @@ macro_rules! as_any_mut_in_trait_impl {
 
 #[macro_export]
 macro_rules! test_only_use {
-    ($($use_clause: item),+) => {
+    ($($use_clause: item)+) => {
       $(
         #[cfg(test)]
         $use_clause
@@ -468,8 +475,8 @@ macro_rules! hashmap {
     () => {
         ::std::collections::HashMap::new()
     };
-    ($($key:expr => $val:expr,)+) => {
-        hashmap!($($key => $val),+)
+    ($($key:expr => $value:expr,)+) => {
+        hashmap!($($key => $value),+)
     };
     ($($key:expr => $value:expr),+) => {
         {

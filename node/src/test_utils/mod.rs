@@ -362,7 +362,6 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, mut f: F)
 where
     F: FnMut() -> bool,
@@ -379,7 +378,6 @@ where
     .unwrap();
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn await_value<F, T, E>(
     interval_and_limit_ms: Option<(u64, u64)>,
     mut f: F,
@@ -448,7 +446,6 @@ where
     set
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     let mut response: Vec<u8> = vec![];
     let mut buf = [0u8; 16384];
@@ -507,7 +504,6 @@ pub fn make_paying_wallet(secret: &[u8]) -> Wallet {
     )
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn make_wallet(address: &str) -> Wallet {
     Wallet::from_str(&dummy_address_to_hex(address)).unwrap()
 }
@@ -518,7 +514,6 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     assert_eq!(a_str, b_str);
 }
 
-// Must stay without cfg(test) -- used in another crate
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,
@@ -529,14 +524,6 @@ pub struct TestRawTransaction {
     #[serde(rename = "gasLimit")]
     pub gas_limit: U256,
     pub data: Vec<u8>,
-}
-
-#[macro_export]
-macro_rules! arbitrary_id_stamp_in_trait {
-    () => {
-        #[cfg(test)]
-        $crate::arbitrary_id_stamp_in_trait_internal___!();
-    };
 }
 
 #[cfg(test)]
@@ -574,6 +561,7 @@ pub mod unshared_test_utils {
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::env::current_dir;
     use std::num::ParseIntError;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::{Path, PathBuf};
@@ -821,6 +809,14 @@ pub mod unshared_test_utils {
             .collect()
     }
 
+    pub fn standard_dir_for_test_input_data() -> PathBuf {
+        current_dir()
+            .unwrap()
+            .join("src")
+            .join("test_utils")
+            .join("input_data")
+    }
+
     pub mod system_killer_actor {
         use super::*;
 
@@ -968,7 +964,6 @@ pub mod unshared_test_utils {
 
     pub mod arbitrary_id_stamp {
         use super::*;
-        use crate::arbitrary_id_stamp_in_trait;
 
         //The issues we are to solve might look as follows:
 
@@ -1018,7 +1013,7 @@ pub mod unshared_test_utils {
         }
 
         // To be added together with other methods in your trait
-        // DO NOT USE ME DIRECTLY, USE arbitrary_id_stamp_in_trait INSTEAD!
+        // DO NOT USE ME DIRECTLY, INSTEAD: arbitrary_id_stamp_in_trait!
         #[macro_export]
         macro_rules! arbitrary_id_stamp_in_trait_internal___ {
             () => {

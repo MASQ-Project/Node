@@ -6,9 +6,11 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
-use crate::accountant::payment_adjuster::Adjustment;
+use crate::accountant::payment_adjuster::AdjustmentAnalysis;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
+use crate::accountant::ResponseSkeleton;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
@@ -27,28 +29,31 @@ pub trait SolvencySensitivePaymentInstructor {
         &self,
         msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
-    ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String>;
+    ) -> Option<Either<OutboundPaymentsInstructions, PreparedAdjustment>>;
 
     fn perform_payment_adjustment(
         &self,
         setup: PreparedAdjustment,
         logger: &Logger,
-    ) -> OutboundPaymentsInstructions;
+    ) -> Option<OutboundPaymentsInstructions>;
 }
 
 pub struct PreparedAdjustment {
-    pub original_setup_msg: BlockchainAgentWithContextMessage,
-    pub adjustment: Adjustment,
+    pub agent: Box<dyn BlockchainAgent>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+    pub adjustment_analysis: AdjustmentAnalysis,
 }
 
 impl PreparedAdjustment {
     pub fn new(
-        original_setup_msg: BlockchainAgentWithContextMessage,
-        adjustment: Adjustment,
+        agent: Box<dyn BlockchainAgent>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        adjustment_analysis: AdjustmentAnalysis,
     ) -> Self {
         Self {
-            original_setup_msg,
-            adjustment,
+            agent,
+            response_skeleton_opt,
+            adjustment_analysis,
         }
     }
 }
@@ -60,8 +65,9 @@ mod tests {
     impl Clone for PreparedAdjustment {
         fn clone(&self) -> Self {
             Self {
-                original_setup_msg: self.original_setup_msg.clone(),
-                adjustment: self.adjustment.clone(),
+                agent: self.agent.dup(),
+                response_skeleton_opt: self.response_skeleton_opt,
+                adjustment_analysis: self.adjustment_analysis.clone(),
             }
         }
     }

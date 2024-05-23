@@ -62,7 +62,7 @@ impl Default for PaymentThresholds {
 
 //this code is used in tests in Accountant
 impl PaymentThresholds {
-    pub fn sugg_and_grace(&self, now: i64) -> i64 {
+    pub fn maturity_and_grace(&self, now: i64) -> i64 {
         now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
             - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
     }
@@ -141,9 +141,9 @@ pub struct ReportExitServiceProvidedMessage {
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
-    pub exit: ExitServiceConsumed,
+    pub exit_service: ExitServiceConsumed,
     pub routing_payload_size: usize,
-    pub routing: Vec<RoutingServiceConsumed>,
+    pub routing_services: Vec<RoutingServiceConsumed>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -193,6 +193,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
 mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
+    use crate::node_configurator::unprivileged_parse_args_configuration::check_payment_thresholds;
     use crate::sub_lib::accountant::{
         AccountantSubsFactoryReal, MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds,
         ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
@@ -210,7 +211,8 @@ mod tests {
 
     impl PaymentThresholds {
         pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-            self.sugg_and_grace(now) - checked_conversion::<u64, i64>(self.threshold_interval_sec)
+            self.maturity_and_grace(now)
+                - checked_conversion::<u64, i64>(self.threshold_interval_sec)
         }
     }
 
@@ -235,6 +237,10 @@ mod tests {
         };
         assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
         assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
+        assert_eq!(
+            check_payment_thresholds(&DEFAULT_PAYMENT_THRESHOLDS),
+            Ok(())
+        );
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
         assert_eq!(
             *TEMPORARY_CONSUMING_WALLET,

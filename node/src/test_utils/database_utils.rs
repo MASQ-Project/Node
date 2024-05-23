@@ -7,12 +7,12 @@ use crate::database::db_initializer::ExternalData;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
+use crate::test_utils::unshared_test_utils::standard_dir_for_test_input_data;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{to_string, NeighborhoodModeLight};
 use rusqlite::{Connection, Error};
 use std::cell::RefCell;
-use std::env::current_dir;
 use std::fs::{remove_file, File};
 use std::io::Read;
 use std::iter::once;
@@ -26,11 +26,7 @@ pub fn bring_db_0_back_to_life_and_return_connection(db_path: &Path) -> Connecti
         _ => (),
     };
     let conn = Connection::open(&db_path).unwrap();
-    let file_path = current_dir()
-        .unwrap()
-        .join("src")
-        .join("test_utils")
-        .join("database_version_0_sql.txt");
+    let file_path = standard_dir_for_test_input_data().join("database_version_0_sqls.txt");
     let mut file = File::open(file_path).unwrap();
     let mut buffer = String::new();
     file.read_to_string(&mut buffer).unwrap();

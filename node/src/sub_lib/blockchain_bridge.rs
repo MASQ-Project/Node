@@ -3,13 +3,17 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
-use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
+use crate::accountant::{
+    QualifiedPayableAccount, RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder,
+};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::convert_collection;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use web3::types::U256;
@@ -48,10 +52,15 @@ pub struct OutboundPaymentsInstructions {
 
 impl OutboundPaymentsInstructions {
     pub fn new(
-        affordable_accounts: Vec<PayableAccount>,
+        accounts: Either<Vec<QualifiedPayableAccount>, Vec<PayableAccount>>,
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
+        let affordable_accounts = match accounts {
+            Either::Left(qualified_accounts) => convert_collection(qualified_accounts),
+            Either::Right(adjusted_accounts) => adjusted_accounts,
+        };
+
         Self {
             affordable_accounts,
             agent,
@@ -68,15 +77,19 @@ impl SkeletonOptHolder for OutboundPaymentsInstructions {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConsumingWalletBalances {
+    // The supply of this currency isn't limited by our database and theoretically can be much
+    // bigger than of our utility currency
     pub transaction_fee_balance_in_minor_units: U256,
-    pub masq_token_balance_in_minor_units: U256,
+    // This supply must fit in u128 (maybe rather i128) because otherwise our database would not be
+    // fully capable of handling math over it while not threatened by a fatal overflow
+    pub service_fee_balance_in_minor_units: u128,
 }
 
 impl ConsumingWalletBalances {
-    pub fn new(transaction_fee: U256, masq_token: U256) -> Self {
+    pub fn new(transaction_fee: U256, service_fee: u128) -> Self {
         Self {
             transaction_fee_balance_in_minor_units: transaction_fee,
-            masq_token_balance_in_minor_units: masq_token,
+            service_fee_balance_in_minor_units: service_fee,
         }
     }
 }

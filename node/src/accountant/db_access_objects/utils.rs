@@ -383,10 +383,10 @@ impl ThresholdUtils {
         .debt_threshold_gwei, so that the numerator will be no greater than -10^9 (-gwei_to_wei(1)),
         and the denominator must be less than or equal to 10^9.
 
-        These restrictions do not seem over-strict, since having .permanent_debt_allowed greater
-        than or equal to .debt_threshold_gwei would result in chaos, and setting
-        .threshold_interval_sec over 10^9 would mean continuing to declare debts delinquent after
-        more than 31 years.
+        These restrictions do not seem overly strict for having .permanent_debt_allowed greater
+        than or equal to .debt_threshold_gwei would not make any sense and setting
+        .threshold_interval_sec over 10^9 would mean stretching out for debts across more than
+        31 years.
 
         If payment_thresholds are ever configurable by the user, these validations should be done
         on the values before they are accepted.

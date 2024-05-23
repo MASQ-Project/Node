@@ -201,10 +201,10 @@ impl ReceivableDao for ReceivableDaoReal {
                 from receivable r
                 left outer join banned b on r.wallet_address = b.wallet_address
                 where
-                    r.last_received_timestamp < :sugg_and_grace
-                    and ((r.balance_high_b > slope_drop_high_bytes(:debt_threshold, :slope, :sugg_and_grace - r.last_received_timestamp))
-                        or ((r.balance_high_b = slope_drop_high_bytes(:debt_threshold, :slope, :sugg_and_grace - r.last_received_timestamp))
-                        and (r.balance_low_b > slope_drop_low_bytes(:debt_threshold, :slope, :sugg_and_grace - r.last_received_timestamp))))
+                    r.last_received_timestamp < :maturity_and_grace
+                    and ((r.balance_high_b > slope_drop_high_bytes(:debt_threshold, :slope, :maturity_and_grace - r.last_received_timestamp))
+                        or ((r.balance_high_b = slope_drop_high_bytes(:debt_threshold, :slope, :maturity_and_grace - r.last_received_timestamp))
+                        and (r.balance_low_b > slope_drop_low_bytes(:debt_threshold, :slope, :maturity_and_grace - r.last_received_timestamp))))
                     and ((r.balance_high_b > :permanent_debt_allowed_high_b) or ((r.balance_high_b = 0) and (r.balance_low_b > :permanent_debt_allowed_low_b)))
                     and b.wallet_address is null
             "
@@ -216,7 +216,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 named_params! {
                     ":debt_threshold": checked_conversion::<u64,i64>(payment_thresholds.debt_threshold_gwei),
                     ":slope": slope,
-                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(now)),
+                    ":maturity_and_grace": payment_thresholds.maturity_and_grace(to_time_t(now)),
                     ":permanent_debt_allowed_high_b": permanent_debt_allowed_high_b,
                     ":permanent_debt_allowed_low_b": permanent_debt_allowed_low_b
                 },
@@ -329,11 +329,11 @@ impl ReceivableDaoReal {
         // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
         // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
         let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
-                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received \
+                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received_timestamp \
                  where wallet_address = :wallet";
         let update_clause_with_compensated_overflow =
             "update receivable set balance_high_b = :balance_high_b, \
-                 balance_low_b = :balance_low_b, last_received_timestamp = :last_received \
+                 balance_low_b = :balance_low_b, last_received_timestamp = :last_received_timestamp \
                  where wallet_address = :wallet";
 
         match received_payments.iter().try_for_each(|received_payment| {
@@ -346,7 +346,10 @@ impl ReceivableDaoReal {
                     WeiChangeDirection::Subtraction,
                 ))
                 .other_params(vec![ParamByUse::BeforeAndAfterOverflow(
-                    DisplayableRusqliteParamPair::new(":last_received", &last_received_timestamp),
+                    DisplayableRusqliteParamPair::new(
+                        ":last_received_timestamp",
+                        &last_received_timestamp,
+                    ),
                 )])
                 .build();
 
@@ -1074,12 +1077,12 @@ mod tests {
         assert_eq!(&prepare_params[0..3],
             &[
               "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b \
-              = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address \
-              = :wallet",
+              = balance_low_b + :balance_low_b, last_received_timestamp = :last_received_timestamp \
+              where wallet_address = :wallet",
               "select balance_high_b, balance_low_b from receivable where wallet_address = \
               '0x0000000000000000000000000000000000616263'",
               "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
-              last_received_timestamp = :last_received where wallet_address = :wallet"
+              last_received_timestamp = :last_received_timestamp where wallet_address = :wallet"
             ]);
         // The first transaction did not affect the db, was rolled back
         let account_status = receivable_dao.account_status(&first_wallet);
@@ -1207,17 +1210,17 @@ mod tests {
         not_delinquent_inside_grace_period.balance_wei =
             gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1);
         not_delinquent_inside_grace_period.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) + 2);
+            from_time_t(payment_thresholds.maturity_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
         not_delinquent_after_grace_below_slope.balance_wei =
             gwei_to_wei(payment_thresholds.debt_threshold_gwei - 2);
         not_delinquent_after_grace_below_slope.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
         delinquent_above_slope_after_grace.balance_wei =
             gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
         delinquent_above_slope_after_grace.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 2);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
         not_delinquent_below_slope_before_stop.balance_wei =
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
@@ -1264,11 +1267,11 @@ mod tests {
         let mut not_delinquent = make_receivable_account(1234, false);
         not_delinquent.balance_wei = gwei_to_wei(105);
         not_delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
         delinquent.balance_wei = gwei_to_wei(105);
         delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
@@ -1296,11 +1299,11 @@ mod tests {
         let mut not_delinquent = make_receivable_account(1234, false);
         not_delinquent.balance_wei = gwei_to_wei(600);
         not_delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
         delinquent.balance_wei = gwei_to_wei(600);
         delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
@@ -1328,11 +1331,11 @@ mod tests {
         let mut existing_delinquency = make_receivable_account(1234, true);
         existing_delinquency.balance_wei = gwei_to_wei(250);
         existing_delinquency.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 1);
         let mut new_delinquency = make_receivable_account(2345, true);
         new_delinquency.balance_wei = gwei_to_wei(250);
         new_delinquency.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
+            from_time_t(payment_thresholds.maturity_and_grace(now) - 1);
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "new_delinquencies_does_not_find_existing_delinquencies",
@@ -1374,7 +1377,7 @@ mod tests {
 
     #[test]
     fn new_delinquencies_handles_too_young_debts_causing_slope_parameter_to_be_negative() {
-        //situation where sugg_and_grace makes more time than the age of the debt
+        // Situation where maturity_and_grace makes longer period of time than the debt age
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "new_delinquencies_handles_too_young_debts_causing_slope_parameter_to_be_negative",
@@ -1388,16 +1391,16 @@ mod tests {
             unban_below_gwei: 0,
         };
         let now = to_time_t(SystemTime::now());
-        let sugg_and_grace = payment_thresholds.sugg_and_grace(now);
+        let maturity_and_grace = payment_thresholds.maturity_and_grace(now);
         let too_young_new_delinquency = ReceivableAccount {
             wallet: make_wallet("abc123"),
             balance_wei: 123_456_789_101_112,
-            last_received_timestamp: from_time_t(sugg_and_grace + 1),
+            last_received_timestamp: from_time_t(maturity_and_grace + 1),
         };
         let ok_new_delinquency = ReceivableAccount {
             wallet: make_wallet("aaa999"),
             balance_wei: 123_456_789_101_112,
-            last_received_timestamp: from_time_t(sugg_and_grace - 1),
+            last_received_timestamp: from_time_t(maturity_and_grace - 1),
         };
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &too_young_new_delinquency);

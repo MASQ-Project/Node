@@ -126,6 +126,7 @@ pub struct NodeStartupConfig {
     pub consuming_wallet_info: ConsumingWalletInfo,
     pub rate_pack: RatePack,
     pub payment_thresholds: PaymentThresholds,
+    pub gas_price_opt: Option<u64>,
     pub firewall_opt: Option<Firewall>,
     pub memory_opt: Option<String>,
     pub fake_public_key_opt: Option<PublicKey>,
@@ -158,6 +159,7 @@ impl NodeStartupConfig {
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
             payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
+            gas_price_opt: None,
             firewall_opt: None,
             memory_opt: None,
             fake_public_key_opt: None,
@@ -205,6 +207,10 @@ impl NodeStartupConfig {
         args.push(format!("\"{}\"", self.rate_pack));
         args.push("--payment-thresholds".to_string());
         args.push(format!("\"{}\"", self.payment_thresholds));
+        if let Some(price) = self.gas_price_opt {
+            args.push("--gas-price".to_string());
+            args.push(price.to_string());
+        }
         if let EarningWalletInfo::Address(ref address) = self.earning_wallet_info {
             args.push("--earning-wallet".to_string());
             args.push(address.to_string());
@@ -421,6 +427,7 @@ pub struct NodeStartupConfigBuilder {
     consuming_wallet_info: ConsumingWalletInfo,
     rate_pack: RatePack,
     payment_thresholds: PaymentThresholds,
+    gas_price_opt: Option<u64>,
     firewall: Option<Firewall>,
     memory: Option<String>,
     fake_public_key: Option<PublicKey>,
@@ -477,6 +484,7 @@ impl NodeStartupConfigBuilder {
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
             payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
+            gas_price_opt: None,
             firewall: None,
             memory: None,
             fake_public_key: None,
@@ -503,6 +511,7 @@ impl NodeStartupConfigBuilder {
             consuming_wallet_info: config.consuming_wallet_info.clone(),
             rate_pack: config.rate_pack,
             payment_thresholds: config.payment_thresholds,
+            gas_price_opt: config.gas_price_opt,
             firewall: config.firewall_opt.clone(),
             memory: config.memory_opt.clone(),
             fake_public_key: config.fake_public_key_opt.clone(),
@@ -596,6 +605,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn gas_price(mut self, value: u64) -> Self {
+        self.gas_price_opt = Some(value);
+        self
+    }
+
     // This method is currently disabled. See multinode_integration_tests/docker/Dockerfile.
     pub fn open_firewall_port(mut self, port: u16) -> Self {
         if self.firewall.is_none() {
@@ -660,6 +674,7 @@ impl NodeStartupConfigBuilder {
             consuming_wallet_info: self.consuming_wallet_info,
             rate_pack: self.rate_pack,
             payment_thresholds: self.payment_thresholds,
+            gas_price_opt: self.gas_price_opt,
             firewall_opt: self.firewall,
             memory_opt: self.memory,
             fake_public_key_opt: self.fake_public_key,
@@ -1384,6 +1399,7 @@ mod tests {
                 threshold_interval_sec: 10,
                 unban_below_gwei: 60,
             },
+            gas_price_opt: Some(151),
             firewall_opt: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
             }),
@@ -1468,7 +1484,17 @@ mod tests {
                 permanent_debt_allowed_gwei: 50,
                 unban_below_gwei: 60
             }
-        )
+        );
+        assert_eq!(
+            result.rate_pack,
+            RatePack {
+                routing_byte_rate: 10,
+                routing_service_rate: 20,
+                exit_byte_rate: 30,
+                exit_service_rate: 40,
+            }
+        );
+        assert_eq!(result.gas_price_opt, Some(151))
     }
 
     #[test]
@@ -1499,6 +1525,7 @@ mod tests {
             threshold_interval_sec: 2592000,
             unban_below_gwei: 490000000,
         };
+        let gas_price = 233;
 
         let subject = NodeStartupConfigBuilder::standard()
             .neighborhood_mode("consume-only")
@@ -1506,6 +1533,7 @@ mod tests {
             .ip(IpAddr::from_str("1.3.5.7").unwrap())
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
+            .gas_price(gas_price)
             .rate_pack(rate_pack)
             .payment_thresholds(payment_thresholds)
             .consuming_wallet_info(default_consuming_wallet_info())
@@ -1532,6 +1560,8 @@ mod tests {
                 "\"1|90|3|250\"",
                 "--payment-thresholds",
                 "\"10000000000|1200|1200|490000000|2592000|490000000\"",
+                "--gas-price",
+                "233",
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",
