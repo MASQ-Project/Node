@@ -354,28 +354,14 @@ impl BlockchainBridge {
                 Ok(())
             }
             Err(e) => {
+debug!(self.logger, "BlockchainError({})", e);
                 if let Some(max_block_count) = self.extract_max_block_count(e.clone()) {
                     debug!(self.logger, "Writing max_block_count({})", max_block_count);
-                    debug!(self.logger, "BlockchainError({})", e);
                     self.persistent_config
                         .set_max_block_count(Some(max_block_count))
-                        .unwrap_or_else(
-                            |_| {
-                                //warning!(self.logger, "{} update max_block_count to {}. Scheduling next scan with that limit.", e, max_block_count);
-                                panic!(format!("Writing max_block_count failed: {:?}", e))
-                            } );
-                    Err(format!("Writing max_block_count failed: {:?}", e))
-                } else {
-                    warning!(
-                        self.logger,
-                        "Attempted to retrieve received payments but failed: {:?}",
-                        e
-                    );
-                    Err(format!(
-                        "Attempted to retrieve received payments but failed: {:?}",
-                        e
-                    ))
+                        .unwrap_or_else(|_| panic!("Writing max_block_count failed: {:?}", e));
                 }
+                Err(format!("Could not retrieve Transactions: {:?}", e))
             }
         }
     }
