@@ -3360,6 +3360,25 @@ mod tests {
     */
 
     #[test]
+    fn route_for_particular_country_code_is_constructed() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let p = &db.root_mut().public_key().clone();
+        let a = &db.add_node(make_node_record(1234, true)).unwrap();
+        let b = &db.add_node(make_node_record(2345, true)).unwrap();
+        let c = &db.add_node(make_node_record(3456, true)).unwrap();
+        db.add_arbitrary_full_neighbor(p, a);
+        db.add_arbitrary_full_neighbor(a, b);
+        db.add_arbitrary_full_neighbor(b, c);
+        let cdb = db.clone();
+
+        let route = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+
+        let exit_node = cdb.node_by_key(&route.as_ref().unwrap().get(2).unwrap());
+        assert_eq!(exit_node.unwrap().inner.country_code, "CZ");
+    }
+
+    #[test]
     fn cant_route_through_non_routing_node() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
