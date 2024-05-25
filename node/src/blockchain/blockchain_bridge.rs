@@ -354,7 +354,6 @@ impl BlockchainBridge {
                 Ok(())
             }
             Err(e) => {
-debug!(self.logger, "BlockchainError({})", e);
                 if let Some(max_block_count) = self.extract_max_block_count(e.clone()) {
                     debug!(self.logger, "Writing max_block_count({})", max_block_count);
                     self.persistent_config
