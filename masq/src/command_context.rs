@@ -52,16 +52,16 @@ impl From<ClientError> for ContextError {
 #[async_trait]
 pub trait CommandContext: Send {
     fn active_port(&self) -> Option<u16>;
-    fn send_one_way(&mut self, message: MessageBody) -> Result<(), ContextError>;
+    fn send_one_way(&self, message: MessageBody) -> Result<(), ContextError>;
     fn transact(
-        &mut self,
+        &self,
         message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError>;
     // fn stdin(&mut self) -> &mut dyn Read;
     // fn stdout(&mut self) -> &mut dyn Write;
     // fn stderr(&mut self) -> &mut dyn Write;
-    fn close(&mut self);
+    fn close(&self);
 }
 
 pub struct CommandContextReal {
@@ -79,7 +79,7 @@ impl CommandContext for CommandContextReal {
         self.connection.active_ui_port()
     }
 
-    fn send_one_way(&mut self, outgoing_message: MessageBody) -> Result<(), ContextError> {
+    fn send_one_way(&self, outgoing_message: MessageBody) -> Result<(), ContextError> {
         let conversation = self.connection.start_conversation();
         match conversation.send(outgoing_message) {
             Ok(_) => Ok(()),
@@ -88,7 +88,7 @@ impl CommandContext for CommandContextReal {
     }
 
     fn transact(
-        &mut self,
+        &self,
         outgoing_message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError> {
@@ -104,7 +104,7 @@ impl CommandContext for CommandContextReal {
         Ok(incoming_message)
     }
 
-    fn close(&mut self) {
+    fn close(&self) {
         self.connection.close();
     }
 }

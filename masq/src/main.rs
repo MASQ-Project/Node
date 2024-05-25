@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_cli_lib::non_interactive_mode::{Command, Main};
 use std::io;
+use masq_cli_lib::run_modes::Main;
 
 fn main() {
     // let mut streams: StdStreams<'_> = StdStreams {
@@ -18,6 +18,6 @@ fn main() {
         .build()
         .expect("Failed to build a Runtime");
 
-    let exit_code = rt.block_on(Main::default().go(&args, &tokio::io::stderr()));
+    let exit_code = rt.block_on(Main::default().go(&args));
     ::std::process::exit(i32::from(exit_code));
 }

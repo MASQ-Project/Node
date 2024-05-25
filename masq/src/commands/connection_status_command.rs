@@ -14,7 +14,6 @@ use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
 use masq_lib::short_writeln;
-use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
@@ -40,8 +39,8 @@ pub fn connection_status_subcommand() -> ClapCommand {
 impl Command for ConnectionStatusCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -93,7 +92,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::commands::commands_common::CommandError::ConnectionProblem;
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
@@ -126,9 +125,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
@@ -143,10 +140,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stderr_all_in_one().await,
             "MASQNode is not running; therefore connection status cannot be displayed.\n"
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout().await;
     }
 
     #[test]
@@ -185,9 +182,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
@@ -203,9 +198,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout().await;
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stderr_all_in_one().await,
             "Connection status retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }
@@ -219,9 +214,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
@@ -230,8 +223,8 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap().clone();
-        let stdout = stdout_arc.lock().unwrap().get_string();
-        let stderr = stderr_arc.lock().unwrap().get_string();
+        let stdout = stream_handles.stdout_flushed_strings().await;
+        let stderr = stream_handles.stderr_flushed_strings().await;
         let (stdout_expected, stderr_expected) = response;
         assert_eq!(
             transact_params,
@@ -240,7 +233,7 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS,
             )]
         );
-        assert_eq!(stdout, stdout_expected);
-        assert_eq!(stderr, stderr_expected);
+        assert_eq!(stdout, &[stdout_expected]);
+        assert_eq!(stderr, &[stderr_expected]);
     }
 }

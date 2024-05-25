@@ -42,8 +42,8 @@ impl SetConfigurationCommand {
 impl Command for SetConfigurationCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -96,11 +96,10 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
     };
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -136,9 +135,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = SetConfigurationCommand {
             name: "start-block".to_string(),
             value: "123456".to_string(),
@@ -161,9 +158,7 @@ mod tests {
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Parameter was successfully set\n");
+        stream_handles.assert_empty_stderr().await;
+        assert_eq!(stream_handles.stdout_all_in_one().await, "Parameter was successfully set\n");
     }
 }

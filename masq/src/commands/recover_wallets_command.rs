@@ -98,8 +98,8 @@ impl RecoverWalletsCommand {
 impl Command for RecoverWalletsCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -260,10 +260,10 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
+    use std::vec;
 
     #[test]
     fn constants_have_correct_values() {
@@ -507,9 +507,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -546,11 +544,9 @@ mod tests {
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr().await;
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one().await,
             "Wallets were successfully recovered\n"
         );
     }
@@ -561,9 +557,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -592,11 +586,9 @@ mod tests {
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr().await;
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one().await,
             "Wallets were successfully recovered\n"
         );
     }

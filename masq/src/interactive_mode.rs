@@ -2,7 +2,6 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
-use crate::non_interactive_mode::handle_command_common;
 use crate::schema::app;
 use masq_lib::command::StdStreams;
 use masq_lib::short_writeln;

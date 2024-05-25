@@ -27,8 +27,8 @@ pub struct StartCommand {}
 impl Command for StartCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -60,10 +60,9 @@ impl StartCommand {
 mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::string::ToString;
     use std::sync::{Arc, Mutex};
 
@@ -87,9 +86,7 @@ mod tests {
                 redirect_ui_port: 4321,
             }
             .tmb(0)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["start".to_string()]).unwrap();
 
@@ -102,9 +99,9 @@ mod tests {
             vec![(UiStartOrder {}.tmb(0), START_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one().await,
             "MASQNode successfully started in process 1234 on port 4321\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await
     }
 }

@@ -5,32 +5,37 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
-use crate::terminal::terminal_interface::{RWTermInterface, WTermInterface};
+use crate::terminal::terminal_interface::{FlushHandle, RWTermInterface, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
+use crate::command_context_factory::CommandContextFactory;
+use crate::command_factory::CommandFactory;
 
-#[async_trait]
-pub trait CommandProcessorFactory: Send + Sync {
-    async fn make(
-        self: Arc<Self>,
-        rw_term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
-        ui_port: u16,
-    ) -> Result<Box<dyn CommandProcessor>, CommandError>;
-}
+// #[async_trait]
+// pub trait CommandProcessorFactory: Send + Sync {
+//     async fn make(
+//         self: Arc<Self>,
+//         rw_term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
+//         command_context_factory: &dyn CommandContextFactory,
+//         ui_port: u16,
+//     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
+// }
 
-pub struct CommandProcessorFactoryReal {
+pub struct CommandProcessorFactory {
     bootstrapper: ConnectionManagerBootstrapper,
 }
 
-#[async_trait]
-impl CommandProcessorFactory for CommandProcessorFactoryReal {
-    async fn make(
-        self: Arc<Self>,
+impl CommandProcessorFactory {
+    pub async fn make(
+        &self,
         rw_term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
+        command_context_factory: &dyn CommandContextFactory,
+        command_execution_helper_factory: &dyn CommandExecutionHelperFactory,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         //TODO is CommandError proper?
@@ -46,13 +51,13 @@ impl CommandProcessorFactory for CommandProcessorFactoryReal {
     }
 }
 
-impl Default for CommandProcessorFactoryReal {
+impl Default for CommandProcessorFactory {
     fn default() -> Self {
         Self::new(Default::default())
     }
 }
 
-impl CommandProcessorFactoryReal {
+impl CommandProcessorFactory {
     pub fn new(bootstrapper: ConnectionManagerBootstrapper) -> Self {
         Self { bootstrapper }
     }
@@ -60,7 +65,37 @@ impl CommandProcessorFactoryReal {
 
 #[async_trait]
 pub trait CommandProcessor: Send {
-    async fn process(&mut self, init_args_opt: Option<&[String]>) -> Result<(), CommandError>;
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), CommandError>;
+
+    async fn handle_command_common(
+        &mut self,
+        command_factory: &dyn CommandFactory,
+        command_parts: &[String]
+    ) -> Result<(), String> {
+        todo!()
+        // let command = match command_factory.make(command_parts) {
+        //     Ok(c) => c,
+        //     Err(UnrecognizedSubcommand(msg)) => {
+        //         short_writeln!(stderr, "Unrecognized command: '{}'", msg);
+        //         return false;
+        //     }
+        //     Err(CommandSyntax(msg)) => {
+        //         short_writeln!(stderr, "{}", msg);
+        //         return false;
+        //     }
+        // };
+        // if let Err(e) = processor.process(command) {
+        //     short_writeln!(stderr, "{}", e);
+        //     false
+        // } else {
+        //     true
+        // }
+    }
+
+    fn stdout(&self)-> (&TerminalWriter, Arc<dyn FlushHandle>);
+
+    fn stderr(&self)-> (&TerminalWriter, Arc<dyn FlushHandle>);
+
     fn close(&mut self);
 }
 
@@ -70,13 +105,17 @@ pub struct CommandProcessorNonInteractive {
 
 #[async_trait]
 impl CommandProcessor for CommandProcessorNonInteractive {
-    async fn process(&mut self, init_args_opt: Option<&[String]>) -> Result<(), CommandError> {
-        // if let Some(synchronizer) = self.context.terminal_interface_opt.clone() {
-        //     let _lock = synchronizer.lock();
-        //     return command.execute(&mut self.context);
-        // }
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), CommandError> {
         todo!()
         // command.execute(&mut self.context)
+    }
+
+    fn stdout(&self)-> (&TerminalWriter, Arc<dyn FlushHandle>){
+        todo!()
+    }
+
+    fn stderr(&self)-> (&TerminalWriter, Arc<dyn FlushHandle>){
+        todo!()
     }
 
     fn close(&mut self) {
@@ -90,7 +129,7 @@ pub struct CommandProcessorInteractive {
 
 #[async_trait]
 impl CommandProcessor for CommandProcessorInteractive {
-    async fn process(&mut self, init_args_opt: Option<&[String]>) -> Result<(), CommandError> {
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), CommandError> {
         // if let Some(synchronizer) = self.context.terminal_interface_opt.clone() {
         //     let _lock = synchronizer.lock();
         //     return command.execute(&mut self.context);
@@ -99,9 +138,40 @@ impl CommandProcessor for CommandProcessorInteractive {
         todo!()
     }
 
+    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+        todo!()
+    }
+
+    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+        todo!()
+    }
+
     fn close(&mut self) {
-        todo!();
+
+        todo!("you can print something like \"MASQ is terminating\"");
         //self.context.close();
+    }
+}
+
+pub trait CommandExecutionHelper{
+    fn execute_command(&self, command: Box<dyn Command>)->Box<dyn CommandExecutionHelper>;
+}
+
+pub trait CommandExecutionHelperFactory{
+    fn make(&self)->Box<dyn CommandExecutionHelper>;
+}
+
+pub struct CommandExecutionHelperFactoryReal{}
+
+impl CommandExecutionHelperFactory for CommandExecutionHelperFactoryReal{
+    fn make(&self) -> Box<dyn CommandExecutionHelper> {
+        todo!()
+    }
+}
+
+impl Default for CommandExecutionHelperFactoryReal{
+    fn default() -> Self {
+        todo!()
     }
 }
 
@@ -127,14 +197,17 @@ mod tests {
     use std::pin::Pin;
     use std::thread;
     use std::time::Duration;
+    use crate::command_context_factory::CommandContextFactoryReal;
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
-        let subject = CommandProcessorFactoryReal::default();
-        let (term_interface, _) = TermInterfaceMock::new(None);
+        let subject = CommandProcessorFactory::default();
+        let (term_interface, _) = TermInterfaceMock::new(None).await;
+        let command_context_factory = CommandContextFactoryReal::default();
+        let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
 
         let result = Arc::new(subject)
-            .make(Either::Left(Box::new(term_interface)), ui_port)
+            .make(Either::Left(Box::new(term_interface)), &command_context_factory, &command_execution_helper_factory, ui_port)
             .await;
 
         match result.err() {
@@ -267,8 +340,8 @@ mod tests {
     impl Command for TameCommand {
         async fn execute(
             self: Box<Self>,
-            _context: &mut dyn CommandContext,
-            term_interface: &mut dyn WTermInterface,
+            _context: &dyn CommandContext,
+            term_interface: &dyn WTermInterface,
         ) -> Result<(), CommandError> {
             Self::MESSAGE_IN_PIECES
                 .iter()

@@ -7,7 +7,6 @@ pub mod commands;
 pub mod communications;
 pub mod interactive_mode;
 pub mod non_interactive_clap;
-pub mod non_interactive_mode;
 mod notifications;
 mod schema;
 pub mod terminal;
@@ -16,3 +15,5 @@ extern crate crossbeam_channel;
 
 #[cfg(test)]
 pub mod test_utils;
+pub mod run_modes;
+pub mod command_context_factory;

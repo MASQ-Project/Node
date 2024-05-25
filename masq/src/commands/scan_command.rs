@@ -3,7 +3,6 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::terminal_interface::WTermInterface;
-use crate::test_utils::mocks::WTermInterfaceMock;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
@@ -42,8 +41,8 @@ pub fn scan_subcommand() -> ClapCommand {
 impl Command for ScanCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiScanRequest {
@@ -81,9 +80,8 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiScanRequest};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -105,7 +103,7 @@ mod tests {
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, _) = TermInterfaceMock::new(None).await;
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
@@ -124,9 +122,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiScanResponse {}.tmb(0)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["scan".to_string(), name.to_string()])
@@ -135,8 +131,8 @@ mod tests {
         let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stderr().await;
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -152,7 +148,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("blah".to_string())));
         let subject = ScanCommand::new(&["scan".to_string(), "payables".to_string()]).unwrap();
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, _) = TermInterfaceMock::new(None).await;
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)

@@ -51,8 +51,8 @@ pub struct SetupCommand {
 impl Command for SetupCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -191,17 +191,13 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{
-        make_terminal_writer, CommandContextMock, TerminalPassiveMock, TestStreamFactory,
-        WTermInterfaceMock,
-    };
+    use crate::test_utils::mocks::{CommandContextMock, make_terminal_writer, TermInterfaceMock, TestStreamFactory};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{
         Configured, Default as DefaultStatus, Set,
     };
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -244,9 +240,7 @@ mod tests {
                 errors: vec![],
             }
             .tmb(0)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -283,16 +277,16 @@ mod tests {
                 SETUP_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq! (stdout_arc.lock().unwrap().get_string(),
-"NAME                          VALUE                                                            STATUS\n\
+        assert_eq! (stream_handles.stdout_flushed_strings().await,
+vec!["NAME                          VALUE                                                            STATUS\n\
 chain                         eth-mainnet                                                      Configured\n\
 data-directory                /home/booga/eth-mainnet                                          Default\n\
 neighborhood-mode             zero-hop                                                         Set\n\
 neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545 Set\n\
 scan-intervals                123|111|228                                                      Set\n\
 scans                         off                                                              Set\n\
-\nNOTE: your data directory was modified to match the chain parameter.\n\n");
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+\nNOTE: your data directory was modified to match the chain parameter.\n\n".to_string()]);
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -315,9 +309,7 @@ scans                         off                                               
                 errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
             }
             .tmb(0)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -351,8 +343,8 @@ scans                         off                                               
                 SETUP_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq! (stdout_arc.lock().unwrap().get_string(),
-"NAME                          VALUE                                                            STATUS\n\
+        assert_eq! (stream_handles.stdout_flushed_strings().await,
+vec!["NAME                          VALUE                                                            STATUS\n\
 chain                         eth-mainnet                                                      Set\n\
 clandestine-port              8534                                                             Default\n\
 data-directory                /home/booga/eth-mainnet                                          Set\n\
@@ -362,8 +354,8 @@ ERRORS:
 ip                            Nosir, I don't like it.\n\
 \n\
 NOTE: no changes were made to the setup because the Node is currently running.\n\
-\nNOTE: your data directory was modified to match the chain parameter.\n\n");
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+\nNOTE: your data directory was modified to match the chain parameter.\n\n"]);
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[test]

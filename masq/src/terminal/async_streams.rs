@@ -1,7 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use futures::AsyncRead;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct AsyncStdStreams {
     pub stdin: Box<dyn AsyncRead + Send + Unpin>,

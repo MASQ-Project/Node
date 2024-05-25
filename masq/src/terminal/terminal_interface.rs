@@ -11,7 +11,9 @@ use tokio::sync::mpsc::UnboundedSender;
 #[derive(Debug)]
 pub enum WriteResult {}
 
-pub enum ReadResult {}
+pub enum ReadResult {
+    ConnectionRefused
+}
 
 pub enum ReadInput {
     Line(String),
@@ -50,7 +52,7 @@ pub struct NonInteractiveFlushHandle {}
 
 pub struct InteractiveFlushHandle {}
 
-pub trait WTermInterface: Send {
+pub trait WTermInterface: Send{
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>);
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>);
 

@@ -47,8 +47,8 @@ pub struct FinancialsCommand {
 impl Command for FinancialsCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -288,18 +288,18 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
         UiPayableAccount, UiReceivableAccount,
     };
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use nix::libc::clone;
     use regex::Regex;
     use std::sync::{Arc, Mutex};
+    use std::vec;
 
     fn meaningless_financials_response() -> MessageBody {
         UiFinancialsResponse {
@@ -316,7 +316,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = factory.make(&["financials".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -344,7 +344,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -382,7 +382,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -420,7 +420,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -637,7 +637,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -678,7 +678,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -728,7 +728,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -843,9 +843,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
@@ -868,7 +866,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one().await,
             "\
                 \n\
                 Financial status totals in MASQ\n\
@@ -878,7 +876,7 @@ mod tests {
                 Unpaid receivable:                -0.05\n\
                 Paid receivable:                  1,278.76\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await;
     }
 
     // #[test]
@@ -1007,9 +1005,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1033,7 +1029,7 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(),
+        assert_eq!(stream_handles.stdout_all_in_one().await,
                    "\
                 \n\
                 Financial status totals in MASQ\n\
@@ -1060,7 +1056,7 @@ mod tests {
                 #   Wallet                                       Age [s]   Balance [MASQ]\n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444.53      \n\
                 2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328.12       \n");
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await
     }
 
     #[tokio::test]
@@ -1077,9 +1073,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1113,7 +1107,7 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(),
+        assert_eq!(stream_handles.stdout_all_in_one().await,
                    "\
                 \n\
                 Financial status totals in MASQ\n\
@@ -1138,7 +1132,7 @@ mod tests {
                 \n\
                 No records found\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -1149,9 +1143,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1175,8 +1167,8 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(),
-                   "\
+        assert_eq!(stream_handles.stdout_flushed_strings().await,
+                   vec!["\
                 \n\
                 Financial status totals in gwei\n\
                 \n\
@@ -1201,9 +1193,9 @@ mod tests {
                 \n\
                 #   Wallet                                       Age [s]   Balance [gwei]   \n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
-                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"
+                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"]
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        assert_eq!(stream_handles.stderr_flushed_strings().await, vec![String::new()]);
     }
 
     #[tokio::test]
@@ -1221,9 +1213,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1257,7 +1247,7 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), "\
+        assert_eq!(stream_handles.stdout_flushed_strings().await, vec!["\
                 \n\
                 Financial status totals in gwei\n\
                 \n\
@@ -1279,8 +1269,8 @@ mod tests {
                 \n\
                 #   Wallet                                       Age [s]   Balance [gwei]\n\
                 \n\
-                No records found\n");
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+                No records found\n"]);
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -1315,9 +1305,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1351,8 +1339,8 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(),
-                   "\n\
+        assert_eq!(stream_handles.stdout_flushed_strings().await,
+                   vec!["\n\
             Specific payable query: 0 - 350000 sec old, 5 - ∞ MASQ\n\
             \n\
             #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
@@ -1363,9 +1351,9 @@ mod tests {
             Specific receivable query: 5000 - 10000 sec old, 0.8 - ∞ MASQ\n\
             \n\
             #   Wallet                                       Age [s]   Balance [MASQ]\n\
-            1   0x8bA50675e590b545D2128905b89039256Eaa24F6   45,700    5.05          \n"
+            1   0x8bA50675e590b545D2128905b89039256Eaa24F6   45,700    5.05          \n".to_string()]
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -1387,9 +1375,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1414,8 +1400,8 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "\
+            stream_handles.stdout_flushed_strings().await,
+            vec!["\
 |
 |Financial status totals in MASQ
 |
@@ -1443,9 +1429,9 @@ mod tests {
 |No records found\n"
                 .lines()
                 .map(|line| format!("{}\n", line.strip_prefix("|").unwrap()))
-                .collect::<String>()
+                .collect::<String>()]
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -1473,9 +1459,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1510,8 +1494,8 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "\
+            stream_handles.stdout_flushed_strings().await,
+            vec!["\
 |
 |Financial status totals in MASQ
 |
@@ -1537,9 +1521,9 @@ mod tests {
 |No records found"
                 .lines()
                 .map(|line| format!("{}\n", line.strip_prefix("|").unwrap()))
-                .collect::<String>()
+                .collect::<String>()]
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -1583,9 +1567,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1610,8 +1592,8 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "\n\
+            stream_handles.stdout_flushed_strings().await,
+            vec!["\n\
                 Up to 7 top accounts\n\
                 \n\
                 Payable\n\
@@ -1626,9 +1608,9 @@ mod tests {
                 \n\
                 #   Wallet                                       Age [s]      Balance [MASQ]\n\
                 1   0xaa22968a5263f165F014d3F21A443f10a116EDe0   566,668      < 0.01        \n\
-                2   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   11,111,111   -0.01 < x < 0 \n"
+                2   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   11,111,111   -0.01 < x < 0 \n".to_string()]
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await
     }
 
     #[tokio::test]
@@ -1672,9 +1654,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1704,7 +1684,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one().await,
             "\n\
                 Specific payable query: 3000 - 40000 sec old, 88 - 1000 MASQ\n\
                 \n\
@@ -1713,7 +1693,7 @@ mod tests {
                 2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      < 0.01           None                                                              \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   < 0.01           None                                                              \n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await
     }
 
     #[tokio::test]
@@ -1752,9 +1732,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1784,7 +1762,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one().await,
             "\n\
                 Specific receivable query: 3000 - 40000 sec old, 66 - 980 MASQ\n\
                 \n\
@@ -1793,7 +1771,7 @@ mod tests {
                 2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      708,090       \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658        \n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await
     }
 
     #[tokio::test]
@@ -1802,9 +1780,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
@@ -1826,9 +1802,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout().await;
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stderr_all_in_one().await,
             "Financials retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }

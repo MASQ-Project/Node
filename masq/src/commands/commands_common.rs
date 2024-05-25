@@ -58,8 +58,8 @@ impl Display for CommandError {
 pub trait Command: Debug + Send + Sync {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError>;
 
     fn as_any(&self) -> &dyn Any {
@@ -82,7 +82,7 @@ where
 
 pub async fn transaction<I, O>(
     input: I,
-    context: &mut dyn CommandContext,
+    context: &dyn CommandContext,
     stderr: &TerminalWriter,
     timeout_millis: u64,
 ) -> Result<O, CommandError>
@@ -138,9 +138,8 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
@@ -154,24 +153,22 @@ mod tests {
     async fn two_way_transaction_passes_dropped_connection_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stderr_arc = term_interface.stderr_arc().clone();
-        let (mut stderr, flush_handle) = term_interface.stderr();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, stderr, 1000).await;
 
         flush_handle.flush().await.unwrap();
         assert_eq!(result, Err(ConnectionProblem("booga".to_string())));
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr().await
     }
 
     #[tokio::test]
     async fn two_way_transaction_passes_payload_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::PayloadError(10, "booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -179,16 +176,15 @@ mod tests {
 
         flush_handle.flush().await.unwrap();
         assert_eq!(result, Err(Payload(10, "booga".to_string())));
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
     async fn two_way_transaction_passes_other_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -196,7 +192,8 @@ mod tests {
 
         flush_handle.flush().await.unwrap();
         assert_eq!(result, Err(Transmission("booga".to_string())));
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -207,8 +204,7 @@ mod tests {
             payload: Ok("unparseable".to_string()),
         };
         let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -221,8 +217,8 @@ mod tests {
                 message_body
             )))
         );
-        assert_eq! (stderr_arc.lock().unwrap().get_string(),
-                    "Node or Daemon is acting erratically: Unexpected two-way message from context 1234 with opcode 'booga'\nOk(\"unparseable\")\n".to_string());
+        assert_eq! (stream_handles.stderr_all_in_one().await,
+                    "Node or Daemon is acting erratically: Unexpected two-way message from context 1234 with opcode 'booga'\nOk(\"unparseable\")\n");
     }
 
     #[test]

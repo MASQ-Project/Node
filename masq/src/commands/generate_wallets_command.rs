@@ -264,8 +264,8 @@ impl GenerateWalletsCommand {
 impl Command for GenerateWalletsCommand {
     async fn execute(
         self: Box<Self>,
-        context: &mut dyn CommandContext,
-        term_interface: &mut dyn WTermInterface,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
@@ -354,12 +354,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, WTermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     };
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayHelperMethods;
-
     use super::*;
     use crate::command_context::ContextError;
 
@@ -845,7 +843,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -889,7 +887,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let mut term_interface = WTermInterfaceMock::default();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -922,9 +920,7 @@ mod tests {
     #[tokio::test]
     async fn response_with_mnemonic_phrase_is_processed() {
         let mut context = CommandContextMock::new();
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
@@ -943,26 +939,22 @@ mod tests {
 
         stdout_flush_handle.flush().await.unwrap();
         stderr_flush_handle.flush().await.unwrap();
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr().await;
         assert_eq!(
-            &stdout.get_string(),
-            "Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
+            stream_handles.stdout_flushed_strings().await,
+            vec!["Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
 'taxation is theft'\n\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\
 Private key of consuming wallet: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\
 Address of       earning wallet: EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n\
 Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
-"
+".to_string()]
         );
     }
 
     #[tokio::test]
     async fn response_without_mnemonic_phrase_is_processed() {
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc();
-        let stderr_arc = term_interface.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
@@ -975,11 +967,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
         GenerateWalletsCommand::process_response(response, stdout, stderr).await;
 
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr().await;
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one().await,
             "\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\
 Private key of consuming wallet: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\
@@ -1007,9 +997,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
             }
             .tmb(4321)));
-        let mut term_interface = WTermInterfaceMock::default();
-        let stdout_arc = term_interface.stdout_arc().clone();
-        let stderr_arc = term_interface.stderr_arc().clone();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -1044,11 +1032,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr().await;
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one().await,
             "Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
 'taxation is theft'\n\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\
