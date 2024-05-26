@@ -1130,13 +1130,13 @@ mod tests {
             &ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: None,
-                msg: "Attempted to retrieve received payments but failed: QueryFailed(\"we have no luck\")".to_string()
+                msg: "Could not retrieve Transactions: QueryFailed(\"we have no luck\")"
+                    .to_string()
             }
         );
         assert_eq!(recording.len(), 1);
         TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: Attempted to retrieve \
-         received payments but failed: QueryFailed(\"we have no luck\")",
+            "WARN: BlockchainBridge: Could not retrieve Transactions: QueryFailed(\"we have no luck\")",
         );
     }
 
