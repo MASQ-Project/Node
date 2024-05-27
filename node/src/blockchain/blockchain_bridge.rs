@@ -290,7 +290,7 @@ impl BlockchainBridge {
         let accountant_recipient =  self.payable_payments_setup_subs_opt.clone();
 
         return Box::new(
-            self.blockchain_interface.build_blockchain_agent(&consuming_wallet)
+            self.blockchain_interface.build_blockchain_agent(consuming_wallet)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e) )
                 .and_then(move |agent| {
                     let outgoing_message = BlockchainAgentWithContextMessage::new(
@@ -926,7 +926,7 @@ mod tests {
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        let transaction_id_error = BlockchainAgentBuildError::TransactionID(consuming_wallet, BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage) for wallet 0xc4e2…3ac6".to_string()));
+        let transaction_id_error = BlockchainAgentBuildError::TransactionID(consuming_wallet.address(), BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage) for wallet 0xc4e2…3ac6".to_string()));
         assert_eq!(
             error_msg,
             format!("Blockchain agent build error: {:?}", transaction_id_error)

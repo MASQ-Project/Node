@@ -7,7 +7,7 @@ use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{TransactionReceipt, H256};
+use web3::types::{TransactionReceipt, H256, Address};
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -84,9 +84,9 @@ impl Display for PayableTransactionError {
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum BlockchainAgentBuildError {
     GasPrice(BlockchainError),
-    TransactionFeeBalance(Wallet, BlockchainError),
-    ServiceFeeBalance(Wallet, BlockchainError),
-    TransactionID(Wallet, BlockchainError),
+    TransactionFeeBalance(Address, BlockchainError),
+    ServiceFeeBalance(Address, BlockchainError),
+    TransactionID(Address, BlockchainError),
     UninitializedBlockchainInterface,
 }
 
@@ -97,17 +97,17 @@ impl Display for BlockchainAgentBuildError {
                 "gas price due to: {:?}",
                 blockchain_e
             )),
-            Self::TransactionFeeBalance(wallet, blockchain_e) => Either::Left(format!(
-                "transaction fee balance for our earning wallet {} due to: {}",
-                wallet, blockchain_e
+            Self::TransactionFeeBalance(address, blockchain_e) => Either::Left(format!(
+                "transaction fee balance for our earning wallet {:#x} due to: {}",
+                address, blockchain_e
             )),
-            Self::ServiceFeeBalance(wallet, blockchain_e) => Either::Left(format!(
-                "masq balance for our earning wallet {} due to {}",
-                wallet, blockchain_e
+            Self::ServiceFeeBalance(address, blockchain_e) => Either::Left(format!(
+                "masq balance for our earning wallet {:#x} due to {}",
+                address, blockchain_e
             )),
-            Self::TransactionID(wallet, blockchain_e) => Either::Left(format!(
-                "transaction id for our earning wallet {} due to {}",
-                wallet, blockchain_e
+            Self::TransactionID(address, blockchain_e) => Either::Left(format!(
+                "transaction id for our earning wallet {:#x} due to {}",
+                address, blockchain_e
             )),
             Self::UninitializedBlockchainInterface => {
                 Either::Right(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED.to_string())
@@ -227,14 +227,14 @@ mod tests {
         let original_errors = [
             BlockchainAgentBuildError::GasPrice(BlockchainError::InvalidResponse),
             BlockchainAgentBuildError::TransactionFeeBalance(
-                wallet.clone(),
+                wallet.address(),
                 BlockchainError::InvalidResponse,
             ),
             BlockchainAgentBuildError::ServiceFeeBalance(
-                wallet.clone(),
+                wallet.address(),
                 BlockchainError::InvalidAddress,
             ),
-            BlockchainAgentBuildError::TransactionID(wallet.clone(), BlockchainError::InvalidUrl),
+            BlockchainAgentBuildError::TransactionID(wallet.address(), BlockchainError::InvalidUrl),
             BlockchainAgentBuildError::UninitializedBlockchainInterface,
         ];
 

@@ -64,7 +64,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn build_blockchain_agent(
         &self,
-        consuming_wallet: &Wallet,
+        consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         self.build_blockchain_agent_error()
     }
@@ -253,7 +253,7 @@ mod tests {
         let subject = make_subject(test_name);
 
         let result = subject
-            .build_blockchain_agent(&wallet)
+            .build_blockchain_agent(wallet)
             .wait();
 
         let err = match result {

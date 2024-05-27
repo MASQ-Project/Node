@@ -231,16 +231,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn build_blockchain_agent(
         &self,
-        consuming_wallet: &Wallet,
+        consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let web3 = self.get_web3();
         let contract = self.get_contract();
-        let gas_limit_const_part = self.gas_limit_const_part.clone();
         let wallet_address = consuming_wallet.address();
-        let consuming_wallet_clone_1 = consuming_wallet.clone();
-        let consuming_wallet_clone_2 = consuming_wallet.clone();
-        let consuming_wallet_clone_3 = consuming_wallet.clone();
-        let consuming_wallet_clone_4 = consuming_wallet.clone();
+        let gas_limit_const_part = self.gas_limit_const_part.clone();
 
         Box::new(
             get_gas_price(web3.clone())
@@ -251,7 +247,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 get_transaction_fee_balance(web3.clone(), wallet_address)
                     .map_err(move |e| {
                         BlockchainAgentBuildError::TransactionFeeBalance(
-                            consuming_wallet_clone_1,
+                            wallet_address,
                             e.clone(),
                         )
                     })
@@ -259,7 +255,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         get_service_fee_balance(contract, wallet_address)
                             .map_err(move |e| {
                                 BlockchainAgentBuildError::ServiceFeeBalance(
-                                    consuming_wallet_clone_2,
+                                    wallet_address,
                                     e.clone(),
                                 )
                             })
@@ -267,7 +263,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                 get_transaction_id(web3, wallet_address)
                                     .map_err(move |e| {
                                         BlockchainAgentBuildError::TransactionID(
-                                            consuming_wallet_clone_3,
+                                            wallet_address,
                                             e.clone(),
                                         )
                                     })
@@ -282,7 +278,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         Ok(create_blockchain_agent_web3(
                                             gas_limit_const_part,
                                             blockchain_agent_future_result,
-                                            consuming_wallet_clone_4,
+                                            consuming_wallet,
                                         ))
                                     })
                             })
@@ -861,7 +857,7 @@ mod tests {
         let transaction_id = U256::from(35);
 
         let result = subject
-            .build_blockchain_agent(&wallet)
+            .build_blockchain_agent(wallet.clone())
             .wait()
             .unwrap();
 
@@ -895,7 +891,7 @@ mod tests {
         let wallet = make_wallet("abc");
         let subject = make_blockchain_interface_web3(Some(port));
 
-        let err = subject.build_blockchain_agent(&wallet).wait().err().unwrap();
+        let err = subject.build_blockchain_agent(wallet).wait().err().unwrap();
 
         let expected_err = BlockchainAgentBuildError::GasPrice(
             QueryFailed("Transport error: Error(IncompleteMessage)".to_string()),
@@ -916,7 +912,7 @@ mod tests {
         // subject.lower_interface = Box::new(lower_blockchain_interface);
 
         let result = subject
-            .build_blockchain_agent(&wallet)
+            .build_blockchain_agent(wallet.clone())
             .wait();
 
         let err = match result {
@@ -935,7 +931,7 @@ mod tests {
             .start();
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::TransactionFeeBalance(
-                wallet.clone(),
+                wallet.address(),
                 BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
             )
         };
@@ -955,7 +951,7 @@ mod tests {
             .start();
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::ServiceFeeBalance(
-                wallet.clone(),
+                wallet.address(),
                 BlockchainError::QueryFailed("Api error: Transport error: Error(IncompleteMessage)".to_string())
             )
         };
@@ -977,7 +973,7 @@ mod tests {
 
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::TransactionID(
-                wallet.clone(),
+                wallet.address(),
                 BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage) for wallet 0x0000…6364".to_string())
             )
         };

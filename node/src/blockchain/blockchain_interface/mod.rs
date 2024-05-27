@@ -48,7 +48,7 @@ pub trait BlockchainInterface {
 
     fn build_blockchain_agent(
         &self,
-        consuming_wallet: &Wallet,
+        consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>;
     fn get_service_fee_balance(
         &self,
