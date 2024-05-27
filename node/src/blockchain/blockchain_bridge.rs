@@ -290,8 +290,6 @@ impl BlockchainBridge {
         let persistent_config = &*self.persistent_config;
         let accountant_recipient =  self.payable_payments_setup_subs_opt.clone();
 
-        // todo!("Looking for test handle_qualified_payable_msg");
-
         return Box::new(
             self.blockchain_interface.build_blockchain_agent(&consuming_wallet, persistent_config)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e) )

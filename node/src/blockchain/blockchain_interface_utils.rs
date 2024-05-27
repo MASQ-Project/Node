@@ -44,7 +44,11 @@ use web3::types::{
 use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
 
+
+const GWEI_UNIT: u64 = 1_000_000_000; // 1 Gwei = 1e9 Wei
+
 pub struct BlockchainAgentFutureResult {
+    pub gas_price_wei: U256,
     pub transaction_fee_balance: U256,
     pub masq_token_balance: U256,
     pub pending_transaction_id: U256,
@@ -525,6 +529,17 @@ pub fn get_transaction_fee_balance(
     )
 }
 
+pub fn convert_wei_to_gwei(wei: U256) -> u64 {
+    (wei / U256::from(GWEI_UNIT)).as_u64()
+}
+
+pub fn get_gas_price(web3: Web3<Http>) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    Box::new(
+        web3.eth().gas_price()
+            .map_err(|e|  BlockchainError::QueryFailed(e.to_string()) )
+    )
+}
+
 pub fn get_service_fee_balance(
     contract: Contract<Http>,
     address: Address,
@@ -583,13 +598,12 @@ pub fn get_transaction_id(
 // }
 
 pub fn create_blockchain_agent_web3(
-    gas_price_gwei: u64,
     gas_limit_const_part: u64,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
 ) -> Box<dyn BlockchainAgent> {
     Box::new(BlockchainAgentWeb3::new(
-        gas_price_gwei,
+        convert_wei_to_gwei(blockchain_agent_future_result.gas_price_wei),
         gas_limit_const_part,
         wallet,
         ConsumingWalletBalances {
@@ -648,6 +662,7 @@ mod tests {
     use web3::types::{CallRequest, TransactionRequest};
     use web3::Error as Web3Error;
     use web3::Error::{Rpc, Unreachable};
+    use crate::blockchain::blockchain_interface;
 
     #[test]
     fn tmp_test_web3_submit_batch() {
@@ -759,7 +774,30 @@ mod tests {
     }
 
     #[test]
-    fn tmp_new_payment_test() {}
+    fn get_gas_price_works() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response( "0x01".to_string(),1)
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let result = get_gas_price(web3).wait().unwrap();
+
+        assert_eq!(result, 1.into());
+    }
+
+    #[test]
+    fn get_gas_price_returns_error() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port).start();
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let error = get_gas_price(web3).wait().unwrap_err();
+
+        assert_eq!(error, QueryFailed("Transport error: Error(IncompleteMessage)".to_string()));
+    }
 
     #[test]
     fn append_signed_transaction_to_batch_works() {

@@ -83,7 +83,7 @@ impl Display for PayableTransactionError {
 
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum BlockchainAgentBuildError {
-    GasPrice(PersistentConfigError),
+    GasPrice(BlockchainError),
     TransactionFeeBalance(Wallet, BlockchainError),
     ServiceFeeBalance(Wallet, BlockchainError),
     TransactionID(Wallet, BlockchainError),
@@ -93,9 +93,9 @@ pub enum BlockchainAgentBuildError {
 impl Display for BlockchainAgentBuildError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let preformatted_or_complete = match self {
-            Self::GasPrice(persistent_config_e) => Either::Left(format!(
-                "gas price from the database: {:?}",
-                persistent_config_e
+            Self::GasPrice(blockchain_e) => Either::Left(format!(
+                "gas price due to: {:?}",
+                blockchain_e
             )),
             Self::TransactionFeeBalance(wallet, blockchain_e) => Either::Left(format!(
                 "transaction fee balance for our earning wallet {} due to: {}",
@@ -225,7 +225,7 @@ mod tests {
     fn blockchain_agent_build_error_implements_display() {
         let wallet = make_wallet("abc");
         let original_errors = [
-            BlockchainAgentBuildError::GasPrice(PersistentConfigError::NotPresent),
+            BlockchainAgentBuildError::GasPrice(BlockchainError::InvalidResponse),
             BlockchainAgentBuildError::TransactionFeeBalance(
                 wallet.clone(),
                 BlockchainError::InvalidResponse,
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
-                "Blockchain agent construction failed at fetching gas price from the database: NotPresent",
+                "Blockchain agent construction failed at fetching gas price due to: InvalidResponse",
                 "Blockchain agent construction failed at fetching transaction fee balance for our earning \
                 wallet 0x0000000000000000000000000000000000616263 due to: Blockchain error: Invalid response",
                 "Blockchain agent construction failed at fetching masq balance for our earning wallet \

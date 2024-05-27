@@ -31,7 +31,7 @@ use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, Fil
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
-use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, get_transaction_id, request_block_number, create_blockchain_agent_web3, BlockchainAgentFutureResult};
+use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, get_transaction_id, request_block_number, create_blockchain_agent_web3, BlockchainAgentFutureResult, get_gas_price};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
 const CONTRACT_ABI: &str = indoc!(
@@ -232,12 +232,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn build_blockchain_agent(
         &self,
         consuming_wallet: &Wallet,
-        persistent_config: &dyn PersistentConfiguration,
+        _persistent_config: &dyn PersistentConfiguration,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
-        let gas_price_gwei = match persistent_config.gas_price() {
-            Ok(price) => price,
-            Err(e) => return Box::new(err(BlockchainAgentBuildError::GasPrice(e))),
-        };
         let web3 = self.get_web3();
         let contract = self.get_contract();
         let gas_limit_const_part = self.gas_limit_const_part.clone();
@@ -248,45 +244,51 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let consuming_wallet_clone_4 = consuming_wallet.clone();
 
         Box::new(
-            get_transaction_fee_balance(web3.clone(), wallet_address)
-                .map_err(move |e| {
-                    BlockchainAgentBuildError::TransactionFeeBalance(
-                        consuming_wallet_clone_1,
-                        e.clone(),
-                    )
+            get_gas_price(web3.clone())
+                .map_err(|e| {
+                    BlockchainAgentBuildError::GasPrice(e.clone())
                 })
-                .and_then(move |transaction_fee_balance| {
-                    get_service_fee_balance(contract, wallet_address)
-                        .map_err(move |e| {
-                            BlockchainAgentBuildError::ServiceFeeBalance(
-                                consuming_wallet_clone_2,
-                                e.clone(),
-                            )
-                        })
-                        .and_then(move |masq_token_balance| {
-                            get_transaction_id(web3, wallet_address)
-                                .map_err(move |e| {
-                                    BlockchainAgentBuildError::TransactionID(
-                                        consuming_wallet_clone_3,
-                                        e.clone(),
-                                    )
-                                })
-                                .and_then(move |pending_transaction_id| {
-                                    let blockchain_agent_future_result =
-                                        BlockchainAgentFutureResult {
-                                            transaction_fee_balance,
-                                            masq_token_balance,
-                                            pending_transaction_id,
-                                        };
-                                    Ok(create_blockchain_agent_web3(
-                                        gas_price_gwei,
-                                        gas_limit_const_part,
-                                        blockchain_agent_future_result,
-                                        consuming_wallet_clone_4,
-                                    ))
-                                })
-                        })
-                }),
+                .and_then(move |gas_price_wei| {
+                get_transaction_fee_balance(web3.clone(), wallet_address)
+                    .map_err(move |e| {
+                        BlockchainAgentBuildError::TransactionFeeBalance(
+                            consuming_wallet_clone_1,
+                            e.clone(),
+                        )
+                    })
+                    .and_then(move |transaction_fee_balance| {
+                        get_service_fee_balance(contract, wallet_address)
+                            .map_err(move |e| {
+                                BlockchainAgentBuildError::ServiceFeeBalance(
+                                    consuming_wallet_clone_2,
+                                    e.clone(),
+                                )
+                            })
+                            .and_then(move |masq_token_balance| {
+                                get_transaction_id(web3, wallet_address)
+                                    .map_err(move |e| {
+                                        BlockchainAgentBuildError::TransactionID(
+                                            consuming_wallet_clone_3,
+                                            e.clone(),
+                                        )
+                                    })
+                                    .and_then(move |pending_transaction_id| {
+                                        let blockchain_agent_future_result =
+                                            BlockchainAgentFutureResult {
+                                                gas_price_wei,
+                                                transaction_fee_balance,
+                                                masq_token_balance,
+                                                pending_transaction_id,
+                                            };
+                                        Ok(create_blockchain_agent_web3(
+                                            gas_limit_const_part,
+                                            blockchain_agent_future_result,
+                                            consuming_wallet_clone_4,
+                                        ))
+                                    })
+                            })
+                    })
+            }),
         )
     }
 
@@ -847,13 +849,14 @@ mod tests {
     fn blockchain_interface_web3_can_build_blockchain_agent() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
             .response("0xFFF0".to_string(), 0)
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
             .response("0x23".to_string(), 1)
             .start();
         let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
-        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(50));
+        let persistent_config = PersistentConfigurationMock::new();
         let subject = make_blockchain_interface_web3(Some(port));
         let transaction_fee_balance = U256::from(65_520);
         let masq_balance = U256::from(65_535);
@@ -864,6 +867,8 @@ mod tests {
             .wait()
             .unwrap();
 
+
+        let expected_gas_price_gwei = 1;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(result.pending_transaction_id(), transaction_id);
         assert_eq!(
@@ -873,11 +878,11 @@ mod tests {
                 masq_token_balance_in_minor_units: masq_balance
             }
         );
-        assert_eq!(result.agreed_fee_per_computation_unit(), 50);
+        assert_eq!(result.agreed_fee_per_computation_unit(), expected_gas_price_gwei);
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
                 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
-            * 50) as u128;
+            * expected_gas_price_gwei) as u128;
         assert_eq!(
             result.estimated_transaction_fee_total(3),
             expected_fee_estimation
@@ -886,17 +891,17 @@ mod tests {
 
     #[test]
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port).start();
         let chain = Chain::PolyMumbai;
         let wallet = make_wallet("abc");
-        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Err(
-            PersistentConfigError::UninterpretableValue("booga".to_string()),
-        ));
-        let subject = make_blockchain_interface_web3(None);
+        let persistent_config = PersistentConfigurationMock::new();
+        let subject = make_blockchain_interface_web3(Some(port));
 
         let err = subject.build_blockchain_agent(&wallet, &persistent_config).wait().err().unwrap();
 
         let expected_err = BlockchainAgentBuildError::GasPrice(
-            PersistentConfigError::UninterpretableValue("booga".to_string()),
+            QueryFailed("Transport error: Error(IncompleteMessage)".to_string()),
         );
         assert_eq!(err, expected_err)
     }
@@ -930,6 +935,7 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
             .start();
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::TransactionFeeBalance(
@@ -948,6 +954,7 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
             .response("0xFFF0".to_string(), 0)
             .start();
         let expected_err_factory = |wallet: &Wallet| {
@@ -967,6 +974,7 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_transaction_id() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
             .response("0xFFF0".to_string(), 0)
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
             .start();
