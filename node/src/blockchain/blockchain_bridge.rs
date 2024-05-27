@@ -287,11 +287,10 @@ impl BlockchainBridge {
             }
         };
         //TODO rewrite this into a batch call as soon as GH-629 gets into master
-        let persistent_config = &*self.persistent_config;
         let accountant_recipient =  self.payable_payments_setup_subs_opt.clone();
 
         return Box::new(
-            self.blockchain_interface.build_blockchain_agent(&consuming_wallet, persistent_config)
+            self.blockchain_interface.build_blockchain_agent(&consuming_wallet)
                 .map_err(|e| format!("Blockchain agent build error: {:?}", e) )
                 .and_then(move |agent| {
                     let outgoing_message = BlockchainAgentWithContextMessage::new(

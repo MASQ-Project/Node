@@ -232,7 +232,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn build_blockchain_agent(
         &self,
         consuming_wallet: &Wallet,
-        _persistent_config: &dyn PersistentConfiguration,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let web3 = self.get_web3();
         let contract = self.get_contract();
@@ -856,14 +855,13 @@ mod tests {
             .start();
         let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
-        let persistent_config = PersistentConfigurationMock::new();
         let subject = make_blockchain_interface_web3(Some(port));
         let transaction_fee_balance = U256::from(65_520);
         let masq_balance = U256::from(65_535);
         let transaction_id = U256::from(35);
 
         let result = subject
-            .build_blockchain_agent(&wallet, &persistent_config)
+            .build_blockchain_agent(&wallet)
             .wait()
             .unwrap();
 
@@ -895,10 +893,9 @@ mod tests {
         let blockchain_client_server = MBCSBuilder::new(port).start();
         let chain = Chain::PolyMumbai;
         let wallet = make_wallet("abc");
-        let persistent_config = PersistentConfigurationMock::new();
         let subject = make_blockchain_interface_web3(Some(port));
 
-        let err = subject.build_blockchain_agent(&wallet, &persistent_config).wait().err().unwrap();
+        let err = subject.build_blockchain_agent(&wallet).wait().err().unwrap();
 
         let expected_err = BlockchainAgentBuildError::GasPrice(
             QueryFailed("Transport error: Error(IncompleteMessage)".to_string()),
@@ -914,13 +911,12 @@ mod tests {
     {
         let chain = Chain::EthMainnet;
         let wallet = make_wallet("bcd");
-        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(30));
         let mut subject = make_blockchain_interface_web3(Some(port));
         // TODO: GH-744: Come back to this
         // subject.lower_interface = Box::new(lower_blockchain_interface);
 
         let result = subject
-            .build_blockchain_agent(&wallet, &persistent_config)
+            .build_blockchain_agent(&wallet)
             .wait();
 
         let err = match result {

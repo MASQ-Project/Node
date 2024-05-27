@@ -64,8 +64,7 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn build_blockchain_agent(
         &self,
-        _consuming_wallet: &Wallet,
-        _persistent_config: &dyn PersistentConfiguration,
+        consuming_wallet: &Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         self.build_blockchain_agent_error()
     }
@@ -251,11 +250,10 @@ mod tests {
         init_test_logging();
         let test_name = "blockchain_interface_null_builds_null_agent";
         let wallet = make_wallet("blah");
-        let persistent_config = PersistentConfigurationMock::new();
         let subject = make_subject(test_name);
 
         let result = subject
-            .build_blockchain_agent(&wallet, &persistent_config)
+            .build_blockchain_agent(&wallet)
             .wait();
 
         let err = match result {

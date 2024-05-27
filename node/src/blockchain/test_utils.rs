@@ -155,7 +155,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn build_blockchain_agent(
         &self,
         consuming_wallet: &Wallet,
-        persistent_config: &dyn PersistentConfiguration,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         todo!("GH-744")
         // self.build_blockchain_agent_params.lock().unwrap().push((
