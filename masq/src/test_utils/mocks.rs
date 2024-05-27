@@ -1,8 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::{CommandContext, ContextError};
+use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
-use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
+use crate::command_processor::{
+    CommandExecutionHelper, CommandExecutionHelperFactory, CommandProcessor,
+    CommandProcessorFactory,
+};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::{
@@ -10,38 +14,37 @@ use crate::communications::broadcast_handlers::{
     StandardBroadcastHandlerFactory,
 };
 use crate::communications::connection_manager::{ConnectionManagerBootstrapper, RedirectOrder};
-use crate::non_interactive_clap::{
-    InitializationArgs, InitialArgsParser,
-};
+use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
-use crate::terminal::terminal_interface::{FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface, ReadResult};
+use crate::terminal::terminal_interface::{
+    FlushHandle, RWTermInterface, ReadInput, ReadResult, TerminalWriter, WTermInterface,
+};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use itertools::Either;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
+use masq_lib::shared_schema::VecU64;
 use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
 };
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::fmt::Arguments;
-use std::io::{Read, stdout, Write};
+use std::future::Future;
+use std::io::{stdout, Read, Write};
 use std::ops::Not;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{io, thread};
-use std::future::Future;
-use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
-use masq_lib::shared_schema::VecU64;
-use crate::command_context_factory::CommandContextFactory;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -164,7 +167,7 @@ impl CommandContextMock {
         self
     }
 
-    pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>)-> Self{
+    pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         todo!()
     }
 
@@ -186,7 +189,10 @@ pub struct CommandProcessorMock {
 
 #[async_trait]
 impl CommandProcessor for CommandProcessorMock {
-    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), CommandError> {
+    async fn process(
+        &mut self,
+        initial_subcommand_opt: Option<&[String]>,
+    ) -> Result<(), CommandError> {
         todo!()
         // self.process_params.lock().unwrap().push(command);
         // self.process_results.borrow_mut().remove(0)
@@ -228,14 +234,7 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandContextFactoryMock {
-    make_params: Arc<
-        Mutex<
-            Vec<(
-                u16,
-                Option<Box<dyn WTermInterface>>
-            )>,
-        >,
-    >,
+    make_params: Arc<Mutex<Vec<(u16, Option<Box<dyn WTermInterface>>)>>>,
     make_results: Arc<Mutex<Vec<Result<Box<dyn CommandContext>, CommandError>>>>,
 }
 
@@ -261,14 +260,7 @@ impl CommandContextFactoryMock {
 
     pub fn make_params(
         mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    u16,
-                    Option<Box<dyn WTermInterface>>
-                )>,
-            >,
-        >,
+        params: &Arc<Mutex<Vec<(u16, Option<Box<dyn WTermInterface>>)>>>,
     ) -> Self {
         self.make_params = params.clone();
         self
@@ -280,19 +272,58 @@ impl CommandContextFactoryMock {
     }
 }
 
-// pub struct NIClapFactoryMock;
-//
-// impl NonInteractiveClapFactory for NIClapFactoryMock {
-//     fn make(&self) -> Box<dyn InitialArgsParser> {
-//         Box::new(InitialClapParserMock {})
-//     }
-// }
+#[derive(Default)]
+pub struct CommandExecutionHelperFactoryMock {
+    make_results: RefCell<Vec<Box<dyn CommandExecutionHelper>>>,
+}
+
+impl CommandExecutionHelperFactory for CommandExecutionHelperFactoryMock {
+    fn make(&self) -> Box<dyn CommandExecutionHelper> {
+        todo!()
+    }
+}
+
+impl CommandExecutionHelperFactoryMock {
+    pub fn make_result(self, result: Box<dyn CommandExecutionHelper>) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Default)]
+pub struct CommandExecutionHelperMock {
+    execute_command_results: RefCell<Vec<Result<(), CommandError>>>,
+}
+
+impl CommandExecutionHelper for CommandExecutionHelperMock {
+    fn execute_command(
+        &self,
+        command: Box<dyn Command>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        todo!()
+    }
+}
+
+impl CommandExecutionHelperMock {
+    pub fn execute_command_params(mut self, params: &Arc<Mutex<Vec<Box<dyn Command>>>>) -> Self {
+        todo!()
+    }
+
+    pub fn execute_command_result(self, result: Result<(), CommandError>) -> Self {
+        todo!()
+    }
+}
 
 #[derive(Default)]
 pub struct InitialArgsParserMock;
 
 impl InitialArgsParser for InitialArgsParserMock {
-    fn parse_initialization_args(&self, _args: &[String],std_streams: &AsyncStdStreams) -> InitializationArgs {
+    fn parse_initialization_args(
+        &self,
+        _args: &[String],
+        std_streams: &AsyncStdStreams,
+    ) -> InitializationArgs {
         InitializationArgs::new(DEFAULT_UI_PORT)
     }
 }
@@ -309,7 +340,7 @@ impl std::fmt::Debug for MockCommand {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for MockCommand {
     async fn execute(
         self: Box<Self>,
@@ -450,8 +481,6 @@ impl TestStreamFactoryHandle {
         accum
     }
 }
-
-
 
 // This is used in tests aimed at synchronization
 #[derive(Clone)]
@@ -785,44 +814,47 @@ pub fn make_terminal_writer() -> (TerminalWriter, Arc<Mutex<ByteArrayWriter>>) {
 
 pub struct TermInterfaceMock {
     stdin_opt: Option<StdinMock>,
-    stdout: Arc<tokio::sync::Mutex<Vec<String>>>,// Box<dyn AsyncWrite + Send + Sync + Unpin>,
-    stderr: Arc<tokio::sync::Mutex<Vec<String>>>//Box<dyn AsyncWrite + Send + Sync + Unpin>,
+    stdout: Arc<tokio::sync::Mutex<Vec<String>>>, // Box<dyn AsyncWrite + Send + Sync + Unpin>,
+    stderr: Arc<tokio::sync::Mutex<Vec<String>>>, //Box<dyn AsyncWrite + Send + Sync + Unpin>,
 }
 
 #[derive(Default)]
-pub struct StdinMockBuilder{
-    results: Vec<Result<ReadInput, ReadResult>>
+pub struct StdinMockBuilder {
+    results: Vec<Result<ReadInput, ReadResult>>,
 }
 
-impl StdinMockBuilder{
-    pub fn read_line_result(mut self, result: Result<ReadInput, ReadResult>)-> Self{
+impl StdinMockBuilder {
+    pub fn read_line_result(mut self, result: Result<ReadInput, ReadResult>) -> Self {
         todo!()
     }
 
-    pub fn build(self)-> StdinMock{
+    pub fn build(self) -> StdinMock {
         todo!()
     }
 }
-
 
 pub struct StdinMock {
     reader: Arc<tokio::sync::Mutex<AsyncByteArrayReader>>,
     // None means a normal result will come out, Some means this prepared error will be taken
-    situated_errors_opt: Arc<tokio::sync::Mutex<Vec<Option<crate::terminal::terminal_interface::ReadResult>>>>
+    situated_errors_opt:
+        Arc<tokio::sync::Mutex<Vec<Option<crate::terminal::terminal_interface::ReadResult>>>>,
 }
 
-impl AsyncRead for StdinMock{
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+impl AsyncRead for StdinMock {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         todo!()
     }
 }
 
-impl  StdinMock{
-    pub fn new(reader: AsyncByteArrayReader, situated_errors_opt: Option<Vec<ReadResult>>)-> Self{
+impl StdinMock {
+    pub fn new(reader: AsyncByteArrayReader, situated_errors_opt: Option<Vec<ReadResult>>) -> Self {
         todo!()
     }
 }
-
 
 #[async_trait]
 impl RWTermInterface for TermInterfaceMock {
@@ -867,10 +899,12 @@ pub async fn make_async_std_streams(
     make_async_std_streams_with_diff_setup_for_stdin(Either::Left(read_inputs)).await
 }
 
-async fn make_async_std_streams_with_diff_setup_for_stdin(stdin_either: Either<Vec<Vec<u8>>, StdinMock>) -> (AsyncStdStreams, AsyncTestStreamHandles){
+async fn make_async_std_streams_with_diff_setup_for_stdin(
+    stdin_either: Either<Vec<Vec<u8>>, StdinMock>,
+) -> (AsyncStdStreams, AsyncTestStreamHandles) {
     let mut stdin = match stdin_either {
-        Either::Left(   read_inputs) => StdinMock::new(AsyncByteArrayReader::new(read_inputs), None),
-        Either::Right(ready_stdin) => ready_stdin
+        Either::Left(read_inputs) => StdinMock::new(AsyncByteArrayReader::new(read_inputs), None),
+        Either::Right(ready_stdin) => ready_stdin,
     };
     let stdin_clone = stdin.reader.lock().await.clone();
     let (stdout, stdout_clone) = make_async_std_write_stream();
@@ -904,8 +938,8 @@ impl TermInterfaceMock {
         //     (None, stream_handles)
         // };
         let stdin_handle_opt = match stdin_opt.as_ref() {
-           Some(stdin) => Some(stdin.reader.lock().await.clone()),
-            None => None
+            Some(stdin) => Some(stdin.reader.lock().await.clone()),
+            None => None,
         };
         // let (stdout, stdout_clone) = make_async_std_write_stream();
         // let (stderr, stderr_clone) = make_async_std_write_stream();
@@ -916,7 +950,7 @@ impl TermInterfaceMock {
             stdout: stdout.clone(),
             stderr: stderr.clone(),
         };
-        let stream_handles = AsyncTestStreamHandles{
+        let stream_handles = AsyncTestStreamHandles {
             stdin_opt: stdin_handle_opt,
             stdout: Either::Right(stdout),
             stderr: Either::Right(stderr),
@@ -929,59 +963,68 @@ pub struct AsyncTestStreamHandles {
     pub stdin_opt: Option<AsyncByteArrayReader>,
     pub stdout: Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>,
 
-    pub stderr: Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>
+    pub stderr: Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>,
 }
 
-impl AsyncTestStreamHandles{
+impl AsyncTestStreamHandles {
     // Recommended to call only once (and keep the result) as repeated calls may be unnecessarily
     // expensive
-    pub async fn stdout_flushed_strings(&self)->Vec<String>{
+    pub async fn stdout_flushed_strings(&self) -> Vec<String> {
         Self::drain_flushed_strings(&self.stdout).await
     }
 
     // Recommended to call only once (and keep the result) as repeated calls may be unnecessarily
     // expensive
-    pub async fn stderr_flushed_strings(&self)->Vec<String>{
+    pub async fn stderr_flushed_strings(&self) -> Vec<String> {
         Self::drain_flushed_strings(&self.stderr).await
     }
 
-    pub async fn stdout_all_in_one(&self)->String{
+    pub async fn stdout_all_in_one(&self) -> String {
         Self::join_flushed(self.stdout_flushed_strings()).await
     }
 
-    pub async fn stderr_all_in_one(&self)->String{
+    pub async fn stderr_all_in_one(&self) -> String {
         Self::join_flushed(self.stderr_flushed_strings()).await
     }
 
-    pub async fn assert_empty_stdout(&self){
+    pub async fn assert_empty_stdout(&self) {
         Self::assert_empty_stream(&self.stdout, "stdout").await
     }
 
-    pub async fn assert_empty_stderr(&self){
+    pub async fn assert_empty_stderr(&self) {
         Self::assert_empty_stream(&self.stderr, "stderr").await
     }
 
-    async fn join_flushed(strings_future: impl Future<Output = Vec<String>>)->String{
+    async fn join_flushed(strings_future: impl Future<Output = Vec<String>>) -> String {
         strings_future.await.into_iter().collect::<String>()
     }
 
-    async fn assert_empty_stream(handle: &Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>, stream_name: &str){
+    async fn assert_empty_stream(
+        handle: &Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>,
+        stream_name: &str,
+    ) {
         let received = AsyncTestStreamHandles::drain_flushed_strings(handle).await;
-        assert!(received.is_empty(), "We thought this {} stream was empty, but it contained {:?}", stream_name, received)
+        assert!(
+            received.is_empty(),
+            "We thought this {} stream was empty, but it contained {:?}",
+            stream_name,
+            received
+        )
     }
 
-    async fn drain_flushed_strings(handle: &Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>) ->Vec<String>{
+    async fn drain_flushed_strings(
+        handle: &Either<AsyncByteArrayWriter, Arc<tokio::sync::Mutex<Vec<String>>>>,
+    ) -> Vec<String> {
         match handle {
             Either::Left(async_byte_array) => {
                 async_byte_array.drain_flushed_strings().await.unwrap()
-            },
+            }
             Either::Right(naked_string_containers) => {
                 naked_string_containers.lock().await.drain(..).collect()
             }
         }
     }
 }
-
 
 #[derive(Default)]
 pub struct AsyncStdStreamFactoryMock {

@@ -3,13 +3,13 @@
 use crate::command::StdStreams;
 use core::pin::Pin;
 use core::task::Poll;
+use itertools::Itertools;
 use std::cmp::min;
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::io::{BufRead, Error};
 use std::sync::{Arc, Mutex};
-use itertools::Itertools;
 use tokio::io::ReadBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -24,7 +24,7 @@ pub struct ByteArrayWriterInner {
 }
 
 impl ByteArrayWriterInner {
-    fn new(flush_conscious_mode: bool) -> Self{
+    fn new(flush_conscious_mode: bool) -> Self {
         ByteArrayWriterInner {
             byte_array: vec![],
             flushed_outputs_opt: flush_conscious_mode.then_some(vec![]),
@@ -37,7 +37,7 @@ impl ByteArrayWriterInner {
     pub fn get_string(&self) -> String {
         String::from_utf8(self.get_bytes()).unwrap()
     }
-    pub fn get_flushed_strings(&self) -> Option<Vec<String>>{
+    pub fn get_flushed_strings(&self) -> Option<Vec<String>> {
         todo!()
     }
 }
@@ -52,7 +52,6 @@ impl ByteArrayWriterInner {
 //     }
 // }
 
-
 impl ByteArrayWriter {
     pub fn new(flush_caucious_mode: bool) -> Self {
         Self {
@@ -60,7 +59,7 @@ impl ByteArrayWriter {
                 byte_array: vec![],
                 flushed_outputs_opt: flush_caucious_mode.then_some(vec![]),
                 next_error: None,
-            }))
+            })),
         }
     }
     pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
@@ -82,20 +81,24 @@ impl ByteArrayWriter {
     }
 }
 
-fn drain_flushes(outputs: Option<Vec<FlushableOutput>>) ->Option<Vec<String>>{
-    outputs.map(|vec|{
-        vec.into_iter().flat_map(|output|{
-            if output.already_flushed == true {
-                Some(String::from_utf8(output.byte_array).unwrap())
-            } else {
-                None
-            }
-        }).collect_vec()
+fn drain_flushes(outputs: Option<Vec<FlushableOutput>>) -> Option<Vec<String>> {
+    outputs.map(|vec| {
+        vec.into_iter()
+            .flat_map(|output| {
+                if output.already_flushed == true {
+                    Some(String::from_utf8(output.byte_array).unwrap())
+                } else {
+                    None
+                }
+            })
+            .collect_vec()
     })
 }
 
-impl Default for ByteArrayWriter{
-    fn default() -> Self { Self::new(false) }
+impl Default for ByteArrayWriter {
+    fn default() -> Self {
+        Self::new(false)
+    }
 }
 
 impl Write for ByteArrayWriter {
@@ -103,8 +106,8 @@ impl Write for ByteArrayWriter {
         let mut inner = self.inner_arc.lock().unwrap();
         if let Some(next_error) = inner.next_error.take() {
             Err(next_error)
-        } else if let Some(container_with_buffers) = inner.flushed_outputs_opt.as_mut(){
-            let mut flushable = if !container_with_buffers.is_empty(){
+        } else if let Some(container_with_buffers) = inner.flushed_outputs_opt.as_mut() {
+            let mut flushable = if !container_with_buffers.is_empty() {
                 let last = container_with_buffers.last().unwrap();
                 if last.already_flushed == true {
                     FlushableOutput::default()
@@ -128,8 +131,12 @@ impl Write for ByteArrayWriter {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if let Some(container_with_buffers) = self.inner_arc.lock().unwrap().flushed_outputs_opt.as_mut() {
-            container_with_buffers.last_mut().map(|output|output.already_flushed = true);
+        if let Some(container_with_buffers) =
+            self.inner_arc.lock().unwrap().flushed_outputs_opt.as_mut()
+        {
+            container_with_buffers
+                .last_mut()
+                .map(|output| output.already_flushed = true);
         }
         Ok(())
     }
@@ -192,9 +199,9 @@ impl Read for ByteArrayReader {
 // }
 
 #[derive(Default)]
-struct FlushableOutput{
+struct FlushableOutput {
     byte_array: Vec<u8>,
-    already_flushed: bool
+    already_flushed: bool,
 }
 
 #[derive(Clone)]
@@ -202,10 +209,10 @@ pub struct AsyncByteArrayWriter {
     inner_arc: Arc<tokio::sync::Mutex<ByteArrayWriterInner>>,
 }
 
-impl Default for AsyncByteArrayWriter{
+impl Default for AsyncByteArrayWriter {
     fn default() -> Self {
         todo!()
-    } 
+    }
 }
 
 impl AsyncWrite for AsyncByteArrayWriter {
@@ -232,8 +239,10 @@ impl AsyncWrite for AsyncByteArrayWriter {
 
 impl AsyncByteArrayWriter {
     pub fn new(flush_conscious_mode: bool) -> Self {
-        Self{
-            inner_arc: Arc::new(tokio::sync::Mutex::new(ByteArrayWriterInner::new(flush_conscious_mode)))
+        Self {
+            inner_arc: Arc::new(tokio::sync::Mutex::new(ByteArrayWriterInner::new(
+                flush_conscious_mode,
+            ))),
         }
     }
     pub fn inner_arc(&self) -> Arc<tokio::sync::Mutex<ByteArrayWriterInner>> {

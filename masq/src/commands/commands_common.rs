@@ -54,7 +54,7 @@ impl Display for CommandError {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Command: Debug + Send + Sync {
     async fn execute(
         self: Box<Self>,
@@ -69,7 +69,7 @@ pub trait Command: Debug + Send + Sync {
 
 pub fn send_non_conversational_msg<I>(
     input: I,
-    context: &mut dyn CommandContext,
+    context: &dyn CommandContext,
 ) -> Result<(), CommandError>
 where
     I: ToMessageBody,

@@ -35,7 +35,7 @@ pub fn connection_status_subcommand() -> ClapCommand {
     ClapCommand::new("connection-status").about(CONNECTION_STATUS_ABOUT)
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for ConnectionStatusCommand {
     async fn execute(
         self: Box<Self>,

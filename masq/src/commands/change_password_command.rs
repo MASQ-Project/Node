@@ -71,7 +71,7 @@ impl ChangePasswordCommand {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for ChangePasswordCommand {
     async fn execute(
         self: Box<Self>,

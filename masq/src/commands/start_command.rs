@@ -23,7 +23,7 @@ pub fn start_subcommand() -> ClapCommand {
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct StartCommand {}
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for StartCommand {
     async fn execute(
         self: Box<Self>,

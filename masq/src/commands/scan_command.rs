@@ -37,7 +37,7 @@ pub fn scan_subcommand() -> ClapCommand {
     )
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for ScanCommand {
     async fn execute(
         self: Box<Self>,

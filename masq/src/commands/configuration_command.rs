@@ -42,7 +42,7 @@ pub fn configuration_subcommand() -> ClapCommand {
         )
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for ConfigurationCommand {
     async fn execute(
         self: Box<Self>,

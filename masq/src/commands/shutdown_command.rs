@@ -37,7 +37,7 @@ pub fn shutdown_subcommand() -> ClapCommand {
     ClapCommand::new("shutdown").about(SHUTDOWN_SUBCOMMAND_ABOUT)
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for ShutdownCommand {
     async fn execute(
         self: Box<Self>,
@@ -157,6 +157,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use crossbeam_channel::unbounded;
+    use futures::FutureExt;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::utils::find_free_port;
@@ -165,7 +166,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Instant;
-    use futures::FutureExt;
 
     #[test]
     fn constants_have_correct_values() {

@@ -24,7 +24,7 @@ pub fn descriptor_subcommand() -> ClapCommand {
     ClapCommand::new("descriptor").about(DESCRIPTOR_SUBCOMMAND_ABOUT)
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for DescriptorCommand {
     async fn execute(
         self: Box<Self>,

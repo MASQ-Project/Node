@@ -295,10 +295,7 @@ mod tests {
     use super::*;
     use crate::terminal::async_streams::AsyncStdStreams;
     use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
-    use crate::test_utils::mocks::{
-        StdoutBlender, TermInterfaceMock,
-        TestStreamFactory,
-    };
+    use crate::test_utils::mocks::{StdoutBlender, TermInterfaceMock, TestStreamFactory};
     use crossbeam_channel::{bounded, unbounded, Receiver};
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
@@ -378,9 +375,11 @@ mod tests {
         let stdout = streams_handle.stdout_flushed_strings().await;
         assert_eq!(
             stdout,
-            vec!["\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n\
+            vec![
+                "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n\
             ------\nThe Daemon is once more accepting setup changes.\n\n"
-                .to_string()]
+                    .to_string()
+            ]
         );
         streams_handle.assert_empty_stderr().await;
     }
@@ -398,7 +397,7 @@ mod tests {
             stdout,
             vec!["\nThe Node's database password has changed.\n\n".to_string()]
         );
-       streams_handle.assert_empty_stderr().await;
+        streams_handle.assert_empty_stderr().await;
     }
 
     #[tokio::test]
@@ -438,8 +437,10 @@ mod tests {
         let stdout = stream_handles.stdout_flushed_strings().await;
         assert_eq!(
             stdout,
-            vec!["\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
-                .to_string()]
+            vec![
+                "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
+                    .to_string()
+            ]
         );
         stream_handles.assert_empty_stderr().await
     }
@@ -470,7 +471,8 @@ mod tests {
         subject.send(bad_message);
 
         stream_handles.assert_empty_stdout().await;
-        let expected_err_message = "Discarding unrecognized broadcast with opcode 'unrecognized'\n\n".to_string();
+        let expected_err_message =
+            "Discarding unrecognized broadcast with opcode 'unrecognized'\n\n".to_string();
         assert_eq!(
             stream_handles.stderr_flushed_strings().await,
             vec![expected_err_message]
@@ -499,15 +501,19 @@ mod tests {
         let stdout_content = streams_handle.stdout_flushed_strings().await;
         assert_eq!(
             stdout_content,
-            vec!["\
-       \nThe Node's database password has changed.\n\n"]
+            vec![
+                "\
+       \nThe Node's database password has changed.\n\n"
+            ]
         );
-        let count_before_drop = Arc::strong_count(&streams_handle.stdout.as_ref().left().unwrap().inner_arc());
+        let count_before_drop =
+            Arc::strong_count(&streams_handle.stdout.as_ref().left().unwrap().inner_arc());
 
         // Dropping this handle...handler should next terminate.
         drop(subject);
 
-        let count_after_drop = Arc::strong_count(&streams_handle.stdout.as_ref().left().unwrap().inner_arc());
+        let count_after_drop =
+            Arc::strong_count(&streams_handle.stdout.as_ref().left().unwrap().inner_arc());
         assert_eq!(count_before_drop, 2);
         assert_eq!(count_after_drop, 1);
     }

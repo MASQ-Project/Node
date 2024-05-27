@@ -43,7 +43,7 @@ pub struct FinancialsCommand {
     // custom_queries_opt: Option<CustomQueryInput>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for FinancialsCommand {
     async fn execute(
         self: Box<Self>,
@@ -1195,7 +1195,10 @@ mod tests {
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
                 2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"]
         );
-        assert_eq!(stream_handles.stderr_flushed_strings().await, vec![String::new()]);
+        assert_eq!(
+            stream_handles.stderr_flushed_strings().await,
+            vec![String::new()]
+        );
     }
 
     #[tokio::test]

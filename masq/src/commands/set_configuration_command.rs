@@ -38,7 +38,7 @@ impl SetConfigurationCommand {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for SetConfigurationCommand {
     async fn execute(
         self: Box<Self>,
@@ -159,6 +159,9 @@ mod tests {
             )]
         );
         stream_handles.assert_empty_stderr().await;
-        assert_eq!(stream_handles.stdout_all_in_one().await, "Parameter was successfully set\n");
+        assert_eq!(
+            stream_handles.stdout_all_in_one().await,
+            "Parameter was successfully set\n"
+        );
     }
 }

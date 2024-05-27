@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::schema::app;
+use crate::terminal::async_streams::AsyncStdStreams;
 use clap::error::ErrorKind;
 use masq_lib::shared_schema::InsecurePort;
-use crate::terminal::async_streams::AsyncStdStreams;
 
 // pub trait NonInteractiveClapFactory: Send {
 //     fn make(&self) -> Box<dyn InitialArgsParser>;
@@ -19,14 +19,22 @@ use crate::terminal::async_streams::AsyncStdStreams;
 // }
 
 pub trait InitialArgsParser {
-    fn parse_initialization_args(&self, args: &[String], std_streams: &AsyncStdStreams) -> InitializationArgs;
+    fn parse_initialization_args(
+        &self,
+        args: &[String],
+        std_streams: &AsyncStdStreams,
+    ) -> InitializationArgs;
 }
 
 #[derive(Default)]
 pub struct InitialArgsParserReal {}
 
 impl InitialArgsParser for InitialArgsParserReal {
-    fn parse_initialization_args(&self, args: &[String], std_streams: &AsyncStdStreams) -> InitializationArgs {
+    fn parse_initialization_args(
+        &self,
+        args: &[String],
+        std_streams: &AsyncStdStreams,
+    ) -> InitializationArgs {
         let matches = match app().try_get_matches_from(args) {
             Ok(m) => m,
             Err(e) if e.kind() == ErrorKind::DisplayHelp => {
@@ -58,8 +66,8 @@ impl InitializationArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::constants::DEFAULT_UI_PORT;
     use crate::test_utils::mocks::make_async_std_streams;
+    use masq_lib::constants::DEFAULT_UI_PORT;
 
     #[tokio::test]
     async fn initial_args_parser_real_produces_default_values() {
@@ -70,7 +78,7 @@ mod tests {
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),
-            &streams
+            &streams,
         );
 
         assert_eq!(result.ui_port, DEFAULT_UI_PORT);
@@ -80,14 +88,14 @@ mod tests {
 
     #[tokio::test]
     async fn initial_args_parser_real_produces_custom_values() {
-        let (streams, handles) =make_async_std_streams(vec![]).await;
+        let (streams, handles) = make_async_std_streams(vec![]).await;
 
         let result = InitialArgsParserReal::default().parse_initialization_args(
             &vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),
-            &streams
+            &streams,
         );
 
         assert_eq!(result.ui_port, 10000);

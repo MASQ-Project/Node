@@ -47,7 +47,7 @@ pub struct SetupCommand {
     pub values: Vec<UiSetupRequestValue>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for SetupCommand {
     async fn execute(
         self: Box<Self>,
@@ -191,7 +191,9 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, make_terminal_writer, TermInterfaceMock, TestStreamFactory};
+    use crate::test_utils::mocks::{
+        make_terminal_writer, CommandContextMock, TermInterfaceMock, TestStreamFactory,
+    };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{

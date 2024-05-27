@@ -52,7 +52,7 @@ pub fn wallet_addresses_subcommand() -> ClapCommand {
         )
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for WalletAddressesCommand {
     async fn execute(
         self: Box<Self>,

@@ -94,7 +94,7 @@ impl RecoverWalletsCommand {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for RecoverWalletsCommand {
     async fn execute(
         self: Box<Self>,

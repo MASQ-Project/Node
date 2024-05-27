@@ -260,7 +260,7 @@ impl GenerateWalletsCommand {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for GenerateWalletsCommand {
     async fn execute(
         self: Box<Self>,
@@ -353,13 +353,13 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use super::*;
+    use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     };
-    use super::*;
-    use crate::command_context::ContextError;
 
     const WORD_COUNT_ARG_POSSIBLE_VALUES: [WordCount; 5] = [
         WordCount::Twelve,
@@ -942,13 +942,16 @@ mod tests {
         stream_handles.assert_empty_stderr().await;
         assert_eq!(
             stream_handles.stdout_flushed_strings().await,
-            vec!["Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
+            vec![
+                "Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
 'taxation is theft'\n\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\
 Private key of consuming wallet: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\
 Address of       earning wallet: EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n\
 Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
-".to_string()]
+"
+                .to_string()
+            ]
         );
     }
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::io;
 use masq_cli_lib::run_modes::Main;
+use std::io;
 
 fn main() {
     // let mut streams: StdStreams<'_> = StdStreams {

@@ -36,7 +36,7 @@ pub fn check_password_subcommand() -> ClapCommand {
         )
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Command for CheckPasswordCommand {
     async fn execute(
         self: Box<Self>,
