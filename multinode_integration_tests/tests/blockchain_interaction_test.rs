@@ -9,7 +9,6 @@ use regex::escape;
 use serde_derive::Serialize;
 
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
-use masq_lib::test_utils::utils::is_running_under_github_actions;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
