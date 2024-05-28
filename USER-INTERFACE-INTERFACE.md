@@ -1105,8 +1105,7 @@ The following commands can be configured using the `setConfiguration`:
 | Min Hops         | --min-hops     | [1, 6]           |
 ```
 
-Note: The description for these commands is present under the [setup]().
-// TODO: Link it to the description of these commands in setup
+Note: The descriptions for the above commands can be found [here](#permitted-names).
 
 #### `setup`
 ##### Direction: Request
@@ -1144,11 +1143,11 @@ be cleared.
 * `db-password` - Password to unlock the sensitive values in the database.
 * `dns-servers` - Comma-separated list of DNS servers to use.
 * `earning-wallet` - Wallet into which earnings should be deposited.
-* `gas-price` - Transaction fee to offer on the blockchain. // TODO: Should be Changed
+* `gas-price` - The fee per unit of computational effort in blockchain transactions, measured in gwei.
 * `ip` - The public IP address of the Node.
 * `log-level` - The lowest level of logs that should be recorded. `off`, `error`, `warn`, `info`, `debug`, `trace`
 * `mapping-protocol` - The management protocol to try first with the router. `pcp`, `pmp`, `igdp`
-* `min-hops`: // TODO: Should be added
+* `min-hops`: The minimum number of hops required for the package to reach the Exit Node.
 * `neighborhood-mode` - `zero-hop`, `originate-only`, `consume-only`, `standard`
 * `neighbors` - Comma-separated list of Node descriptors for neighbors to contact on startup
 * `real-user` - Non-Windows platforms only, only where required: <uid>:<gid>:<home directory>
