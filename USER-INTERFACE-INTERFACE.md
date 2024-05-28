@@ -1097,13 +1097,13 @@ If the value of the respective parameter was successfully changed, this is a sim
 
 The following commands can be configured using the `setConfiguration`:
 
-```markdown
-| Name             | Parameter      | Possible Values  |
-|------------------|----------------|------------------|
-| Gas Price        | --gas-price    | > 0              |
-| Start Block      | --start-block  | > 0              |
-| Min Hops         | --min-hops     | [1, 6]           |
-```
+
+| Name             | Parameter       | Possible Values  |
+|------------------|-----------------|------------------|
+| Gas Price        | `--gas-price`   | > 0              |
+| Start Block      | `--start-block` | > 0              |
+| Min Hops         | `--min-hops`    | [1, 6]           |
+
 
 Note: The descriptions for the above commands can be found [here](#permitted-names).
 
