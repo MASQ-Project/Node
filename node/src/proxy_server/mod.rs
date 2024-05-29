@@ -1123,6 +1123,7 @@ impl IBCDHelper for IBCDHelperReal {
             neighborhood_sub
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
+                    None,
                     payload_size,
                 ))
                 .then(move |route_result| {
@@ -1581,7 +1582,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), None, 47)
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -1703,6 +1704,7 @@ mod tests {
             neighborhood_record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("realdomain.nu".to_string()),
+                None,
                 12
             )
         );
@@ -2095,7 +2097,8 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
-                hostname_opt: Some("nowhere.com".to_string())
+                hostname_opt: Some("nowhere.com".to_string()),
+                target_country_opt: None,
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2174,7 +2177,8 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 16,
-                hostname_opt: None
+                hostname_opt: None,
+                target_country_opt: None,
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2402,7 +2406,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), None, 47)
         );
     }
 
@@ -3006,7 +3010,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), None, 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - AddRouteResultMessage Error: Failed to find route to nowhere.com"
@@ -3182,7 +3186,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), None, 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - AddRouteResultMessage Error: Failed to find route to nowhere.com"

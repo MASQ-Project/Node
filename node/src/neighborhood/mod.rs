@@ -888,6 +888,7 @@ impl Neighborhood {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
+            target_country_opt: None,
         };
         if self.handle_route_query_message(msg).is_some() {
             debug!(
@@ -2622,7 +2623,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 400));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None, 400));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2638,7 +2639,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 430));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,430));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2678,7 +2679,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, None,54000);
 
         let future = sub.send(msg);
 
@@ -2738,7 +2739,7 @@ mod tests {
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, None,20000);
 
         let future = sub.send(msg);
 
@@ -2758,7 +2759,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 12345,
+            None, None,12345,
         ));
 
         System::current().stop_with_code(0);
@@ -2854,7 +2855,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 5000));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,5000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2949,8 +2950,8 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 3000));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,2000));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,3000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3001,14 +3002,14 @@ mod tests {
         .unwrap();
 
         let route_request_1 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 1000));
+            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,1000));
         configuration_change_msg_sub
             .try_send(ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
             })
             .unwrap();
         let route_request_2 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
+            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,2000));
 
         System::current().stop();
         system.run();
@@ -4986,6 +4987,7 @@ mod tests {
             return_component_opt: None,
             payload_size: 10000,
             hostname_opt: None,
+            target_country_opt: None,
         };
         let unsuccessful_three_hop_route = addr.send(three_hop_route_request);
         let asserted_node_record = a.clone();
@@ -5352,6 +5354,7 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
+            target_country_opt: None,
         });
 
         assert_eq!(
@@ -5397,6 +5400,7 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
+            target_country_opt: None,
         });
 
         let next_door_neighbor_cryptde =
@@ -5451,6 +5455,7 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
+            target_country_opt: None,
         });
 
         let assert_hops = |cryptdes: Vec<CryptDENull>, route: &[CryptData]| {
@@ -5552,6 +5557,7 @@ mod tests {
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size,
                 hostname_opt: None,
+                target_country_opt: None,
             })
             .unwrap();
 
