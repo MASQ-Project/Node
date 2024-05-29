@@ -53,9 +53,9 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn retrieve_transactions(
         &self,
-        _start_block: BlockNumber,
-        _end_block: BlockNumber,
-        _recipient: &Wallet,
+        start_block: BlockNumber,
+        fallback_start_block_number: u64,
+        recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         Box::new(result(
             self.handle_uninitialized_interface("retrieve transactions"),
@@ -230,8 +230,8 @@ mod tests {
         let result = make_subject(test_name)
             .retrieve_transactions(
                 BlockNumber::Number(U64::zero()),
-                BlockNumber::Latest,
-                &wallet,
+                555u64,
+                wallet.address(),
             )
             .wait();
 

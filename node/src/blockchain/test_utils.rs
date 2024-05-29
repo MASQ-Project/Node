@@ -77,7 +77,7 @@ pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterf
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, u64, Address)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
@@ -139,13 +139,14 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
-        end_block: BlockNumber,
-        recipient: &Wallet,
+        // end_block: BlockNumber,
+        fallback_start_block_number: u64,
+        recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         self.retrieve_transactions_parameters.lock().unwrap().push((
             start_block,
-            end_block,
-            recipient.clone(),
+            fallback_start_block_number,
+            recipient,
         ));
         Box::new(result(
             self.retrieve_transactions_results.borrow_mut().remove(0),
@@ -245,7 +246,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 impl BlockchainInterfaceMock {
     pub fn retrieve_transactions_params(
         mut self,
-        params: &Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
+        params: &Arc<Mutex<Vec<(BlockNumber, u64, Address)>>>,
     ) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self

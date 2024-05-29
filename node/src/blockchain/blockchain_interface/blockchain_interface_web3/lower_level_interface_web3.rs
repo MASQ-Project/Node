@@ -41,6 +41,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     //     )
     // }
 
+    // TODO: GH-744:  Move to blockchain_interface_utils for now
     fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.get_contract()
             .query(
@@ -54,6 +55,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
             .wait()
     }
 
+    // TODO: GH-744: Move to blockchain_interface_utils for now
     fn get_block_number(&self) -> LatestBlockNumber {
         self.get_web3()
             .eth()
@@ -62,6 +64,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
             .wait()
     }
 
+    // TODO: GH-744:  Move to blockchain_interface_utils for now
     fn get_transaction_id(&self, wallet: &Wallet) -> ResultForNonce {
         self.get_web3()
             .eth()

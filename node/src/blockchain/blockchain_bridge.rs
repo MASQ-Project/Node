@@ -19,9 +19,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-use crate::blockchain::blockchain_interface_utils::{
-    get_service_fee_balance, get_transaction_fee_balance, send_payables_within_batch,
-};
+use crate::blockchain::blockchain_interface_utils::{calculate_fallback_start_block_number, get_service_fee_balance, get_transaction_fee_balance, send_payables_within_batch};
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
@@ -354,30 +352,8 @@ impl BlockchainBridge {
             Ok(Some(mbc)) => mbc,
             _ => u64::MAX,
         };
-        let end_block = match self // TODO: GH-744: Has Wait here.
-            .blockchain_interface
-            .lower_interface()
-            .get_block_number() // TODO: GH-744: dup_lower_interface -- return owned
-        {
-            Ok(eb) => {
-                if u64::MAX == max_block_count {
-                    BlockNumber::Number(eb)
-                } else {
-                    BlockNumber::Number(eb.as_u64().min(start_block_nbr + max_block_count).into())
-                }
-            }
-            Err(e) => {
-                info!(
-                    self.logger,
-                    "Using 'latest' block number instead of a literal number. {:?}", e
-                );
-                if max_block_count == u64::MAX {
-                    BlockNumber::Latest
-                } else {
-                    BlockNumber::Number((start_block_nbr + max_block_count).into())
-                }
-            }
-        };
+
+        let fallback_start_block_number = calculate_fallback_start_block_number(start_block_nbr, max_block_count);
         let start_block = BlockNumber::Number(start_block_nbr.into());
         let received_payments_subs_ok_case = self
             .received_payments_subs_opt
@@ -391,8 +367,7 @@ impl BlockchainBridge {
             .clone();
 
         Box::new(
-            self.blockchain_interface
-                .retrieve_transactions(start_block, end_block, &msg.recipient)
+            self.blockchain_interface.retrieve_transactions(start_block, fallback_start_block_number, msg.recipient.address())
                 .map_err(move |e| {
                     let received_payments_error =
                         match BlockchainBridge::extract_max_block_count(e.clone()) {
@@ -446,7 +421,7 @@ impl BlockchainBridge {
             |(mut ok_receipts, err_opt), current_fingerprint| match err_opt {
                 None => match self
                     .blockchain_interface
-                    .get_transaction_receipt(current_fingerprint.hash)
+                    .get_transaction_receipt(current_fingerprint.hash) // TODO: GH-744: Wait
                 {
                     Ok(receipt_opt) => {
                         ok_receipts.push(receipt_opt);
@@ -1963,8 +1938,8 @@ mod tests {
             *retrieve_transactions_params,
             vec![(
                 BlockNumber::Number(6u64.into()),
-                BlockNumber::Number(10006u64.into()),
-                earning_wallet
+                10006u64,
+                earning_wallet.address()
             )]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
@@ -2057,8 +2032,8 @@ mod tests {
             *retrieve_transactions_params,
             vec![(
                 BlockNumber::Number(6u64.into()),
-                BlockNumber::Number(1024u64.into()),
-                earning_wallet
+                1024u64,
+                earning_wallet.address()
             )]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();

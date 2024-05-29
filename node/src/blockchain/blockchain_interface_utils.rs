@@ -12,10 +12,8 @@ use crate::blockchain::blockchain_interface::data_structures::errors::Blockchain
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
 };
-use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, RpcPayableFailure,
-};
-use crate::blockchain::blockchain_interface::lower_level_interface::ResultForNonce;
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RetrievedBlockchainTransactions, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::lower_level_interface::{LatestBlockNumber, ResultForNonce};
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -38,9 +36,7 @@ use thousands::Separable;
 use web3::api::{Accounts, Namespace};
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
-use web3::types::{
-    Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, H256, U256,
-};
+use web3::types::{Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, H256, U256, Log};
 use web3::{BatchTransport, Transport, Web3};
 use web3::{Error as Web3Error, Error};
 
@@ -480,41 +476,15 @@ pub fn send_payables_within_batch(
     );
 }
 
-pub fn request_block_number(
-    web3: Web3<Http>,
-    start_block: BlockNumber,
-    end_block: BlockNumber,
-    logger: Logger,
-) -> Box<dyn Future<Item = u64, Error = ()>> {
-    // TODO: GH-744: Move fallback code outside of this function, we dont want a panic inside a Future
-    let fallback_start_block_number = match end_block {
-        BlockNumber::Number(eb) => eb.as_u64(),
-        _ => {
-            if let BlockNumber::Number(start_block_number) = start_block {
-                start_block_number.as_u64() + 1u64
-            } else {
-                panic!("start_block of Latest, Earliest, and Pending are not supported");
-            }
-        }
-    };
-
-    let block_request = web3.eth().block_number();
-
-    Box::new(
-        block_request.then(move |block_nbr_result| match block_nbr_result {
-            Ok(block_nbr) => {
-                debug!(logger, "Latest block number: {}", block_nbr.as_u64());
-                Ok(block_nbr.as_u64())
-            }
-            Err(err) => {
-                debug!(
-                    logger,
-                    "Using fallback block number: {}", fallback_start_block_number
-                );
-                Ok(fallback_start_block_number)
-            }
-        }),
-    )
+pub fn calculate_fallback_start_block_number(
+    start_block_number: u64,
+    max_block_count: u64,
+) -> u64 {
+    if max_block_count == u64::MAX {
+        start_block_number + 1u64
+    } else {
+        start_block_number + max_block_count
+    }
 }
 
 pub fn get_transaction_fee_balance(
@@ -551,7 +521,19 @@ pub fn get_service_fee_balance(
     )
 }
 
-// ResultForNonce
+
+// LatestBlockNumber
+pub fn get_block_number(
+    web3: Web3<Http>,
+) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
+    Box::new(
+    web3.eth()
+        .block_number()
+        .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
+    )
+}
+
+
 pub fn get_transaction_id(
     web3: Web3<Http>,
     address: Address,
@@ -564,38 +546,6 @@ pub fn get_transaction_id(
             }),
     )
 }
-
-// TODO GH-744 - Delete this
-// pub fn blockchain_agent_future(web3: Web3<Http>, contract: Contract<Http>, consuming_wallet: Wallet
-// ) -> Box<dyn Future<Item = BlockchainAgentFutureResult, Error = BlockchainAgentBuildError>> {
-//
-//     let wallet_address = consuming_wallet.address();
-//     let consuming_wallet_2 = consuming_wallet.clone();
-//     let consuming_wallet_3 = consuming_wallet.clone();
-//
-//     Box::new(
-//         get_transaction_fee_balance(web3.clone(), wallet_address)
-//             .map_err(move |e| {
-//                 BlockchainAgentBuildError::TransactionFeeBalance(consuming_wallet.clone(), e.clone())
-//             }).and_then(move |transaction_fee_balance| {
-//             get_service_fee_balance(contract, wallet_address)
-//                 .map_err(move |e| {
-//                     BlockchainAgentBuildError::ServiceFeeBalance(consuming_wallet_2, e.clone())
-//                 }).and_then(move |masq_token_balance| {
-//                 get_transaction_id(web3, wallet_address)
-//                     .map_err(move |e| {
-//                         BlockchainAgentBuildError::TransactionID(consuming_wallet_3, e.clone())
-//                     }).and_then(move |pending_transaction_id| {
-//                         Ok(BlockchainAgentFutureResult{
-//                             transaction_fee_balance,
-//                             masq_token_balance,
-//                             pending_transaction_id,
-//                         })
-//                 })
-//             })
-//         })
-//     )
-// }
 
 pub fn create_blockchain_agent_web3(
     gas_limit_const_part: u64,
@@ -663,115 +613,6 @@ mod tests {
     use web3::Error as Web3Error;
     use web3::Error::{Rpc, Unreachable};
     use crate::blockchain::blockchain_interface;
-
-    #[test]
-    fn tmp_test_web3_submit_batch() {
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026",
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let web3_batch = subject.get_web3_batch();
-        // let web3  = subject.get_web3();
-
-        web3_batch.eth().block_number();
-        web3_batch.eth().block_number();
-        web3_batch.eth().block_number();
-        web3_batch.eth().block_number();
-
-        let result = web3_batch
-            .eth()
-            .transport()
-            .submit_batch()
-            .wait()
-            .expect("TODO: panic message");
-        eprintln!("result {:?}", result);
-    }
-
-    #[test]
-    fn tmp_send_transactions_works() {
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            "https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026",
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, EthMainnet);
-        let web3_batch = subject.get_web3_batch();
-        let web = subject.get_web3();
-
-        let receiving_wallet = make_wallet("paying_wallet");
-        let paying_wallet = make_paying_wallet(b"consuming_wallet");
-        let amount: u128 = 1;
-        let gas: U256 = 1.into();
-        let gas_price: U256 = 1.into();
-        let nonce: U256 = 1.into();
-
-        let data = sign_transaction_data(amount, receiving_wallet);
-        let transaction_parameters = TransactionParameters {
-            nonce: None,
-            to: Some(EthMainnet.rec().contract),
-            gas: gas,
-            gas_price: None,
-            value: ethereum_types::U256::zero(),
-            data: Bytes(data.to_vec()),
-            chain_id: Some(EthMainnet.rec().num_chain_id),
-        };
-        let key = paying_wallet.prepare_secp256k1_secret().unwrap();
-        let test = web3_batch
-            .accounts()
-            .sign_transaction(transaction_parameters, &key);
-
-        // eprintln!("Sign transaction result: {:?}", test);
-
-        //
-        // let test= sign_and_send_payment_2(
-        //     EthMainnet,
-        //     web3_batch.clone(),
-        //     receiving_wallet,
-        //     paying_wallet,
-        //     amount,
-        // ).wait();
-
-        // let payable_account = make_payable_account(2);
-        // let test = send_and_append_payment_2(
-        //     EthMainnet,
-        //     web3_batch.clone(),
-        //     paying_wallet,
-        //     payable_account,
-        // ).wait();
-
-        // eprintln!("Test result: {:?}", test);
-
-        // web3_batch.eth().send_raw_transaction(Default::default());
-
-        // web3_batch.eth().send_transaction(TransactionRequest {
-        //     from: paying_wallet.address(),
-        //     to: Some(receiving_wallet.address()),
-        //     gas: Some(gas),
-        //     gas_price: Some(gas_price),
-        //     value: Some(amount),
-        //     data: None,
-        //     nonce: Some(nonce),
-        //     condition: None,
-        // });
-
-        // web3_batch.eth().block_number();
-        // web3_batch.eth().block_number();
-        // web3_batch.eth().block_number();
-
-        let result = web3_batch
-            .eth()
-            .transport()
-            .submit_batch()
-            .wait()
-            .expect("TODO: panic message");
-        eprintln!("result {:?}", result);
-        eprintln!("Test result: {:?}", test.wait());
-    }
 
     #[test]
     fn get_gas_price_works() {
@@ -1133,50 +974,54 @@ mod tests {
 
     #[test]
     fn request_block_number_works() {
-        let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()], // 0x400 == 1024
-        );
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let start_block_nbr = BlockNumber::Number(100u64.into());
-        let end_block_nbr = BlockNumber::Number(2024u64.into());
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let logger = Logger::new("request_block_number_works");
+        //TODO: GH-744: Change this to use retrieve_transactions as the act
 
-        let result =
-            request_block_number(subject.get_web3(), start_block_nbr, end_block_nbr, logger).wait();
-
-        assert_eq!(result, Ok(46643431u64));
+        // let port = find_free_port();
+        // let _test_server = TestServer::start(
+        //     port,
+        //     vec![br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()], // 0x400 == 1024
+        // );
+        // let (event_loop_handle, transport) = Http::with_max_parallel(
+        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+        //     REQUESTS_IN_PARALLEL,
+        // )
+        // .unwrap();
+        // let start_block_nbr = BlockNumber::Number(100u64.into());
+        // let end_block_nbr = BlockNumber::Number(2024u64.into());
+        // let subject =
+        //     BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        // let logger = Logger::new("request_block_number_works");
+        //
+        // let result =
+        //     request_block_number(subject.get_web3(), end_block_nbr, logger).wait();
+        //
+        // assert_eq!(result, Ok(46643431u64));
     }
 
     #[test]
     fn request_block_number_fallback_works() {
-        let port = find_free_port();
-        let _test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":7,"result":""}"#.to_vec()], // 0x400 == 1024
-        );
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let start_block_nbr = BlockNumber::Number(100u64.into());
-        let end_block_nbr = BlockNumber::Number(2024u64.into());
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let logger = Logger::new("request_block_number_works");
-
-        let result =
-            request_block_number(subject.get_web3(), start_block_nbr, end_block_nbr, logger).wait();
-
-        assert_eq!(result, Ok(2024u64));
+        //TODO: GH-744: Change this to use retrieve_transactions as the act
+        //
+        // let port = find_free_port();
+        // let _test_server = TestServer::start(
+        //     port,
+        //     vec![br#"{"jsonrpc":"2.0","id":7,"result":""}"#.to_vec()], // 0x400 == 1024
+        // );
+        // let (event_loop_handle, transport) = Http::with_max_parallel(
+        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+        //     REQUESTS_IN_PARALLEL,
+        // )
+        // .unwrap();
+        // let start_block_nbr = BlockNumber::Number(100u64.into());
+        // let end_block_nbr = BlockNumber::Number(2024u64.into());
+        // let subject =
+        //     BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        // let logger = Logger::new("request_block_number_works");
+        //
+        // let result =
+        //     request_block_number(subject.get_web3(), start_block_nbr, end_block_nbr, logger).wait();
+        //
+        // assert_eq!(result, Ok(2024u64));
     }
 
     #[test]
@@ -1699,6 +1544,39 @@ mod tests {
     #[test]
     fn gas_limit_for_eth_mainnet_lies_within_limits_for_raw_transaction() {
         test_gas_limit_is_between_limits(Chain::EthMainnet)
+    }
+
+
+
+    #[test]
+    fn get_block_number_works() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x23".to_string(), 1)
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let result = get_block_number(web3).wait();
+
+        assert_eq!(result, Ok(35.into()));
+    }
+
+    #[test]
+    fn get_block_number_works_returns_an_error() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("trash".to_string(), 1)
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
+        let web3 = blockchain_interface_web3.get_web3();
+
+        let error = get_block_number(web3).wait().unwrap_err();
+
+        assert_eq!(
+            error,
+            QueryFailed("Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string())
+        );
     }
 
     #[test]

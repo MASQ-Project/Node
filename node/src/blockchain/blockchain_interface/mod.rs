@@ -42,8 +42,9 @@ pub trait BlockchainInterface {
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
-        end_block: BlockNumber,
-        recipient: &Wallet,
+        fallback_start_block_number: u64,
+        // end_block: BlockNumber,
+        recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
 
     fn build_blockchain_agent(
