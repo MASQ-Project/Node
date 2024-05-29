@@ -2703,6 +2703,7 @@ mod tests {
 
     #[test]
     fn config_file_not_specified_but_exists() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_not_specified_but_exists",
@@ -2735,6 +2736,7 @@ mod tests {
 
     #[test]
     fn config_file_has_relative_directory_that_exists_in_data_directory() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_relative_directory_that_exists_in_data_directory",
