@@ -4,7 +4,6 @@ use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::Neighborhood;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -422,10 +421,9 @@ pub struct NeighborhoodSubs {
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
-    pub configuration_change_msg_sub: Recipient<ConfigurationChangeMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    pub new_password_sub: Recipient<NewPasswordMessage>, // GH-728
     pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
@@ -555,14 +553,21 @@ pub enum NRMetadataChange {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub struct ConfigurationChangeMessage {
-    pub change: ConfigurationChange,
+pub struct ConfigChangeMsg {
+    pub change: ConfigChange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ConfigurationChange {
-    UpdateConsumingWallet(Wallet),
+pub struct WalletPair {
+    pub consuming_wallet: Wallet,
+    pub earning_wallet: Wallet,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConfigChange {
     UpdateMinHops(Hops),
+    UpdatePassword(String),
+    UpdateWallets(WalletPair),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -669,10 +674,9 @@ mod tests {
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
-            configuration_change_msg_sub: recipient!(recorder, ConfigurationChangeMessage),
+            config_change_msg_sub: recipient!(recorder, ConfigChangeMsg),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-            new_password_sub: recipient!(recorder, NewPasswordMessage), // GH-728
             connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 

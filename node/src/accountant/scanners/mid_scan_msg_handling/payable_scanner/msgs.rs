@@ -2,6 +2,7 @@
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
+use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use masq_lib::type_obfuscation::Obfuscated;
 use std::fmt::Debug;
@@ -9,16 +10,19 @@ use std::fmt::Debug;
 #[derive(Debug, Message, PartialEq, Eq, Clone)]
 pub struct QualifiedPayablesMessage {
     pub protected_qualified_payables: Obfuscated,
+    pub consuming_wallet: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl QualifiedPayablesMessage {
     pub(in crate::accountant) fn new(
         protected_qualified_payables: Obfuscated,
+        consuming_wallet: Wallet,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
             protected_qualified_payables,
+            consuming_wallet,
             response_skeleton_opt,
         }
     }

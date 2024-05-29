@@ -68,7 +68,6 @@ impl Scanners {
     pub fn new(
         dao_factories: DaoFactories,
         payment_thresholds: Rc<PaymentThresholds>,
-        earning_wallet: Rc<Wallet>,
         when_pending_too_long_sec: u64,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
@@ -94,7 +93,6 @@ impl Scanners {
             dao_factories.banned_dao_factory.make(),
             Box::new(persistent_configuration),
             Rc::clone(&payment_thresholds),
-            earning_wallet,
             financial_statistics,
         ));
 
@@ -113,6 +111,7 @@ where
 {
     fn begin_scan(
         &mut self,
+        wallet: Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
@@ -193,6 +192,7 @@ pub struct PayableScanner {
 impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
+        consuming_wallet: Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
@@ -225,8 +225,11 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
                     qualified_payables.len()
                 );
                 let protected_payables = self.protect_payables(qualified_payables);
-                let outgoing_msg =
-                    QualifiedPayablesMessage::new(protected_payables, response_skeleton_opt);
+                let outgoing_msg = QualifiedPayablesMessage::new(
+                    protected_payables,
+                    consuming_wallet,
+                    response_skeleton_opt,
+                );
                 Ok(outgoing_msg)
             }
         }
@@ -567,6 +570,7 @@ pub struct PendingPayableScanner {
 impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
     fn begin_scan(
         &mut self,
+        _irrelevant_wallet: Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
@@ -825,13 +829,13 @@ pub struct ReceivableScanner {
     pub receivable_dao: Box<dyn ReceivableDao>,
     pub banned_dao: Box<dyn BannedDao>,
     pub persistent_configuration: Box<dyn PersistentConfiguration>,
-    pub earning_wallet: Rc<Wallet>,
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
 
 impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     fn begin_scan(
         &mut self,
+        earning_wallet: Wallet,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
@@ -840,14 +844,11 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
         self.mark_as_started(timestamp);
-        info!(
-            logger,
-            "Scanning for receivables to {}", self.earning_wallet
-        );
+        info!(logger, "Scanning for receivables to {}", earning_wallet);
         self.scan_for_delinquencies(timestamp, logger);
 
         Ok(RetrieveTransactions {
-            recipient: self.earning_wallet.as_ref().clone(),
+            recipient: earning_wallet,
             response_skeleton_opt,
         })
     }
@@ -893,12 +894,10 @@ impl ReceivableScanner {
         banned_dao: Box<dyn BannedDao>,
         persistent_configuration: Box<dyn PersistentConfiguration>,
         payment_thresholds: Rc<PaymentThresholds>,
-        earning_wallet: Rc<Wallet>,
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
-            earning_wallet,
             receivable_dao,
             banned_dao,
             persistent_configuration,
@@ -985,6 +984,7 @@ impl ReceivableScanner {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BeginScanError {
     NothingToProcess,
+    NoConsumingWalletFound,
     ScanAlreadyRunning(SystemTime),
     CalledFromNullScanner, // Exclusive for tests
 }
@@ -1006,6 +1006,10 @@ impl BeginScanError {
                  Hence, this scan request will be ignored.",
                 scan_type,
                 BeginScanError::timestamp_as_string(timestamp)
+            )),
+            BeginScanError::NoConsumingWalletFound => Some(format!(
+                "Cannot initiate {:?} scan because no consuming wallet was found.",
+                scan_type
             )),
             BeginScanError::CalledFromNullScanner => match cfg!(test) {
                 true => None,
@@ -1134,9 +1138,9 @@ mod tests {
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Message, System};
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
@@ -1175,7 +1179,6 @@ mod tests {
             total_paid_payable_wei: 1,
             total_paid_receivable_wei: 2,
         };
-        let earning_wallet = make_wallet("unique_wallet");
         let payment_thresholds = make_custom_payment_thresholds();
         let payment_thresholds_rc = Rc::new(payment_thresholds);
         let initial_rc_count = Rc::strong_count(&payment_thresholds_rc);
@@ -1189,7 +1192,6 @@ mod tests {
                 config_dao_factory: Box::new(config_dao_factory),
             },
             Rc::clone(&payment_thresholds_rc),
-            Rc::new(earning_wallet.clone()),
             when_pending_too_long_sec,
             Rc::new(RefCell::new(financial_statistics.clone())),
         );
@@ -1235,10 +1237,6 @@ mod tests {
             financial_statistics
         );
         assert_eq!(
-            receivable_scanner.earning_wallet.address(),
-            earning_wallet.address()
-        );
-        assert_eq!(
             receivable_scanner.common.payment_thresholds.as_ref(),
             &payment_thresholds
         );
@@ -1274,6 +1272,7 @@ mod tests {
     fn payable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "payable_scanner_can_initiate_a_scan";
+        let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
         let (qualified_payable_accounts, _, all_non_pending_payables) =
             make_payables(now, &PaymentThresholds::default());
@@ -1283,7 +1282,8 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let result = subject.begin_scan(now, None, &Logger::new(test_name));
+        let result =
+            subject.begin_scan(consuming_wallet.clone(), now, None, &Logger::new(test_name));
 
         let timestamp = subject.scan_started_at();
         assert_eq!(timestamp, Some(now));
@@ -1293,6 +1293,7 @@ mod tests {
                 protected_qualified_payables: protect_payables_in_test(
                     qualified_payable_accounts.clone()
                 ),
+                consuming_wallet,
                 response_skeleton_opt: None,
             })
         );
@@ -1307,6 +1308,7 @@ mod tests {
 
     #[test]
     fn payable_scanner_throws_error_when_a_scan_is_already_running() {
+        let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
         let (_, _, all_non_pending_payables) = make_payables(now, &PaymentThresholds::default());
         let payable_dao =
@@ -1314,9 +1316,14 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
             .build();
-        let _result = subject.begin_scan(now, None, &Logger::new("test"));
+        let _result = subject.begin_scan(consuming_wallet.clone(), now, None, &Logger::new("test"));
 
-        let run_again_result = subject.begin_scan(SystemTime::now(), None, &Logger::new("test"));
+        let run_again_result = subject.begin_scan(
+            consuming_wallet,
+            SystemTime::now(),
+            None,
+            &Logger::new("test"),
+        );
 
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -1328,6 +1335,7 @@ mod tests {
 
     #[test]
     fn payable_scanner_throws_error_in_case_no_qualified_payable_is_found() {
+        let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
         let (_, unqualified_payable_accounts, _) =
             make_payables(now, &PaymentThresholds::default());
@@ -1337,7 +1345,7 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let result = subject.begin_scan(now, None, &Logger::new("test"));
+        let result = subject.begin_scan(consuming_wallet, now, None, &Logger::new("test"));
 
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(is_scan_running, false);
@@ -2210,6 +2218,7 @@ mod tests {
     fn pending_payable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "pending_payable_scanner_can_initiate_a_scan";
+        let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let now = SystemTime::now();
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid: 555,
@@ -2234,7 +2243,12 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
+        let result = pending_payable_scanner.begin_scan(
+            consuming_wallet,
+            now,
+            None,
+            &Logger::new(test_name),
+        );
 
         let no_of_pending_payables = fingerprints.len();
         let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
@@ -2257,6 +2271,7 @@ mod tests {
     #[test]
     fn pending_payable_scanner_throws_error_in_case_scan_is_already_running() {
         let now = SystemTime::now();
+        let consuming_wallet = make_paying_wallet(b"consuming");
         let pending_payable_dao = PendingPayableDaoMock::new()
             .return_all_errorless_fingerprints_result(vec![PendingPayableFingerprint {
                 rowid: 1234,
@@ -2270,9 +2285,9 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let logger = Logger::new("test");
-        let _ = subject.begin_scan(now, None, &logger);
+        let _ = subject.begin_scan(consuming_wallet.clone(), now, None, &logger);
 
-        let result = subject.begin_scan(SystemTime::now(), None, &logger);
+        let result = subject.begin_scan(consuming_wallet, SystemTime::now(), None, &logger);
 
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -2282,13 +2297,15 @@ mod tests {
     #[test]
     fn pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found() {
         let now = SystemTime::now();
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_errorless_fingerprints_result(vec![]);
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        let result = pending_payable_scanner.begin_scan(now, None, &Logger::new("test"));
+        let result =
+            pending_payable_scanner.begin_scan(consuming_wallet, now, None, &Logger::new("test"));
 
         let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
         assert_eq!(result, Err(BeginScanError::NothingToProcess));
@@ -2924,10 +2941,14 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
-            .earning_wallet(earning_wallet.clone())
             .build();
 
-        let result = receivable_scanner.begin_scan(now, None, &Logger::new(test_name));
+        let result = receivable_scanner.begin_scan(
+            earning_wallet.clone(),
+            now,
+            None,
+            &Logger::new(test_name),
+        );
 
         let is_scan_running = receivable_scanner.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -2952,11 +2973,16 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
-            .earning_wallet(earning_wallet)
             .build();
-        let _ = receivable_scanner.begin_scan(now, None, &Logger::new("test"));
+        let _ =
+            receivable_scanner.begin_scan(earning_wallet.clone(), now, None, &Logger::new("test"));
 
-        let result = receivable_scanner.begin_scan(SystemTime::now(), None, &Logger::new("test"));
+        let result = receivable_scanner.begin_scan(
+            earning_wallet,
+            SystemTime::now(),
+            None,
+            &Logger::new("test"),
+        );
 
         let is_scan_running = receivable_scanner.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
@@ -2989,12 +3015,11 @@ mod tests {
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
             .payment_thresholds(payment_thresholds)
-            .earning_wallet(earning_wallet.clone())
             .build();
         let logger = Logger::new("DELINQUENCY_TEST");
         let now = SystemTime::now();
 
-        let result = receivable_scanner.begin_scan(now, None, &logger);
+        let result = receivable_scanner.begin_scan(earning_wallet.clone(), now, None, &logger);
 
         assert_eq!(
             result,
