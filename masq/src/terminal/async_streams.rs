@@ -13,9 +13,9 @@ pub trait AsyncStdStreamsFactory {
 }
 
 #[derive(Default)]
-pub struct AsyncStdStreamFactoryReal {}
+pub struct AsyncStdStreamsFactoryReal {}
 
-impl AsyncStdStreamsFactory for AsyncStdStreamFactoryReal {
+impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryReal {
     fn make(&self) -> AsyncStdStreams {
         todo!()
     }

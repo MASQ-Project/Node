@@ -4,7 +4,6 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
@@ -12,6 +11,7 @@ use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -115,7 +115,7 @@ mod tests {
                 earning_wallet_address: "0x454654klljkjk".to_string(),
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["wallet-addresses".to_string(), "bonkers".to_string()])
@@ -125,10 +125,10 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stream_handles.stdout_flushed_strings().await,
+            stream_handles.stdout_flushed_strings(),
             vec!["Your consuming wallet address: 0x464654jhkjhk6\nYour   earning wallet address: 0x454654klljkjk\n".to_string()]
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -147,7 +147,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(4644, "bad bad bad thing".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["wallet-addresses".to_string(), "some password".to_string()])
@@ -159,7 +159,7 @@ mod tests {
             result,
             Err(CommandError::Payload(4644, "bad bad bad thing".to_string()))
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
@@ -167,7 +167,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject =
             WalletAddressesCommand::new(&["wallet-addresses".to_string(), "bonkers".to_string()])
                 .unwrap();

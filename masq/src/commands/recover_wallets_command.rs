@@ -4,7 +4,6 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
@@ -15,6 +14,7 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -507,7 +507,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -544,9 +544,9 @@ mod tests {
                 1000
             )]
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Wallets were successfully recovered\n"
         );
     }
@@ -557,7 +557,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -586,9 +586,9 @@ mod tests {
                 1000
             )]
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Wallets were successfully recovered\n"
         );
     }

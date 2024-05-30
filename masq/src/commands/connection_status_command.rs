@@ -5,7 +5,6 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -19,6 +18,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConnectionStatusCommand {}
@@ -125,7 +125,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
@@ -140,10 +140,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            stream_handles.stderr_all_in_one().await,
+            stream_handles.stderr_all_in_one(),
             "MASQNode is not running; therefore connection status cannot be displayed.\n"
         );
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
     }
 
     #[test]
@@ -182,7 +182,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
@@ -198,9 +198,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stderr_all_in_one().await,
+            stream_handles.stderr_all_in_one(),
             "Connection status retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }
@@ -214,7 +214,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
@@ -223,8 +223,8 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap().clone();
-        let stdout = stream_handles.stdout_flushed_strings().await;
-        let stderr = stream_handles.stderr_flushed_strings().await;
+        let stdout = stream_handles.stdout_flushed_strings();
+        let stderr = stream_handles.stderr_flushed_strings();
         let (stdout_expected, stderr_expected) = response;
         assert_eq!(
             transact_params,

@@ -3,8 +3,8 @@
 use crate::command_context::CommandContext;
 use crate::command_processor::CommandProcessor;
 use crate::commands::commands_common::CommandError;
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
+use crate::terminal::WTermInterface;
 
 #[async_trait]
 pub trait CommandContextFactory {

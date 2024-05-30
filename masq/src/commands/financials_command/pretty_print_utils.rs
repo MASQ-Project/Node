@@ -6,7 +6,6 @@ pub(in crate::commands::financials_command) mod restricted {
     };
     use crate::commands::financials_command::parsing_and_value_dressing::restricted::convert_masq_from_gwei_and_dress_well;
     use crate::commands::financials_command::FinancialsCommand;
-    use crate::terminal::terminal_interface::TerminalWriter;
     use futures::future::join_all;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
@@ -14,6 +13,7 @@ pub(in crate::commands::financials_command) mod restricted {
     use std::fmt::{Debug, Display};
     use std::io::Write;
     use thousands::Separable;
+    use crate::terminal::TerminalWriter;
 
     pub trait StringValuesFormattableAccount {
         fn convert_to_strings(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String>;

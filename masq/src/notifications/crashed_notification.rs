@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::short_writeln;
 #[cfg(target_os = "windows")]
@@ -9,6 +8,7 @@ use masq_lib::utils::exit_process;
 use masq_lib::utils::exit_process_with_sigterm;
 use std::fmt::format;
 use std::io::Write;
+use crate::terminal::TerminalWriter;
 
 pub struct CrashNotifier {}
 

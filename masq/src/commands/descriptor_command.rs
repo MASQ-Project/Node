@@ -5,7 +5,6 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -13,6 +12,7 @@ use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::short_writeln;
 use std::fmt::Debug;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 #[derive(Debug)]
 pub struct DescriptorCommand {}
@@ -102,7 +102,7 @@ mod tests {
             node_descriptor_opt: Some("Node descriptor".to_string()),
         }
         .tmb(0)));
-        let (mut term_interface, _) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, _) = TermInterfaceMock::new(None);
         let subject = factory.make(&["descriptor".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -115,7 +115,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = DescriptorCommand::new();
 
         let result = Box::new(subject)
@@ -130,10 +130,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            stream_handles.stderr_all_in_one().await,
+            stream_handles.stderr_all_in_one(),
             "MASQNode is not running; therefore its descriptor cannot be displayed.\n"
         );
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
     }
 
     #[tokio::test]
@@ -145,7 +145,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = DescriptorCommand::new();
 
         let result = Box::new(subject)
@@ -161,8 +161,8 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stream_handles.stdout_all_in_one().await, "Booga:1234\n");
-        stream_handles.assert_empty_stderr().await;
+        assert_eq!(stream_handles.stdout_all_in_one(), "Booga:1234\n");
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
@@ -174,7 +174,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = DescriptorCommand::new();
 
         let result = Box::new(subject)
@@ -191,10 +191,10 @@ mod tests {
             )]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Node descriptor is not yet available; try again later\n"
         );
-        stream_handles.assert_empty_stderr().await
+        stream_handles.assert_empty_stderr()
     }
 
     #[tokio::test]
@@ -203,7 +203,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
 
         let subject = DescriptorCommand::new();
 
@@ -220,9 +220,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Descriptor retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }

@@ -6,7 +6,6 @@ use crate::communications::connection_manager::{
     ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
@@ -14,6 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use tokio::runtime::Runtime;
+use crate::terminal::WTermInterface;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -58,9 +58,6 @@ pub trait CommandContext: Send {
         message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError>;
-    // fn stdin(&mut self) -> &mut dyn Read;
-    // fn stdout(&mut self) -> &mut dyn Write;
-    // fn stderr(&mut self) -> &mut dyn Write;
     fn close(&self);
 }
 
@@ -139,7 +136,6 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use crate::communications::broadcast_handlers::BroadcastHandleInactive;
-    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
     use crate::test_utils::mocks::StandardBroadcastHandlerFactoryMock;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};

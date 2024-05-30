@@ -7,9 +7,6 @@ use crate::command_factory::CommandFactory;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
-use crate::terminal::terminal_interface::{
-    FlushHandle, RWTermInterface, TerminalWriter, WTermInterface,
-};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
@@ -17,16 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
-
-// #[async_trait]
-// pub trait CommandProcessorFactory: Send + Sync {
-//     async fn make(
-//         self: Arc<Self>,
-//         rw_term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
-//         command_context_factory: &dyn CommandContextFactory,
-//         ui_port: u16,
-//     ) -> Result<Box<dyn CommandProcessor>, CommandError>;
-// }
+use crate::terminal::{FlushHandle, RWTermInterface, TerminalWriter, WTermInterface};
 
 pub struct CommandProcessorFactory {
     bootstrapper: ConnectionManagerBootstrapper,
@@ -65,8 +53,8 @@ impl CommandProcessorFactory {
     }
 }
 
-#[async_trait]
-pub trait CommandProcessor: Send {
+#[async_trait(?Send)]
+pub trait CommandProcessor {
     async fn process(
         &mut self,
         initial_subcommand_opt: Option<&[String]>,
@@ -108,7 +96,7 @@ pub struct CommandProcessorNonInteractive {
     context: CommandContextReal,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorNonInteractive {
     async fn process(
         &mut self,
@@ -135,7 +123,7 @@ pub struct CommandProcessorInteractive {
     context: CommandContextReal,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorInteractive {
     async fn process(
         &mut self,
@@ -201,7 +189,6 @@ mod tests {
     use crate::communications::broadcast_handlers::{
         BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal,
     };
-    use crate::terminal::terminal_interface::WTermInterface;
     use crate::test_utils::mocks::{
         StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock, TermInterfaceMock,
         TestStreamFactory,
@@ -219,7 +206,7 @@ mod tests {
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactory::default();
-        let (term_interface, _) = TermInterfaceMock::new(None).await;
+        let (term_interface, _) = TermInterfaceMock::new(None);
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
 

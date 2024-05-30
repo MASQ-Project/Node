@@ -5,7 +5,6 @@ use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -18,6 +17,7 @@ use std::ops::Add;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use crate::terminal::WTermInterface;
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
@@ -227,7 +227,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = factory.make(&["shutdown".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -240,7 +240,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ShutdownCommand::new();
 
         let result = Box::new(subject)
@@ -255,10 +255,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            stream_handles.stderr_all_in_one().await,
+            stream_handles.stderr_all_in_one(),
             "MASQNode is not running; therefore it cannot be shut down\n"
         );
-        stream_handles.assert_empty_stdout().await
+        stream_handles.assert_empty_stdout()
     }
 
     #[tokio::test]
@@ -267,7 +267,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new().wait_params(&wait_params_arc);
         let mut subject = ShutdownCommand::new();
@@ -286,10 +286,10 @@ mod tests {
             vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "MASQNode was instructed to shut down and has broken its connection\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         assert_eq!(wait_params_arc.lock().unwrap().is_empty(), true);
     }
 
@@ -299,7 +299,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new().wait_params(&wait_params_arc);
         let mut subject = ShutdownCommand::new();
@@ -318,10 +318,10 @@ mod tests {
             vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "MASQNode was instructed to shut down and has broken its connection\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         assert_eq!(wait_params_arc.lock().unwrap().is_empty(), true);
     }
 
@@ -334,7 +334,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(Some(port));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -355,10 +355,10 @@ mod tests {
             vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "MASQNode was instructed to shut down and has stopped answering\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let wait_params = wait_params_arc.lock().unwrap();
         assert_eq!(*wait_params, vec![(port, 10, 3)])
     }
@@ -371,7 +371,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(None);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -392,10 +392,10 @@ mod tests {
             vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "MASQNode was instructed to shut down and has stopped answering; but the Daemon seems to be down as well\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let wait_params = wait_params_arc.lock().unwrap();
         assert_eq!(*wait_params, vec![]);
     }
@@ -409,7 +409,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(Some(port));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -429,9 +429,9 @@ mod tests {
             *transact_params,
             vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "MASQNode ignored the instruction to shut down and is still running\n"
         );
         let wait_params = wait_params_arc.lock().unwrap();

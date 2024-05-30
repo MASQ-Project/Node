@@ -2,7 +2,6 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
@@ -10,6 +9,7 @@ use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -103,7 +103,7 @@ mod tests {
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
-        let (mut term_interface, _) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, _) = TermInterfaceMock::new(None);
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
@@ -122,7 +122,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiScanResponse {}.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["scan".to_string(), name.to_string()])
@@ -131,8 +131,8 @@ mod tests {
         let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        stream_handles.assert_empty_stdout().await;
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stdout();
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -148,7 +148,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("blah".to_string())));
         let subject = ScanCommand::new(&["scan".to_string(), "payables".to_string()]).unwrap();
-        let (mut term_interface, _) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, _) = TermInterfaceMock::new(None);
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)

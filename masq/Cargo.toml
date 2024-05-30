@@ -16,7 +16,7 @@ ctrlc = "3.2.1"
 itertools = "0.8.0"
 time = {version = "0.3.11", features = [ "macros" ]}
 lazy_static = "1.4.0"
-linefeed = "0.6.0"
+liso = {version ="1.2.1", default-features = false}
 masq_lib = { path = "../masq_lib" }
 num = "0.4.0"
 regex = "1.5.4"

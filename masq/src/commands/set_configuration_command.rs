@@ -1,6 +1,5 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::ValueRange;
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
@@ -12,6 +11,7 @@ use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -135,7 +135,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = SetConfigurationCommand {
             name: "start-block".to_string(),
             value: "123456".to_string(),
@@ -158,9 +158,9 @@ mod tests {
                 1000
             )]
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Parameter was successfully set\n"
         );
     }

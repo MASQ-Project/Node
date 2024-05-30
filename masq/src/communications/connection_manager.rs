@@ -7,7 +7,6 @@ use crate::communications::broadcast_handlers::{
 };
 use crate::communications::client_listener_thread::{ClientListener, ClientListenerError};
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::terminal::terminal_interface::WTermInterface;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::test_utils::mocks::RedirectBroadcastHandleFactoryMock;
 use async_channel::Sender as WSSender;
@@ -30,6 +29,7 @@ use tokio::task::JoinHandle;
 use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, WebSocket, WebSocketConfig,
 };
+use crate::terminal::WTermInterface;
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;

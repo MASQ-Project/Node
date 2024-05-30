@@ -4,7 +4,6 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
@@ -13,6 +12,7 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
@@ -142,7 +142,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: true }.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["check-password".to_string(), "bonkers".to_string()])
@@ -152,10 +152,10 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Password is correct\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -175,7 +175,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: false }.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["check-password".to_string()]).unwrap();
 
@@ -183,10 +183,10 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Password is incorrect\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -205,7 +205,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject =
             CheckPasswordCommand::new(&["check-password".to_string(), "bonkers".to_string()])
                 .unwrap();

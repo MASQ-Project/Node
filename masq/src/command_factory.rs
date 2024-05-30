@@ -25,7 +25,7 @@ pub enum CommandFactoryError {
     CommandSyntax(String),
 }
 
-pub trait CommandFactory: Send {
+pub trait CommandFactory {
     fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError>;
 }
 

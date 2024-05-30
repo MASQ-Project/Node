@@ -71,7 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn initial_args_parser_real_produces_default_values() {
-        let (streams, handles) = make_async_std_streams(vec![]).await;
+        let (streams, handles) = make_async_std_streams(vec![]);
 
         let result = InitialArgsParserReal::default().parse_initialization_args(
             &vec!["masq", "setup", "--chain"]
@@ -82,13 +82,13 @@ mod tests {
         );
 
         assert_eq!(result.ui_port, DEFAULT_UI_PORT);
-        handles.assert_empty_stderr().await;
-        handles.assert_empty_stdout().await;
+        handles.assert_empty_stderr();
+        handles.assert_empty_stdout();
     }
 
     #[tokio::test]
     async fn initial_args_parser_real_produces_custom_values() {
-        let (streams, handles) = make_async_std_streams(vec![]).await;
+        let (streams, handles) = make_async_std_streams(vec![]);
 
         let result = InitialArgsParserReal::default().parse_initialization_args(
             &vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
@@ -99,7 +99,7 @@ mod tests {
         );
 
         assert_eq!(result.ui_port, 10000);
-        handles.assert_empty_stderr().await;
-        handles.assert_empty_stdout().await;
+        handles.assert_empty_stderr();
+        handles.assert_empty_stdout();
     }
 }

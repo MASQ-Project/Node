@@ -2,7 +2,6 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -10,6 +9,7 @@ use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 use std::sync::Arc;
+use crate::terminal::WTermInterface;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 const START_SUBCOMMAND_ABOUT: &str =
@@ -86,7 +86,7 @@ mod tests {
                 redirect_ui_port: 4321,
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["start".to_string()]).unwrap();
 
@@ -99,9 +99,9 @@ mod tests {
             vec![(UiStartOrder {}.tmb(0), START_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "MASQNode successfully started in process 1234 on port 4321\n"
         );
-        stream_handles.assert_empty_stderr().await
+        stream_handles.assert_empty_stderr()
     }
 }

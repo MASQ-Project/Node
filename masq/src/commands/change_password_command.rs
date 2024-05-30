@@ -4,8 +4,6 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::TerminalWriter;
-use crate::terminal::terminal_interface::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
@@ -17,6 +15,7 @@ use std::any::Any;
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
+use crate::terminal::{TerminalWriter, WTermInterface};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
@@ -159,7 +158,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let factory = CommandFactoryReal::new();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = factory
             .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
@@ -168,10 +167,10 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Database password has been changed\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -201,16 +200,16 @@ mod tests {
                 "boringPassword".to_string(),
             ])
             .unwrap();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Database password has been changed\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,

@@ -5,7 +5,6 @@ use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
@@ -23,6 +22,7 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
+use crate::terminal::{TerminalWriter, WTermInterface};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -294,7 +294,6 @@ impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
 mod tests {
     use super::*;
     use crate::terminal::async_streams::AsyncStdStreams;
-    use crate::terminal::terminal_interface::NonInteractiveWTermInterface;
     use crate::test_utils::mocks::{StdoutBlender, TermInterfaceMock, TestStreamFactory};
     use crossbeam_channel::{bounded, unbounded, Receiver};
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
@@ -312,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_of_setup_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiSetupBroadcast {
             running: true,
@@ -330,19 +329,19 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = streams_handle.stdout_all_in_one().await;
+        let stdout = streams_handle.stdout_all_in_one();
         assert_eq!(
             stdout.contains("the Node is currently running"),
             true,
             "stdout: '{}' doesn't contain 'the Node is currently running'",
             stdout
         );
-        streams_handle.assert_empty_stderr().await;
+        streams_handle.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_ui_log_was_successful() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = masq_lib::messages::UiLogBroadcast {
             msg: "Empty. No Nodes to report to; continuing".to_string(),
@@ -352,17 +351,17 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = streams_handle.stdout_flushed_strings().await;
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
             vec!["\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n".to_string()],
         );
-        streams_handle.assert_empty_stderr().await;
+        streams_handle.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_crashed_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
@@ -372,7 +371,7 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = streams_handle.stdout_flushed_strings().await;
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
             vec![
@@ -381,28 +380,28 @@ mod tests {
                     .to_string()
             ]
         );
-        streams_handle.assert_empty_stderr().await;
+        streams_handle.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_new_password_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
 
-        let stdout = streams_handle.stdout_flushed_strings().await;
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
             vec!["\nThe Node's database password has changed.\n\n".to_string()]
         );
-        streams_handle.assert_empty_stderr().await;
+        streams_handle.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
@@ -411,17 +410,17 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = streams_handle.stdout_flushed_strings().await;
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
             vec!["\nCannot handle uninventedMessage request: Node is not running.\n\n".to_string()]
         );
-        streams_handle.assert_empty_stderr().await;
+        streams_handle.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn ui_connection_change_broadcast_is_handled_properly() {
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let message_body = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::ConnectedToNeighbor,
         }
@@ -434,7 +433,7 @@ mod tests {
         .await;
 
         assert_eq!(result, true);
-        let stdout = stream_handles.stdout_flushed_strings().await;
+        let stdout = stream_handles.stdout_flushed_strings();
         assert_eq!(
             stdout,
             vec![
@@ -442,12 +441,12 @@ mod tests {
                     .to_string()
             ]
         );
-        stream_handles.assert_empty_stderr().await
+        stream_handles.assert_empty_stderr()
     }
 
     #[tokio::test]
     async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
-        let (terminal_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
@@ -470,35 +469,35 @@ mod tests {
 
         subject.send(bad_message);
 
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
         let expected_err_message =
             "Discarding unrecognized broadcast with opcode 'unrecognized'\n\n".to_string();
         assert_eq!(
-            stream_handles.stderr_flushed_strings().await,
+            stream_handles.stderr_flushed_strings(),
             vec![expected_err_message]
         );
 
         subject.send(good_message);
 
-        let stdout = stream_handles.stdout_all_in_one().await;
+        let stdout = stream_handles.stdout_all_in_one();
         assert_eq!(
             stdout.contains("the Node is currently running"),
             true,
             "stdout: '{}' doesn't contain 'the Node is currently running'",
             stdout
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_handler_event_loop_terminates_immediately_if_it_senses_that_masq_is_gone() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None).await;
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(example_broadcast);
 
-        let stdout_content = streams_handle.stdout_flushed_strings().await;
+        let stdout_content = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout_content,
             vec![

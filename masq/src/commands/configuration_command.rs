@@ -5,7 +5,6 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -19,6 +18,7 @@ use std::io::Write;
 use std::iter::once;
 use std::sync::Arc;
 use thousands::Separable;
+use crate::terminal::{TerminalWriter, WTermInterface};
 
 const COLUMN_WIDTH: usize = 33;
 
@@ -288,7 +288,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = Box::new(subject)
@@ -303,10 +303,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            stream_handles.stderr_all_in_one().await,
+            stream_handles.stderr_all_in_one(),
             "MASQNode is not running; therefore its configuration cannot be displayed.\n"
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
@@ -348,7 +348,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject =
             ConfigurationCommand::new(&["configuration".to_string(), "password".to_string()])
                 .unwrap();
@@ -370,7 +370,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             format!(
                 "\
 |NAME                              VALUE\n\
@@ -405,7 +405,7 @@ mod tests {
             )
             .replace('|', "")
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
@@ -447,7 +447,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = Box::new(subject)
@@ -467,7 +467,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             format!(
                 "\
 |NAME                              VALUE\n\
@@ -501,7 +501,7 @@ mod tests {
             )
             .replace('|', "")
         );
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
@@ -510,7 +510,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = Box::new(subject)
@@ -529,9 +529,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        stream_handles.assert_empty_stdout().await;
+        stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stdout_all_in_one().await,
+            stream_handles.stdout_all_in_one(),
             "Configuration retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }

@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use clap::builder::{ArgPredicate, ValueRange};
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
@@ -11,6 +10,7 @@ use regex::{Captures, Regex};
 use std::fmt::Debug;
 use std::io::Write;
 use std::str::FromStr;
+use crate::terminal::TerminalWriter;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";

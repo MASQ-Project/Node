@@ -1,14 +1,14 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::async_streams::AsyncStdStreams;
-use crate::terminal::terminal_interface::{RWTermInterface, WTermInterface};
+use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use itertools::Either;
+use crate::terminal::{RWTermInterface, WTermInterface};
 
-pub trait TerminalInterfaceFactory: Send + Sync {
+pub trait TerminalInterfaceFactory{
     fn make(
         &self,
         is_interactive: bool,
-        streams: AsyncStdStreams,
+        streams_factory: Box<dyn AsyncStdStreamsFactory>,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>;
 }
 
@@ -19,7 +19,7 @@ impl TerminalInterfaceFactory for TerminalInterfaceFactoryReal {
     fn make(
         &self,
         is_interactive: bool,
-        streams: AsyncStdStreams,
+        streams_factory: Box<dyn AsyncStdStreamsFactory>,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
         todo!()
     }

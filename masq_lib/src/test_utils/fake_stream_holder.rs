@@ -9,7 +9,9 @@ use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::io::{BufRead, Error};
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use tokio::io::ReadBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -31,12 +33,27 @@ impl ByteArrayWriterInner {
             next_error: None,
         }
     }
+
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.byte_array.clone()
+        if let Some(flushables) = self.flushed_outputs_opt.as_ref() {
+            flushables
+                .iter()
+                .take_while(|flushable|flushable.already_flushed_opt.is_some())
+                .flat_map(|flushable|flushable.byte_array.clone())
+                .collect()
+        } else {
+            self.byte_array.clone()
+        }
     }
-    pub fn get_string(&self) -> String {
-        String::from_utf8(self.get_bytes()).unwrap()
+
+    pub fn get_string(&self) -> Option<String> {
+        if self.flushed_outputs_opt.is_none() {
+            Some(String::from_utf8(self.byte_array.clone()).unwrap())
+        } else {
+            None
+        }
     }
+
     pub fn get_flushed_strings(&self) -> Option<Vec<String>> {
         todo!()
     }
@@ -85,7 +102,7 @@ fn drain_flushes(outputs: Option<Vec<FlushableOutput>>) -> Option<Vec<String>> {
     outputs.map(|vec| {
         vec.into_iter()
             .flat_map(|output| {
-                if output.already_flushed == true {
+                if output.already_flushed_opt.is_some() {
                     Some(String::from_utf8(output.byte_array).unwrap())
                 } else {
                     None
@@ -109,7 +126,7 @@ impl Write for ByteArrayWriter {
         } else if let Some(container_with_buffers) = inner.flushed_outputs_opt.as_mut() {
             let mut flushable = if !container_with_buffers.is_empty() {
                 let last = container_with_buffers.last().unwrap();
-                if last.already_flushed == true {
+                if last.already_flushed_opt.is_some() {
                     FlushableOutput::default()
                 } else {
                     container_with_buffers.remove(0)
@@ -136,7 +153,7 @@ impl Write for ByteArrayWriter {
         {
             container_with_buffers
                 .last_mut()
-                .map(|output| output.already_flushed = true);
+                .map(|output| output.already_flushed_opt = Some(SystemTime::now()));
         }
         Ok(())
     }
@@ -201,12 +218,45 @@ impl Read for ByteArrayReader {
 #[derive(Default)]
 struct FlushableOutput {
     byte_array: Vec<u8>,
-    already_flushed: bool,
+    already_flushed_opt: Option<SystemTime>
+}
+
+pub struct FlushedString{
+    string: String,
+    flushed_at: SystemTime
+}
+
+pub struct FlushedStrings<I> where I: Iterator<Item = FlushedString>{
+    flushes: I
+}
+
+impl <I> FlushedStrings<I> where I: Iterator<Item = FlushedString>{
+    // This may be useful if there are doubts about the sequancel of flushed writes collected that
+    // are collected during a test from multiple sources as it may be otherwise more convenient
+    // in a test to keep distinct writers separate without any hassel with cloning.
+
+    // Above all, this should allow even using standard synchronous Mutexes in the mocks even for
+    // async code, as long as we are cereful using the locks only after the testing part itself
+    // is over.
+
+    // Not using async Mutexes, if some light rules are sustained, can greatly simplify mantining
+    // test utils
+    fn next(&mut self)-> Option<(String, SystemTime)>{
+        self.flushes.next().map(|flushed|(flushed.string, flushed.flushed_at))
+    }
+}
+
+impl <I> Deref for FlushedStrings<I>  where I: Iterator<Item = FlushedString> {
+    type Target = [String];
+
+    fn deref(&self) -> &Self::Target {
+        todo!()
+    }
 }
 
 #[derive(Clone)]
 pub struct AsyncByteArrayWriter {
-    inner_arc: Arc<tokio::sync::Mutex<ByteArrayWriterInner>>,
+    inner_arc: Arc<Mutex<ByteArrayWriterInner>>,
 }
 
 impl Default for AsyncByteArrayWriter {
@@ -237,36 +287,45 @@ impl AsyncWrite for AsyncByteArrayWriter {
     }
 }
 
+pub trait MockedStreamHandleWithStringAssertionMethods {
+    fn get_string(&self) -> String;
+    fn drain_flushed_strings(&self) -> Option<Vec<String>>;
+}
+
 impl AsyncByteArrayWriter {
     pub fn new(flush_conscious_mode: bool) -> Self {
         Self {
-            inner_arc: Arc::new(tokio::sync::Mutex::new(ByteArrayWriterInner::new(
+            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(
                 flush_conscious_mode,
             ))),
         }
     }
-    pub fn inner_arc(&self) -> Arc<tokio::sync::Mutex<ByteArrayWriterInner>> {
+    pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
         self.inner_arc.clone()
     }
-    pub async fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc.lock().await.byte_array.clone()
+    pub fn get_bytes(&self) -> Vec<u8> {
+        self.inner_arc.lock().unwrap().byte_array.clone()
     }
-    pub async fn get_string(&self) -> String {
-        String::from_utf8(self.get_bytes().await).unwrap()
+    pub fn reject_next_write(&mut self, error: Error) {
+        self.inner_arc.lock().unwrap().next_error = Some(error);
     }
-    pub async fn drain_flushed_strings(&self) -> Option<Vec<String>> {
-        let mut arc = self.inner_arc.lock().await;
+}
+
+impl MockedStreamHandleWithStringAssertionMethods for AsyncByteArrayWriter{
+    fn get_string(&self) -> String {
+        String::from_utf8(self.get_bytes()).unwrap()
+    }
+    fn drain_flushed_strings(&self) -> Option<Vec<String>> {
+        todo!("rewrite me to return Option<FlushedStrings>");
+        let mut arc = self.inner_arc.lock().unwrap();
         let outputs = arc.flushed_outputs_opt.take();
         drain_flushes(outputs)
-    }
-    pub async fn reject_next_write(&mut self, error: Error) {
-        self.inner_arc.lock().await.next_error = Some(error);
     }
 }
 
 #[derive(Clone)]
 pub struct AsyncByteArrayReader {
-    byte_array_reader_inner: Arc<tokio::sync::Mutex<ByteArrayReaderInner>>,
+    byte_array_reader_inner: Arc<Mutex<ByteArrayReaderInner>>,
 }
 
 impl AsyncRead for AsyncByteArrayReader {

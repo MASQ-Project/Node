@@ -2,7 +2,6 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
-use crate::terminal::terminal_interface::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use futures::future::join_all;
@@ -22,6 +21,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::iter::Iterator;
 use std::sync::Arc;
+use crate::terminal::{TerminalWriter, WTermInterface};
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -242,7 +242,7 @@ mod tests {
                 errors: vec![],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -279,7 +279,7 @@ mod tests {
                 SETUP_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq! (stream_handles.stdout_flushed_strings().await,
+        assert_eq! (stream_handles.stdout_flushed_strings(),
 vec!["NAME                          VALUE                                                            STATUS\n\
 chain                         eth-mainnet                                                      Configured\n\
 data-directory                /home/booga/eth-mainnet                                          Default\n\
@@ -288,7 +288,7 @@ neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFE
 scan-intervals                123|111|228                                                      Set\n\
 scans                         off                                                              Set\n\
 \nNOTE: your data directory was modified to match the chain parameter.\n\n".to_string()]);
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
@@ -311,7 +311,7 @@ scans                         off                                               
                 errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None).await;
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -345,7 +345,7 @@ scans                         off                                               
                 SETUP_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq! (stream_handles.stdout_flushed_strings().await,
+        assert_eq! (stream_handles.stdout_flushed_strings(),
 vec!["NAME                          VALUE                                                            STATUS\n\
 chain                         eth-mainnet                                                      Set\n\
 clandestine-port              8534                                                             Default\n\
@@ -357,7 +357,7 @@ ip                            Nosir, I don't like it.\n\
 \n\
 NOTE: no changes were made to the setup because the Node is currently running.\n\
 \nNOTE: your data directory was modified to match the chain parameter.\n\n"]);
-        stream_handles.assert_empty_stderr().await;
+        stream_handles.assert_empty_stderr();
     }
 
     #[test]
