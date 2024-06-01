@@ -22,7 +22,7 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -92,7 +92,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
 pub trait StandardBroadcastHandlerFactory: Send + Sync {
     fn make(
         &self,
-        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>>;
 }
 
@@ -113,7 +113,7 @@ impl StandardBroadcastHandlerFactoryReal {
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
     fn make(
         &self,
-        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         todo!()
     }
@@ -124,7 +124,7 @@ pub trait BroadcastHandler<Message>: Send {
 }
 
 pub struct StandardBroadcastHandlerReal {
-    interactive_mode_dependencies_opt: Option<Box<dyn WTermInterface>>,
+    interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
 }
 
 impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
@@ -149,7 +149,7 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
 }
 
 impl StandardBroadcastHandlerReal {
-    pub fn new(interactive_mode_dependencies_opt: Option<Box<dyn WTermInterface>>) -> Self {
+    pub fn new(interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>) -> Self {
         Self {
             interactive_mode_dependencies_opt,
         }
@@ -157,7 +157,7 @@ impl StandardBroadcastHandlerReal {
 
     async fn handle_message_body(
         message_body_result: Result<MessageBody, RecvError>,
-        terminal_interface: &mut dyn WTermInterface,
+        terminal_interface: &mut dyn WTermInterfaceImplementingSend,
     ) -> bool {
         let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
         let (stderr, _stderr_flush_handle) = terminal_interface.stderr();

@@ -13,7 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use tokio::runtime::Runtime;
-use crate::terminal::WTermInterface;
+use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -109,7 +109,7 @@ impl CommandContext for CommandContextReal {
 impl CommandContextReal {
     pub async fn new(
         daemon_ui_port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
         bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = bootstrapper

@@ -29,7 +29,7 @@ use tokio::task::JoinHandle;
 use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, WebSocket, WebSocketConfig,
 };
-use crate::terminal::WTermInterface;
+use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
@@ -98,7 +98,7 @@ impl ConnectionManagerBootstrapper {
     pub async fn spawn_background_loops(
         &self,
         port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
         timeout_millis: u64,
     ) -> Result<ConnectionManagerConnectors, ClientListenerError> {
         let (launch_platform, connectors) =
@@ -116,7 +116,7 @@ impl ConnectionManagerBootstrapper {
     fn prepare_launch(
         &self,
         port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
         timeout_millis: u64,
     ) -> (LaunchPlatform, ConnectionManagerConnectors) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();

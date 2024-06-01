@@ -210,7 +210,7 @@ mod tests {
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
-    use crate::terminal::{ReadInput, ReadResult};
+    use crate::terminal::{ReadInput, ReadError, WTermInterfaceImplementingSend};
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -891,7 +891,7 @@ mod tests {
             .make_result(processor_aspiring_std_streams);
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let stdin_mock = StdinMockBuilder::default()
-            .read_line_result(Err(ReadResult::ConnectionRefused))
+            .read_line_result(Err(ReadError::ConnectionRefused))
             .build();
         let (rw_term_interface, term_interface_stream_handles) =
             TermInterfaceMock::new(Some(stdin_mock));
@@ -1029,7 +1029,7 @@ mod tests {
     }
 
     struct BroadcastHandlerTerminalInterfaceAssertionMatrix<'test> {
-        w_term_interface_opt: Option<&'test dyn WTermInterface>,
+        w_term_interface_opt: Option<&'test dyn WTermInterfaceImplementingSend>,
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     }
 
@@ -1039,7 +1039,7 @@ mod tests {
             processor_aspiring_std_stream_handles: &'test AsyncTestStreamHandles,
             processor_term_interface_stream_handles: &'test AsyncTestStreamHandles,
             // Caution, this one should also always be supplied despite it is an option
-            broadcast_handler_term_interface_opt: Option<&'test dyn WTermInterface>,
+            broadcast_handler_term_interface_opt: Option<&'test dyn WTermInterfaceImplementingSend>,
             expected_usage_of_incidental_std_streams_opt: Option<
                 StreamFactoryStreamsAssertionMatrix<'test>,
             >,
@@ -1143,7 +1143,7 @@ mod tests {
     }
 
     async fn assert_broadcast_term_interface_outputs<'test>(
-        term_interface_opt: Option<&dyn WTermInterface>,
+        term_interface_opt: Option<&dyn WTermInterfaceImplementingSend>,
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     ) {
         match (term_interface_opt, expected_std_streams_usage_opt) {

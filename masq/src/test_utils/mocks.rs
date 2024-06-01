@@ -38,7 +38,7 @@ use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::terminal::{FlushHandle, ReadInput, ReadResult, RWTermInterface, TerminalWriter, WTermInterface};
+use crate::terminal::{FlushHandle, ReadInput, ReadError, RWTermInterface, TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -201,7 +201,7 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandContextFactoryMock {
-    make_params: Arc<Mutex<Vec<(u16, Option<Box<dyn WTermInterface>>)>>>,
+    make_params: Arc<Mutex<Vec<(u16, Option<Box<dyn WTermInterfaceImplementingSend>>)>>>,
     make_results: Arc<Mutex<Vec<Result<Box<dyn CommandContext>, CommandError>>>>,
 }
 
@@ -210,7 +210,7 @@ impl CommandContextFactory for CommandContextFactoryMock {
     async fn make(
         &self,
         ui_port: u16,
-        term_interface_opt: Option<Box<dyn WTermInterface>>,
+        term_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Result<Box<dyn CommandContext>, CommandError> {
         self.make_params
             .lock()
@@ -227,7 +227,7 @@ impl CommandContextFactoryMock {
 
     pub fn make_params(
         mut self,
-        params: &Arc<Mutex<Vec<(u16, Option<Box<dyn WTermInterface>>)>>>,
+        params: &Arc<Mutex<Vec<(u16, Option<Box<dyn WTermInterfaceImplementingSend>>)>>>,
     ) -> Self {
         self.make_params = params.clone();
         self
@@ -500,14 +500,14 @@ impl StandardBroadcastHandlerMock {
 
 #[derive(Default)]
 pub struct StandardBroadcastHandlerFactoryMock {
-    make_params: Arc<Mutex<Vec<Option<Box<dyn WTermInterface>>>>>,
+    make_params: Arc<Mutex<Vec<Option<Box<dyn WTermInterfaceImplementingSend>>>>>,
     make_results: Arc<Mutex<Vec<Box<dyn BroadcastHandler<MessageBody>>>>>,
 }
 
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
     fn make(
         &self,
-        terminal_interface_opt: Option<Box<dyn WTermInterface>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         self.make_params
             .lock()
@@ -558,11 +558,11 @@ pub struct TermInterfaceMock {
 
 #[derive(Default)]
 pub struct StdinMockBuilder {
-    results: Vec<Result<ReadInput, ReadResult>>,
+    results: Vec<Result<ReadInput, ReadError>>,
 }
 
 impl StdinMockBuilder {
-    pub fn read_line_result(mut self, result: Result<ReadInput, ReadResult>) -> Self {
+    pub fn read_line_result(mut self, result: Result<ReadInput, ReadError>) -> Self {
         todo!()
     }
 
@@ -575,7 +575,7 @@ pub struct StdinMock {
     reader: Arc<Mutex<AsyncByteArrayReader>>,
     // None means a normal result will come out, Some means this prepared error will be taken
     situated_errors_opt:
-        Arc<Mutex<Vec<Option<ReadResult>>>>,
+        Arc<Mutex<Vec<Option<ReadError>>>>,
 }
 
 impl AsyncRead for StdinMock {
@@ -589,16 +589,16 @@ impl AsyncRead for StdinMock {
 }
 
 impl StdinMock {
-    pub fn new(reader: AsyncByteArrayReader, situated_errors_opt: Option<Vec<ReadResult>>) -> Self {
+    pub fn new(reader: AsyncByteArrayReader, situated_errors_opt: Option<Vec<ReadError>>) -> Self {
         todo!()
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl RWTermInterface for TermInterfaceMock {
     async fn read_line(
-        &self,
-    ) -> Result<ReadInput, ReadResult> {
+        &mut self,
+    ) -> Result<ReadInput, ReadError> {
         todo!()
     }
 
@@ -612,11 +612,11 @@ impl RWTermInterface for TermInterfaceMock {
 }
 
 impl WTermInterface for TermInterfaceMock {
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stdout(&self) -> (&TerminalWriter, Box<dyn FlushHandle>) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stderr(&self) -> (&TerminalWriter, Box<dyn FlushHandle>) {
         todo!()
     }
 
@@ -625,6 +625,8 @@ impl WTermInterface for TermInterfaceMock {
         todo!()
     }
 }
+
+impl WTermInterfaceImplementingSend for TermInterfaceMock{}
 
 pub fn make_async_std_write_stream() -> (Box<dyn AsyncWrite + Send + Unpin>, AsyncByteArrayWriter) {
     let writer = AsyncByteArrayWriter::default();

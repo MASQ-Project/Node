@@ -4,14 +4,14 @@ use crate::command_context::CommandContext;
 use crate::command_processor::CommandProcessor;
 use crate::commands::commands_common::CommandError;
 use async_trait::async_trait;
-use crate::terminal::WTermInterface;
+use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
 
 #[async_trait]
 pub trait CommandContextFactory {
     async fn make(
         &self,
         ui_port: u16,
-        term_interface_opt: Option<Box<dyn WTermInterface>>,
+        term_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Result<Box<dyn CommandContext>, CommandError>;
 }
 
@@ -28,7 +28,7 @@ impl CommandContextFactory for CommandContextFactoryReal {
     async fn make(
         &self,
         ui_port: u16,
-        term_interface_opt: Option<Box<dyn WTermInterface>>,
+        term_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Result<Box<dyn CommandContext>, CommandError> {
         todo!()
     }

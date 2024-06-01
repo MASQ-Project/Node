@@ -15,11 +15,11 @@ pub struct NonInteractiveWTermInterface {
 }
 
 impl WTermInterface for NonInteractiveWTermInterface {
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stdout(&self) -> (&TerminalWriter, Box<dyn FlushHandle>) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stderr(&self) -> (&TerminalWriter, Box<dyn FlushHandle>) {
         todo!()
     }
 

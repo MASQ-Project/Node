@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use itertools::Either;
 use liso::Response;
 use masq_lib::test_utils::fake_stream_holder::{AsyncByteArrayWriter, MockedStreamHandleWithStringAssertionMethods};
-use crate::terminal::liso_wrapper::{LisoInputOutputWrapper, LisoOutputWrapper};
+use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::{FlushHandle, RWTermInterface, TerminalWriter, WTermInterface};
 
 pub async fn test_writing_streams_of_particular_terminal(
@@ -31,11 +31,11 @@ async fn assert_proper_writing<'a, WriteComponentsGetter>(
     components_getter: WriteComponentsGetter,
     test_output_handle: &'a dyn MockedStreamHandleWithStringAssertionMethods,
     tested_case: &'a str
-) where WriteComponentsGetter: FnOnce()->(&'a TerminalWriter, Arc<dyn FlushHandle>)
+) where WriteComponentsGetter: FnOnce()->(&'a TerminalWriter, Box<dyn FlushHandle>)
 {
     let (writer, flush_handle) = components_getter();
     writer.write("Word.").await;
-    writer.writeln("This resembles a sentence.").await;
+    writer.writeln("This makes up a one-liner.").await;
     let stdout_first_check = test_output_handle.get_string();
 
     flush_handle.flush().await.unwrap();
@@ -46,56 +46,21 @@ async fn assert_proper_writing<'a, WriteComponentsGetter>(
 }
 
 #[derive(Default)]
-pub struct LisoInputOutputWrapperMock{
+pub struct LisoInputWrapperMock {
+  //  read_async_params: Arc<Mutex<Vec<()>>>,
     read_async_results: RefCell<Vec<Response>>,
-    w_terminal: LisoOutputWrapperMock
 }
 
 #[async_trait(?Send)]
-impl LisoInputOutputWrapper for LisoInputOutputWrapperMock{
+impl LisoInputWrapper for LisoInputWrapperMock {
     async fn read_async(&mut self) -> Response {
-        todo!()
+        self.read_async_results.borrow_mut().remove(0)
     }
 }
 
-impl LisoOutputWrapper for LisoInputOutputWrapperMock{
-    fn println(&self, formatted_text: &str) {
-        todo!()
-    }
-
-    fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
-        todo!()
-    }
-
-    fn clone_output(&self) -> Box<dyn LisoOutputWrapper> {
-        todo!()
-    }
-}
-
-
-impl LisoInputOutputWrapperMock {
+impl LisoInputWrapperMock {
     pub fn read_async_result(self, result: Response)-> Self{
         self.read_async_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn println_params(mut self, params: &LisoFlushedAssertableStrings) -> Self{
-        self.w_terminal.println_params = params.clone();
-        self
-    }
-
-    pub fn prompt_params(mut self, params: &Arc<Mutex<Vec<(String, bool, bool)>>>)->Self {
-        self.w_terminal.prompt_params = params.clone();
-        self
-    }
-
-    pub fn clone_output_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.w_terminal.clone_output_params = params.clone();
-        self
-    }
-
-    pub fn clone_output_result(self, result: Box<dyn LisoOutputWrapper>) -> Self {
-        self.w_terminal.clone_output_results.borrow_mut().push(result);
         self
     }
 }
@@ -114,11 +79,12 @@ impl LisoOutputWrapper for LisoOutputWrapperMock{
     }
 
     fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
-        todo!()
+        self.prompt_params.lock().unwrap().push((appearance.to_string(), input_allowed, clear_input))
     }
 
     fn clone_output(&self) -> Box<dyn LisoOutputWrapper> {
-        todo!()
+        self.clone_output_params.lock().unwrap().push(());
+        self.clone_output_results.borrow_mut().remove(0)
     }
 }
 
