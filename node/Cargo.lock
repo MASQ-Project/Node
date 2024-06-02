@@ -249,9 +249,9 @@ dependencies = [
 
 [[package]]
 name = "async-channel"
-version = "2.2.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f28243a43d821d11341ab73c80bed182dc015c514b951616cf79bd4af39af0c3"
+checksum = "136d4d23bcc79e27423727b36823d86233aad06dfea531837b038394d11e9928"
 dependencies = [
  "concurrent-queue 2.4.0",
  "event-listener 5.2.0",
@@ -583,7 +583,7 @@ version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a37913e8dc4ddcc604f0c6d3bf2887c995153af3611de9e23c352b44c1b9118"
 dependencies = [
- "async-channel 2.2.0",
+ "async-channel 2.2.1",
  "async-lock 3.3.0",
  "async-task",
  "fastrand 2.0.2",
@@ -2515,9 +2515,9 @@ dependencies = [
 
 [[package]]
 name = "linked-hash-map"
-version = "0.5.6"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
+checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 
 [[package]]
 name = "linux-raw-sys"
@@ -2577,6 +2577,8 @@ dependencies = [
 name = "masq"
 version = "0.7.3"
 dependencies = [
+ "async-channel 2.2.1",
+ "async-trait",
  "atty",
  "clap",
  "crossbeam-channel",
@@ -2590,7 +2592,8 @@ dependencies = [
  "regex",
  "thousands",
  "time 0.3.36",
- "websocket 0.26.5",
+ "tokio",
+ "workflow-websocket",
 ]
 
 [[package]]
@@ -2605,6 +2608,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
  "ethereum-types",
+ "futures 0.3.29",
  "futures-util",
  "itertools 0.11.0",
  "lazy_static",
@@ -2757,7 +2761,7 @@ dependencies = [
  "tiny-hderive",
  "uint",
  "web3",
- "websocket 0.27.0",
+ "websocket",
 ]
 
 [[package]]
@@ -3722,7 +3726,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c230d73fb8d8c1b9c0b3135c5142a8acee3a0558fb8db5cf1cb65f8d7862132"
 dependencies = [
- "regex-syntax 0.6.29",
+ "regex-syntax 0.6.25",
 ]
 
 [[package]]
@@ -3738,9 +3742,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.6.29"
+version = "0.6.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
+checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
 name = "regex-syntax"
@@ -4499,9 +4503,9 @@ checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "thread_local"
-version = "1.1.8"
+version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
+checksum = "3fdd6f064ccff2d6567adcb3873ca630700f00b5ad3f060c25b5dcfd9a4ce152"
 dependencies = [
  "cfg-if 1.0.0",
  "once_cell",
@@ -5197,19 +5201,6 @@ dependencies = [
 
 [[package]]
 name = "websocket"
-version = "0.26.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92aacab060eea423e4036820ddd28f3f9003b2c4d8048cbda985e5a14e18038d"
-dependencies = [
- "hyper 0.10.16",
- "rand 0.6.5",
- "unicase",
- "url 1.7.2",
- "websocket-base",
-]
-
-[[package]]
-name = "websocket"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a1aba896516545a4cea196a12c04074854ab85d53bbaf22f9b79eddadde75a2"
@@ -5528,7 +5519,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44f68af522d57d7d037c31e45704eb7ec4c4f5a526817074cfb4a605e4db5666"
 dependencies = [
- "async-channel 2.2.0",
+ "async-channel 2.2.1",
  "async-std",
  "borsh",
  "bs58",
@@ -5680,7 +5671,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9312c48cfd89a83e9e53ff5b41654c024fa60da17e902d394111fd2cb87d657"
 dependencies = [
  "ahash 0.8.11",
- "async-channel 2.2.0",
+ "async-channel 2.2.1",
  "async-std",
  "async-trait",
  "cfg-if 1.0.0",

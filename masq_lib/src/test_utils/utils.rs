@@ -70,10 +70,17 @@ pub fn to_millis(dur: &Duration) -> u64 {
 }
 
 pub fn make_rt() -> Runtime {
-    return tokio::runtime::Builder::new_current_thread()
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap();
+        .unwrap()
+}
+
+pub fn make_multi_thread_rt() -> Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
 }
 
 #[cfg(not(feature = "no_test_share"))]

@@ -20,7 +20,6 @@ mod prod_cfg {
 #[cfg(test)]
 mod test_cfg {
     pub use linefeed::memory::MemoryTerminal;
-    pub use masq_lib::intentionally_blank;
 }
 
 //Unlike the linefeed library is designed to be used, I stick with using the system stdout handles for writing into them instead of the custom handles provided from linefeed.

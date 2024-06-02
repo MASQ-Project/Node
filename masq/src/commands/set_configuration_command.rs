@@ -4,10 +4,9 @@ use clap::builder::ValueRange;
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
-use masq_lib::shared_schema::common_validators::GasPrice;
-use masq_lib::shared_schema::GAS_PRICE_HELP;
+use masq_lib::shared_schema::{GasPrice, GAS_PRICE_HELP};
 use masq_lib::short_writeln;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
 
@@ -25,8 +24,7 @@ impl SetConfigurationCommand {
                 let parameter = parameter_opt.expectv("required param");
                 Ok(SetConfigurationCommand {
                     name: parameter.to_string(),
-                    value: matches
-                        .get_one::<String>(parameter)
+                    value: get_argument_value_as_string(&matches, parameter)
                         .expectv("required param")
                         .to_string(),
                 })

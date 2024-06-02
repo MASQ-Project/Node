@@ -12,7 +12,6 @@ mod notifications;
 mod schema;
 pub mod terminal;
 
-#[macro_use]
 extern crate crossbeam_channel;
 
 #[cfg(test)]

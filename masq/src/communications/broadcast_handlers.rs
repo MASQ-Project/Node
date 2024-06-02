@@ -2,42 +2,85 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
+use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
+use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
-    FromMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast, UiNewPasswordBroadcast,
-    UiNodeCrashedBroadcast, UiSetupBroadcast, UiUndeliveredFireAndForget,
+    FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
+    UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
+    UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, short_writeln};
+use masq_lib::{declare_as_any, implement_as_any, intentionally_blank, short_writeln};
+#[cfg(test)]
+use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::notifications::connection_change_notification::ConnectionChangeNotification;
-#[cfg(test)]
-use std::any::Any;
+pub struct BroadcastHandles {
+    pub standard: Box<dyn BroadcastHandle<MessageBody>>,
+    pub redirect: Box<dyn BroadcastHandle<RedirectOrder>>,
+}
 
-pub trait BroadcastHandle: Send {
-    fn send(&self, message_body: MessageBody);
+impl BroadcastHandles {
+    pub fn new(
+        standard: Box<dyn BroadcastHandle<MessageBody>>,
+        redirect: Box<dyn BroadcastHandle<RedirectOrder>>,
+    ) -> Self {
+        Self { standard, redirect }
+    }
+
+    pub fn handle_broadcast(&self, message_body: MessageBody) {
+        todo!()
+        // match UiRedirect::fmb(message_body.clone()) {
+        //     Ok((redirect, _)) => {
+        //         let context_id = redirect.context_id.unwrap_or(0);
+        //         self.redirect_order_tx
+        //             .send(RedirectOrder::new(
+        //                 redirect.port,
+        //                 context_id,
+        //                 REDIRECT_TIMEOUT_MILLIS,
+        //             ))
+        //             .expect("ConnectionManagerThread is dead");
+        //     }
+        //     Err(_) => {
+        //         self.next_handle.send(message_body);
+        //     }
+        // };
+    }
+
+    pub fn notify<Broadcast>(&self, notification: Broadcast)
+    where
+        Broadcast: ToMessageBody,
+    {
+        todo!();
+        self.standard.send(notification.tmb(0))
+    }
+}
+
+pub trait BroadcastHandle<Message>: Send {
+    fn send(&self, message: Message);
     declare_as_any!();
 }
 
 pub struct BroadcastHandleInactive;
 
-impl BroadcastHandle for BroadcastHandleInactive {
-    //simply dropped (unless we find a better use for such a message)
+impl BroadcastHandle<MessageBody> for BroadcastHandleInactive {
     fn send(&self, _message_body: MessageBody) {}
     implement_as_any!();
 }
 
-pub struct BroadcastHandleGeneric {
+pub struct StandardBroadcastHandle {
     message_tx: Sender<MessageBody>,
 }
 
-impl BroadcastHandle for BroadcastHandleGeneric {
+impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
     fn send(&self, message_body: MessageBody) {
         self.message_tx
             .send(message_body)
@@ -45,41 +88,79 @@ impl BroadcastHandle for BroadcastHandleGeneric {
     }
 }
 
-pub trait BroadcastHandler {
-    fn start(self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle>;
+pub trait StandardBroadcastHandlerFactory {
+    fn make(
+        &self,
+        terminal_interface_opt: Option<TerminalWrapper>,
+    ) -> Box<dyn BroadcastHandler<MessageBody>>;
 }
 
-pub struct BroadcastHandlerReal {
-    terminal_interface: Option<TerminalWrapper>,
+pub struct StandardBroadcastHandlerFactoryReal {
+    pub stream_factory: Box<dyn StreamFactory>,
 }
 
-impl BroadcastHandler for BroadcastHandlerReal {
-    fn start(mut self, stream_factory: Box<dyn StreamFactory>) -> Box<dyn BroadcastHandle> {
-        let (message_tx, message_rx) = unbounded();
-        thread::spawn(move || {
-            let (mut stdout, mut stderr) = stream_factory.make();
-            let terminal_interface = self
-                .terminal_interface
-                .take()
-                .expectv("Some(TerminalWrapper)");
-            //release the loop if masq has died (testing concerns)
-            let mut flag = true;
-            while flag {
-                flag = Self::handle_message_body(
-                    message_rx.recv(),
-                    stdout.as_mut(),
-                    stderr.as_mut(),
-                    &terminal_interface,
-                );
-            }
-        });
-        Box::new(BroadcastHandleGeneric { message_tx })
+impl StandardBroadcastHandlerFactoryReal {
+    pub fn new(stream_factory: Box<dyn StreamFactory>) -> Self {
+        todo!()
     }
 }
 
-impl BroadcastHandlerReal {
-    pub fn new(terminal_interface: Option<TerminalWrapper>) -> Self {
-        Self { terminal_interface }
+impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
+    fn make(
+        &self,
+        terminal_interface_opt: Option<TerminalWrapper>,
+    ) -> Box<dyn BroadcastHandler<MessageBody>> {
+        todo!()
+    }
+}
+
+pub trait BroadcastHandler<Message> {
+    fn spawn(&mut self) -> Box<dyn BroadcastHandle<Message>>;
+}
+
+pub struct StandardBroadcastHandlerReal {
+    interactive_mode_dependencies_opt: Option<InteractiveModeDependencies>,
+}
+
+impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
+    fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
+        match self.interactive_mode_dependencies_opt.take() {
+            Some(dependencies) => {
+                todo!()
+                // let (message_tx, message_rx) = unbounded();
+                // let terminal_interface = self
+                //     .terminal_interface
+                //     .take()
+                //     .expectv("Some(TerminalWrapper)");
+                //
+                // // TODO Grr, I can't use Async because I'd have to deal with all the places where we write
+                // // into the std streams, and those are a lot out there
+                // thread::spawn(move || {
+                //     let (mut stdout, mut stderr) = stream_factory.make();
+                //
+                //     let mut flag = true;
+                //     while flag {
+                //         flag = Self::handle_message_body(
+                //             message_rx.recv(),
+                //             stdout.as_mut(),
+                //             stderr.as_mut(),
+                //             &terminal_interface,
+                //         );
+                //     }
+                // });
+                //
+                // Box::new(StandardBroadcastHandle { message_tx })
+            }
+            None => todo!(),
+        }
+    }
+}
+
+impl StandardBroadcastHandlerReal {
+    pub fn new(interactive_mode_dependencies_opt: Option<InteractiveModeDependencies>) -> Self {
+        Self {
+            interactive_mode_dependencies_opt,
+        }
     }
 
     fn handle_message_body(
@@ -122,11 +203,36 @@ impl BroadcastHandlerReal {
     }
 }
 
+pub struct InteractiveModeDependencies {
+    terminal_interface: TerminalWrapper,
+    stream_factory: Box<dyn StreamFactory>,
+}
+
+impl InteractiveModeDependencies {
+    pub fn new(
+        terminal_interface: TerminalWrapper,
+        stream_factory: Box<dyn StreamFactory>,
+    ) -> Self {
+        Self {
+            terminal_interface,
+            stream_factory,
+        }
+    }
+}
+
+pub struct BroadcastHandlerNull {}
+
+impl BroadcastHandler<MessageBody> for BroadcastHandlerNull {
+    fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
+        todo!() // Box<dyn BroadcastHandleNull>
+    }
+}
+
 pub trait StreamFactory: Send + Debug {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>);
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct StreamFactoryReal;
 
 impl StreamFactory for StreamFactoryReal {
@@ -135,15 +241,12 @@ impl StreamFactory for StreamFactoryReal {
     }
 }
 
-impl Default for StreamFactoryReal {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Default, Debug)]
+pub struct StreamFactoryNull;
 
-impl StreamFactoryReal {
-    pub fn new() -> Self {
-        Self {}
+impl StreamFactory for StreamFactoryNull {
+    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
+        intentionally_blank!()
     }
 }
 
@@ -185,6 +288,69 @@ pub fn handle_ui_log_broadcast(
     stdout.flush().expect("flush failed");
 }
 
+pub struct RedirectBroadcastHandle {
+    redirect_order_tx: UnboundedSender<RedirectOrder>,
+}
+
+impl BroadcastHandle<RedirectOrder> for RedirectBroadcastHandle {
+    fn send(&self, message_body: RedirectOrder) {
+        self.redirect_order_tx
+            .send(message_body)
+            .expect("Connection manager is dead");
+    }
+}
+
+impl RedirectBroadcastHandle {
+    pub fn new(redirect_order_tx: UnboundedSender<RedirectOrder>) -> Self {
+        Self { redirect_order_tx }
+    }
+}
+//
+// pub struct RedirectBroadcastHandler {
+//     redirect_order_tx_opt: Option<UnboundedSender<RedirectOrder>>,
+// }
+//
+// impl BroadcastHandler<RedirectOrder> for RedirectBroadcastHandler {
+//     fn spawn(
+//         &mut self,
+//         _stream_factory: Box<dyn StreamFactory>,
+//     ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
+//         Box::new(BroadcastHandleRedirect {
+//             redirect_order_tx: self
+//                 .redirect_order_tx_opt
+//                 .take()
+//                 .expect("Sender is missing"),
+//         })
+//     }
+// }
+//
+// impl RedirectBroadcastHandler {
+//     pub fn new(redirect_order_tx: UnboundedSender<RedirectOrder>) -> Self {
+//         Self {
+//             redirect_order_tx_opt: Some(redirect_order_tx),
+//         }
+//     }
+// }
+
+pub trait RedirectBroadcastHandleFactory {
+    fn make(
+        &self,
+        redirect_order_tx: UnboundedSender<RedirectOrder>,
+    ) -> Box<dyn BroadcastHandle<RedirectOrder>>;
+}
+
+#[derive(Default)]
+pub struct RedirectBroadcastHandleFactoryReal {}
+
+impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
+    fn make(
+        &self,
+        redirect_order_tx: UnboundedSender<RedirectOrder>,
+    ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
+        todo!()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,13 +369,19 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    fn make_subject(
+        test_stream_factory: Box<(dyn StreamFactory)>,
+    ) -> Box<dyn BroadcastHandle<MessageBody>> {
+        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
+        let dependencies =
+            InteractiveModeDependencies::new(terminal_interface, test_stream_factory);
+        StandardBroadcastHandlerReal::new(Some(dependencies)).spawn()
+    }
+
     #[test]
     fn broadcast_of_setup_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
-            TerminalPassiveMock::new(),
-        ))))
-        .start(Box::new(factory));
+        let subject = make_subject(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
             values: vec![
@@ -241,10 +413,7 @@ mod tests {
     #[test]
     fn broadcast_of_ui_log_was_successful() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
-            TerminalPassiveMock::new(),
-        ))))
-        .start(Box::new(factory));
+        let subject = make_subject(Box::new(factory));
         let message = masq_lib::messages::UiLogBroadcast {
             msg: "Empty. No Nodes to report to; continuing".to_string(),
             log_level: SerializableLogLevel::Info,
@@ -269,10 +438,7 @@ mod tests {
     #[test]
     fn broadcast_of_crashed_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
-            TerminalPassiveMock::new(),
-        ))))
-        .start(Box::new(factory));
+        let subject = make_subject(Box::new(factory));
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -299,10 +465,7 @@ mod tests {
     #[test]
     fn broadcast_of_new_password_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
-            TerminalPassiveMock::new(),
-        ))))
-        .start(Box::new(factory));
+        let subject = make_subject(Box::new(factory));
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -323,10 +486,7 @@ mod tests {
     #[test]
     fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
-            TerminalPassiveMock::new(),
-        ))))
-        .start(Box::new(factory));
+        let subject = make_subject(Box::new(factory));
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -358,7 +518,7 @@ mod tests {
         }
         .tmb(0);
 
-        let result = BroadcastHandlerReal::handle_message_body(
+        let result = StandardBroadcastHandlerReal::handle_message_body(
             Ok(message_body),
             &mut stdout,
             &mut stderr,
@@ -383,10 +543,7 @@ mod tests {
     #[test]
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
-        let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
-            TerminalPassiveMock::new(),
-        ))))
-        .start(Box::new(factory));
+        let subject = make_subject(Box::new(factory));
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,
@@ -426,10 +583,7 @@ mod tests {
     fn broadcast_handler_thread_terminates_immediately_if_it_senses_that_masq_is_gone() {
         let (life_checker_handle, stream_factory, stream_handle) =
             make_tools_for_test_streams_with_thread_life_checker();
-        let broadcast_handler_real = BroadcastHandlerReal::new(Some(TerminalWrapper::new(
-            Arc::new(TerminalPassiveMock::new()),
-        )));
-        let broadcast_handle = broadcast_handler_real.start(Box::new(stream_factory));
+        let mut broadcast_handle = make_subject(Box::new(stream_factory));
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
         broadcast_handle.send(example_broadcast);
 

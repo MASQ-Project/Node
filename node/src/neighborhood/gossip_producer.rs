@@ -68,6 +68,10 @@ impl GossipProducer for GossipProducerReal {
                 let reveal_node_addr = node_record_ref.accepts_connections()
                     && (
                         node_record_ref.public_key() == database.root().public_key()
+                            // TODO: This next part means that the target Node gets to know the IP
+                            // address of anyone he claims as his neighbor. Perhaps this ought to
+                            // go the other way: the target Node gets to know the IP address of
+                            // anyone who claims him as a neighbor. This way might be exploitable.
                             || target_node_ref.has_half_neighbor(node_record_ref.public_key())
                         // TODO SC-894/GH-132: Do we really want to reveal this?
                     );

@@ -1,43 +1,55 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::schema::app;
-use clap::ArgMatches;
-use masq_lib::shared_schema::common_validators::InsecurePort;
+use clap::error::ErrorKind;
+use masq_lib::shared_schema::InsecurePort;
 
-#[allow(clippy::upper_case_acronyms)]
-pub trait NIClapFactory {
+pub trait NonInteractiveClapFactory {
     fn make(&self) -> Box<dyn NonInteractiveClap>;
 }
 
-#[allow(clippy::upper_case_acronyms)]
-pub struct NIClapFactoryReal;
+pub struct NonInteractiveClapFactoryReal;
 
-//tested by integration tests
-impl NIClapFactory for NIClapFactoryReal {
+impl NonInteractiveClapFactory for NonInteractiveClapFactoryReal {
     fn make(&self) -> Box<dyn NonInteractiveClap> {
         Box::new(NonInteractiveClapReal)
     }
 }
 
 pub trait NonInteractiveClap {
-    fn non_interactive_initial_clap_operations(&self, args: &[String]) -> u16;
+    fn parse_initialization_args(&self, args: &[String]) -> InitializationArgs;
 }
 
 pub struct NonInteractiveClapReal;
 
-//partly tested by integration tests
 impl NonInteractiveClap for NonInteractiveClapReal {
-    fn non_interactive_initial_clap_operations(&self, args: &[String]) -> u16 {
-        let matches = handle_help_or_version_if_required(args);
-        let insecure_port = matches
+    fn parse_initialization_args(&self, args: &[String]) -> InitializationArgs {
+        let matches = match app().try_get_matches_from(args) {
+            Ok(m) => m,
+            Err(e) if e.kind() == ErrorKind::DisplayHelp => {
+                todo!()
+            }
+            Err(e) if e.kind() == ErrorKind::DisplayVersion => {
+                todo!()
+            }
+            Err(e) => todo!(),
+        };
+        let ui_port = matches
             .get_one::<InsecurePort>("ui-port")
-            .expect("ui-port is not properly defaulted");
-        insecure_port.port
+            .expect("ui-port is not properly defaulted")
+            .port;
+        InitializationArgs::new(ui_port)
     }
 }
 
-fn handle_help_or_version_if_required(args: &[String]) -> ArgMatches {
-    app().get_matches_from(args)
+pub struct InitializationArgs {
+    pub ui_port: u16,
+}
+
+impl InitializationArgs {
+    pub fn new(ui_port: u16) -> Self {
+        Self { ui_port }
+    }
 }
 
 #[cfg(test)]
@@ -46,26 +58,26 @@ mod tests {
     use masq_lib::constants::DEFAULT_UI_PORT;
 
     #[test]
-    fn non_interactive_clap_real_produces_default_value_for_ui_port() {
-        let result = NonInteractiveClapReal.non_interactive_initial_clap_operations(
+    fn non_interactive_clap_real_produces_default_values() {
+        let result = NonInteractiveClapReal.parse_initialization_args(
             &vec!["masq", "setup", "--chain"]
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),
         );
 
-        assert_eq!(result, DEFAULT_UI_PORT)
+        assert_eq!(result.ui_port, DEFAULT_UI_PORT)
     }
 
     #[test]
-    fn non_interactive_clap_real_accept_custom_value_for_ui_port() {
-        let result = NonInteractiveClapReal.non_interactive_initial_clap_operations(
+    fn non_interactive_clap_real_produces_custom_values() {
+        let result = NonInteractiveClapReal.parse_initialization_args(
             &vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),
         );
 
-        assert_eq!(result, 10000)
+        assert_eq!(result.ui_port, 10000)
     }
 }

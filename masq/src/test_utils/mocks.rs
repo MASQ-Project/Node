@@ -5,8 +5,14 @@ use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
-use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
+use crate::communications::broadcast_handlers::{
+    BroadcastHandle, BroadcastHandler, RedirectBroadcastHandleFactory,
+    StandardBroadcastHandlerFactory, StreamFactory,
+};
+use crate::communications::connection_manager::{ConnectionManagerBootstrapper, RedirectOrder};
+use crate::non_interactive_clap::{
+    InitializationArgs, NonInteractiveClap, NonInteractiveClapFactory,
+};
 use crate::terminal::line_reader::TerminalEvent;
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use crate::terminal::terminal_interface::TerminalWrapper;
@@ -23,6 +29,8 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -220,22 +228,21 @@ impl CommandProcessorMock {
 
 #[derive(Default)]
 pub struct CommandProcessorFactoryMock {
-    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
+    make_params: Arc<Mutex<Vec<(Option<TerminalWrapper>, u16)>>>,
     make_results: RefCell<Vec<Result<Box<dyn CommandProcessor>, CommandError>>>,
 }
 
 impl CommandProcessorFactory for CommandProcessorFactoryMock {
     fn make(
         &self,
-        terminal_interface: Option<TerminalWrapper>,
-        generic_broadcast_handle: Box<dyn BroadcastHandle>,
+        _runtime_ref: &Runtime,
+        terminal_interface_opt: Option<TerminalWrapper>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
-        self.make_params.lock().unwrap().push((
-            terminal_interface,
-            generic_broadcast_handle,
-            ui_port,
-        ));
+        self.make_params
+            .lock()
+            .unwrap()
+            .push((terminal_interface_opt, ui_port));
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -245,10 +252,7 @@ impl CommandProcessorFactoryMock {
         Self::default()
     }
 
-    pub fn make_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Option<TerminalWrapper>, Box<dyn BroadcastHandle>, u16)>>>,
-    ) -> Self {
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(Option<TerminalWrapper>, u16)>>>) -> Self {
         self.make_params = params.clone();
         self
     }
@@ -261,7 +265,7 @@ impl CommandProcessorFactoryMock {
 
 pub struct NIClapFactoryMock;
 
-impl NIClapFactory for NIClapFactoryMock {
+impl NonInteractiveClapFactory for NIClapFactoryMock {
     fn make(&self) -> Box<dyn NonInteractiveClap> {
         Box::new(NonInteractiveClapMock {})
     }
@@ -270,8 +274,8 @@ impl NIClapFactory for NIClapFactoryMock {
 pub struct NonInteractiveClapMock;
 
 impl NonInteractiveClap for NonInteractiveClapMock {
-    fn non_interactive_initial_clap_operations(&self, _args: &[String]) -> u16 {
-        DEFAULT_UI_PORT
+    fn parse_initialization_args(&self, _args: &[String]) -> InitializationArgs {
+        InitializationArgs::new(DEFAULT_UI_PORT)
     }
 }
 
@@ -366,22 +370,8 @@ impl TestStreamFactory {
         (factory, handle)
     }
 
-    pub fn clone_senders(&self) -> (Sender<String>, Sender<String>) {
-        let stdout = self
-            .stdout_opt
-            .borrow_mut()
-            .as_ref()
-            .unwrap()
-            .write_tx
-            .clone();
-        let stderr = self
-            .stderr_opt
-            .borrow_mut()
-            .as_ref()
-            .unwrap()
-            .write_tx
-            .clone();
-        (stdout, stderr)
+    pub fn clone_stdout_writer(&self) -> Sender<String> {
+        self.stdout_opt.borrow().as_ref().unwrap().write_tx.clone()
     }
 }
 
@@ -425,16 +415,20 @@ impl TestStreamFactoryHandle {
 
 impl StreamFactory for TestStreamsWithThreadLifeCheckerFactory {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        let (stdout, stderr) = self.stream_factory.make();
-        let stream_with_checker = TestStreamWithThreadLifeChecker {
-            stream: stdout,
-            threads_connector: self.threads_connector.borrow_mut().take().unwrap(),
-        };
-        (Box::new(stream_with_checker), stderr)
+        //TODO could I refactor this out, using just one test factory??
+
+        // let (stdout, stderr) = self.stream_factory.make();
+        // let stream_with_checker = TestStreamWithThreadLifeChecker {
+        //     stream: stdout,
+        //     threads_connector: self.threads_connector.borrow_mut().take().unwrap(),
+        // };
+        // (Box::new(stream_with_checker), stderr)
+        todo!()
     }
 }
 
-//this set is invented just for a single special test; checking that the background thread doesn't outlive the foreground thread
+// TODO review this and other uts with comments
+// This set is invented just for a single special test; checking that the background thread doesn't outlive the foreground thread
 #[derive(Debug)]
 pub struct TestStreamsWithThreadLifeCheckerFactory {
     stream_factory: TestStreamFactory,
@@ -478,7 +472,7 @@ pub fn make_tools_for_test_streams_with_thread_life_checker() -> (
     )
 }
 
-//this is used in tests aimed at synchronization
+// This is used in tests aimed at synchronization
 #[derive(Clone)]
 pub struct StdoutBlender {
     channel_half: Sender<String>,
@@ -705,6 +699,73 @@ impl InterfaceRawMock {
 
     pub fn lock_writer_append_result(self, result: std::io::Result<Box<WriterInactive>>) -> Self {
         self.lock_writer_append_results.lock().unwrap().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct StandardBroadcastHandlerMock {
+    spawn_results: RefCell<Vec<Box<dyn BroadcastHandle<MessageBody>>>>,
+}
+
+impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerMock {
+    fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
+        todo!("finish me");
+        self.spawn_results.borrow_mut().remove(0)
+    }
+}
+
+impl StandardBroadcastHandlerMock {
+    pub fn spawn_result(self, result: Box<dyn BroadcastHandle<MessageBody>>) -> Self {
+        self.spawn_results.borrow_mut().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct StandardBroadcastHandlerFactoryMock {
+    make_params: Arc<Mutex<Vec<Option<TerminalWrapper>>>>,
+    make_results: RefCell<Vec<Box<dyn BroadcastHandler<MessageBody>>>>,
+}
+
+impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
+    fn make(
+        &self,
+        terminal_interface_opt: Option<TerminalWrapper>,
+    ) -> Box<dyn BroadcastHandler<MessageBody>> {
+        self.make_params
+            .lock()
+            .unwrap()
+            .push(terminal_interface_opt);
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl StandardBroadcastHandlerFactoryMock {
+    pub fn make_result(self, result: Box<dyn BroadcastHandler<MessageBody>>) -> Self {
+        self.make_results.borrow_mut().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct RedirectBroadcastHandleFactoryMock {
+    make_params: Arc<Mutex<Vec<UnboundedSender<RedirectOrder>>>>,
+    make_results: RefCell<Vec<Box<dyn BroadcastHandle<RedirectOrder>>>>,
+}
+
+impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryMock {
+    fn make(
+        &self,
+        redirect_order_tx: UnboundedSender<RedirectOrder>,
+    ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl RedirectBroadcastHandleFactoryMock {
+    pub fn make_result(self, result: Box<dyn BroadcastHandle<RedirectOrder>>) -> Self {
+        self.make_results.borrow_mut().push(result);
         self
     }
 }

@@ -1649,6 +1649,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "ethereum-types",
+ "futures",
  "futures-util",
  "itertools",
  "lazy_static",

@@ -21,7 +21,7 @@ use clap::builder::ValueRange;
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
 use masq_lib::constants::{DEFAULT_UI_PORT, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
-use masq_lib::shared_schema::common_validators::InsecurePort;
+use masq_lib::shared_schema::InsecurePort;
 
 lazy_static! {
     static ref UI_PORT_HELP: String = format!(

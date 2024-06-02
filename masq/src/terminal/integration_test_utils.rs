@@ -135,7 +135,7 @@ impl MasqTerminal for IntegrationTestTerminal {
 
     fn lock_without_prompt(
         &self,
-        _streams: &mut StdStreams,
+        _streams: &mut StdStreams<'_>,
         stderr: bool,
     ) -> Box<dyn WriterLock + '_> {
         let lock = Box::new(IntegrationTestWriter {

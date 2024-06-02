@@ -1152,6 +1152,7 @@ impl Neighborhood {
         } else {
             !self
                 .neighborhood_database
+                // TODO: Think about this. Should this be full_neighbor, since half neighborships can't be routed over?
                 .has_half_neighbor(candidate_node_key, first_node_key)
         }
     }
@@ -1162,6 +1163,7 @@ impl Neighborhood {
         undesirability_type: UndesirabilityType,
         logger: &Logger,
     ) -> i64 {
+        // TODO: rate_undesirability is now a bad name for this variable
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_) => {
@@ -1253,7 +1255,7 @@ impl Neighborhood {
     #[allow(clippy::too_many_arguments)]
     fn routing_engine<'a>(
         &'a self,
-        prefix: Vec<&'a PublicKey>,
+        prefix: Vec<&'a PublicKey>, // TODO: Should be an ordered set, not a vector. Searched through repeatedly.
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
@@ -1297,7 +1299,7 @@ impl Neighborhood {
                         || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
                 })
                 .flat_map(|node_record| {
-                    let mut new_prefix = prefix.clone();
+                    let mut new_prefix = prefix.clone(); // TODO: This is expensive. See if it can be optimized.
                     new_prefix.push(node_record.public_key());
 
                     let new_hops_remaining = if hops_remaining == 0 {
