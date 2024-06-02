@@ -33,6 +33,7 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::malefactor::ban_malefactor;
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
@@ -77,7 +78,6 @@ use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
-use crate::malefactor::ban_malefactor;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;

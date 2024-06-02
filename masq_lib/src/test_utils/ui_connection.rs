@@ -2,6 +2,7 @@
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
+use crate::test_utils::utils::make_rt;
 use crate::ui_gateway::{MessagePath, MessageTarget, NodeToUiMessage};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
