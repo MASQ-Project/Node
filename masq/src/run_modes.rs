@@ -12,18 +12,18 @@ use crate::communications::broadcast_handlers::{
 };
 use crate::non_interactive_clap::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
 use crate::terminal::async_streams::{
-    AsyncStdStreamsFactoryReal, AsyncStdStreams, AsyncStdStreamsFactory,
+    AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal,
 };
 use crate::terminal::terminal_interface_factory::{
     TerminalInterfaceFactory, TerminalInterfaceFactoryReal,
 };
+use crate::terminal::{RWTermInterface, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
 use std::io::Write;
 use std::ops::Not;
 use std::sync::Arc;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use crate::terminal::{RWTermInterface, TerminalWriter, WTermInterface};
 
 pub struct Main {
     std_streams_factory_opt: Option<Box<dyn AsyncStdStreamsFactory>>,
@@ -89,8 +89,10 @@ impl Main {
         }
     }
 
-    pub fn acquire_stream_factory(&mut self)-> Box<dyn AsyncStdStreamsFactory>{
-        self.std_streams_factory_opt.take().expect("Streams factory wasn't properly initialized")
+    pub fn acquire_stream_factory(&mut self) -> Box<dyn AsyncStdStreamsFactory> {
+        self.std_streams_factory_opt
+            .take()
+            .expect("Streams factory wasn't properly initialized")
     }
 
     async fn see_about_this_labour(
@@ -198,6 +200,7 @@ mod tests {
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
+    use crate::terminal::{ReadError, ReadInput, WTermInterfaceImplementingSend};
     use crate::test_utils::mocks::{
         make_async_std_streams, make_terminal_writer, AsyncStdStreamsFactoryMock,
         AsyncTestStreamHandles, CommandContextFactoryMock, CommandContextMock,
@@ -210,7 +213,6 @@ mod tests {
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
-    use crate::terminal::{ReadInput, ReadError, WTermInterfaceImplementingSend};
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -312,8 +314,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(Other("not really an error".to_string())));
-        let (mut term_interface, term_interface_stream_handles) =
-            TermInterfaceMock::new(None);
+        let (mut term_interface, term_interface_stream_handles) = TermInterfaceMock::new(None);
 
         let result = command.execute(&mut context, &mut term_interface).await;
 
@@ -471,7 +472,8 @@ mod tests {
     #[tokio::test]
     async fn go_works_when_command_execution_fails() {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
-        let command_factory = CommandFactoryMock::default().make_result(Ok(Box::new(command.clone())));
+        let command_factory =
+            CommandFactoryMock::default().make_result(Ok(Box::new(command.clone())));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -1149,16 +1151,16 @@ mod tests {
         match (term_interface_opt, expected_std_streams_usage_opt) {
             (Some(w_terminal), Some(expected_usage)) => {
                assert_stream_writes(expected_usage.term_interface_stream_handles, expected_usage.write_streams.expected_stdout, expected_usage.write_streams.expected_stderr);
-                let (mut stdout, stdout_flusher) = w_terminal.stdout();
-                let (mut stderr, stderr_flusher) = w_terminal.stderr();
+                let (mut stdout, mut stdout_flusher) = w_terminal.stdout();
+                let (mut stderr, mut stderr_flusher) = w_terminal.stderr();
                 stdout.write("AbCdEfG").await;
-                stdout_flusher.flush().await.unwrap();
+                drop(stdout_flusher);
                 assert_eq!(
                     expected_usage.term_interface_stream_handles.stdout_all_in_one(),
                     "AbCdEfG"
                 );
                 stderr.write("1a2b3c4").await;
-                stderr_flusher.flush().await.unwrap();
+                drop(stderr_flusher);
                 assert_eq!(
                     expected_usage.term_interface_stream_handles.stderr_all_in_one(),
                     "1a2b3c4"

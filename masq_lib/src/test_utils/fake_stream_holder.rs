@@ -38,8 +38,8 @@ impl ByteArrayWriterInner {
         if let Some(flushables) = self.flushed_outputs_opt.as_ref() {
             flushables
                 .iter()
-                .take_while(|flushable|flushable.already_flushed_opt.is_some())
-                .flat_map(|flushable|flushable.byte_array.clone())
+                .take_while(|flushable| flushable.already_flushed_opt.is_some())
+                .flat_map(|flushable| flushable.byte_array.clone())
                 .collect()
         } else {
             self.byte_array.clone()
@@ -218,19 +218,25 @@ impl Read for ByteArrayReader {
 #[derive(Default)]
 struct FlushableOutput {
     byte_array: Vec<u8>,
-    already_flushed_opt: Option<SystemTime>
+    already_flushed_opt: Option<SystemTime>,
 }
 
-pub struct FlushedString{
+pub struct FlushedString {
     string: String,
-    flushed_at: SystemTime
+    flushed_at: SystemTime,
 }
 
-pub struct FlushedStrings<I> where I: Iterator<Item = FlushedString>{
-    flushes: I
+pub struct FlushedStrings<I>
+where
+    I: Iterator<Item = FlushedString>,
+{
+    flushes: I,
 }
 
-impl <I> FlushedStrings<I> where I: Iterator<Item = FlushedString>{
+impl<I> FlushedStrings<I>
+where
+    I: Iterator<Item = FlushedString>,
+{
     // This may be useful if there are doubts about the sequancel of flushed writes collected that
     // are collected during a test from multiple sources as it may be otherwise more convenient
     // in a test to keep distinct writers separate without any hassel with cloning.
@@ -241,12 +247,17 @@ impl <I> FlushedStrings<I> where I: Iterator<Item = FlushedString>{
 
     // Not using async Mutexes, if some light rules are sustained, can greatly simplify mantining
     // test utils
-    fn next(&mut self)-> Option<(String, SystemTime)>{
-        self.flushes.next().map(|flushed|(flushed.string, flushed.flushed_at))
+    fn next(&mut self) -> Option<(String, SystemTime)> {
+        self.flushes
+            .next()
+            .map(|flushed| (flushed.string, flushed.flushed_at))
     }
 }
 
-impl <I> Deref for FlushedStrings<I>  where I: Iterator<Item = FlushedString> {
+impl<I> Deref for FlushedStrings<I>
+where
+    I: Iterator<Item = FlushedString>,
+{
     type Target = [String];
 
     fn deref(&self) -> &Self::Target {
@@ -295,9 +306,7 @@ pub trait MockedStreamHandleWithStringAssertionMethods {
 impl AsyncByteArrayWriter {
     pub fn new(flush_conscious_mode: bool) -> Self {
         Self {
-            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(
-                flush_conscious_mode,
-            ))),
+            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(flush_conscious_mode))),
         }
     }
     pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
@@ -311,7 +320,7 @@ impl AsyncByteArrayWriter {
     }
 }
 
-impl MockedStreamHandleWithStringAssertionMethods for AsyncByteArrayWriter{
+impl MockedStreamHandleWithStringAssertionMethods for AsyncByteArrayWriter {
     fn get_string(&self) -> String {
         String::from_utf8(self.get_bytes()).unwrap()
     }

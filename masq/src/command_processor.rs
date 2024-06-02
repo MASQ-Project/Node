@@ -7,6 +7,7 @@ use crate::command_factory::CommandFactory;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
+use crate::terminal::{FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
@@ -14,7 +15,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
-use crate::terminal::{FlushHandle, RWTermInterface, TerminalWriter, WTermInterface};
 
 pub struct CommandProcessorFactory {
     bootstrapper: ConnectionManagerBootstrapper,
@@ -85,9 +85,9 @@ pub trait CommandProcessor {
         // }
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>);
+    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>);
+    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
 
     fn close(&mut self);
 }
@@ -106,11 +106,11 @@ impl CommandProcessor for CommandProcessorNonInteractive {
         // command.execute(&mut self.context)
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
 
@@ -137,11 +137,11 @@ impl CommandProcessor for CommandProcessorInteractive {
         todo!()
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
 

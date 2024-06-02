@@ -4,6 +4,7 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Reception, Transmission, UnexpectedResponse,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
@@ -15,7 +16,6 @@ use std::fmt::Display;
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
-use crate::terminal::{TerminalWriter, WTermInterface};
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
@@ -154,12 +154,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
         let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
-        let (stderr, flush_handle) = term_interface.stderr();
+        let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
-            transaction(UiStartOrder {}, &mut context, stderr, 1000).await;
+            transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        flush_handle.flush().await.unwrap();
+        drop(flush_handle);
         assert_eq!(result, Err(ConnectionProblem("booga".to_string())));
         stream_handles.assert_empty_stderr()
     }
@@ -172,9 +172,9 @@ mod tests {
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
-            transaction(UiStartOrder {}, &mut context, stderr, 1000).await;
+            transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        flush_handle.flush().await.unwrap();
+        drop(flush_handle);
         assert_eq!(result, Err(Payload(10, "booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -188,9 +188,9 @@ mod tests {
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
-            transaction(UiStartOrder {}, &mut context, stderr, 1000).await;
+            transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        flush_handle.flush().await.unwrap();
+        drop(flush_handle);
         assert_eq!(result, Err(Transmission("booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -208,9 +208,9 @@ mod tests {
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
-            transaction(UiStartOrder {}, &mut context, stderr, 1000).await;
+            transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        flush_handle.flush().await.unwrap();
+        drop(flush_handle);
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

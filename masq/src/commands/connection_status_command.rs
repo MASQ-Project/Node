@@ -5,6 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -18,7 +19,6 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConnectionStatusCommand {}
@@ -46,7 +46,7 @@ impl Command for ConnectionStatusCommand {
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiConnectionStatusRequest {};
         let output: Result<UiConnectionStatusResponse, CommandError> =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
                 let stdout_msg = match response.stage {

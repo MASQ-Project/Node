@@ -21,6 +21,7 @@ use crate::commands::financials_command::pretty_print_utils::restricted::{
     render_accounts_generic, subtitle_for_tops, triple_or_single_blank_line,
     StringValuesFormattableAccount,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::ArgMatches;
 use masq_lib::messages::{
@@ -32,7 +33,6 @@ use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
 use std::io::{Stderr, Write};
 use std::sync::Arc;
-use crate::terminal::{TerminalWriter, WTermInterface};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -59,10 +59,10 @@ impl Command for FinancialsCommand {
         };
         let queries_opt = input.custom_queries_opt.clone();
         let output: Result<UiFinancialsResponse, CommandError> =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
-                self.process_command_response(queries_opt, response, stdout)
+                self.process_command_response(queries_opt, response, &stdout)
                     .await
             }
             Err(e) => {
@@ -1195,10 +1195,7 @@ mod tests {
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
                 2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"]
         );
-        assert_eq!(
-            stream_handles.stderr_flushed_strings(),
-            vec![String::new()]
-        );
+        assert_eq!(stream_handles.stderr_flushed_strings(), vec![String::new()]);
     }
 
     #[tokio::test]

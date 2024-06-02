@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
@@ -15,7 +16,6 @@ use std::any::Any;
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
-use crate::terminal::{TerminalWriter, WTermInterface};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
@@ -84,7 +84,7 @@ impl Command for ChangePasswordCommand {
             new_password: self.new_password.clone(),
         };
         let _: UiChangePasswordResponse =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
         short_writeln!(stdout, "Database password has been changed");
         Ok(())
     }

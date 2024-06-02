@@ -1,34 +1,31 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use async_trait::async_trait;
-use liso::Response;
 use core::any::Any;
+use liso::Response;
 use std::sync::Arc;
 
 #[async_trait(?Send)]
-pub trait LisoInputWrapper{
-    async fn read_async(&mut self)->Response;
+pub trait LisoInputWrapper {
+    async fn read_async(&mut self) -> Response;
 }
 
-
-pub trait LisoOutputWrapper: Send{
+pub trait LisoOutputWrapper: Send + Sync {
     fn println(&self, formatted_text: &str);
     fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool);
     fn clone_output(&self) -> Box<dyn LisoOutputWrapper>;
 }
 
-pub struct LisoInputOutputWrapperReal{
-
-}
+pub struct LisoInputOutputWrapperReal {}
 
 #[async_trait(?Send)]
-impl LisoInputWrapper for LisoInputOutputWrapperReal{
+impl LisoInputWrapper for LisoInputOutputWrapperReal {
     async fn read_async(&mut self) -> Response {
         todo!()
     }
 }
 
-impl LisoOutputWrapper for LisoInputOutputWrapperReal{
+impl LisoOutputWrapper for LisoInputOutputWrapperReal {
     fn println(&self, formatted_text: &str) {
         todo!()
     }
@@ -42,9 +39,9 @@ impl LisoOutputWrapper for LisoInputOutputWrapperReal{
     }
 }
 
-struct LisoOutputWrapperReal{}
+struct LisoOutputWrapperReal {}
 
-impl LisoOutputWrapper for LisoOutputWrapperReal{
+impl LisoOutputWrapper for LisoOutputWrapperReal {
     fn println(&self, formatted_text: &str) {
         todo!()
     }

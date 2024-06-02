@@ -5,6 +5,7 @@ use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
+use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 use async_trait::async_trait;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
@@ -22,7 +23,6 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -149,7 +149,9 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
 }
 
 impl StandardBroadcastHandlerReal {
-    pub fn new(interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>) -> Self {
+    pub fn new(
+        interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+    ) -> Self {
         Self {
             interactive_mode_dependencies_opt,
         }
@@ -165,21 +167,22 @@ impl StandardBroadcastHandlerReal {
             Err(_) => false, // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
-                    handle_ui_log_broadcast(body, stdout, stderr).await
+                    handle_ui_log_broadcast(body, &stdout, &stderr).await
                 } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast(body, stdout, stderr).await;
+                    SetupCommand::handle_broadcast(body, &stdout, &stderr).await;
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast(body, stdout, stderr).await;
+                    CrashNotifier::handle_broadcast(body, &stdout, &stderr).await;
                 } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast(body, stdout, stderr).await;
+                    ChangePasswordCommand::handle_broadcast(body, &stdout, &stderr).await;
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_is_dead_while_f_f_on_the_way_broadcast(body, stdout, stderr).await;
+                    handle_node_is_dead_while_f_f_on_the_way_broadcast(body, &stdout, &stderr)
+                        .await;
                 } else if let Ok((body, _)) = UiConnectionChangeBroadcast::fmb(message_body.clone())
                 {
-                    ConnectionChangeNotification::handle_broadcast(body, stdout, stderr).await;
+                    ConnectionChangeNotification::handle_broadcast(body, &stdout, &stderr).await;
                 } else {
-                    handle_unrecognized_broadcast(message_body, stdout, stderr).await
+                    handle_unrecognized_broadcast(message_body, &stdout, &stderr).await
                 }
                 true
             }

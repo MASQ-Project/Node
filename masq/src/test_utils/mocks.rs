@@ -17,13 +17,20 @@ use crate::communications::connection_manager::{ConnectionManagerBootstrapper, R
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
+use crate::terminal::{
+    FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
+    WTermInterface, WTermInterfaceImplementingSend,
+};
 use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use itertools::Either;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::shared_schema::VecU64;
-use masq_lib::test_utils::fake_stream_holder::{AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner, MockedStreamHandleWithStringAssertionMethods};
+use masq_lib::test_utils::fake_stream_holder::{
+    AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
+    MockedStreamHandleWithStringAssertionMethods,
+};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::fmt::Arguments;
@@ -38,7 +45,6 @@ use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::UnboundedSender;
-use crate::terminal::{FlushHandle, ReadInput, ReadError, RWTermInterface, TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -165,11 +171,11 @@ impl CommandProcessor for CommandProcessorMock {
         // self.process_results.borrow_mut().remove(0)
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandle>) {
+    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
 
@@ -574,8 +580,7 @@ impl StdinMockBuilder {
 pub struct StdinMock {
     reader: Arc<Mutex<AsyncByteArrayReader>>,
     // None means a normal result will come out, Some means this prepared error will be taken
-    situated_errors_opt:
-        Arc<Mutex<Vec<Option<ReadError>>>>,
+    situated_errors_opt: Arc<Mutex<Vec<Option<ReadError>>>>,
 }
 
 impl AsyncRead for StdinMock {
@@ -596,9 +601,7 @@ impl StdinMock {
 
 #[async_trait(?Send)]
 impl RWTermInterface for TermInterfaceMock {
-    async fn read_line(
-        &mut self,
-    ) -> Result<ReadInput, ReadError> {
+    async fn read_line(&mut self) -> Result<ReadInput, ReadError> {
         todo!()
     }
 
@@ -612,11 +615,11 @@ impl RWTermInterface for TermInterfaceMock {
 }
 
 impl WTermInterface for TermInterfaceMock {
-    fn stdout(&self) -> (&TerminalWriter, Box<dyn FlushHandle>) {
+    fn stdout(&self) -> (TerminalWriter, FlushHandle) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Box<dyn FlushHandle>) {
+    fn stderr(&self) -> (TerminalWriter, FlushHandle) {
         todo!()
     }
 
@@ -626,7 +629,7 @@ impl WTermInterface for TermInterfaceMock {
     }
 }
 
-impl WTermInterfaceImplementingSend for TermInterfaceMock{}
+impl WTermInterfaceImplementingSend for TermInterfaceMock {}
 
 pub fn make_async_std_write_stream() -> (Box<dyn AsyncWrite + Send + Unpin>, AsyncByteArrayWriter) {
     let writer = AsyncByteArrayWriter::default();
@@ -740,9 +743,7 @@ impl AsyncTestStreamHandles {
         handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
     ) -> Vec<String> {
         match handle {
-            Either::Left(async_byte_array) => {
-                async_byte_array.drain_flushed_strings().unwrap()
-            }
+            Either::Left(async_byte_array) => async_byte_array.drain_flushed_strings().unwrap(),
             Either::Right(naked_string_containers) => {
                 naked_string_containers.lock().unwrap().drain(..).collect()
             }

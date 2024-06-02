@@ -5,6 +5,7 @@ use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -17,7 +18,6 @@ use std::ops::Add;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use crate::terminal::WTermInterface;
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
@@ -48,7 +48,7 @@ impl Command for ShutdownCommand {
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiShutdownRequest {};
         let output: Result<UiShutdownResponse, CommandError> =
-            transaction(input, context, stderr, SHUTDOWN_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(input, context, &stderr, SHUTDOWN_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {

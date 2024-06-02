@@ -2,13 +2,13 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send_non_conversational_msg, Command, CommandError};
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug)]
 pub struct CrashCommand {

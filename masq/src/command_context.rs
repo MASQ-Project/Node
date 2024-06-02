@@ -6,6 +6,7 @@ use crate::communications::connection_manager::{
     ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
+use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
 use async_trait::async_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
 use masq_lib::ui_gateway::MessageBody;
@@ -13,7 +14,6 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use tokio::runtime::Runtime;
-use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {

@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
@@ -12,7 +13,6 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
@@ -50,7 +50,7 @@ impl Command for CheckPasswordCommand {
             db_password_opt: self.db_password_opt.clone(),
         };
         let msg: UiCheckPasswordResponse =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
         short_writeln!(
             stdout,
             "{}",
@@ -151,10 +151,7 @@ mod tests {
         let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        assert_eq!(
-            stream_handles.stdout_all_in_one(),
-            "Password is correct\n"
-        );
+        assert_eq!(stream_handles.stdout_all_in_one(), "Password is correct\n");
         stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

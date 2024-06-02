@@ -5,6 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -18,7 +19,6 @@ use std::io::Write;
 use std::iter::once;
 use std::sync::Arc;
 use thousands::Separable;
-use crate::terminal::{TerminalWriter, WTermInterface};
 
 const COLUMN_WIDTH: usize = 33;
 
@@ -55,10 +55,10 @@ impl Command for ConfigurationCommand {
             db_password_opt: self.db_password.clone(),
         };
         let output: Result<UiConfigurationResponse, CommandError> =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
-                Self::dump_configuration(stdout, response);
+                Self::dump_configuration(&stdout, response);
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {

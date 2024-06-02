@@ -2,6 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use futures::future::join_all;
@@ -21,7 +22,6 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::iter::Iterator;
 use std::sync::Arc;
-use crate::terminal::{TerminalWriter, WTermInterface};
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -60,10 +60,10 @@ impl Command for SetupCommand {
             values: self.values.clone(),
         };
         let result: Result<UiSetupResponse, CommandError> =
-            transaction(out_message, context, stderr, SETUP_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(out_message, context, &stderr, SETUP_COMMAND_TIMEOUT_MILLIS).await;
         match result {
             Ok(response) => {
-                Self::dump_setup(UiSetupInner::from(response), stdout).await;
+                Self::dump_setup(UiSetupInner::from(response), &stdout).await;
                 Ok(())
             }
             Err(CommandError::Payload(err, msg)) if err == SETUP_ERROR => {

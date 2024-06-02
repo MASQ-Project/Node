@@ -1,5 +1,6 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::ValueRange;
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
@@ -11,7 +12,6 @@ use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
@@ -52,7 +52,7 @@ impl Command for SetConfigurationCommand {
             value: self.value.clone(),
         };
 
-        let _: UiSetConfigurationResponse = transaction(input, context, stderr, 1000).await?;
+        let _: UiSetConfigurationResponse = transaction(input, context, &stderr, 1000).await?;
         short_writeln!(stdout, "Parameter was successfully set");
         Ok(())
     }

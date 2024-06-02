@@ -2,6 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -9,7 +10,6 @@ use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 const START_SUBCOMMAND_ABOUT: &str =
@@ -34,7 +34,7 @@ impl Command for StartCommand {
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let out_message = UiStartOrder {};
         let result: Result<UiStartResponse, CommandError> =
-            transaction(out_message, context, stderr, START_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(out_message, context, &stderr, START_COMMAND_TIMEOUT_MILLIS).await;
         match result {
             Ok(response) => {
                 short_writeln!(

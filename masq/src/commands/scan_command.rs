@@ -2,6 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
@@ -9,7 +10,6 @@ use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -52,7 +52,7 @@ impl Command for ScanCommand {
             },
         };
         let result: Result<UiScanResponse, CommandError> =
-            transaction(input, context, stderr, SCAN_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(input, context, &stderr, SCAN_COMMAND_TIMEOUT_MILLIS).await;
         match result {
             Ok(_response) => Ok(()),
             Err(e) => Err(e),

@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
@@ -14,7 +15,6 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -131,7 +131,7 @@ impl Command for RecoverWalletsCommand {
             },
         };
         let _: UiRecoverWalletsResponse =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
         short_writeln!(stdout, "Wallets were successfully recovered");
         Ok(())
     }

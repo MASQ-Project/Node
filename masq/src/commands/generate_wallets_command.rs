@@ -11,6 +11,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
 use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
@@ -19,7 +20,6 @@ use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerat
 use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
-use crate::terminal::{TerminalWriter, WTermInterface};
 
 lazy_static! {
     static ref CONSUMING_PATH_HELP: String = format!(
@@ -283,8 +283,8 @@ impl Command for GenerateWalletsCommand {
             earning_derivation_path_opt: self.earning_path_opt.as_ref().cloned(),
         };
         let response: UiGenerateWalletsResponse =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
-        Self::process_response(response, stdout, stderr).await;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+        Self::process_response(response, &stdout, &stderr).await;
         Ok(())
     }
 
@@ -921,8 +921,8 @@ mod tests {
     async fn response_with_mnemonic_phrase_is_processed() {
         let mut context = CommandContextMock::new();
         let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
-        let (stdout, stdout_flush_handle) = term_interface.stdout();
-        let (stderr, stderr_flush_handle) = term_interface.stderr();
+        let (stdout, mut stdout_flush_handle) = term_interface.stdout();
+        let (stderr, mut stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
             mnemonic_phrase_opt: Some(vec![
                 "taxation".to_string(),
@@ -935,10 +935,10 @@ mod tests {
             earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
         };
 
-        GenerateWalletsCommand::process_response(response, stdout, stderr).await;
+        GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
-        stdout_flush_handle.flush().await.unwrap();
-        stderr_flush_handle.flush().await.unwrap();
+        drop(stdout_flush_handle);
+        drop(stderr_flush_handle);
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_flushed_strings(),
@@ -968,7 +968,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
         };
 
-        GenerateWalletsCommand::process_response(response, stdout, stderr).await;
+        GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
         stream_handles.assert_empty_stderr();
         assert_eq!(

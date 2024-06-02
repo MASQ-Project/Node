@@ -5,6 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -12,7 +13,6 @@ use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::short_writeln;
 use std::fmt::Debug;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug)]
 pub struct DescriptorCommand {}
@@ -35,7 +35,7 @@ impl Command for DescriptorCommand {
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiDescriptorRequest {};
         let output: Result<UiDescriptorResponse, CommandError> =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
                 match response.node_descriptor_opt {

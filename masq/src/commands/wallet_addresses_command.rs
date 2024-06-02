@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
@@ -11,7 +12,6 @@ use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
-use crate::terminal::WTermInterface;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -65,7 +65,7 @@ impl Command for WalletAddressesCommand {
             db_password: self.db_password.clone(),
         };
         let msg: UiWalletAddressesResponse =
-            transaction(input, context, stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
         short_writeln!(
             stdout,
             "Your consuming wallet address: {}",
