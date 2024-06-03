@@ -854,7 +854,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
-        todo!("GH-744: We want to refactor and test drive this");
+        todo!("GH-744: We want to refactor and test drive this - finish_scan (Make sure start block is updated in the database)");
         match msg.scan_result {
             Ok(payments_and_start_block) => {
                 self.handle_new_received_payments(&payments_and_start_block, msg.timestamp, logger);

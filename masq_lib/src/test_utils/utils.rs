@@ -5,11 +5,32 @@ use crate::test_utils::environment_guard::EnvironmentGuard;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use serde_derive::Serialize;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
+
+
+#[derive(Serialize)]
+pub struct LogObject {
+    // Strings are all hexadecimal
+    pub removed: bool,
+    #[serde(rename = "logIndex")]
+    pub log_index: Option<String>,
+    #[serde(rename = "transactionIndex")]
+    pub transaction_index: Option<String>,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: Option<String>,
+    #[serde(rename = "blockHash")]
+    pub block_hash: Option<String>,
+    #[serde(rename = "blockNumber")]
+    pub block_number: Option<String>,
+    pub address: String,
+    pub data: String,
+    pub topics: Vec<String>,
+}
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
     let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
@@ -40,6 +61,9 @@ pub fn is_running_under_github_actions() -> bool {
 pub trait UrlHolder {
     fn url(&self) -> String;
 }
+
+
+
 
 #[derive(PartialEq, Eq)]
 pub enum ShouldWeRunTheTest {

@@ -10,7 +10,7 @@ use serde_derive::Serialize;
 
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-use masq_lib::test_utils::utils::{is_running_under_github_actions, UrlHolder};
+use masq_lib::test_utils::utils::{is_running_under_github_actions, LogObject, UrlHolder};
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
@@ -178,21 +178,21 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
     )
 }
 
-#[derive(Serialize)]
-struct LogObject {
-    // Strings are all hexadecimal
-    removed: bool,
-    #[serde(rename = "logIndex")]
-    log_index: Option<String>,
-    #[serde(rename = "transactionIndex")]
-    transaction_index: Option<String>,
-    #[serde(rename = "transactionHash")]
-    transaction_hash: Option<String>,
-    #[serde(rename = "blockHash")]
-    block_hash: Option<String>,
-    #[serde(rename = "blockNumber")]
-    block_number: Option<String>,
-    address: String,
-    data: String,
-    topics: Vec<String>,
-}
+// #[derive(Serialize)]
+// struct LogObject {
+//     // Strings are all hexadecimal
+//     removed: bool,
+//     #[serde(rename = "logIndex")]
+//     log_index: Option<String>,
+//     #[serde(rename = "transactionIndex")]
+//     transaction_index: Option<String>,
+//     #[serde(rename = "transactionHash")]
+//     transaction_hash: Option<String>,
+//     #[serde(rename = "blockHash")]
+//     block_hash: Option<String>,
+//     #[serde(rename = "blockNumber")]
+//     block_number: Option<String>,
+//     address: String,
+//     data: String,
+//     topics: Vec<String>,
+// }
