@@ -13,18 +13,19 @@ pub struct WritingUtils {
 
 impl WritingUtils {
     pub fn new(write_liso_arc: Arc<dyn LisoOutputWrapper>) -> Self {
-        let (output_chunks_sender, output_chuckns_receiver) = unbounded_channel();
+        let (output_chunks_sender, output_chunks_receiver) = unbounded_channel();
         let terminal_writer_strict_provider =
             TerminalWriterStrictProvider::new(output_chunks_sender);
+        let flush_handle = Arc::new(tokio::sync::Mutex::new(
+            FlushHandleInnerForInteractiveMode::new(write_liso_arc, output_chunks_receiver),
+        ));
         Self {
             terminal_writer_strict_provider,
-            flush_handle: Arc::new(tokio::sync::Mutex::new(
-                FlushHandleInnerForInteractiveMode::new(write_liso_arc, output_chuckns_receiver),
-            )),
+            flush_handle,
         }
     }
 
-    pub fn utils(&self) -> Option<((TerminalWriter, FlushHandle))> {
+    pub fn utils(&self) -> Result<(TerminalWriter, FlushHandle), usize> {
         self.terminal_writer_strict_provider
             .provide_if_not_already_in_use()
             .map(|terminal_writer| (terminal_writer, FlushHandle::new(self.flush_handle.clone())))
@@ -39,16 +40,24 @@ impl TerminalWriterStrictProvider {
     pub fn new(output_chunks_sender: UnboundedSender<String>) -> Self {
         let current_tx_count = output_chunks_sender.strong_count();
         if current_tx_count > 1 {
-            todo!()
+            panic!(
+                "Sender has already {} clones but should've had only one",
+                current_tx_count
+            )
         }
         Self {
             output_chunks_sender,
         }
     }
 
-    pub fn provide_if_not_already_in_use(&self) -> Option<TerminalWriter> {
-        (self.output_chunks_sender.strong_count() == 1)
-            .then(|| TerminalWriter::new(self.output_chunks_sender.clone()))
+    pub fn provide_if_not_already_in_use(&self) -> Result<TerminalWriter, usize> {
+        let sender_reference_count = self.output_chunks_sender.strong_count();
+        if sender_reference_count == 1 {
+            Ok(TerminalWriter::new(self.output_chunks_sender.clone()))
+        } else {
+            let in_use_outside_here = sender_reference_count - 1;
+            Err(in_use_outside_here)
+        }
     }
 }
 
@@ -59,10 +68,11 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     #[test]
-    #[should_panic(expected = "Sender has already two clones but should've had only one")]
+    #[should_panic(expected = "Sender has already 3 clones but should've had only one")]
     fn terminal_strict_provider_bad_initialization() {
         let (tx, _rx) = unbounded_channel();
-        let _tx_clone = tx.clone();
+        let _tx_clone_1 = tx.clone();
+        let _tx_clone_2 = tx.clone();
 
         let _ = TerminalWriterStrictProvider::new(tx);
     }
@@ -91,5 +101,6 @@ mod tests {
         drop(writer);
         let fourth_writer_opt = subject.provide_if_not_already_in_use();
         let fifth_writer_opt = subject.provide_if_not_already_in_use();
+        todo!()
     }
 }

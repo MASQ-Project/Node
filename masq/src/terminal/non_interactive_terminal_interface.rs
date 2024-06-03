@@ -1,6 +1,8 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::terminal::async_streams::AsyncStdStreamsFactory;
-use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface};
+use crate::terminal::{
+    FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WTermInterfaceDup,
+};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncWrite;
 
@@ -21,8 +23,10 @@ impl WTermInterface for NonInteractiveWTermInterface {
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
         todo!()
     }
+}
 
-    fn dup(&self) -> Box<dyn WTermInterface> {
+impl WTermInterfaceDup for NonInteractiveWTermInterface {
+    fn dup(&self) -> Box<dyn WTermInterfaceDup> {
         todo!()
     }
 }
@@ -36,8 +40,12 @@ impl NonInteractiveWTermInterface {
 #[cfg(test)]
 mod tests {
     use crate::terminal::non_interactive_terminal_interface::NonInteractiveWTermInterface;
-    use crate::terminal::test_utils::test_writing_streams_of_particular_terminal;
+    use crate::terminal::test_utils::{
+        test_writing_streams_of_particular_terminal, NonInteractiveStreamsAssertionHandles,
+        WritingTestInput, WritingTestInputByTermInterfaces,
+    };
     use crate::terminal::WTermInterface;
+    use crate::terminal::WTermInterfaceDup;
     use crate::test_utils::mocks::{
         make_async_std_streams, make_async_std_write_stream, AsyncStdStreamsFactoryMock,
     };
@@ -56,20 +64,24 @@ mod tests {
         let duplicate = subject.dup();
 
         test_writing_streams_of_particular_terminal(
-            Either::Left((
-                &subject,
-                first_instance_handles.stdout.left().unwrap(),
-                first_instance_handles.stderr.left().unwrap(),
-            )),
+            WritingTestInputByTermInterfaces::NonInteractive(WritingTestInput {
+                term_interface: &subject,
+                streams_assertion_handles: NonInteractiveStreamsAssertionHandles {
+                    stdout: first_instance_handles.stdout.left().unwrap(),
+                    stderr: first_instance_handles.stderr.left().unwrap(),
+                },
+            }),
             "subject",
         )
         .await;
         test_writing_streams_of_particular_terminal(
-            Either::Left((
-                duplicate.as_ref(),
-                second_instance_handles.stdout.left().unwrap(),
-                second_instance_handles.stderr.left().unwrap(),
-            )),
+            WritingTestInputByTermInterfaces::NonInteractive(WritingTestInput {
+                term_interface: duplicate.as_ref(),
+                streams_assertion_handles: NonInteractiveStreamsAssertionHandles {
+                    stdout: second_instance_handles.stdout.left().unwrap(),
+                    stderr: second_instance_handles.stderr.left().unwrap(),
+                },
+            }),
             "duplicate",
         )
         .await

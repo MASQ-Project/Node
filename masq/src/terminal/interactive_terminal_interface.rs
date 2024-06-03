@@ -1,20 +1,16 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::terminal::interactive_writing_utils::WritingUtils;
-use crate::terminal::liso_wrappers::{
-    LisoInputOutputWrapperReal, LisoInputWrapper, LisoOutputWrapper,
-};
+use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WriteResult,
+    WTermInterface, WTermInterfaceDup, WriteResult,
 };
-use async_channel::Sender;
 use async_trait::async_trait;
-use liso::{InputOutput, Response};
+use liso::Response;
 use masq_lib::constants::MASQ_PROMPT;
 use std::sync::Arc;
-use std::thread::{panicking, spawn};
-use time::format_description::well_known::iso8601::OffsetPrecision;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 // //most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
 // #[derive(Debug, PartialEq, Eq, Clone)]
@@ -28,7 +24,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub struct InteractiveRWTermInterface {
     read_liso: Box<dyn LisoInputWrapper>,
-    write_terminal: Box<dyn WTermInterface>,
+    write_terminal: Box<dyn WTermInterfaceDup>,
 }
 
 impl InteractiveRWTermInterface {
@@ -68,11 +64,11 @@ impl RWTermInterface for InteractiveRWTermInterface {
         }
     }
 
-    fn write_only_ref(&self) -> &dyn WTermInterface {
+    fn write_only_ref(&self) -> &dyn WTermInterfaceDup {
         self.write_terminal.as_ref()
     }
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterface>> {
+    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>> {
         Some(self.write_terminal.dup())
     }
 }
@@ -85,34 +81,28 @@ impl WTermInterface for InteractiveRWTermInterface {
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
         self.write_terminal.stderr()
     }
-
-    fn dup(&self) -> Box<dyn WTermInterface> {
-        todo!()
-    }
 }
 
 pub struct InteractiveWTermInterface {
     write_liso_arc: Arc<dyn LisoOutputWrapper>,
     stdout_utils: WritingUtils,
-    // In fact, this also contains a handle to Stdout (Liso doesn't support Stderr). We keep them
-    // separate, though, so that it's not possible to mix message fragments
+    // In fact, this next utils also contain a handle to Stdout (Liso doesn't operate with Stderr).
+    // Keeping them separate, though, prevents mixing message fragments from both
     stderr_utils: WritingUtils,
 }
 
 impl WTermInterface for InteractiveWTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
-        self.stdout_utils
-            .utils()
-            .expect("Stdout FLushHandle not available, probably already being used")
+        Self::get_utils(&self.stdout_utils, "Stdout")
     }
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
-        self.stdout_utils
-            .utils()
-            .expect("Stderr FLushHandle not available, probably already being used")
+        Self::get_utils(&self.stderr_utils, "Stderr")
     }
+}
 
-    fn dup(&self) -> Box<dyn WTermInterface> {
+impl WTermInterfaceDup for InteractiveWTermInterface {
+    fn dup(&self) -> Box<dyn WTermInterfaceDup> {
         Box::new(InteractiveWTermInterface::new(
             self.write_liso_arc.clone_output(),
         ))
@@ -130,6 +120,17 @@ impl InteractiveWTermInterface {
             stdout_utils,
             stderr_utils,
         }
+    }
+
+    fn get_utils(
+        writing_utils: &WritingUtils,
+        stream_ranking: &str,
+    ) -> (TerminalWriter, FlushHandle) {
+        writing_utils.utils().unwrap_or_else(|count| {
+            panic!(
+                "Another {stream_ranking} FLushHandle not permitted, already referencing {count}"
+            )
+        })
     }
 }
 
@@ -172,14 +173,14 @@ impl FlushHandleInner for FlushHandleInnerForInteractiveMode {
 #[cfg(test)]
 mod tests {
     use crate::terminal::interactive_terminal_interface::{
-        InteractiveRWTermInterface, UNINTERPRETABLE_COMMAND,
+        InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND,
     };
     use crate::terminal::test_utils::{
-        test_writing_streams_of_particular_terminal, LisoFlushedAssertableStrings,
-        LisoInputWrapperMock, LisoOutputWrapperMock,
+        test_writing_streams_of_particular_terminal, InteractiveInterfaceByModes,
+        LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
+        WritingTestInput, WritingTestInputByTermInterfaces,
     };
-    use crate::terminal::{RWTermInterface, ReadError, ReadInput};
-    use itertools::Either;
+    use crate::terminal::{RWTermInterface, ReadError, ReadInput, WTermInterface};
     use liso::Response;
     use masq_lib::constants::MASQ_PROMPT;
     use std::sync::{Arc, Mutex};
@@ -187,6 +188,24 @@ mod tests {
     #[test]
     fn constants_are_correct() {
         assert_eq!(UNINTERPRETABLE_COMMAND, "Uninterpretable command: Ignored")
+    }
+
+    #[test]
+    #[should_panic(expected = "Another Stdout FLushHandle not permitted, already referencing 1")]
+    fn test_double_call_panic_for_stdout() {
+        let subject = InteractiveWTermInterface::new(Box::new(LisoOutputWrapperMock::default()));
+
+        let _first = subject.stdout();
+        let _second = subject.stdout();
+    }
+
+    #[test]
+    #[should_panic(expected = "Another Stderr FLushHandle not permitted, already referencing 1")]
+    fn test_double_call_panic_for_stderr() {
+        let subject = InteractiveWTermInterface::new(Box::new(LisoOutputWrapperMock::default()));
+
+        let _first = subject.stderr();
+        let _second = subject.stderr();
     }
 
     #[test]
@@ -251,20 +270,29 @@ mod tests {
         let w_only_ref = rw_subject.write_only_ref();
 
         test_writing_streams_of_particular_terminal(
-            Either::Right((&rw_subject, rw_liso_println_params.clone())),
+            WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
+                term_interface: InteractiveInterfaceByModes::ReadWrite(&rw_subject),
+                streams_assertion_handles: rw_liso_println_params.clone(),
+            }),
             "read-write subject",
         )
         .await;
         test_writing_streams_of_particular_terminal(
-            Either::Right((w_only_clone.as_ref(), w_liso_println_params)),
+            WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
+                term_interface: InteractiveInterfaceByModes::Write(w_only_clone.as_ref()),
+                streams_assertion_handles: w_liso_println_params,
+            }),
             "write only clone",
         )
         .await;
         // Making sure the already asserted output is gone
         assert!(rw_liso_println_params.is_empty());
         test_writing_streams_of_particular_terminal(
-            Either::Right((w_only_ref, rw_liso_println_params)),
-            "write only clone",
+            WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
+                term_interface: InteractiveInterfaceByModes::Write(w_only_ref),
+                streams_assertion_handles: rw_liso_println_params,
+            }),
+            "write only ref",
         )
         .await;
     }

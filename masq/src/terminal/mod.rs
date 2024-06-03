@@ -63,17 +63,19 @@ pub trait WTermInterfaceImplementingSend: WTermInterface + Send {}
 pub trait WTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle);
     fn stderr(&self) -> (TerminalWriter, FlushHandle);
+}
 
-    fn dup(&self) -> Box<dyn WTermInterface>;
+pub trait WTermInterfaceDup: WTermInterface {
+    fn dup(&self) -> Box<dyn WTermInterfaceDup>;
 }
 
 #[async_trait(?Send)]
 pub trait RWTermInterface {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError>;
 
-    fn write_only_ref(&self) -> &dyn WTermInterface;
+    fn write_only_ref(&self) -> &dyn WTermInterfaceDup;
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterface>>;
+    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>>;
 }
 
 #[async_trait]
@@ -135,7 +137,6 @@ impl Drop for FlushHandle {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::interactive_terminal_interface::FlushHandleInnerForInteractiveMode;
     use crate::terminal::test_utils::FlushHandleInnerMock;
     use crate::terminal::{FlushHandle, TerminalWriter};
     use std::sync::{Arc, Mutex};

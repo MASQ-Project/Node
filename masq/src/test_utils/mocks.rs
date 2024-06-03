@@ -19,7 +19,7 @@ use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceImplementingSend,
+    WTermInterface, WTermInterfaceDup, WTermInterfaceImplementingSend,
 };
 use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
@@ -605,11 +605,11 @@ impl RWTermInterface for TermInterfaceMock {
         todo!()
     }
 
-    fn write_only_ref(&self) -> &dyn WTermInterface {
+    fn write_only_ref(&self) -> &dyn WTermInterfaceDup {
         todo!()
     }
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterface>> {
+    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>> {
         todo!()
     }
 }
@@ -620,11 +620,6 @@ impl WTermInterface for TermInterfaceMock {
     }
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
-        todo!()
-    }
-
-    // TODO will I really need this?
-    fn dup(&self) -> Box<dyn WTermInterface> {
         todo!()
     }
 }

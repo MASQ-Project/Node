@@ -39,7 +39,7 @@ impl LisoOutputWrapper for LisoInputOutputWrapperReal {
     }
 }
 
-struct LisoOutputWrapperReal {}
+pub struct LisoOutputWrapperReal {}
 
 impl LisoOutputWrapper for LisoOutputWrapperReal {
     fn println(&self, formatted_text: &str) {

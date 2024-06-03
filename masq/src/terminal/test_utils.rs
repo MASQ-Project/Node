@@ -1,7 +1,11 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
-use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult};
+use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
+use crate::terminal::{
+    FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
+    WTermInterfaceDup, WriteResult,
+};
 use async_trait::async_trait;
 use itertools::{Either, Itertools};
 use liso::Response;
@@ -12,82 +16,105 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-pub async fn test_writing_streams_of_particular_terminal(
-    non_interactive_vs_interactive: Either<
-        (
-            &dyn WTermInterface,
-            AsyncByteArrayWriter,
-            AsyncByteArrayWriter,
-        ),
-        (&dyn WTermInterface, LisoFlushedAssertableStrings),
-    >,
-    attempt_info: &str,
-) {
-    let test_case = |description: &str| format!("{attempt_info}: {description}");
+pub struct WritingTestInput<TerminalInterface, StreamsAssertionHandles> {
+    pub term_interface: TerminalInterface,
+    pub streams_assertion_handles: StreamsAssertionHandles,
+}
 
-    match non_interactive_vs_interactive {
-        Either::Left((
-            non_interactive_terminal,
-            stdout_assertion_handle,
-            stderr_assertion_handle,
-        )) => {
+pub struct NonInteractiveStreamsAssertionHandles {
+    pub stdout: AsyncByteArrayWriter,
+    pub stderr: AsyncByteArrayWriter,
+}
+
+pub enum WritingTestInputByTermInterfaces<'test> {
+    NonInteractive(
+        WritingTestInput<&'test dyn WTermInterfaceDup, NonInteractiveStreamsAssertionHandles>,
+    ),
+    Interactive(WritingTestInput<InteractiveInterfaceByModes<'test>, LisoFlushedAssertableStrings>),
+}
+
+pub enum InteractiveInterfaceByModes<'test> {
+    ReadWrite(&'test dyn WTermInterface),
+    Write(&'test dyn WTermInterfaceDup),
+}
+
+pub async fn test_writing_streams_of_particular_terminal<'test>(
+    inputs: WritingTestInputByTermInterfaces<'test>,
+    attempt_info: &'test str,
+) {
+    let form_test_case_name = |description: &str| format!("{attempt_info}: {description}");
+
+    match inputs {
+        NonInteractive(WritingTestInput {
+            term_interface,
+            streams_assertion_handles: NonInteractiveStreamsAssertionHandles { stdout, stderr },
+        }) => {
             assert_proper_writing(
-                || non_interactive_terminal.stdout(),
-                &stdout_assertion_handle,
-                &test_case("non-interactive stdout"),
+                term_interface.stdout(),
+                &stdout,
+                &form_test_case_name("non-interactive stdout"),
             )
             .await;
             assert_proper_writing(
-                || non_interactive_terminal.stderr(),
-                &stderr_assertion_handle,
-                &test_case("non-interactive stderr"),
+                term_interface.stderr(),
+                &stderr,
+                &form_test_case_name("non-interactive stderr"),
             )
             .await
         }
-        Either::Right((interactive_terminal, united_stream)) => {
+        Interactive(WritingTestInput {
+            term_interface,
+            streams_assertion_handles,
+        }) => {
+            let (stdout_components, stderr_components) = match term_interface {
+                InteractiveInterfaceByModes::ReadWrite(term_interface) => {
+                    (term_interface.stdout(), term_interface.stderr())
+                }
+                InteractiveInterfaceByModes::Write(term_interface) => {
+                    (term_interface.stdout(), term_interface.stderr())
+                }
+            };
+
             assert_proper_writing(
-                || interactive_terminal.stdout(),
-                &united_stream,
-                &test_case("interactive stdout"),
+                stdout_components,
+                &streams_assertion_handles,
+                &form_test_case_name("interactive stdout"),
             )
             .await;
             assert_proper_writing(
-                || interactive_terminal.stderr(),
-                &united_stream,
-                &test_case("interactive pseudo stderr"),
+                stderr_components,
+                &streams_assertion_handles,
+                &form_test_case_name("interactive pseudo stderr"),
             )
             .await;
         }
     }
 }
 
-async fn assert_proper_writing<'a, WriteComponentsGetter>(
-    components_getter: WriteComponentsGetter,
-    test_output_handle: &'a dyn MockedStreamHandleWithStringAssertionMethods,
-    tested_case: &'a str,
-) where
-    WriteComponentsGetter: FnOnce() -> (TerminalWriter, FlushHandle),
-{
-    let (writer, flush_handle) = components_getter();
+async fn assert_proper_writing<'test>(
+    (writer, flush_handle): (TerminalWriter, FlushHandle),
+    test_output_handle: &'test dyn MockedStreamHandleWithStringAssertionMethods,
+    tested_case: &'test str,
+) {
     writer.write("Word.").await;
     writer.writeln("This seems like a sentence.").await;
-    let stdout_first_check = test_output_handle.get_string();
+    let stream_output_first_check = test_output_handle.get_string();
     let life_checker = flush_handle.life_checking_reference();
     let references_at_start = Arc::strong_count(&flush_handle.life_checking_reference());
 
     drop(flush_handle);
 
     wait_for_write_to_finish(life_checker, references_at_start).await;
-    let stdout_after_check = test_output_handle.drain_flushed_strings().unwrap();
+    let stream_output_first_check_expected = String::new();
     assert_eq!(
-        stdout_first_check,
-        String::new(),
+        stream_output_first_check, stream_output_first_check_expected,
         "In {}: initial check of output emptiness failed",
         tested_case
     );
+    let stream_output_after_check = test_output_handle.drain_flushed_strings().unwrap();
+    let stream_output_after_check_expected = vec!["Word.This seems like a sentence.\n"];
     assert_eq!(
-        stdout_after_check,
-        vec!["Word.This seems like a sentence.\n"],
+        stream_output_after_check, stream_output_after_check_expected,
         "In {}: expected strings don't match",
         tested_case
     )
@@ -108,7 +135,6 @@ pub async fn wait_for_write_to_finish(
 
 #[derive(Default)]
 pub struct LisoInputWrapperMock {
-    //  read_async_params: Arc<Mutex<Vec<()>>>,
     read_async_results: RefCell<Vec<Response>>,
 }
 
