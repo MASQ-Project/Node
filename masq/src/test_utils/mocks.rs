@@ -29,7 +29,7 @@ use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::shared_schema::VecU64;
 use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
-    MockedStreamHandleWithStringAssertionMethods,
+    StringAssertionMethods,
 };
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
@@ -594,8 +594,11 @@ impl AsyncRead for StdinMock {
 }
 
 impl StdinMock {
-    pub fn new(reader: AsyncByteArrayReader, situated_errors_opt: Option<Vec<ReadError>>) -> Self {
-        todo!()
+    pub fn new(reader: AsyncByteArrayReader, situated_errors_opt: Vec<Option<ReadError>>) -> Self {
+        Self {
+            reader: Arc::new(Mutex::new(reader)),
+            situated_errors_opt: Arc::new(Mutex::new(situated_errors_opt)),
+        }
     }
 }
 
@@ -626,8 +629,11 @@ impl WTermInterface for TermInterfaceMock {
 
 impl WTermInterfaceImplementingSend for TermInterfaceMock {}
 
-pub fn make_async_std_write_stream() -> (Box<dyn AsyncWrite + Send + Unpin>, AsyncByteArrayWriter) {
-    let writer = AsyncByteArrayWriter::default();
+pub fn make_async_std_write_stream() -> (
+    Box<dyn AsyncWrite + Send + Sync + Unpin>,
+    AsyncByteArrayWriter,
+) {
+    let writer = AsyncByteArrayWriter::new(true);
     (Box::new(writer.clone()), writer)
 }
 
@@ -641,7 +647,7 @@ fn make_async_std_streams_with_diff_setup_for_stdin(
     stdin_either: Either<Vec<Vec<u8>>, StdinMock>,
 ) -> (AsyncStdStreams, AsyncTestStreamHandles) {
     let mut stdin = match stdin_either {
-        Either::Left(read_inputs) => StdinMock::new(AsyncByteArrayReader::new(read_inputs), None),
+        Either::Left(read_inputs) => StdinMock::new(AsyncByteArrayReader::new(read_inputs), vec![]),
         Either::Right(ready_stdin) => ready_stdin,
     };
     let stdin_clone = stdin.reader.lock().unwrap().clone();
@@ -738,7 +744,10 @@ impl AsyncTestStreamHandles {
         handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
     ) -> Vec<String> {
         match handle {
-            Either::Left(async_byte_array) => async_byte_array.drain_flushed_strings().unwrap(),
+            Either::Left(async_byte_array) => async_byte_array
+                .drain_flushed_strings()
+                .unwrap()
+                .as_simple_strings(),
             Either::Right(naked_string_containers) => {
                 naked_string_containers.lock().unwrap().drain(..).collect()
             }
@@ -754,7 +763,8 @@ pub struct AsyncStdStreamsFactoryMock {
 
 impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryMock {
     fn make(&self) -> AsyncStdStreams {
-        todo!()
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
     }
 }
 

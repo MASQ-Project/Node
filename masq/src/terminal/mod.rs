@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::interactive_terminal_interface::FlushHandleInnerForInteractiveMode;
+use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use async_trait::async_trait;
 use clap::builder::Str;
 use itertools::Itertools;
@@ -10,11 +10,11 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub mod async_streams;
 pub mod interactive_terminal_interface;
-mod interactive_writing_utils;
 mod liso_wrappers;
 pub mod non_interactive_terminal_interface;
 pub mod terminal_interface_factory;
 mod test_utils;
+mod writing_utils;
 
 #[derive(Debug)]
 pub enum WriteResult {}
@@ -23,6 +23,7 @@ pub enum WriteResult {}
 pub enum ReadError {
     ConnectionRefused,
     TerminalOutputInputDisconnected,
+    UnexpectedNewValueFromLibrary,
 }
 
 #[derive(Debug, PartialEq)]
@@ -80,6 +81,10 @@ pub trait RWTermInterface {
 
 #[async_trait]
 pub trait FlushHandleInner: Send + Sync {
+    async fn write_internal(&self, full_output: String) -> Result<(), WriteResult>;
+
+    fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String>;
+
     async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
         let output = self
             .buffered_strings()
@@ -89,9 +94,16 @@ pub trait FlushHandleInner: Send + Sync {
         self.write_internal(output).await
     }
 
-    async fn write_internal(&self, full_output: String) -> Result<(), WriteResult>;
-
-    async fn buffered_strings(&mut self) -> Vec<String>;
+    async fn buffered_strings(&mut self) -> Vec<String> {
+        let mut vec = vec![];
+        loop {
+            match self.output_chunks_receiver_ref_mut().try_recv() {
+                Ok(output_fragment) => vec.push(output_fragment),
+                Err(e) => break,
+            }
+        }
+        vec
+    }
 }
 
 pub struct FlushHandle {

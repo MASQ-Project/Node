@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use std::io;
-use tokio::io::AsyncWrite;
 
 pub struct StdStreams<'a> {
     pub stdin: &'a mut (dyn io::Read + Send),

@@ -3,9 +3,9 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct AsyncStdStreams {
-    pub stdin: Box<dyn AsyncRead + Send + Unpin>,
-    pub stdout: Box<dyn AsyncWrite + Send + Unpin>,
-    pub stderr: Box<dyn AsyncWrite + Send + Unpin>,
+    pub stdin: Box<dyn AsyncRead + Send + Sync + Unpin>,
+    pub stdout: Box<dyn AsyncWrite + Send + Sync + Unpin>,
+    pub stderr: Box<dyn AsyncWrite + Send + Sync + Unpin>,
 }
 
 pub trait AsyncStdStreamsFactory {

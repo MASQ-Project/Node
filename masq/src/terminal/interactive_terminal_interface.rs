@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::interactive_writing_utils::WritingUtils;
 use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
+use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
     WTermInterface, WTermInterfaceDup, WriteResult,
@@ -60,7 +60,8 @@ impl RWTermInterface for InteractiveRWTermInterface {
             Response::Unknown(_) => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
             }),
-            _ => todo!("they say 'non-exhaustive' eh"),
+            // As to my knowledge, this is untestable
+            _ => Err(ReadError::UnexpectedNewValueFromLibrary),
         }
     }
 
@@ -93,11 +94,11 @@ pub struct InteractiveWTermInterface {
 
 impl WTermInterface for InteractiveWTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
-        Self::get_utils(&self.stdout_utils, "Stdout")
+        self.stdout_utils.get_utils("Stdout")
     }
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
-        Self::get_utils(&self.stderr_utils, "Stderr")
+        self.stderr_utils.get_utils("Stderr")
     }
 }
 
@@ -113,33 +114,28 @@ impl InteractiveWTermInterface {
     pub fn new(write_liso_box: Box<dyn LisoOutputWrapper>) -> Self {
         write_liso_box.prompt(MASQ_PROMPT, true, false);
         let write_liso_arc: Arc<dyn LisoOutputWrapper> = Arc::from(write_liso_box);
-        let stdout_utils = WritingUtils::new(write_liso_arc.clone());
-        let stderr_utils = WritingUtils::new(write_liso_arc.clone());
+        let flush_handle_inner_constructor = |output_chunks_receiver| {
+            Arc::new(tokio::sync::Mutex::new(InteractiveFlushHandleInner::new(
+                write_liso_arc.clone(),
+                output_chunks_receiver,
+            ))) as ArcMutexFlushHandleInner
+        };
+        let stdout_utils = WritingUtils::new(flush_handle_inner_constructor.clone());
+        let stderr_utils = WritingUtils::new(flush_handle_inner_constructor);
         Self {
             write_liso_arc,
             stdout_utils,
             stderr_utils,
         }
     }
-
-    fn get_utils(
-        writing_utils: &WritingUtils,
-        stream_ranking: &str,
-    ) -> (TerminalWriter, FlushHandle) {
-        writing_utils.utils().unwrap_or_else(|count| {
-            panic!(
-                "Another {stream_ranking} FLushHandle not permitted, already referencing {count}"
-            )
-        })
-    }
 }
 
-pub struct FlushHandleInnerForInteractiveMode {
+pub struct InteractiveFlushHandleInner {
     writer_instance: Arc<dyn LisoOutputWrapper>,
     output_chunks_receiver: UnboundedReceiver<String>,
 }
 
-impl FlushHandleInnerForInteractiveMode {
+impl InteractiveFlushHandleInner {
     pub fn new(
         writer_instance: Arc<dyn LisoOutputWrapper>,
         output_chunks_receiver: UnboundedReceiver<String>,
@@ -152,21 +148,14 @@ impl FlushHandleInnerForInteractiveMode {
 }
 
 #[async_trait]
-impl FlushHandleInner for FlushHandleInnerForInteractiveMode {
+impl FlushHandleInner for InteractiveFlushHandleInner {
     async fn write_internal(&self, full_output: String) -> Result<(), WriteResult> {
         self.writer_instance.println(&full_output);
         Ok(())
     }
 
-    async fn buffered_strings(&mut self) -> Vec<String> {
-        let mut vec = vec![];
-        loop {
-            match self.output_chunks_receiver.try_recv() {
-                Ok(output_fragment) => vec.push(output_fragment),
-                Err(e) => break,
-            }
-        }
-        vec
+    fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String> {
+        &mut self.output_chunks_receiver
     }
 }
 

@@ -10,11 +10,12 @@ use async_trait::async_trait;
 use itertools::{Either, Itertools};
 use liso::Response;
 use masq_lib::test_utils::fake_stream_holder::{
-    AsyncByteArrayWriter, MockedStreamHandleWithStringAssertionMethods,
+    AsyncByteArrayWriter, FlushedString, FlushedStrings, StringAssertionMethods,
 };
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 pub struct WritingTestInput<TerminalInterface, StreamsAssertionHandles> {
     pub term_interface: TerminalInterface,
@@ -93,7 +94,7 @@ pub async fn test_writing_streams_of_particular_terminal<'test>(
 
 async fn assert_proper_writing<'test>(
     (writer, flush_handle): (TerminalWriter, FlushHandle),
-    test_output_handle: &'test dyn MockedStreamHandleWithStringAssertionMethods,
+    test_output_handle: &'test dyn StringAssertionMethods,
     tested_case: &'test str,
 ) {
     writer.write("Word.").await;
@@ -111,12 +112,18 @@ async fn assert_proper_writing<'test>(
         "In {}: initial check of output emptiness failed",
         tested_case
     );
-    let stream_output_after_check = test_output_handle.drain_flushed_strings().unwrap();
-    let stream_output_after_check_expected = vec!["Word.This seems like a sentence.\n"];
+    let mut stream_output_after_check = test_output_handle.drain_flushed_strings().unwrap();
+    eprintln!("{:?}", stream_output_after_check);
     assert_eq!(
-        stream_output_after_check, stream_output_after_check_expected,
-        "In {}: expected strings don't match",
+        stream_output_after_check.next_flush().unwrap().output(),
+        "Word.This seems like a sentence.\n",
+        "In {}: expected output doesn't match",
         tested_case
+    );
+    assert_eq!(
+        stream_output_after_check.next_flush(),
+        None,
+        "Expected no other flush but got this"
     )
 }
 
@@ -167,7 +174,7 @@ impl LisoOutputWrapper for LisoOutputWrapperMock {
             .flushes
             .lock()
             .unwrap()
-            .push(formatted_text.to_string())
+            .push(FlushedString::new(formatted_text.to_string()))
     }
 
     fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
@@ -208,15 +215,27 @@ impl LisoOutputWrapperMock {
 
 #[derive(Default, Clone)]
 pub struct LisoFlushedAssertableStrings {
-    flushes: Arc<Mutex<Vec<String>>>,
+    flushes: Arc<Mutex<Vec<FlushedString>>>,
 }
 
-impl MockedStreamHandleWithStringAssertionMethods for LisoFlushedAssertableStrings {
+impl StringAssertionMethods for LisoFlushedAssertableStrings {
     fn get_string(&self) -> String {
-        self.flushes.lock().unwrap().iter().join("")
+        self.flushes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|flushed_str| flushed_str.output())
+            .join("")
     }
-    fn drain_flushed_strings(&self) -> Option<Vec<String>> {
-        Some(self.flushes.lock().unwrap().drain(..).collect())
+    fn drain_flushed_strings(&self) -> Option<FlushedStrings> {
+        Some(
+            self.flushes
+                .lock()
+                .unwrap()
+                .drain(..)
+                .collect::<Vec<FlushedString>>()
+                .into(),
+        )
     }
 }
 
@@ -240,12 +259,12 @@ impl FlushHandleInner for FlushHandleInnerMock {
         self.flush_during_drop_results.lock().unwrap().remove(0)
     }
 
-    async fn write_internal(&self, full_output: String) -> Result<(), WriteResult> {
-        unimplemented!("Required method, but will never be called")
+    async fn write_internal(&self, _full_output: String) -> Result<(), WriteResult> {
+        unimplemented!("Required method, but never be called in a mock")
     }
 
-    async fn buffered_strings(&mut self) -> Vec<String> {
-        todo!()
+    fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String> {
+        unimplemented!("Required method, but never be called in a mock")
     }
 }
 

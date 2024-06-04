@@ -1,6 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::interactive_terminal_interface::FlushHandleInnerForInteractiveMode;
+use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter};
 use std::sync::Arc;
@@ -8,27 +8,51 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub struct WritingUtils {
     terminal_writer_strict_provider: TerminalWriterStrictProvider,
-    flush_handle: Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
+    flush_handle_inner: Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
 }
 
+pub type ArcMutexFlushHandleInner = Arc<tokio::sync::Mutex<dyn FlushHandleInner>>;
+
 impl WritingUtils {
-    pub fn new(write_liso_arc: Arc<dyn LisoOutputWrapper>) -> Self {
+    pub fn new<FHIConstructor>(flush_handle_inner_constructor: FHIConstructor) -> Self
+    where
+        FHIConstructor:
+            FnOnce(UnboundedReceiver<String>) -> Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
+    {
         let (output_chunks_sender, output_chunks_receiver) = unbounded_channel();
         let terminal_writer_strict_provider =
             TerminalWriterStrictProvider::new(output_chunks_sender);
-        let flush_handle = Arc::new(tokio::sync::Mutex::new(
-            FlushHandleInnerForInteractiveMode::new(write_liso_arc, output_chunks_receiver),
-        ));
         Self {
             terminal_writer_strict_provider,
-            flush_handle,
+            flush_handle_inner: flush_handle_inner_constructor(output_chunks_receiver),
         }
     }
 
-    pub fn utils(&self) -> Result<(TerminalWriter, FlushHandle), usize> {
+    fn utils(&self) -> Result<(TerminalWriter, FlushHandle), usize> {
         self.terminal_writer_strict_provider
             .provide_if_not_already_in_use()
-            .map(|terminal_writer| (terminal_writer, FlushHandle::new(self.flush_handle.clone())))
+            .map(|terminal_writer| {
+                (
+                    terminal_writer,
+                    FlushHandle::new(self.flush_handle_inner.clone()),
+                )
+            })
+    }
+
+    pub fn get_utils(&self, stream_ranking: &str) -> (TerminalWriter, FlushHandle) {
+        self.terminal_writer_strict_provider
+            .provide_if_not_already_in_use()
+            .map(|terminal_writer| {
+                (
+                    terminal_writer,
+                    FlushHandle::new(self.flush_handle_inner.clone()),
+                )
+            })
+            .unwrap_or_else(|count| {
+                panic!(
+                "Another {stream_ranking} FLushHandle not permitted, already referencing {count}"
+            )
+            })
     }
 }
 
@@ -50,7 +74,7 @@ impl TerminalWriterStrictProvider {
         }
     }
 
-    pub fn provide_if_not_already_in_use(&self) -> Result<TerminalWriter, usize> {
+    fn provide_if_not_already_in_use(&self) -> Result<TerminalWriter, usize> {
         let sender_reference_count = self.output_chunks_sender.strong_count();
         if sender_reference_count == 1 {
             Ok(TerminalWriter::new(self.output_chunks_sender.clone()))
@@ -63,8 +87,8 @@ impl TerminalWriterStrictProvider {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::interactive_writing_utils::TerminalWriterStrictProvider;
     use crate::terminal::test_utils::LisoOutputWrapperMock;
+    use crate::terminal::writing_utils::TerminalWriterStrictProvider;
     use tokio::sync::mpsc::unbounded_channel;
 
     #[test]

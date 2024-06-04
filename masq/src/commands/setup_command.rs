@@ -200,6 +200,7 @@ mod tests {
         Configured, Default as DefaultStatus, Set,
     };
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
+    use masq_lib::test_utils::fake_stream_holder::StringAssertionMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]
