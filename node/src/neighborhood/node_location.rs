@@ -62,10 +62,10 @@ mod tests {
 
     #[test]
     fn construct_node_record_metadata_with_free_world_bit() {
-        let metadata = NodeRecordMetadata::new(get_node_location(Some(IpAddr::V4(Ipv4Addr::new(
+        let mut metadata = NodeRecordMetadata::new();
+        metadata.node_location_opt = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(
             1, 1, 1, 1,
-        )))));
-
+        ))));
         assert_eq!(
             metadata.node_location_opt.as_ref().unwrap(),
             &NodeLocation {

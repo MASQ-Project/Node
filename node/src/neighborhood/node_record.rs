@@ -85,7 +85,7 @@ impl NodeRecord {
             None => {}
         };
         let mut node_record = NodeRecord {
-            metadata: NodeRecordMetadata::new(node_record_inputs.location),
+            metadata: NodeRecordMetadata::new(),
             inner: NodeRecordInner_0v1 {
                 public_key: public_key.clone(),
                 earning_wallet: node_record_inputs.earning_wallet,
@@ -99,6 +99,7 @@ impl NodeRecord {
             signed_gossip: PlainData::new(&[]),
             signature: CryptData::new(&[]),
         };
+        node_record.metadata.node_location_opt = node_record_inputs.location;
         node_record.regenerate_signed_gossip(cryptde);
         node_record
     }
@@ -301,10 +302,11 @@ impl From<AccessibleGossipRecord> for NodeRecord {
         let ip_add_opt = agr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr);
         let mut node_record = NodeRecord {
             inner: agr.inner,
-            metadata: NodeRecordMetadata::new(get_node_location(ip_add_opt)),
+            metadata: NodeRecordMetadata::new(),
             signed_gossip: agr.signed_gossip,
             signature: agr.signature,
         };
+        node_record.metadata.node_location_opt = get_node_location(ip_add_opt);
         node_record.metadata.node_addr_opt = agr.node_addr_opt;
         node_record
     }
@@ -325,10 +327,11 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
         let ip_addr_opt = gnr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr);
         let mut node_record = NodeRecord {
             inner,
-            metadata: NodeRecordMetadata::new(get_node_location(ip_addr_opt)),
+            metadata: NodeRecordMetadata::new(),
             signed_gossip: gnr.signed_data.clone(),
             signature: gnr.signature.clone(),
         };
+        node_record.metadata.node_location_opt = get_node_location(ip_addr_opt);
         node_record.metadata.node_addr_opt = gnr.node_addr_opt.clone();
         Ok(node_record)
     }
@@ -346,12 +349,12 @@ pub struct NodeRecordMetadata {
 }
 
 impl NodeRecordMetadata {
-    pub fn new(node_location_opt: Option<NodeLocation>) -> NodeRecordMetadata {
+    pub fn new() -> NodeRecordMetadata {
         NodeRecordMetadata {
             last_update: time_t_timestamp(),
             node_addr_opt: None,
             unreachable_hosts: Default::default(),
-            node_location_opt,
+            node_location_opt: None,
             node_distrust_score: Default::default(),
         }
     }

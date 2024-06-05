@@ -294,7 +294,7 @@ impl DebutHandler {
                         Some(node_addr) => node_addr.ip_addr().to_string(),
                         None => "?.?.?.?".to_string(),
                     };
-                    debug!(self.logger, "Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction",
+                    debug!(self.logger, "Node {} at {} is responding to first introduction: sending standard Gossip instead of further introduction",
                                               debuting_agr.inner.public_key,
                                               ip_addr_str);
                     Ok(GossipAcceptanceResult::Accepted)
@@ -310,10 +310,11 @@ impl DebutHandler {
                         None => {
                             debug!(
                                 self.logger,
-                                "DebutHandler can't make an introduction, but is accepting {} at {} and broadcasting change",
+                                "DebutHandler has no one to introduce, but is debuting back to {} at {}",
                                 &debut_node_key,
                                 gossip_source,
                             );
+                            //TODO: Construct explicit Debut Gossip and return GossipAcceptanceResult::Reply here.
                             Ok(GossipAcceptanceResult::Accepted)
                         }
                     }
@@ -1624,6 +1625,74 @@ mod tests {
         );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
+    }
+
+    #[test]
+    fn two_debut_in_same_time_with_empty_db_handled_by_try_accept_debut() {
+        let mut root_node = make_node_record(1234, true);
+        let half_debuted_node = make_node_record(2345, true);
+        let new_debutant = make_node_record(4567, true);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
+        let mut dest_db = db_from_node(&root_node);
+        let src_db = db_from_node(&new_debutant);
+        dest_db.add_node(half_debuted_node).unwrap();
+        dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_debuted_node.public_key());
+        let debut_gossip = GossipBuilder::new(&src_db)
+            .node(new_debutant.public_key(), true)
+            .build();
+        let logger = Logger::new("Debut test");
+        let subject = DebutHandler::new(logger);
+
+        let counter_debut = subject.try_accept_debut(
+            &root_node_cryptde,
+            &mut dest_db,
+            debut_gossip.try_into().unwrap(),
+            new_debutant.metadata.node_addr_opt.unwrap().into(),
+        ).unwrap();
+
+        let (reply, public_key, node_addr) = match counter_debut {
+            GossipAcceptanceResult::Reply(reply, public_key, node_addr) => (reply, public_key, node_addr),
+            x => panic!("Expected Reply, got {:?}", x),
+        };
+
+        assert_eq!(&public_key, new_debutant.public_key());
+        assert_eq!(&node_addr, &new_debutant.node_addr_opt().unwrap());
+        root_node.add_half_neighbor_key(new_debutant.public_key().clone()).unwrap();
+        assert_eq!(GossipAcceptanceResult::Reply(reply, public_key, node_addr), counter_debut);
+        //TODO assert on GossipNodeRecord
+        //assert_node_records_eq(reference_node, &debut_node_two, before, after);
+/*
+        root_node
+            .add_half_neighbor_key(debut_node_one.public_key().clone())
+            .unwrap();
+        root_node.increment_version();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.resign();
+        assert_eq!(&root_node, dest_db.root());
+        let reference_node = dest_db.node_by_key_mut(debut_node_one.public_key()).unwrap();
+        debut_node_one.metadata.last_update = reference_node.metadata.last_update;
+        assert_node_records_eq(reference_node, &debut_node_one, before, after);
+
+        let before = time_t_timestamp();
+        let result_two = subject.handle(
+            &mut dest_db,
+            gossip_two.try_into().unwrap(),
+            gossip_source_two,
+            make_default_neighborhood_metadata(),
+        );
+        let after = time_t_timestamp();
+        println!("result_two: {:?}", result_two);
+        assert_eq!(GossipAcceptanceResult::Accepted, result_two);
+        root_node
+            .add_half_neighbor_key(debut_node_two.public_key().clone())
+            .unwrap();
+        root_node.increment_version();
+        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.resign();
+        assert_eq!(&root_node, dest_db.root());
+        let reference_node = dest_db.node_by_key_mut(debut_node_two.public_key()).unwrap();
+        debut_node_two.metadata.last_update = reference_node.metadata.last_update;
+        assert_node_records_eq(reference_node, &debut_node_two, before, after);*/
     }
 
     #[test]
