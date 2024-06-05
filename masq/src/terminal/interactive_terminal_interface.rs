@@ -4,7 +4,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDup, WriteResult,
+    WTermInterface, WTermInterfaceDup, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
 use liso::Response;
@@ -94,11 +94,11 @@ pub struct InteractiveWTermInterface {
 
 impl WTermInterface for InteractiveWTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
-        self.stdout_utils.get_utils("Stdout")
+        self.stdout_utils.get_utils()
     }
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
-        self.stderr_utils.get_utils("Stderr")
+        self.stderr_utils.get_utils()
     }
 }
 
@@ -114,14 +114,19 @@ impl InteractiveWTermInterface {
     pub fn new(write_liso_box: Box<dyn LisoOutputWrapper>) -> Self {
         write_liso_box.prompt(MASQ_PROMPT, true, false);
         let write_liso_arc: Arc<dyn LisoOutputWrapper> = Arc::from(write_liso_box);
-        let flush_handle_inner_constructor = |output_chunks_receiver| {
+        let flush_handle_inner_constructor = |output_chunks_receiver, stream_type| {
             Arc::new(tokio::sync::Mutex::new(InteractiveFlushHandleInner::new(
+                stream_type,
                 write_liso_arc.clone(),
                 output_chunks_receiver,
             ))) as ArcMutexFlushHandleInner
         };
-        let stdout_utils = WritingUtils::new(flush_handle_inner_constructor.clone());
-        let stderr_utils = WritingUtils::new(flush_handle_inner_constructor);
+        let stdout_utils = WritingUtils::new(
+            flush_handle_inner_constructor.clone(),
+            WriteStreamType::Stdout,
+        );
+        let stderr_utils =
+            WritingUtils::new(flush_handle_inner_constructor, WriteStreamType::Stderr);
         Self {
             write_liso_arc,
             stdout_utils,
@@ -131,16 +136,19 @@ impl InteractiveWTermInterface {
 }
 
 pub struct InteractiveFlushHandleInner {
+    stream_type: WriteStreamType,
     writer_instance: Arc<dyn LisoOutputWrapper>,
     output_chunks_receiver: UnboundedReceiver<String>,
 }
 
 impl InteractiveFlushHandleInner {
     pub fn new(
+        stream_type: WriteStreamType,
         writer_instance: Arc<dyn LisoOutputWrapper>,
         output_chunks_receiver: UnboundedReceiver<String>,
     ) -> Self {
         Self {
+            stream_type,
             writer_instance,
             output_chunks_receiver,
         }
@@ -156,6 +164,10 @@ impl FlushHandleInner for InteractiveFlushHandleInner {
 
     fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String> {
         &mut self.output_chunks_receiver
+    }
+
+    fn stream_type(&self) -> WriteStreamType {
+        self.stream_type
     }
 }
 

@@ -24,15 +24,15 @@ pub struct ByteArrayWriter {
 pub struct ByteArrayWriterInner {
     byte_array: Vec<u8>,
     flushed_outputs_opt: Option<Vec<FlushableOutput>>,
-    next_error: Option<Error>,
+    next_error_opt: Option<std::io::Error>,
 }
 
 impl ByteArrayWriterInner {
-    fn new(flush_conscious_mode: bool) -> Self {
+    fn new(flush_conscious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
         ByteArrayWriterInner {
             byte_array: vec![],
             flushed_outputs_opt: flush_conscious_mode.then_some(vec![]),
-            next_error: None,
+            next_error_opt,
         }
     }
 
@@ -67,7 +67,7 @@ impl ByteArrayWriter {
             inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner {
                 byte_array: vec![],
                 flushed_outputs_opt: flush_caucious_mode.then_some(vec![]),
-                next_error: None,
+                next_error_opt: None,
             })),
         }
     }
@@ -86,7 +86,7 @@ impl ByteArrayWriter {
         drain_flushes(outputs).map(FlushedStrings::from)
     }
     pub fn reject_next_write(&mut self, error: Error) {
-        self.inner_arc.lock().unwrap().next_error = Some(error);
+        self.inner_arc.lock().unwrap().next_error_opt = Some(error);
     }
 
     fn fill_container(container: &mut Vec<u8>, bytes: &[u8]) {
@@ -123,7 +123,7 @@ impl Default for ByteArrayWriter {
 impl Write for ByteArrayWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut inner = self.inner_arc.lock().unwrap();
-        if let Some(next_error) = inner.next_error.take() {
+        if let Some(next_error) = inner.next_error_opt.take() {
             Err(next_error)
         } else if let Some(container_with_buffers) = inner.flushed_outputs_opt.as_mut() {
             let mut flushable = if let Some(last_flushable_output) = container_with_buffers.last() {
@@ -303,7 +303,7 @@ pub struct AsyncByteArrayWriter {
 impl Default for AsyncByteArrayWriter {
     fn default() -> Self {
         Self {
-            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(false))),
+            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(false, None))),
         }
     }
 }
@@ -314,15 +314,19 @@ impl AsyncWrite for AsyncByteArrayWriter {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        let buf_size = buf.len();
         let mut inner = self.inner_arc.lock().unwrap();
-        if let Some(vec) = inner.flushed_outputs_opt.as_mut() {
-            let flushable_output = FlushableOutput::new(buf);
-            vec.push(flushable_output)
+        if let Some(next_error) = inner.next_error_opt.take() {
+            Poll::Ready(Err(next_error))
         } else {
-            inner.byte_array.extend_from_slice(buf);
+            let buf_size = buf.len();
+            if let Some(vec) = inner.flushed_outputs_opt.as_mut() {
+                let flushable_output = FlushableOutput::new(buf);
+                vec.push(flushable_output)
+            } else {
+                inner.byte_array.extend_from_slice(buf);
+            }
+            Poll::Ready(Ok(buf_size))
         }
-        Poll::Ready(Ok(buf_size))
     }
     fn poll_flush(
         self: Pin<&mut Self>,
@@ -344,9 +348,12 @@ pub trait StringAssertionMethods {
 }
 
 impl AsyncByteArrayWriter {
-    pub fn new(flush_conscious_mode: bool) -> Self {
+    pub fn new(flush_conscious_mode: bool, error_opt: Option<std::io::Error>) -> Self {
         Self {
-            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(flush_conscious_mode))),
+            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(
+                flush_conscious_mode,
+                error_opt,
+            ))),
         }
     }
     pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
@@ -356,7 +363,7 @@ impl AsyncByteArrayWriter {
         self.inner_arc.lock().unwrap().byte_array.clone()
     }
     pub fn reject_next_write(&mut self, error: Error) {
-        self.inner_arc.lock().unwrap().next_error = Some(error);
+        self.inner_arc.lock().unwrap().next_error_opt = Some(error);
     }
 }
 
@@ -366,9 +373,7 @@ impl StringAssertionMethods for AsyncByteArrayWriter {
     }
     fn drain_flushed_strings(&self) -> Option<FlushedStrings> {
         let mut arc = self.inner_arc.lock().unwrap();
-        eprint!("{:?}", arc.byte_array);
         let outputs = arc.flushed_outputs_opt.take();
-        eprint!("It is there: {}", outputs.is_some());
         drain_flushes(outputs).map(FlushedStrings::from)
     }
 }

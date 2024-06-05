@@ -4,9 +4,12 @@ use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner
 use async_trait::async_trait;
 use clap::builder::Str;
 use itertools::Itertools;
+use std::fmt::{Display, Formatter};
+use std::io::Error;
 use std::sync::Arc;
 use std::thread::panicking;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::task::JoinHandle;
 
 pub mod async_streams;
 pub mod interactive_terminal_interface;
@@ -17,7 +20,9 @@ mod test_utils;
 mod writing_utils;
 
 #[derive(Debug)]
-pub enum WriteResult {}
+pub enum WriteResult {
+    OSError(Error),
+}
 
 #[derive(Debug, PartialEq)]
 pub enum ReadError {
@@ -33,6 +38,7 @@ pub enum ReadInput {
     Ignored { msg_opt: Option<String> },
 }
 
+#[derive(Debug)]
 pub struct TerminalWriter {
     output_chunks_sender: UnboundedSender<String>,
 }
@@ -85,6 +91,8 @@ pub trait FlushHandleInner: Send + Sync {
 
     fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String>;
 
+    fn stream_type(&self) -> WriteStreamType;
+
     async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
         let output = self
             .buffered_strings()
@@ -106,6 +114,21 @@ pub trait FlushHandleInner: Send + Sync {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum WriteStreamType {
+    Stdout,
+    Stderr,
+}
+
+impl Display for WriteStreamType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WriteStreamType::Stdout => write!(f, "Stdout"),
+            WriteStreamType::Stderr => write!(f, "Stderr"),
+        }
+    }
+}
+
 pub struct FlushHandle {
     // Strictly private!
     inner_arc_opt: Option<Arc<tokio::sync::Mutex<dyn FlushHandleInner>>>,
@@ -118,20 +141,27 @@ impl FlushHandle {
         }
     }
 
-    fn flush_whole_buffer(&mut self) {
+    fn flush_whole_buffer(&mut self) -> Option<JoinHandle<()>> {
         if !panicking() {
-            let mut inner = self.inner_arc_opt.take();
-            let _ = tokio::task::spawn(async move {
+            let mut inner_arc_opt = self.inner_arc_opt.take();
+            let handle = tokio::task::spawn(async move {
                 // Spawning seems neat as we're escaping the drop impl and can eventually handle
                 // a panic outside
-                inner
-                    .expect("Flush handle with missing guts!")
-                    .lock()
-                    .await
-                    .flush_during_drop()
-                    .await
-                    .unwrap_or_else(|e| todo!("write test for this err {:?}", e))
+                let inner_arc = inner_arc_opt.expect("Flush handle with missing guts!");
+
+                let mut flush_inner = inner_arc.lock().await;
+
+                let stream_type = flush_inner.stream_type();
+
+                let result = flush_inner.flush_during_drop().await;
+
+                if let Err(e) = result {
+                    panic!("Flushing {} stream failed due to: {:?}", stream_type, e)
+                }
             });
+            Some(handle)
+        } else {
+            None
         }
     }
 
@@ -143,16 +173,19 @@ impl FlushHandle {
 
 impl Drop for FlushHandle {
     fn drop(&mut self) {
-        self.flush_whole_buffer()
+        let _ = self.flush_whole_buffer();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::terminal::test_utils::FlushHandleInnerMock;
-    use crate::terminal::{FlushHandle, TerminalWriter};
+    use crate::terminal::writing_utils::ArcMutexFlushHandleInner;
+    use crate::terminal::{FlushHandle, TerminalWriter, WriteResult, WriteStreamType};
+    use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
     use tokio::sync::mpsc::unbounded_channel;
 
     #[tokio::test]
@@ -198,5 +231,29 @@ mod tests {
         drop(rx);
 
         let _ = subject.write_internal("My testament".to_string());
+    }
+
+    #[test]
+    fn writing_stream_type_can_display() {
+        assert_eq!(WriteStreamType::Stdout.to_string(), "Stdout");
+        assert_eq!(WriteStreamType::Stderr.to_string(), "Stderr")
+    }
+
+    #[tokio::test]
+    async fn flush_error_is_always_fatal() {
+        let flush_handle_inner = FlushHandleInnerMock::default()
+            .flush_during_drop_result(Err(WriteResult::OSError(Error::from(ErrorKind::Other))))
+            .stream_type_result(WriteStreamType::Stderr);
+        let flush_inner_arc = Arc::new(tokio::sync::Mutex::new(flush_handle_inner));
+        let mut subject = FlushHandle::new(flush_inner_arc);
+
+        let spawn_handle = subject.flush_whole_buffer().unwrap();
+
+        let boxed_panic = spawn_handle.await.unwrap_err().into_panic();
+        let panic_msg = boxed_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Flushing Stderr stream failed due to: OSError(Kind(Other))"
+        )
     }
 }

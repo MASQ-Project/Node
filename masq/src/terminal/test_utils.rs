@@ -4,7 +4,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
-    WTermInterfaceDup, WriteResult,
+    WTermInterfaceDup, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
 use itertools::{Either, Itertools};
@@ -247,18 +247,15 @@ impl LisoFlushedAssertableStrings {
 
 #[derive(Default)]
 pub struct FlushHandleInnerMock {
+    // As to prepared results, the trait object representing this is Send + Sync, therefore
+    // Arc<Mutex<T>> is required
     flush_during_drop_params: Arc<Mutex<Vec<()>>>,
-    // The trait object representing this is Send + Sync, thus Arc<Mutex<T>> is required
     flush_during_drop_results: Arc<Mutex<Vec<Result<(), WriteResult>>>>,
+    stream_type_results: Arc<Mutex<Vec<WriteStreamType>>>,
 }
 
 #[async_trait]
 impl FlushHandleInner for FlushHandleInnerMock {
-    async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
-        self.flush_during_drop_params.lock().unwrap().push(());
-        self.flush_during_drop_results.lock().unwrap().remove(0)
-    }
-
     async fn write_internal(&self, _full_output: String) -> Result<(), WriteResult> {
         unimplemented!("Required method, but never be called in a mock")
     }
@@ -266,11 +263,30 @@ impl FlushHandleInner for FlushHandleInnerMock {
     fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String> {
         unimplemented!("Required method, but never be called in a mock")
     }
+
+    fn stream_type(&self) -> WriteStreamType {
+        self.stream_type_results.lock().unwrap().remove(0)
+    }
+
+    async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
+        self.flush_during_drop_params.lock().unwrap().push(());
+        self.flush_during_drop_results.lock().unwrap().remove(0)
+    }
 }
 
 impl FlushHandleInnerMock {
     pub fn flush_during_drop_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.flush_during_drop_params = params.clone();
+        self
+    }
+
+    pub fn flush_during_drop_result(self, result: Result<(), WriteResult>) -> Self {
+        self.flush_during_drop_results.lock().unwrap().push(result);
+        self
+    }
+
+    pub fn stream_type_result(self, result: WriteStreamType) -> Self {
+        self.stream_type_results.lock().unwrap().push(result);
         self
     }
 }

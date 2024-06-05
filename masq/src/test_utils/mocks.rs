@@ -629,30 +629,34 @@ impl WTermInterface for TermInterfaceMock {
 
 impl WTermInterfaceImplementingSend for TermInterfaceMock {}
 
-pub fn make_async_std_write_stream() -> (
+pub fn make_async_std_write_stream(
+    error_opt: Option<std::io::Error>,
+) -> (
     Box<dyn AsyncWrite + Send + Sync + Unpin>,
     AsyncByteArrayWriter,
 ) {
-    let writer = AsyncByteArrayWriter::new(true);
+    let writer = AsyncByteArrayWriter::new(true, error_opt);
     (Box::new(writer.clone()), writer)
 }
 
 pub fn make_async_std_streams(
     read_inputs: Vec<Vec<u8>>,
 ) -> (AsyncStdStreams, AsyncTestStreamHandles) {
-    make_async_std_streams_with_diff_setup_for_stdin(Either::Left(read_inputs))
+    make_async_std_streams_with_full_setup(Either::Left(read_inputs), None, None)
 }
 
-fn make_async_std_streams_with_diff_setup_for_stdin(
+pub fn make_async_std_streams_with_full_setup(
     stdin_either: Either<Vec<Vec<u8>>, StdinMock>,
+    stdout_write_err_opt: Option<std::io::Error>,
+    stderr_write_err_opt: Option<std::io::Error>,
 ) -> (AsyncStdStreams, AsyncTestStreamHandles) {
     let mut stdin = match stdin_either {
         Either::Left(read_inputs) => StdinMock::new(AsyncByteArrayReader::new(read_inputs), vec![]),
         Either::Right(ready_stdin) => ready_stdin,
     };
     let stdin_clone = stdin.reader.lock().unwrap().clone();
-    let (stdout, stdout_clone) = make_async_std_write_stream();
-    let (stderr, stderr_clone) = make_async_std_write_stream();
+    let (stdout, stdout_clone) = make_async_std_write_stream(stdout_write_err_opt);
+    let (stderr, stderr_clone) = make_async_std_write_stream(stderr_write_err_opt);
     let std_streams = AsyncStdStreams {
         stdin: Box::new(stdin),
         stdout,

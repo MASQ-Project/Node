@@ -2,11 +2,12 @@
 
 use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use crate::terminal::liso_wrappers::LisoOutputWrapper;
-use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter};
+use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter, WriteStreamType};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 pub struct WritingUtils {
+    stream_type: WriteStreamType,
     terminal_writer_strict_provider: TerminalWriterStrictProvider,
     flush_handle_inner: Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
 }
@@ -14,44 +15,46 @@ pub struct WritingUtils {
 pub type ArcMutexFlushHandleInner = Arc<tokio::sync::Mutex<dyn FlushHandleInner>>;
 
 impl WritingUtils {
-    pub fn new<FHIConstructor>(flush_handle_inner_constructor: FHIConstructor) -> Self
+    pub fn new<FlushHandleInnerConstructor>(
+        flush_handle_inner_constructor: FlushHandleInnerConstructor,
+        stream_type: WriteStreamType,
+    ) -> Self
     where
-        FHIConstructor:
-            FnOnce(UnboundedReceiver<String>) -> Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
+        FlushHandleInnerConstructor: FnOnce(
+            UnboundedReceiver<String>,
+            WriteStreamType,
+        )
+            -> Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
     {
         let (output_chunks_sender, output_chunks_receiver) = unbounded_channel();
         let terminal_writer_strict_provider =
             TerminalWriterStrictProvider::new(output_chunks_sender);
+        let flush_handle_inner =
+            flush_handle_inner_constructor(output_chunks_receiver, stream_type);
         Self {
+            stream_type,
             terminal_writer_strict_provider,
-            flush_handle_inner: flush_handle_inner_constructor(output_chunks_receiver),
+            flush_handle_inner,
         }
     }
 
-    fn utils(&self) -> Result<(TerminalWriter, FlushHandle), usize> {
-        self.terminal_writer_strict_provider
-            .provide_if_not_already_in_use()
-            .map(|terminal_writer| {
-                (
-                    terminal_writer,
-                    FlushHandle::new(self.flush_handle_inner.clone()),
-                )
-            })
+    fn establish_util_pair(
+        &self,
+        terminal_writer: TerminalWriter,
+    ) -> (TerminalWriter, FlushHandle) {
+        let flush_handle = FlushHandle::new(self.flush_handle_inner.clone());
+        (terminal_writer, flush_handle)
     }
 
-    pub fn get_utils(&self, stream_ranking: &str) -> (TerminalWriter, FlushHandle) {
+    pub fn get_utils(&self) -> (TerminalWriter, FlushHandle) {
         self.terminal_writer_strict_provider
             .provide_if_not_already_in_use()
-            .map(|terminal_writer| {
-                (
-                    terminal_writer,
-                    FlushHandle::new(self.flush_handle_inner.clone()),
-                )
-            })
+            .map(|terminal_writer| self.establish_util_pair(terminal_writer))
             .unwrap_or_else(|count| {
+                let stream_type = self.stream_type;
                 panic!(
-                "Another {stream_ranking} FLushHandle not permitted, already referencing {count}"
-            )
+                    "Another {stream_type} FLushHandle not permitted, already referencing {count}"
+                )
             })
     }
 }
@@ -87,7 +90,6 @@ impl TerminalWriterStrictProvider {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::test_utils::LisoOutputWrapperMock;
     use crate::terminal::writing_utils::TerminalWriterStrictProvider;
     use tokio::sync::mpsc::unbounded_channel;
 
@@ -118,13 +120,23 @@ mod tests {
     async fn terminal_strict_provider_is_being_strict() {
         let (tx, mut rx) = unbounded_channel();
         let subject = TerminalWriterStrictProvider::new(tx);
-
         let writer = subject.provide_if_not_already_in_use().unwrap();
-        let second_writer_opt = subject.provide_if_not_already_in_use();
-        let third_writer_opt = subject.provide_if_not_already_in_use();
+
+        let second_attempt_res = subject.provide_if_not_already_in_use();
         drop(writer);
-        let fourth_writer_opt = subject.provide_if_not_already_in_use();
-        let fifth_writer_opt = subject.provide_if_not_already_in_use();
-        todo!()
+        let third_attempt_res = subject.provide_if_not_already_in_use();
+        let _clone_1 = subject.output_chunks_sender.clone();
+        let _clone_2 = subject.output_chunks_sender.clone();
+        let fourth_attempt_res = subject.provide_if_not_already_in_use();
+
+        let assert_err = |res, expected_reference_count| match res {
+            Err(actual_reference_count) => {
+                assert_eq!(actual_reference_count, expected_reference_count)
+            }
+            x => panic!("We expected an error but got: {:?}", x),
+        };
+        assert_err(second_attempt_res, 1);
+        assert!(third_attempt_res.is_ok());
+        assert_err(fourth_attempt_res, 3);
     }
 }
