@@ -79,7 +79,7 @@ pub struct BlockchainInterfaceNull {
 }
 
 pub struct BlockchainInterfaceWeb3 {
-    logger: Logger,
+    pub logger: Logger,
     chain: Chain,
     gas_limit_const_part: u64,
     // This must not be dropped for Web3 requests to be completed

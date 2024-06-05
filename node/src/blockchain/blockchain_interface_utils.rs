@@ -615,6 +615,18 @@ mod tests {
     use crate::blockchain::blockchain_interface;
 
     #[test]
+    fn calculate_fallback_start_block_number_works() {
+        assert_eq!(
+            calculate_fallback_start_block_number(10_000, u64::MAX),
+            10_000 + 1
+        );
+        assert_eq!(
+            calculate_fallback_start_block_number(5_000, 10_000),
+            5_000 + 10_000
+        );
+    }
+
+    #[test]
     fn get_gas_price_works() {
         let port = find_free_port();
         let blockchain_client_server = MBCSBuilder::new(port)
