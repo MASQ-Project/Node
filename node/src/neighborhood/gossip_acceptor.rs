@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
+use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1, GossipNodeRecord};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::AccessibleGossipRecord;
@@ -289,7 +289,7 @@ impl DebutHandler {
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(cryptde);
                 trace!(self.logger, "Current database: {}", database.to_dot_graph());
-                if Self::should_not_make_introduction(debuting_agr) {
+                if Self::should_not_make_another_introduction(debuting_agr) {
                     let ip_addr_str = match &debuting_agr.node_addr_opt {
                         Some(node_addr) => node_addr.ip_addr().to_string(),
                         None => "?.?.?.?".to_string(),
@@ -315,7 +315,16 @@ impl DebutHandler {
                                 gossip_source,
                             );
                             //TODO: Construct explicit Debut Gossip and return GossipAcceptanceResult::Reply here.
-                            Ok(GossipAcceptanceResult::Accepted)
+                            let mut root_node = database.root().clone();
+                            root_node.clear_half_neighbors();
+                            root_node.add_half_neighbor_key(debut_node_key.clone()).expect("TODO: panic message");
+                            let gnr = GossipNodeRecord::from((root_node.inner.clone(), root_node.node_addr_opt(), cryptde));
+                            let debut_gossip = Gossip_0v1 { node_records: vec![gnr] };
+                            Ok(GossipAcceptanceResult::Reply(
+                                debut_gossip,
+                                debuting_agr.inner.public_key.clone(),
+                                debuting_agr.node_addr_opt.as_ref().expect("Debut gossip always has an IP").clone()
+                            ))
                         }
                     }
                 }
@@ -444,7 +453,7 @@ impl DebutHandler {
         keys
     }
 
-    fn should_not_make_introduction(debuting_agr: &AccessibleGossipRecord) -> bool {
+    fn should_not_make_another_introduction(debuting_agr: &AccessibleGossipRecord) -> bool {
         !debuting_agr.inner.neighbors.is_empty()
     }
 
@@ -1345,6 +1354,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
+    use std::net::Ipv4Addr;
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
@@ -1634,65 +1644,34 @@ mod tests {
         let new_debutant = make_node_record(4567, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
-        let src_db = db_from_node(&new_debutant);
-        dest_db.add_node(half_debuted_node).unwrap();
+        //TODO let src_db = db_from_node(&new_debutant);
+        dest_db.add_node(half_debuted_node.clone()).unwrap();
         dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_debuted_node.public_key());
-        let debut_gossip = GossipBuilder::new(&src_db)
-            .node(new_debutant.public_key(), true)
-            .build();
+        //TODO let debut_gossip = GossipBuilder::new(&src_db)
+        //    .node(new_debutant.public_key(), true)
+        //    .build();
         let logger = Logger::new("Debut test");
         let subject = DebutHandler::new(logger);
+
 
         let counter_debut = subject.try_accept_debut(
             &root_node_cryptde,
             &mut dest_db,
-            debut_gossip.try_into().unwrap(),
-            new_debutant.metadata.node_addr_opt.unwrap().into(),
+            &AccessibleGossipRecord::from(&new_debutant),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)), 4567),
         ).unwrap();
 
         let (reply, public_key, node_addr) = match counter_debut {
-            GossipAcceptanceResult::Reply(reply, public_key, node_addr) => (reply, public_key, node_addr),
+            GossipAcceptanceResult::Reply(ref reply, ref public_key, ref node_addr) => (reply, public_key, node_addr),
             x => panic!("Expected Reply, got {:?}", x),
         };
 
-        assert_eq!(&public_key, new_debutant.public_key());
-        assert_eq!(&node_addr, &new_debutant.node_addr_opt().unwrap());
+        assert_eq!(public_key, new_debutant.public_key());
+        assert_eq!(node_addr, &new_debutant.node_addr_opt().unwrap());
         root_node.add_half_neighbor_key(new_debutant.public_key().clone()).unwrap();
-        assert_eq!(GossipAcceptanceResult::Reply(reply, public_key, node_addr), counter_debut);
+        assert_eq!(GossipAcceptanceResult::Reply(reply.clone(), public_key.clone(), node_addr.clone()), counter_debut);
         //TODO assert on GossipNodeRecord
-        //assert_node_records_eq(reference_node, &debut_node_two, before, after);
-/*
-        root_node
-            .add_half_neighbor_key(debut_node_one.public_key().clone())
-            .unwrap();
-        root_node.increment_version();
-        root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.resign();
-        assert_eq!(&root_node, dest_db.root());
-        let reference_node = dest_db.node_by_key_mut(debut_node_one.public_key()).unwrap();
-        debut_node_one.metadata.last_update = reference_node.metadata.last_update;
-        assert_node_records_eq(reference_node, &debut_node_one, before, after);
-
-        let before = time_t_timestamp();
-        let result_two = subject.handle(
-            &mut dest_db,
-            gossip_two.try_into().unwrap(),
-            gossip_source_two,
-            make_default_neighborhood_metadata(),
-        );
-        let after = time_t_timestamp();
-        println!("result_two: {:?}", result_two);
-        assert_eq!(GossipAcceptanceResult::Accepted, result_two);
-        root_node
-            .add_half_neighbor_key(debut_node_two.public_key().clone())
-            .unwrap();
-        root_node.increment_version();
-        root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.resign();
-        assert_eq!(&root_node, dest_db.root());
-        let reference_node = dest_db.node_by_key_mut(debut_node_two.public_key()).unwrap();
-        debut_node_two.metadata.last_update = reference_node.metadata.last_update;
-        assert_node_records_eq(reference_node, &debut_node_two, before, after);*/
+        //TODO assert_node_records_eq(reference_node, &debut_node_two, before, after);
     }
 
     #[test]
