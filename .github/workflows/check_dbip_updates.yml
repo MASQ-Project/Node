@@ -1,0 +1,41 @@
+name: Check for dbip Updates
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Runs weekly on Sunday at midnight
+  workflow_dispatch:
+
+jobs:
+  check_dbip_updates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Set up Git
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+
+      - name: Check for dbip updates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ci/download_dbip.sh
+          cargo run --release --bin generate_dbip_country_rs
+          rm node/src/dbip.mmdb
+          if [[ `git status --porcelain` ]]; then
+            git checkout -b dbip-update
+            git add node/src/dbip_country.rs
+            git commit -m "Update dbip_country.rs to latest dbip data"
+            git push origin dbip-update
+            gh pr create --title "Update dbip_country.rs to latest dbip data" --body "Automated update of dbip_country.rs" --base main
+          else
+            echo "No new dbip data available."
+          fi

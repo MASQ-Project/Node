@@ -81,6 +81,7 @@ ipconfig = "0.2.2"
 [dev-dependencies]
 base58 = "0.2.0"
 jsonrpc-core = "14.0.0"
+maxminddb = "0.16"
 native-tls = {version = "0.2.8", features = ["vendored"]}
 simple-server = "0.4.0"
 serial_test_derive = "0.5.1"
@@ -90,6 +91,10 @@ trust-dns-proto = "0.8.0"
 [[bin]]
 name = "MASQNode"
 path = "src/main.rs"
+
+[[bin]]
+name = "generate_dbip_country_rs"
+path = "ci/generate_dbip_country_rs.rs"
 
 [[bin]]
 name = "MASQNodeW"
