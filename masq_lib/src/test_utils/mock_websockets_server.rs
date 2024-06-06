@@ -5,7 +5,6 @@ use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use futures_util::SinkExt;
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
 use std::ops::Not;
@@ -19,7 +18,7 @@ use workflow_websocket::server::{
 };
 use async_trait::async_trait;
 use futures::future::FutureExt;
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::JoinHandle;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -305,7 +304,6 @@ impl MockWebSocketsServer {
             index
         };
         let requests_arc = Arc::new(Mutex::new(vec![]));
-        let requests_arc_inner = requests_arc.clone();
         let (looping_tx, looping_rx) = unbounded();
         let (termination_style_tx, termination_style_rx) = unbounded();
         let (websocket_sink_tx, websocket_sink_rx) = unbounded();
@@ -696,6 +694,7 @@ mod tests {
 
         //A) All messages "sent from UI to D/N", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
+eprintln! ("One");
         let conversation_number_one_request = UiCheckPasswordRequest {
             db_password_opt: None,
         };
@@ -722,6 +721,7 @@ mod tests {
         let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
+eprintln! ("Two");
         let server = MockWebSocketsServer::new(port)
             .queue_response(conversation_number_one_response.clone().tmb(1))
             .queue_response(conversation_number_two_response.clone().tmb(2))
@@ -729,13 +729,17 @@ mod tests {
             .queue_response(broadcast_number_two)
             .queue_response(conversation_number_three_response)
             .queue_response(broadcast_number_three);
+eprintln! ("Three");
         let stop_handle = server.start().await;
+eprintln! ("Four");
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+eprintln! ("Five");
 
         let received_message_number_one: UiCheckPasswordResponse = connection
             .transact_with_context_id(conversation_number_one_request.clone(), 1)
             .await
             .unwrap();
+eprintln! ("Six");
         assert_eq!(
             received_message_number_one.matches,
             conversation_number_one_response.matches
@@ -745,14 +749,17 @@ mod tests {
             .transact_with_context_id(conversation_number_two_request.clone(), 2)
             .await
             .unwrap();
+eprintln! ("Seven");
         assert_eq!(
             received_message_number_two.matches,
             conversation_number_two_response.matches
         );
+eprintln!("Before freeze");
 
-        let _received_message_number_three: UiConfigurationChangedBroadcast =
+        let _received_message_number_three: UiConfigurationChangedBroadcast = // TODO: Freezes here
             connection.skip_until_received().await.unwrap();
 
+eprintln!("After freeze");
         let _received_message_number_four: UiNodeCrashedBroadcast =
             connection.skip_until_received().await.unwrap();
 

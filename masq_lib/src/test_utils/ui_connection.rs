@@ -142,11 +142,16 @@ impl UiConnection {
     }
 
     async fn await_message<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
+eprintln! ("Beginning loop");
         loop {
+eprintln! ("...loop...");
             match self.receive_main::<T>(None).await {
                 Correct(msg) => break Ok(msg),
                 TransactionError(e) => break Err(e),
-                MarshalError(_) => continue,
+                MarshalError(e) => {
+                    eprintln!("Awaiting message; got a MarshalError: {:?}", e);
+                    continue
+                },
             }
         }
     }
