@@ -17,7 +17,6 @@ use crate::blockchain::blockchain_interface::data_structures::{
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
-use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -155,7 +154,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn build_blockchain_agent(
         &self,
-        consuming_wallet: Wallet,
+        _consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         todo!("GH-744")
         // self.build_blockchain_agent_params.lock().unwrap().push((
@@ -167,7 +166,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn get_service_fee_balance(
         &self,
-        wallet_address: Address,
+        _wallet_address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!()
     }
@@ -188,7 +187,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn get_transaction_fee_balance(
         &self,
-        address: &Wallet,
+        _address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!("GH-744: Come back to this - This function has moved to lower interface")
         // self.get_transaction_fee_balance_params
@@ -204,7 +203,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn get_token_balance(
         &self,
-        address: &Wallet,
+        _address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!("GH-744: Come back to this - This function has moved to lower interface")
         // self.get_token_balance_params
@@ -218,7 +217,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn get_transaction_count(
         &self,
-        wallet: &Wallet,
+        _wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!("GH-744: Come back to this - This function has moved to lower interface")
         // self.get_transaction_count_parameters

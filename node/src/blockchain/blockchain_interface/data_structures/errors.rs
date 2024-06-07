@@ -1,8 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::comma_joined_stringifiable;
-use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -132,7 +130,6 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
     };
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::make_wallet;
     use masq_lib::utils::{slice_of_strs_to_vec_of_strings, to_string};
 

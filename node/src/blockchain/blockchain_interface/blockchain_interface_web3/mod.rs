@@ -4,7 +4,6 @@ mod batch_payable_tools;
 pub mod lower_level_interface_web3;
 mod test_utils;
 
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -14,26 +13,19 @@ use crate::blockchain::blockchain_interface::data_structures::BlockchainTransact
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
-use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
-use futures::{Future, future, Stream};
+use futures::{Future, future};
 use indoc::indoc;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use std::convert::{From, TryInto};
 use std::fmt::Debug;
-use std::rc::Rc;
 use ethereum_types::U64;
-use futures::future::err;
-use libc::addrinfo;
-use web3::contract::{Contract, Options};
+use web3::contract::{Contract};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, FilterBuilder};
-use web3::{BatchTransport, Error as Web3Error, Web3};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
+use web3::Web3;
 use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, get_transaction_id, create_blockchain_agent_web3, BlockchainAgentFutureResult, get_gas_price, get_block_number};
-use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -69,9 +61,9 @@ pub const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str =
 restart the Node with a value for blockchain-service-url";
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
-pub type ResultForBalance = BlockchainResult<web3::types::U256>;
-pub type ResultForBothBalances = BlockchainResult<(web3::types::U256, web3::types::U256)>;
-pub type ResultForNonce = BlockchainResult<web3::types::U256>;
+pub type ResultForBalance = BlockchainResult<U256>;
+pub type ResultForBothBalances = BlockchainResult<(U256, U256)>;
+pub type ResultForNonce = BlockchainResult<U256>;
 pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
 pub struct BlockchainInterfaceNull {
@@ -246,7 +238,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn get_service_fee_balance(
         // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
-        wallet_address: Address,
+        _wallet_address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         // Box::new(
 
@@ -262,7 +254,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn get_transaction_fee_balance(
         // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
-        wallet: &Wallet,
+        _wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
         // Box::new(
@@ -276,20 +268,20 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn get_token_balance(
         // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
         &self,
-        wallet: &Wallet,
+        _wallet: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!("Code migrated to Blockchain_interface_utils");
-        Box::new(
-            self.get_contract()
-                .query(
-                    "balanceOf",
-                    wallet.address(),
-                    None,
-                    Options::default(),
-                    None,
-                )
-                .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
-        )
+        // Box::new(
+        //     self.get_contract()
+        //         .query(
+        //             "balanceOf",
+        //             wallet.address(),
+        //             None,
+        //             Options::default(),
+        //             None,
+        //         )
+        //         .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
+        // )
     }
 
     fn get_transaction_count(
@@ -432,20 +424,11 @@ mod tests {
         TRANSFER_METHOD_ID,
     };
     use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
-    use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
-    use crate::blockchain::blockchain_interface::{
-        BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
-        RetrievedBlockchainTransactions,
-    };
-    use crate::blockchain::test_utils::{
-        all_chains, make_blockchain_interface_web3, make_fake_event_loop_handle, make_tx_hash,
-        TestTransport,
-    };
-    use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, RetrievedBlockchainTransactions};
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, make_tx_hash};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::{assert_string_contains, make_paying_wallet};
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use ethereum_types::U64;
@@ -457,10 +440,8 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
     use serde_derive::Deserialize;
-    use serde_json::Value;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
     use web3::transports::Http;
     use web3::types::{
         BlockNumber, Bytes, TransactionParameters, TransactionReceipt, H2048, H256, U256,
@@ -517,7 +498,7 @@ mod tests {
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
         #[rustfmt::skip]
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
             .raw_response(
                 r#"{
@@ -602,7 +583,7 @@ mod tests {
     fn get_transaction_count_works() {
         let port = find_free_port();
         let wallet = make_paying_wallet(b"test_wallet");
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x1".to_string(), 2)
             .start();
 
@@ -616,7 +597,7 @@ mod tests {
     fn get_transaction_count_gets_error() {
         let port = find_free_port();
         let wallet = make_paying_wallet(b"test_wallet");
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash".to_string(), 2)
             .start();
 
@@ -636,7 +617,7 @@ mod tests {
         let to_wallet = make_paying_wallet(b"test_wallet");
         let port = find_free_port();
         let empty_transactions_result:Vec<String> = vec![];
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def".to_string(), 2)
             .response(empty_transactions_result, 2)
             .start();
@@ -691,7 +672,7 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
     ) {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
@@ -721,7 +702,7 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
     ) {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
@@ -748,7 +729,7 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
     ) {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
@@ -788,7 +769,7 @@ mod tests {
     fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
     ) {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
@@ -819,7 +800,7 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_can_build_blockchain_agent() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
             .response("0xFFF0".to_string(), 0)
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
@@ -862,8 +843,7 @@ mod tests {
     #[test]
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port).start();
-        let chain = Chain::PolyMumbai;
+        let _blockchain_client_server = MBCSBuilder::new(port).start();
         let wallet = make_wallet("abc");
         let subject = make_blockchain_interface_web3(Some(port));
 
@@ -881,9 +861,8 @@ mod tests {
     ) where
         F: FnOnce(&Wallet) -> BlockchainAgentBuildError,
     {
-        let chain = Chain::EthMainnet;
         let wallet = make_wallet("bcd");
-        let mut subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(Some(port));
         // TODO: GH-744: Come back to this
         // subject.lower_interface = Box::new(lower_blockchain_interface);
 
@@ -902,7 +881,7 @@ mod tests {
     #[test]
     fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
             .start();
         let expected_err_factory = |wallet: &Wallet| {
@@ -921,7 +900,7 @@ mod tests {
     #[test]
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
             .response("0xFFF0".to_string(), 0)
             .start();
@@ -941,7 +920,7 @@ mod tests {
     #[test]
     fn build_of_the_blockchain_agent_fails_on_transaction_id() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
             .response("0xFFF0".to_string(), 0)
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
@@ -1408,9 +1387,9 @@ mod tests {
     //     );
     // }
 
-    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
-    const TEST_GAS_PRICE_ETH: u64 = 110;
-    const TEST_GAS_PRICE_POLYGON: u64 = 50;
+    // const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
+    // const TEST_GAS_PRICE_ETH: u64 = 110;
+    // const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
     #[test]
     fn web3_gas_limit_const_part_returns_reasonable_values() {

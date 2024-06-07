@@ -1541,11 +1541,6 @@ mod tests {
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
-        // In the real world the agents are identical, here they bear different ids
-        // so that we can watch their journey better
-        let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
-        let agent =
-            BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
         let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
         let payments_instructions = OutboundPaymentsInstructions {
             affordable_accounts: affordable_accounts.clone(),

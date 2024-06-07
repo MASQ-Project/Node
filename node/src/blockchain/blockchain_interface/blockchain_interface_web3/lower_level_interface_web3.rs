@@ -2,18 +2,16 @@
 
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
 use crate::sub_lib::wallet::Wallet;
-use ethereum_types::U256;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber};
-use web3::{BatchTransport, Web3};
+use web3::types::{BlockNumber};
+use web3::{Web3};
 
 pub struct LowBlockchainIntWeb3 {
     // web3: Rc<Web3<Http>>,
@@ -117,30 +115,19 @@ impl LowBlockchainIntWeb3 {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        CONTRACT_ABI, REQUESTS_IN_PARALLEL,
-    };
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::REQUESTS_IN_PARALLEL;
     use crate::blockchain::blockchain_interface::lower_level_interface::{LowBlockchainInt, ResultForBalance};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::http_test_server::TestServer;
-    use crate::test_utils::make_paying_wallet;
-    use ethereum_types::U64;
-    use masq_lib::blockchains::chains::Chain;
+        use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
-    use serde_json::{json, Value};
+    use serde_json::{Value};
     use std::net::Ipv4Addr;
-    use std::rc::Rc;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use web3::contract::Contract;
-    use web3::transports::{Batch, Http};
+    use web3::transports::{Http};
     use web3::types::U256;
-    use web3::{BatchTransport, Web3};
-    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-    use crate::blockchain::blockchain_interface_utils::get_transaction_fee_balance;
-    use crate::blockchain::test_utils::{make_blockchain_interface_web3, TestTransport};
 
     #[test]
     fn low_interface_web3_transaction_fee_balance_works() {
@@ -429,11 +416,11 @@ mod tests {
     }
 
     fn make_subject(transport: Http, chain: Chain) -> LowBlockchainIntWeb3 {
-        let web3 = Web3::new(transport.clone());
-        let web3_batch = Web3::new(Batch::new(transport.clone()));
-        let contract =
-            Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
-                .expect("Unable to initialize contract.");
+        // let web3 = Web3::new(transport.clone());
+        // let web3_batch = Web3::new(Batch::new(transport.clone()));
+        // let contract =
+        //     Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
+        //         .expect("Unable to initialize contract.");
         // LowBlockchainIntWeb3::new(Rc::new(web3), Rc::new(web3_batch), contract)
         LowBlockchainIntWeb3::new(transport, chain)
     }

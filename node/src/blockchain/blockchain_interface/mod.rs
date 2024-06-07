@@ -12,19 +12,15 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 };
 use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use core::panic;
-use std::format;
-// use ethabi::Contract;
 use ethereum_types::U256;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::debug;
-use web3::contract::{Contract, Options};
+use web3::contract::{Contract};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, H256};
-use web3::{BatchTransport, Web3};
+use web3::{Web3};
 
 // TODO: GH-744: Fix this trait - before submitting this code for review.
 // Create some tools for each blockchain and pass these tool in every function of this trait.

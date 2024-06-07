@@ -5,13 +5,7 @@
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
-use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::http_test_server::TestServer;
-use crate::test_utils::make_wallet;
-use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::find_free_port;
-use serde_json::Value;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 

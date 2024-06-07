@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::{RetrieveTransactions, UpdateStartBlockMessage};

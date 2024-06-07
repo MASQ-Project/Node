@@ -1,7 +1,7 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;

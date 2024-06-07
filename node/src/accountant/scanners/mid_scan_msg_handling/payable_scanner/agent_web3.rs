@@ -1,12 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use futures::{Future, Poll};
-
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainAgentBuildError;
 use web3::types::U256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

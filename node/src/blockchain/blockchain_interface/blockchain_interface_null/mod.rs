@@ -10,7 +10,6 @@ use web3::transports::{Batch, Http};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_null::lower_level_interface_null::LowBlockChainIntNull;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
 use web3::types::{Address, BlockNumber, H160, H256};
@@ -53,9 +52,9 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn retrieve_transactions(
         &self,
-        start_block: BlockNumber,
-        fallback_start_block_number: u64,
-        recipient: Address,
+        _start_block: BlockNumber,
+        _fallback_start_block_number: u64,
+        _recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         Box::new(result(
             self.handle_uninitialized_interface("retrieve transactions"),
@@ -64,35 +63,35 @@ impl BlockchainInterface for BlockchainInterfaceNull {
 
     fn build_blockchain_agent(
         &self,
-        consuming_wallet: Wallet,
+        _consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         self.build_blockchain_agent_error()
     }
 
     fn get_service_fee_balance(
         &self,
-        wallet_address: Address,
+        _wallet_address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!()
     }
 
     fn get_transaction_fee_balance(
         &self,
-        address: &Wallet,
+        _address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!()
     }
 
     fn get_token_balance(
         &self,
-        address: &Wallet,
+        _address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!()
     }
 
     fn get_transaction_count(
         &self,
-        address: &Wallet,
+        _address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         todo!()
     }
@@ -197,7 +196,6 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use ethereum_types::U64;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
