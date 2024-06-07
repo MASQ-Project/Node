@@ -1,37 +1,41 @@
 use crate::country_block_serde::{
     CountryBlockDeserializer, CountryBlockDeserializerIpv4, CountryBlockDeserializerIpv6,
 };
-use crate::country_block_stream::Country;
+use crate::country_block_stream::{Country, CountryBlock};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-pub fn country_finder<F1, F2>(
-    ipv4_country_data: F1,
-    ipv6_country_data: F2,
+static mut SEARCHABLE_COUNTRY_BLOCKS_IPV4: Vec<CountryBlock> = vec![];
+static mut SEARCHABLE_COUNTRY_BLOCKS_IPV6: Vec<CountryBlock> = vec![];
+pub fn initialize_country_finder<F1, F2>(ipv4_country_data: F1, ipv6_country_data: F2) {
+
+}
+
+pub fn country_finder(
     ip_addr: IpAddr,
 ) -> Option<Country>
-where
-    F1: FnOnce() -> (Vec<u64>, usize),
-    F2: FnOnce() -> (Vec<u64>, usize),
 {
     match ip_addr {
-        IpAddr::V4(ipv4_addr) => find_country_ipv4(ipv4_country_data(), ipv4_addr),
-        IpAddr::V6(ipv6_addr) => find_country_ipv6(ipv6_country_data(), ipv6_addr),
+        IpAddr::V4(ipv4_addr) => find_country_ipv4(ipv4_addr), //rewrite those functions with binary search in SEARCHABLE_COUNTRY_BLOCKS_IPV4
+        IpAddr::V6(ipv6_addr) => find_country_ipv6(ipv6_addr),
     }
 }
 
-fn find_country_ipv4(data: (Vec<u64>, usize), ip_addr: Ipv4Addr) -> Option<Country> {
+fn initialize_country_finder_ipv4(data: (Vec<u64>, usize), ip_addr: Ipv4Addr) -> Option<Country> {
     let mut deserializer = CountryBlockDeserializerIpv4::new(data);
     loop {
         match deserializer.next() {
-            None => return None, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
+            None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
             Some(country_block) => {
-                if country_block.ip_range.contains(IpAddr::V4(ip_addr)) {
-                    if country_block.country.index == 0 {
-                        return None;
-                    } else {
-                        return Some(country_block.country.clone());
-                    }
+                unsafe {
+                    SEARCHABLE_COUNTRY_BLOCKS.push(country_block);
                 }
+                // if country_block.ip_range.contains(IpAddr::V4(ip_addr)) {
+                //     if country_block.country.index == 0 {
+                //         return None;
+                //     } else {
+                //         return Some(country_block.country.clone());
+                //     }
+                // }
             }
         }
     }

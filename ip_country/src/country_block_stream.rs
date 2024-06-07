@@ -28,6 +28,9 @@ pub enum IpRange {
 }
 
 impl IpRange {
+    //TODO make 2 new functions "before", "after" to check if ip is in the range or before, or after
+    // ipV4 you can represent as u32 and ipV6 as u128
+    // can reuse guts of contains for before and after and then replace arms of match witch calls to those fns
     pub fn contains(&self, ip_addr: IpAddr) -> bool {
         match self {
             IpRange::V4(begin, end) => match ip_addr {

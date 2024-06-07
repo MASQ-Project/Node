@@ -225,6 +225,7 @@ impl DebutHandler {
     ) -> Option<&'b PublicKey> {
         let neighbor_vec =
             Self::root_full_neighbors_ordered_by_degree_excluding(database, excluded);
+        println!("database {:?}", format!("{}", database.to_dot_graph()));
         let qualified_neighbors: Vec<&PublicKey> = neighbor_vec
             .into_iter()
             .filter(|k| {
@@ -235,12 +236,13 @@ impl DebutHandler {
             })
             .skip_while(|k| database.gossip_target_degree(*k) <= 2)
             .collect();
+        println!("qualified_neighbors {:?}", qualified_neighbors);
         match qualified_neighbors.first().cloned() {
             // No neighbors of degree 3 or greater
             None => {
                 debug!(
                     self.logger,
-                    "No degree-3-or-greater neighbors; can't find more-appropriate neighbor"
+                    "No degree-3-or-greater neighbors; can't find more-appropriate neighbor.",
                 );
                 None
             }
@@ -1642,6 +1644,9 @@ mod tests {
         let mut root_node = make_node_record(1234, true);
         let half_debuted_node = make_node_record(2345, true);
         let new_debutant = make_node_record(4567, true);
+        let debuted_node_three = make_node_record(5678, true);
+        let debuted_node_four = make_node_record(6789, true);
+        let debuted_node_five = make_node_record(7890, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         //TODO let src_db = db_from_node(&new_debutant);
@@ -1652,7 +1657,6 @@ mod tests {
         //    .build();
         let logger = Logger::new("Debut test");
         let subject = DebutHandler::new(logger);
-
 
         let counter_debut = subject.try_accept_debut(
             &root_node_cryptde,
@@ -1672,6 +1676,21 @@ mod tests {
         assert_eq!(GossipAcceptanceResult::Reply(reply.clone(), public_key.clone(), node_addr.clone()), counter_debut);
         //TODO assert on GossipNodeRecord
         //TODO assert_node_records_eq(reference_node, &debut_node_two, before, after);
+        dest_db.add_node(debuted_node_three.clone()).unwrap();
+        dest_db.add_node(debuted_node_four.clone()).unwrap();
+        dest_db.add_node(debuted_node_five.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(root_node.public_key(), half_debuted_node.public_key());
+        dest_db.add_arbitrary_full_neighbor(half_debuted_node.public_key(), debuted_node_three.public_key());
+        dest_db.add_arbitrary_full_neighbor(half_debuted_node.public_key(), debuted_node_four.public_key());
+        dest_db.add_arbitrary_full_neighbor(half_debuted_node.public_key(), debuted_node_five.public_key());
+        let agr_man = &AccessibleGossipRecord::from(&new_debutant);
+        let more_apropriate_neighbor = DebutHandler::find_more_appropriate_neighbor(
+            &subject,
+            &dest_db,
+            agr_man,
+        );
+
+        println!("more_apropriate_neighbor {:?}", more_apropriate_neighbor.unwrap().clone());
     }
 
     #[test]
