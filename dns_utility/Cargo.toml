@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 regex = "1.10.4"
-libc = "0.2.154"
+libc = "0.2.155"
 masq_lib = { path = "../masq_lib" }
 
 

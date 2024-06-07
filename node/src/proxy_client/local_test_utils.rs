@@ -69,7 +69,7 @@ impl ResolverWrapperMock {
                     .collect::<[Record]>();
                 let records_arc = Arc::new(records);
                 let lookup = Lookup::new_with_max_ttl(query, records_arc);
-                let lookup_ip = LookupIp(lookup);
+                let lookup_ip = LookupIp::from(lookup);
                 self.lookup_ip_results.borrow_mut().push(Ok(lookup_ip));
             }
             Err(e) => self.lookup_ip_results.borrow_mut().push(Err(e)),
