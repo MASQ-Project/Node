@@ -188,166 +188,165 @@ mod tests {
     use workflow_websocket::client::Message as ClientMessage;
     use workflow_websocket::server::Message as ServerMessage;
 
-    #[test]
-    fn listens_and_passes_data_through() {
+    #[tokio::test]
+    async fn listens_and_passes_data_through() {
         let expected_message = UiShutdownResponse {};
         let port = find_free_port();
-        let rt = make_multi_thread_rt();
+        // let rt = make_multi_thread_rt();
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let client = WSTestClient::new(port);
         let (listener_half, talker_half) = client.split();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        rt.block_on(subject.start(
-            listener_half,
-            Arc::new(AtomicBool::new(false)),
-            message_body_tx,
-        ));
+        subject
+            .start(
+                listener_half,
+                Arc::new(AtomicBool::new(false)),
+                message_body_tx,
+            )
+            .await;
         let message =
             ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        let message_body: MessageBody = rt.block_on(async {
+        let message_body: MessageBody = async {
             talker_half.send((message, None)).await.unwrap();
             message_body_rx.recv().await.unwrap().unwrap()
-        });
+        }
+        .await;
 
         assert_eq!(message_body, expected_message.tmb(1));
-        let is_running = rt.block_on(subject.is_running());
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, true);
         let _ = stop_handle.stop();
-        rt.block_on(wait_for_stop(&subject));
-        let is_running = rt.block_on(subject.is_running());
+        wait_for_stop(&subject).await;
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, false);
     }
 
-    #[test]
-    fn processes_incoming_close_correctly() {
+    #[tokio::test]
+    async fn processes_incoming_close_correctly() {
         let port = find_free_port();
-        let rt = make_multi_thread_rt();
         let server = MockWebSocketsServer::new(port)
             .queue_string("close")
             .queue_string("disconnect");
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let client = WSTestClient::new(port);
         let (listener_half, talker_half) = client.split();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        rt.block_on(subject.start(
-            listener_half,
-            Arc::new(AtomicBool::new(false)),
-            message_body_tx,
-        ));
+        subject
+            .start(
+                listener_half,
+                Arc::new(AtomicBool::new(false)),
+                message_body_tx,
+            )
+            .await;
         let message =
             ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        let error = rt.block_on(async {
-            talker_half.send((message, None)).await.unwrap();
-            message_body_rx.recv().await.unwrap().err().unwrap()
-        });
+        talker_half.send((message, None)).await.unwrap();
+        let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
         assert_eq!(error, ClientListenerError::Closed);
-        rt.block_on(wait_for_stop(&subject));
-        let is_running = rt.block_on(subject.is_running());
+        wait_for_stop(&subject).await;
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, false);
         let _ = stop_handle.stop();
     }
 
-    #[test]
-    fn processes_broken_connection_correctly() {
+    #[tokio::test]
+    async fn processes_broken_connection_correctly() {
         let port = find_free_port();
-        let rt = make_multi_thread_rt();
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let client = WSTestClient::new(port);
         let (listener_half, talker_half) = client.split();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        rt.block_on(subject.start(
-            listener_half,
-            Arc::new(AtomicBool::new(false)),
-            message_body_tx,
-        ));
+        subject
+            .start(
+                listener_half,
+                Arc::new(AtomicBool::new(false)),
+                message_body_tx,
+            )
+            .await;
         let message =
             ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        let error = rt.block_on(async {
-            talker_half.send((message, None)).await.unwrap();
-            message_body_rx.recv().await.unwrap().err().unwrap()
-        });
+        talker_half.send((message, None)).await.unwrap();
+        let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
         assert_eq!(
             error,
             ClientListenerError::Broken("NoDataAvailable".to_string())
         );
-        rt.block_on(wait_for_stop(&subject));
-        let is_running = rt.block_on(subject.is_running());
+        wait_for_stop(&subject).await;
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, false);
         let _ = stop_handle.stop();
     }
 
-    #[test]
-    fn processes_bad_owned_message_correctly() {
+    #[tokio::test]
+    async fn processes_bad_owned_message_correctly() {
         let port = find_free_port();
-        let rt = make_multi_thread_rt();
         let server =
             MockWebSocketsServer::new(port).queue_owned_message(ServerMessage::Binary(vec![]));
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let client = WSTestClient::new(port);
         let (listener_half, mut talker_half) = client.split();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        rt.block_on(subject.start(
-            listener_half,
-            Arc::new(AtomicBool::new(false)),
-            message_body_tx,
-        ));
+        subject
+            .start(
+                listener_half,
+                Arc::new(AtomicBool::new(false)),
+                message_body_tx,
+            )
+            .await;
         let message = Message::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        let error = rt.block_on(async {
-            talker_half.send((message, None)).await.unwrap();
-            message_body_rx.recv().await.unwrap().err().unwrap()
-        });
+        talker_half.send((message, None)).await.unwrap();
+        let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
-        let is_running = rt.block_on(subject.is_running());
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, true);
         let _ = stop_handle.stop();
-        rt.block_on(wait_for_stop(&subject));
-        let is_running = rt.block_on(subject.is_running());
+        wait_for_stop(&subject).await;
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, false);
     }
 
-    #[test]
-    fn processes_bad_packet_correctly() {
+    #[tokio::test]
+    async fn processes_bad_packet_correctly() {
         let port = find_free_port();
-        let rt = make_multi_thread_rt();
         let server = MockWebSocketsServer::new(port).queue_string("booga");
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let client = WSTestClient::new(port);
         let (listener_half, talker_half) = client.split();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let subject = ClientListener::new();
-        rt.block_on(subject.start(
-            listener_half,
-            Arc::new(AtomicBool::new(false)),
-            message_body_tx,
-        ));
+        subject
+            .start(
+                listener_half,
+                Arc::new(AtomicBool::new(false)),
+                message_body_tx,
+            )
+            .await;
 
         let message = Message::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
 
-        let error = rt.block_on(async {
-            talker_half.send((message, None)).await.unwrap();
-            message_body_rx.recv().await.unwrap().err().unwrap()
-        });
+        talker_half.send((message, None)).await.unwrap();
+        let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
-        let is_running = rt.block_on(subject.is_running());
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, true);
         let _ = stop_handle.stop();
-        rt.block_on(wait_for_stop(&subject));
-        let is_running = rt.block_on(subject.is_running());
+        wait_for_stop(&subject).await;
+        let is_running = subject.is_running().await;
         assert_eq!(is_running, false);
     }
 

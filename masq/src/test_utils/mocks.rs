@@ -44,7 +44,7 @@ use std::time::Duration;
 use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -552,8 +552,36 @@ impl RedirectBroadcastHandleFactoryMock {
     }
 }
 
-pub fn make_terminal_writer() -> (TerminalWriter, Arc<Mutex<ByteArrayWriter>>) {
-    todo!()
+pub fn make_terminal_writer() -> (TerminalWriter, TerminalWriterTestReceiver) {
+    let (tx, rx) = unbounded_channel();
+    (
+        TerminalWriter::new(tx),
+        TerminalWriterTestReceiver {
+            unbounded_receiver: rx,
+        },
+    )
+}
+
+pub struct TerminalWriterTestReceiver {
+    unbounded_receiver: UnboundedReceiver<String>,
+}
+
+impl TerminalWriterTestReceiver {
+    pub fn drain_test_output(&mut self) -> String {
+        let mut captured_output = String::new();
+        loop {
+            match self.unbounded_receiver.try_recv() {
+                Ok(output_fragment) => captured_output.push_str(&output_fragment),
+                Err(e) => match e {
+                    tokio::sync::mpsc::error::TryRecvError::Empty => break,
+                    tokio::sync::mpsc::error::TryRecvError::Disconnected => {
+                        panic!("Test writer already disconnected")
+                    }
+                },
+            }
+        }
+        captured_output
+    }
 }
 
 pub struct TermInterfaceMock {

@@ -107,7 +107,9 @@ pub trait FlushHandleInner: Send + Sync {
         loop {
             match self.output_chunks_receiver_ref_mut().try_recv() {
                 Ok(output_fragment) => vec.push(output_fragment),
-                Err(e) => break,
+                // TODO maybe you want to write something like: "incompletely flushed: {:?}", e....
+                // mainly because some err is okay some bad ...
+                Err(e) => break todo!(),
             }
         }
         vec

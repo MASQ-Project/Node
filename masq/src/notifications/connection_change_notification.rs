@@ -41,16 +41,16 @@ mod tests {
         let msg = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::ConnectedToNeighbor,
         };
-        let (stdout, stdout_handle) = make_terminal_writer();
-        let (stderr, stderr_handle) = make_terminal_writer();
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
 
         ConnectionChangeNotification::handle_broadcast(msg, &stdout, &stderr).await;
 
         assert_eq!(
-            stdout_handle.lock().unwrap().get_string(),
+            stdout_handle.drain_test_output(),
             "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
         );
-        assert_eq!(stderr_handle.lock().unwrap().get_string(), "".to_string());
+        assert_eq!(stderr_handle.drain_test_output(), "".to_string());
     }
 
     #[tokio::test]
@@ -59,15 +59,15 @@ mod tests {
         let msg = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::RouteFound,
         };
-        let (stdout, stdout_handle) = make_terminal_writer();
-        let (stderr, stderr_handle) = make_terminal_writer();
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
 
         ConnectionChangeNotification::handle_broadcast(msg, &stdout, &stderr).await;
 
         assert_eq!(
-            stdout_handle.lock().unwrap().get_string(),
+            stdout_handle.drain_test_output(),
             "\nRouteFound: You can now relay data over the network.\n\n"
         );
-        assert_eq!(stderr_handle.lock().unwrap().get_string(), "".to_string());
+        assert_eq!(stderr_handle.drain_test_output(), "".to_string());
     }
 }

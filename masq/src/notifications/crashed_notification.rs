@@ -72,13 +72,13 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::ChildWaitFailure("Couldn't wait".to_string()),
         };
-        let (stdout, stdout_handle) = make_terminal_writer();
-        let (stderr, stderr_handle) = make_terminal_writer();
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
 
         CrashNotifier::handle_broadcast(msg, &stdout, &stderr).await;
 
-        assert_eq! (stdout_handle.lock().unwrap().get_string(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
-        assert_eq!(stderr_handle.lock().unwrap().get_string(), "".to_string());
+        assert_eq! (stdout_handle.drain_test_output(), "\nThe Node running as process 12345 terminated:\n------\nthe Daemon couldn't wait on the child process: Couldn't wait\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
+        assert_eq!(stderr_handle.drain_test_output(), "".to_string());
     }
 
     #[tokio::test]
@@ -88,13 +88,13 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::Unrecognized("Just...failed!\n\n".to_string()),
         };
-        let (stdout, stdout_handle) = make_terminal_writer();
-        let (stderr, stderr_handle) = make_terminal_writer();
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
 
         CrashNotifier::handle_broadcast(msg, &stdout, &stderr).await;
 
-        assert_eq! (stdout_handle.lock().unwrap().get_string(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
-        assert_eq!(stderr_handle.lock().unwrap().get_string(), "".to_string());
+        assert_eq! (stdout_handle.drain_test_output(), "\nThe Node running as process 12345 terminated:\n------\nJust...failed!\n------\nThe Daemon is once more accepting setup changes.\n\n".to_string());
+        assert_eq!(stderr_handle.drain_test_output(), "".to_string());
     }
 
     #[tokio::test]
@@ -104,13 +104,13 @@ mod tests {
             process_id: 12345,
             crash_reason: CrashReason::NoInformation,
         };
-        let (stdout, stdout_handle) = make_terminal_writer();
-        let (stderr, stderr_handle) = make_terminal_writer();
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
 
         CrashNotifier::handle_broadcast(msg, &stdout, &stderr).await;
 
-        assert_eq! (stdout_handle.lock().unwrap().get_string(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\n".to_string());
-        assert_eq!(stderr_handle.lock().unwrap().get_string(), "".to_string());
+        assert_eq! (stdout_handle.drain_test_output(), "\nThe Node running as process 12345 terminated.\nThe Daemon is once more accepting setup changes.\n\n".to_string());
+        assert_eq!(stderr_handle.drain_test_output(), "".to_string());
     }
 
     #[tokio::test]

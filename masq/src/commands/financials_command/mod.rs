@@ -296,7 +296,6 @@ mod tests {
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
-    use nix::libc::clone;
     use regex::Regex;
     use std::sync::{Arc, Mutex};
     use std::vec;

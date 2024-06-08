@@ -510,10 +510,10 @@ NAME                          VALUE                                             
             errors: vec![],
         };
         let (stream_factory, handle) = TestStreamFactory::new();
-        let (stdout, stdout_arc) = make_terminal_writer();
+        let (stdout, mut stdout_handle) = make_terminal_writer();
 
         SetupCommand::dump_setup(UiSetupInner::from(message), &stdout).await;
 
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), expected);
+        assert_eq!(stdout_handle.drain_test_output(), expected);
     }
 }

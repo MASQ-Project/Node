@@ -706,18 +706,17 @@ mod tests {
         (subject, stop_handle)
     }
 
-    #[test]
-    fn handle_demand_brings_the_party_to_a_close_if_the_channel_fails() {
-        let rt = make_rt();
-        let inner = make_inner(&rt);
+    #[tokio::test]
+    async fn handle_demand_brings_the_party_to_a_close_if_the_channel_fails() {
+        let inner = make_inner().await;
 
         let inner = make_rt().block_on(ConnectionManagerEventLoop::handle_demand(inner, None));
 
         assert_eq!(inner.active_port, None);
     }
 
-    #[test]
-    fn handles_interleaved_conversations() {
+    #[tokio::test]
+    async fn handles_interleaved_conversations() {
         #[cfg(target_os = "windows")]
         {
             if is_running_under_github_actions() {
@@ -742,8 +741,7 @@ mod tests {
                 }
                 .tmb(2),
             );
-        let rt = make_multi_thread_rt();
-        let (subject, stop_handle) = rt.block_on(make_subject(server));
+        let (subject, stop_handle) = make_subject(server).await;
         let conversation1 = subject.start_conversation();
         let conversation2 = subject.start_conversation();
 
@@ -791,11 +789,10 @@ mod tests {
         let _ = stop_handle.stop();
     }
 
-    #[test]
-    fn handles_sending_fire_and_forget_messages() {
+    #[tokio::test]
+    async fn handles_sending_fire_and_forget_messages() {
         let server = MockWebSocketsServer::new(find_free_port());
-        let rt = make_multi_thread_rt();
-        let (subject, stop_handle) = rt.block_on(make_subject(server));
+        let (subject, stop_handle) = make_subject(server).await;
         let conversation = subject.start_conversation();
         let message1 = UiUnmarshalError {
             message: "Message 1".to_string(),
@@ -810,7 +807,7 @@ mod tests {
         conversation.send(message2.clone().tmb(0)).unwrap();
 
         //TODO how to do this right?
-        rt.block_on(tokio::time::sleep(Duration::from_millis(1000)));
+        // tokio::time::sleep(Duration::from_millis(1000));
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
             UiUnmarshalError::fmb(outgoing_messages.remove(0).unwrap()).unwrap(),
@@ -823,21 +820,20 @@ mod tests {
         assert_eq!(outgoing_messages.is_empty(), true);
     }
 
-    #[test]
-    fn conversations_waiting_is_set_correctly_for_normal_operation() {
+    #[tokio::test]
+    async fn conversations_waiting_is_set_correctly_for_normal_operation() {
         let port = find_free_port();
-        let rt = make_rt();
         let server = MockWebSocketsServer::new(port)
             .queue_string("irrelevant")
             .queue_string("irrelevant");
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let (_, talker_half) = WSTestClient::new(port).split();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = unbounded_channel();
         let (conversation_return_tx, conversation_return_rx) = unbounded();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.next_context_id = 1;
         inner.conversation_return_tx = conversation_return_tx;
         inner.listener_to_manager_rx = listener_to_manager_rx;
@@ -847,11 +843,11 @@ mod tests {
         inner.redirect_order_rx = redirect_order_rx;
         inner.demand_rx = demand_rx;
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
         let conversation1 = conversation_return_rx.try_recv().unwrap();
         let (conversation1_tx, conversation1_rx) = conversation1.tx_rx();
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
         let conversation2 = conversation_return_rx.try_recv().unwrap();
         let (conversation2_tx, conversation2_rx) = conversation2.tx_rx();
         let get_existing_keys = |inner: &CmsInner| {
@@ -872,7 +868,7 @@ mod tests {
                 UiShutdownRequest {}.tmb(1),
             ))
             .unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner)); // send request 1
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await; // send request 1
 
         // Conversations 1 and 2, 1 waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
@@ -884,7 +880,7 @@ mod tests {
                 UiShutdownRequest {}.tmb(2),
             ))
             .unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
 
         // Conversations 1 and 2, 1 and 2 waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
@@ -894,7 +890,7 @@ mod tests {
         let response2 = UiShutdownResponse {}.tmb(2);
         assert_eq!(response2.path, MessagePath::Conversation(2));
         listener_to_manager_tx.send(Ok(response2)).unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
         let result2 = conversation2_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, 1 still waiting
@@ -906,7 +902,7 @@ mod tests {
         let response1 = UiShutdownResponse {}.tmb(1);
         assert_eq!(response1.path, MessagePath::Conversation(1));
         listener_to_manager_tx.send(Ok(response1)).unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
         let result1 = conversation1_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, nobody waiting
@@ -919,7 +915,7 @@ mod tests {
         conversation1_tx
             .send(OutgoingMessageType::SignOff(1))
             .unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
 
         // Only Conversation 2, nobody waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![2]));
@@ -929,7 +925,7 @@ mod tests {
         conversation2_tx
             .send(OutgoingMessageType::SignOff(2))
             .unwrap();
-        inner = rt.block_on(ConnectionManagerEventLoop::loop_guts(inner));
+        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
 
         // No more conversations, nobody waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![]));
@@ -938,30 +934,25 @@ mod tests {
         let _ = stop_handle.stop();
     }
 
-    #[test]
-    fn when_fallback_fails_daemon_crash_broadcast_is_sent() {
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+    #[tokio::test]
+    async fn when_fallback_fails_daemon_crash_broadcast_is_sent() {
+        let mut inner = make_inner().await;
         let broadcast_handle_send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handle =
             BroadcastHandleMock::default().send_params(&broadcast_handle_send_params_arc);
         inner.active_port = None;
         inner.broadcast_handles.standard = Box::new(broadcast_handle);
 
-        let join_handle = {
-            let _enter_guard = rt.enter();
-            ConnectionManagerEventLoop::spawn(inner)
-        };
+        ConnectionManagerEventLoop::spawn(inner).await.unwrap();
 
-        let _ = rt.block_on(join_handle);
         let mut broadcast_handle_send_params = broadcast_handle_send_params_arc.lock().unwrap();
         let message_body: MessageBody = (*broadcast_handle_send_params).remove(0);
         let crash_broadcast = UiNodeCrashedBroadcast::fmb(message_body).unwrap().0;
         assert_eq!(crash_broadcast.crash_reason, CrashReason::DaemonCrashed);
     }
 
-    #[test]
-    fn handles_listener_fallback_from_node() {
+    #[tokio::test]
+    async fn handles_listener_fallback_from_node() {
         let daemon_port = find_free_port();
         let expected_incoming_message = UiSetupResponse {
             running: false,
@@ -969,14 +960,13 @@ mod tests {
             errors: vec![],
         }
         .tmb(4);
-        let rt = make_rt();
         let daemon = MockWebSocketsServer::new(daemon_port)
             .queue_response(expected_incoming_message.clone());
-        let stop_handle = rt.block_on(daemon.start());
+        let stop_handle = daemon.start().await;
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = unbounded();
         let (decoy_tx, decoy_rx) = unbounded();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.active_port = Some(node_port);
         inner.daemon_port = daemon_port;
         inner.node_port = Some(node_port);
@@ -984,9 +974,7 @@ mod tests {
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
-            inner, None,
-        ));
+        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(inner, None).await;
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -998,12 +986,13 @@ mod tests {
         assert_eq!(inner.daemon_port, daemon_port);
         assert_eq!(inner.node_port, None);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
-        let _ = rt.block_on(ConnectionManagerEventLoop::handle_outgoing_message_body(
+        let _ = ConnectionManagerEventLoop::handle_outgoing_message_body(
             inner,
             Some(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
             )),
-        ));
+        )
+        .await;
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
             outgoing_messages.remove(0),
@@ -1011,13 +1000,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn doesnt_fall_back_from_daemon() {
+    #[tokio::test]
+    async fn doesnt_fall_back_from_daemon() {
         let unoccupied_port = find_free_port();
         let (waiting_conversation_tx, waiting_conversation_rx) = unbounded();
         let (idle_conversation_tx, idle_conversation_rx) = unbounded();
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.daemon_port = unoccupied_port;
         inner.active_port = Some(unoccupied_port);
         inner.node_port = None;
@@ -1025,10 +1013,8 @@ mod tests {
         inner.conversations.insert(5, idle_conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::fallback(
-            inner,
-            NodeConversationTermination::Fatal,
-        ));
+        let inner =
+            ConnectionManagerEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1045,13 +1031,12 @@ mod tests {
         assert_eq!(inner.node_port, None);
     }
 
-    #[test]
-    fn doesnt_fall_back_from_disconnected() {
+    #[tokio::test]
+    async fn doesnt_fall_back_from_disconnected() {
         let unoccupied_port = find_free_port();
         let (waiting_conversation_tx, waiting_conversation_rx) = unbounded();
         let (idle_conversation_tx, idle_conversation_rx) = unbounded();
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.daemon_port = unoccupied_port;
         inner.active_port = None;
         inner.node_port = None;
@@ -1059,10 +1044,8 @@ mod tests {
         inner.conversations.insert(5, idle_conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::fallback(
-            inner,
-            NodeConversationTermination::Fatal,
-        ));
+        let inner =
+            ConnectionManagerEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1079,18 +1062,18 @@ mod tests {
         assert_eq!(inner.node_port, None);
     }
 
-    #[test]
-    fn handle_redirect_order_handles_rejection_from_node() {
+    #[tokio::test]
+    async fn handle_redirect_order_handles_rejection_from_node() {
         let node_port = find_free_port(); // won't put anything on this port
         let (redirect_response_tx, redirect_response_rx) = unbounded();
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.redirect_response_tx = redirect_response_tx;
 
-        make_rt().block_on(ConnectionManagerEventLoop::handle_redirect_order(
+        ConnectionManagerEventLoop::handle_redirect_order(
             inner,
             Some(RedirectOrder::new(node_port, 0, 1000)),
-        ));
+        )
+        .await;
 
         let response = redirect_response_rx.try_recv().unwrap();
         match response {
@@ -1102,12 +1085,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn handle_redirect_order_disappoints_waiting_conversations_with_resend_or_graceful() {
+    #[tokio::test]
+    async fn handle_redirect_order_disappoints_waiting_conversations_with_resend_or_graceful() {
         let node_port = find_free_port();
-        let rt = make_rt();
         let server = MockWebSocketsServer::new(node_port);
-        let server_stop_handle = rt.block_on(server.start());
+        let server_stop_handle = server.start().await;
         let (redirect_response_tx, redirect_response_rx) = unbounded();
         let (conversation1_tx, conversation1_rx) = unbounded();
         let (conversation2_tx, conversation2_rx) = unbounded();
@@ -1115,15 +1097,16 @@ mod tests {
             .into_iter()
             .collect();
         let conversations_waiting = vec_to_set(vec![1, 2]);
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.redirect_response_tx = redirect_response_tx;
         inner.conversations = conversations;
         inner.conversations_waiting = conversations_waiting;
 
-        inner = rt.block_on(ConnectionManagerEventLoop::handle_redirect_order(
+        inner = ConnectionManagerEventLoop::handle_redirect_order(
             inner,
             Some(RedirectOrder::new(node_port, 1, 1000)),
-        ));
+        )
+        .await;
 
         let get_existing_keys = |inner: &CmsInner| {
             inner
@@ -1146,13 +1129,12 @@ mod tests {
         let _ = server_stop_handle.stop();
     }
 
-    #[test]
-    fn handles_listener_fallback_from_daemon() {
+    #[tokio::test]
+    async fn handles_listener_fallback_from_daemon() {
         let daemon_port = find_free_port();
         let (conversation_tx, conversation_rx) = unbounded();
         let (decoy_tx, decoy_rx) = unbounded();
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.active_port = Some(daemon_port);
         inner.daemon_port = daemon_port;
         inner.node_port = None;
@@ -1160,9 +1142,7 @@ mod tests {
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let _ = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
-            inner, None,
-        ));
+        let _ = ConnectionManagerEventLoop::handle_incoming_message_body(inner, None).await;
 
         let disappointment = conversation_rx.try_recv().unwrap();
         assert_eq!(disappointment, Err(NodeConversationTermination::Fatal));
@@ -1170,8 +1150,8 @@ mod tests {
         assert_eq!(disappointment, Err(NodeConversationTermination::Fatal));
     }
 
-    #[test]
-    fn handles_fatal_reception_failure() {
+    #[tokio::test]
+    async fn handles_fatal_reception_failure() {
         let daemon_port = find_free_port();
         let expected_incoming_message = UiSetupResponse {
             running: false,
@@ -1181,12 +1161,11 @@ mod tests {
         .tmb(4);
         let daemon = MockWebSocketsServer::new(daemon_port)
             .queue_response(expected_incoming_message.clone());
-        let rt = make_rt();
-        let stop_handle = rt.block_on(daemon.start());
+        let stop_handle = daemon.start().await;
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = unbounded();
         let (decoy_tx, decoy_rx) = unbounded();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.active_port = Some(node_port);
         inner.daemon_port = daemon_port;
         inner.node_port = Some(node_port);
@@ -1194,10 +1173,11 @@ mod tests {
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
             inner,
             Some(Err(ClientListenerError::Broken("Booga".to_string()))),
-        ));
+        )
+        .await;
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1209,12 +1189,13 @@ mod tests {
         assert_eq!(inner.daemon_port, daemon_port);
         assert_eq!(inner.node_port, None);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
-        let _ = rt.block_on(ConnectionManagerEventLoop::handle_outgoing_message_body(
+        let _ = ConnectionManagerEventLoop::handle_outgoing_message_body(
             inner,
             Some(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
             )),
-        ));
+        )
+        .await;
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
             outgoing_messages.remove(0),
@@ -1222,23 +1203,23 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handles_nonfatal_reception_failure() {
+    #[tokio::test]
+    async fn handles_nonfatal_reception_failure() {
         let daemon_port = find_free_port();
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = unbounded();
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.active_port = Some(node_port);
         inner.daemon_port = daemon_port;
         inner.node_port = Some(node_port);
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
             inner,
             Some(Err(ClientListenerError::UnexpectedPacket)),
-        ));
+        )
+        .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no disconnect notification sent
         assert_eq!(inner.active_port, Some(node_port));
@@ -1247,27 +1228,27 @@ mod tests {
         assert_eq!(inner.conversations_waiting.is_empty(), false);
     }
 
-    #[test]
-    fn handles_broadcast() {
+    #[tokio::test]
+    async fn handles_broadcast() {
         let incoming_message = UiSetupBroadcast {
             running: false,
             values: vec![],
             errors: vec![],
         }
         .tmb(0);
-        let rt = make_rt();
         let (conversation_tx, conversation_rx) = unbounded();
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handler = BroadcastHandleMock::default().send_params(&send_params_arc);
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
         inner.broadcast_handles.standard = Box::new(broadcast_handler);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
-        ));
+        )
+        .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no message to any conversation
         assert_eq!(inner.conversations_waiting.is_empty(), false);
@@ -1275,8 +1256,8 @@ mod tests {
         assert_eq!(*send_params, vec![incoming_message]);
     }
 
-    #[test]
-    fn can_follow_redirect() {
+    #[tokio::test]
+    async fn can_follow_redirect() {
         #[cfg(target_os = "windows")]
         {
             if is_running_under_github_actions() {
@@ -1297,8 +1278,7 @@ mod tests {
             }
             .tmb(1),
         );
-        let rt = make_multi_thread_rt();
-        let node_stop_handle = rt.block_on(node_server.start());
+        let node_stop_handle = node_server.start().await;
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new (daemon_port)
             .queue_response (UiRedirect {
@@ -1307,7 +1287,7 @@ mod tests {
                 context_id: Some(1),
                 payload: r#"{"payableMinimumAmount":12,"payableMaximumAge":23,"receivableMinimumAmount":34,"receivableMaximumAge":45}"#.to_string()
             }.tmb(0));
-        let daemon_stop_handle = rt.block_on(daemon_server.start());
+        let daemon_stop_handle = daemon_server.start().await;
         let request = UiFinancialsRequest {
             stats_required: true,
             top_records_opt: None,
@@ -1350,56 +1330,55 @@ mod tests {
         daemon_stop_handle.stop();
     }
 
-    #[test]
-    fn handles_response_to_nonexistent_conversation() {
+    #[tokio::test]
+    async fn handles_response_to_nonexistent_conversation() {
         let incoming_message = UiSetupResponse {
             running: false,
             values: vec![],
             errors: vec![],
         }
         .tmb(3);
-        let rt = make_rt();
         let (conversation_tx, conversation_rx) = unbounded();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
-        ));
+        )
+        .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no message to any conversation
         assert_eq!(inner.conversations_waiting.is_empty(), false);
     }
 
-    #[test]
-    fn handles_response_to_dead_conversation() {
+    #[tokio::test]
+    async fn handles_response_to_dead_conversation() {
         let incoming_message = UiSetupResponse {
             running: false,
             values: vec![],
             errors: vec![],
         }
         .tmb(4);
-        let rt = make_rt();
         let (conversation_tx, _) = unbounded();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = rt.block_on(ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
-        ));
+        )
+        .await;
 
         assert_eq!(inner.conversations.is_empty(), true);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
     }
 
-    #[test]
-    fn handles_failed_conversation_requester() {
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+    #[tokio::test]
+    async fn handles_failed_conversation_requester() {
+        let mut inner = make_inner().await;
         let (conversation_return_tx, _) = unbounded();
         inner.next_context_id = 42;
         inner.conversation_return_tx = conversation_return_tx;
@@ -1410,17 +1389,16 @@ mod tests {
         assert_eq!(inner.conversations.is_empty(), true);
     }
 
-    #[test]
-    fn handles_fire_and_forget_outgoing_message() {
+    #[tokio::test]
+    async fn handles_fire_and_forget_outgoing_message() {
         let port = find_free_port();
-        let rt = make_rt();
         let server = MockWebSocketsServer::new(port);
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         let (_, talker_half) = WSTestClient::new(port).split();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = unbounded_channel();
         let (_listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.next_context_id = 1;
         inner.conversations_to_manager_tx = conversations_to_manager_tx;
         inner.conversations_to_manager_rx = conversations_to_manager_rx;
@@ -1433,13 +1411,14 @@ mod tests {
         }
         .tmb(0);
 
-        let _ = rt.block_on(ConnectionManagerEventLoop::handle_outgoing_message_body(
+        let _ = ConnectionManagerEventLoop::handle_outgoing_message_body(
             inner,
             Some(OutgoingMessageType::FireAndForgetMessage(
                 outgoing_message.clone(),
                 1,
             )),
-        ));
+        )
+        .await;
 
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
@@ -1448,12 +1427,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn handles_outgoing_conversation_messages_to_dead_server() {
+    #[tokio::test]
+    async fn handles_outgoing_conversation_messages_to_dead_server() {
         let daemon_port = find_free_port();
-        let rt = make_rt();
         let daemon_server = MockWebSocketsServer::new(daemon_port).queue_string("disconnect");
-        let daemon_stop_handle = rt.block_on(daemon_server.start());
+        let daemon_stop_handle = daemon_server.start().await;
         let (conversation1_tx, conversation1_rx) = unbounded();
         let (conversation2_tx, conversation2_rx) = unbounded();
         let (conversation3_tx, conversation3_rx) = unbounded();
@@ -1468,26 +1446,27 @@ mod tests {
                 u64,
                 crossbeam_channel::Sender<Result<MessageBody, NodeConversationTermination>>,
             >>();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.daemon_port = daemon_port;
         inner.conversations = conversations;
         inner.conversations_waiting = vec_to_set(vec![2, 3]);
-        #[cfg(target_os = "macos")]
-        {
-            // macOS doesn't fail sends until some time after the pipe is broken: weird! Sick!
-            let _ = inner.talker_half.sender.send_message(
-                &mut inner.talker_half.stream,
-                &OwnedMessage::Text("booga".to_string()),
-            );
-            thread::sleep(Duration::from_millis(500));
-        }
+        // #[cfg(target_os = "macos")]
+        // {
+        //     // macOS doesn't fail sends until some time after the pipe is broken: weird! Sick!
+        //     let _ = inner.talker_half.send(
+        //         &mut inner.talker_half.stream,
+        //         &OwnedMessage::Text("booga".to_string()),
+        //     );
+        //     thread::sleep(Duration::from_millis(500));
+        // }
 
-        inner = rt.block_on(ConnectionManagerEventLoop::handle_outgoing_message_body(
+        inner = ConnectionManagerEventLoop::handle_outgoing_message_body(
             inner,
             Some(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(2),
             )),
-        ));
+        )
+        .await;
 
         assert_eq!(conversation1_rx.try_recv(), Err(TryRecvError::Empty)); // Wasn't waiting
         assert_eq!(
@@ -1502,36 +1481,35 @@ mod tests {
         let _ = daemon_stop_handle.stop();
     }
 
-    #[test]
-    fn handles_outgoing_conversation_message_from_nonexistent_conversation() {
+    #[tokio::test]
+    async fn handles_outgoing_conversation_message_from_nonexistent_conversation() {
         let conversations = vec![(1, unbounded().0), (2, unbounded().0)]
             .into_iter()
             .collect::<HashMap<
                 u64,
                 crossbeam_channel::Sender<Result<MessageBody, NodeConversationTermination>>,
             >>();
-        let rt = make_rt();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.conversations = conversations;
         inner.conversations_waiting = vec_to_set(vec![1]);
 
-        inner = rt.block_on(ConnectionManagerEventLoop::handle_outgoing_message_body(
+        inner = ConnectionManagerEventLoop::handle_outgoing_message_body(
             inner,
             Some(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(42),
             )),
-        ));
+        )
+        .await;
 
         assert_eq!(inner.conversations.len(), 2);
         assert_eq!(inner.conversations_waiting.len(), 1);
     }
 
-    #[test]
-    fn handles_outgoing_fire_and_forget_messages_to_dead_server() {
+    #[tokio::test]
+    async fn handles_outgoing_fire_and_forget_messages_to_dead_server() {
         let daemon_port = find_free_port();
-        let rt = make_rt();
         let daemon_server = MockWebSocketsServer::new(daemon_port);
-        let daemon_stop_handle = rt.block_on(daemon_server.start());
+        let daemon_stop_handle = daemon_server.start().await;
         let (conversation1_tx, conversation1_rx) = unbounded();
         let (conversation2_tx, conversation2_rx) = unbounded();
         let (conversation3_tx, conversation3_rx) = unbounded();
@@ -1546,21 +1524,21 @@ mod tests {
                 u64,
                 crossbeam_channel::Sender<Result<MessageBody, NodeConversationTermination>>,
             >>();
-        let mut inner = make_inner(&rt);
+        let mut inner = make_inner().await;
         inner.daemon_port = daemon_port;
         inner.conversations = conversations;
         inner.conversations_waiting = vec_to_set(vec![2, 3]);
-        #[cfg(target_os = "macos")]
-        {
-            // macOS doesn't fail sends until some time after the pipe is broken: weird! Sick!
-            let _ = inner.talker_half.sender.send_message(
-                &mut inner.talker_half.stream,
-                &OwnedMessage::Text("booga".to_string()),
-            );
-            thread::sleep(Duration::from_millis(500));
-        }
+        // #[cfg(target_os = "macos")]
+        // {
+        //     // macOS doesn't fail sends until some time after the pipe is broken: weird! Sick!
+        //     let _ = inner.talker_half.sender.send_message(
+        //         &mut inner.talker_half.stream,
+        //         &OwnedMessage::Text("booga".to_string()),
+        //     );
+        //     thread::sleep(Duration::from_millis(500));
+        // }
 
-        inner = rt.block_on(ConnectionManagerEventLoop::handle_outgoing_message_body(
+        inner = ConnectionManagerEventLoop::handle_outgoing_message_body(
             inner,
             Some(OutgoingMessageType::FireAndForgetMessage(
                 UiUnmarshalError {
@@ -1570,7 +1548,8 @@ mod tests {
                 .tmb(0),
                 2,
             )),
-        ));
+        )
+        .await;
 
         let _ = daemon_stop_handle.stop();
         assert_eq!(conversation1_rx.try_recv(), Err(TryRecvError::Empty)); // Wasn't waiting
@@ -1585,17 +1564,17 @@ mod tests {
         assert_eq!(inner.conversations_waiting.is_empty(), true);
     }
 
-    #[test]
-    fn handles_close_order() {
+    #[tokio::test]
+    async fn handles_close_order() {
         running_test();
         let port = find_free_port();
-        let rt = make_multi_thread_rt();
         let server = MockWebSocketsServer::new(port);
-        let stop_handle = rt.block_on(server.start());
+        let stop_handle = server.start().await;
         thread::sleep(Duration::from_millis(500)); // let the server get started
         let mut bootstrapper = ConnectionManagerBootstrapper::default();
-        let connectors = rt
-            .block_on(bootstrapper.spawn_background_loops(port, None, 1000))
+        let connectors = bootstrapper
+            .spawn_background_loops(port, None, 1000)
+            .await
             .unwrap();
         let subject = ConnectionManager::new(connectors);
         let conversation1 = subject.start_conversation();
@@ -1618,7 +1597,7 @@ mod tests {
         assert_eq!(received, vec![Err("Close(None)".to_string())]);
     }
 
-    fn make_inner(rt: &Runtime) -> CmsInner {
+    async fn make_inner() -> CmsInner {
         let broadcast_handles = BroadcastHandles::new(
             Box::new(BroadcastHandleMock::default()),
             Box::new(BroadcastHandleMock::default()),
@@ -1635,7 +1614,7 @@ mod tests {
             conversations_to_manager_tx: unbounded_channel().0,
             conversations_to_manager_rx: unbounded_channel().1,
             listener_to_manager_rx: unbounded_channel().1,
-            talker_half: rt.block_on(make_broken_talker_half()),
+            talker_half: make_broken_talker_half().await,
             broadcast_handles,
             redirect_order_rx: unbounded_channel().1,
             redirect_response_tx: unbounded().0,
