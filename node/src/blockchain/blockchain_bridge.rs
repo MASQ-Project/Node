@@ -904,64 +904,6 @@ mod tests {
         )
     }
 
-    fn assert_failure_during_balance_inspection(
-        test_name: &str,
-        blockchain_interface: BlockchainInterfaceMock,
-        error_msg: &str,
-    ) {
-        init_test_logging();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant
-            .system_stop_conditions(match_every_type_id!(ScanError))
-            .start()
-            .recipient();
-        let persistent_configuration = PersistentConfigurationMock::default();
-        let consuming_wallet = make_wallet(test_name);
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(persistent_configuration),
-            false,
-            Some(consuming_wallet),
-        );
-        subject.logger = Logger::new(test_name);
-        subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = QualifiedPayablesMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
-                wallet: make_wallet("blah"),
-                balance_wei: 42,
-                last_paid_timestamp: SystemTime::now(),
-                pending_payable_opt: None,
-            }]),
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 11,
-                context_id: 2323,
-            }),
-        };
-        let subject_addr = subject.start();
-        let system = System::new(test_name);
-
-        // Don't eliminate or bypass this message as an important check that
-        // the Handler employs scan_handle()
-        subject_addr.try_send(request).unwrap();
-
-        system.run();
-        let recording = accountant_recording_arc.lock().unwrap();
-        let message = recording.get_record::<ScanError>(0);
-        assert_eq!(recording.len(), 1);
-        assert_eq!(
-            message,
-            &ScanError {
-                scan_type: ScanType::Payables,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 11,
-                    context_id: 2323
-                }),
-                msg: error_msg.to_string()
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, error_msg));
-    }
-
     #[test]
     fn handle_request_balances_to_pay_payables_fails_at_missing_consuming_wallet() {
         let blockchain_interface = BlockchainInterfaceMock::default();

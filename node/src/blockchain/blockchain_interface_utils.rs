@@ -3,9 +3,7 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    to_wei, HashAndAmount, TRANSFER_METHOD_ID,
-};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{to_wei, HashAndAmount, TRANSFER_METHOD_ID, BlockchainInterfaceWeb3};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
@@ -39,21 +37,6 @@ pub struct BlockchainAgentFutureResult {
     pub masq_token_balance: U256,
     pub pending_transaction_id: U256,
 }
-fn base_gas_limit(chain: Chain) -> u64 {
-    //TODO: GH-744: There is a duplicated function web3_gas_limit_const_part
-    match chain {
-        Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-        Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
-    }
-}
-
-// fn web3_gas_limit_const_part(chain: Chain) -> u64 {
-//     match chain {
-//         Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-//         Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
-//     }
-// }
-
 pub fn advance_used_nonce(current_nonce: U256) -> U256 {
     current_nonce
         .checked_add(U256::one())
@@ -141,7 +124,7 @@ pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68]
     return data;
 }
 pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
-    let base_gas_limit = base_gas_limit(chain);
+    let base_gas_limit = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain);
     let gas_limit = ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
         acc + if v == &0u8 { 4 } else { 68 }
     }))
@@ -209,28 +192,11 @@ pub fn handle_new_transaction(
     signed_tx.transaction_hash
 }
 
-pub fn send_transaction_not_working(
-    batch_web3: Web3<Batch<Http>>,
-    raw_transaction: Bytes,
-) -> Box<dyn Future<Item = H256, Error = PayableTransactionError>> {
-    // TODO: GH-744 delete this I think
-    Box::new(batch_web3.eth().send_raw_transaction(raw_transaction).then(
-        move |result| match result {
-            Ok(result) => Ok(result),
-            Err(e) => Err(PayableTransactionError::Sending {
-                msg: e.to_string(),
-                hashes: vec![],
-            }),
-        },
-    ))
-}
-
 pub fn append_signed_transaction_to_batch(web3_batch: Web3<Batch<Http>>, raw_transaction: Bytes) {
     // This function only prepares a raw transaction for a batch call and doesn't actually send it right here.
     web3_batch.eth().send_raw_transaction(raw_transaction);
 }
 
-// TODO: GH-744 Rename and refactor this function after merging with Master
 pub fn sign_and_append_payment(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
@@ -1406,6 +1372,11 @@ mod tests {
         ];
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &signed_transaction_data)
+    }
+
+    #[test]
+    fn gas_limit_for_polygon_mumbai_lies_within_limits_for_raw_transaction() {
+        test_gas_limit_is_between_limits(Chain::PolyMumbai);
     }
 
     #[test]

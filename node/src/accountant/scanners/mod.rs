@@ -854,7 +854,6 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
-        // todo!("GH-744: We want to refactor and test drive this - finish_scan (Make sure start block is updated in the database)");
         match msg.scan_result {
             Ok(payments_and_start_block) => {
                 self.handle_new_received_payments(&payments_and_start_block, msg.timestamp, logger);
@@ -921,7 +920,7 @@ impl ReceivableScanner {
         timestamp: SystemTime,
         logger: &Logger,
     ) {
-        // todo!("GH-744: We want to refactor and test drive this");
+        // TODO: GH-744: We want to refactor this maybe;
         if payments_and_start_block.payments.is_empty() {
             info!(
                 logger,
@@ -1152,10 +1151,7 @@ mod tests {
         PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
         ReceivableDaoMock, ReceivableScannerBuilder,
     };
-    use crate::accountant::{
-        gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts,
-        RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC,
-    };
+    use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC, PaymentsAndStartBlock};
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
@@ -3092,9 +3088,11 @@ mod tests {
         let mut subject = ReceivableScannerBuilder::new()
             .persistent_configuration(persistent_config)
             .build();
+        let mut scan_result = make_empty_payments_and_start_block();
+        scan_result.new_start_block = 6709;
         let msg = ReceivedPayments {
             timestamp: now,
-            scan_result: Ok(make_empty_payments_and_start_block()),
+            scan_result: Ok(scan_result),
             response_skeleton_opt: None,
         };
 
@@ -3198,11 +3196,12 @@ mod tests {
             from: make_wallet("abc"),
             wei_amount: 45_780,
         }];
-        let mut scan_result = make_empty_payments_and_start_block();
-        scan_result.payments = receivables;
         let msg = ReceivedPayments {
             timestamp: now,
-            scan_result: Ok(scan_result),
+            scan_result: Ok(PaymentsAndStartBlock {
+                payments: receivables,
+                new_start_block: 7890123,
+            }),
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness

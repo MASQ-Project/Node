@@ -3187,6 +3187,7 @@ mod tests {
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         // TODO GH-744  Failing test, need to either create a mock or use hardhat/ganache - for - submit_batch
         // todo!("GH-744: Failing test, need to either create a mock or use hardhat/ganache - for - submit_batch");
+
         // init_test_logging();
         //     let build_blockchain_agent_params = Arc::new(Mutex::new(vec![]));
         //     let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
