@@ -2691,7 +2691,7 @@ mod tests {
         system.run();
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
-        todo!("""\
+        todo!("""
             This test makes no sense.
                 1. The reason we're not getting a route is because our neighborhood has only half neighborships, which are invisible to the routing engine.
                 2. The test is supposed to be walletless, but the consuming wallet is created and not removed
