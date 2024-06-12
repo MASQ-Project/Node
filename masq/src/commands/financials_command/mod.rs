@@ -80,6 +80,7 @@ macro_rules! dump_statistics_lines {
        $(dump_parameter_line(
                 $stdout,
                 $parameter_name,
+                None,
                 &process_gwei_into_requested_format($stats.$gwei, $gwei_flag),
             )
        );+

@@ -9,7 +9,6 @@ use crate::communications::client_listener_thread::{ClientListener, ClientListen
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
-use crate::test_utils::mocks::RedirectBroadcastHandleFactoryMock;
 use async_channel::Sender as WSSender;
 use async_trait::async_trait;
 use crossbeam_channel::{unbounded, RecvTimeoutError};
@@ -636,7 +635,8 @@ mod tests {
     use crate::communications::node_conversation::ClientError;
     use crate::test_utils::client_utils::WSTestClient;
     use crate::test_utils::mocks::{
-        StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock,
+        RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock,
+        StandardBroadcastHandlerMock,
     };
     use crossbeam_channel::TryRecvError;
     use masq_lib::messages::{

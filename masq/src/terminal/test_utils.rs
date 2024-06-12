@@ -1,11 +1,14 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
     WTermInterfaceDup, WriteResult, WriteStreamType,
 };
+use crate::test_utils::mocks::TerminalWriterTestReceiver;
 use async_trait::async_trait;
 use itertools::{Either, Itertools};
 use liso::Response;
@@ -251,7 +254,15 @@ pub struct FlushHandleInnerMock {
     // Arc<Mutex<T>> is required
     flush_during_drop_params: Arc<Mutex<Vec<()>>>,
     flush_during_drop_results: Arc<Mutex<Vec<Result<(), WriteResult>>>>,
-    stream_type_results: Arc<Mutex<Vec<WriteStreamType>>>,
+    // Once specified, it should always return the same value
+    stream_type_result: Option<WriteStreamType>,
+    // For tests with requirement on real connection with the TerminalWriter
+    terminal_writer_connection_opt: Option<TerminalWriterLinkToFlushHandleInnerMock>,
+}
+
+pub struct TerminalWriterLinkToFlushHandleInnerMock {
+    output_receiver: TerminalWriterTestReceiver,
+    flushed_strings: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait]
@@ -265,12 +276,31 @@ impl FlushHandleInner for FlushHandleInnerMock {
     }
 
     fn stream_type(&self) -> WriteStreamType {
-        self.stream_type_results.lock().unwrap().remove(0)
+        *self.stream_type_result.as_ref().expect(">> Mock issue: WriteStreamType in FlushHandleInnerMock was not specified in the test setup <<")
     }
 
     async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
         self.flush_during_drop_params.lock().unwrap().push(());
-        self.flush_during_drop_results.lock().unwrap().remove(0)
+        if let Some(linked) = self.terminal_writer_connection_opt.as_mut() {
+            let output_to_be_flushed = linked.output_receiver.drain_test_output();
+            if !output_to_be_flushed.is_empty() {
+                linked
+                    .flushed_strings
+                    .lock()
+                    .unwrap()
+                    .push(output_to_be_flushed)
+            }
+        }
+        // I think this is a better solution than the standard layout because this utility can also
+        // be found in some nested test utils, and it'd be quite hard to supply the expected result
+        // for each successful write. It also isn't clearly discoverable and so this makes it easy.
+        // In the rare cases when you need the result be different you don't have to miss out, also
+        // possible.
+        if let Some(prepared_result) = self.flush_during_drop_results.lock().unwrap().pop() {
+            prepared_result
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -285,8 +315,27 @@ impl FlushHandleInnerMock {
         self
     }
 
-    pub fn stream_type_result(self, result: WriteStreamType) -> Self {
-        self.stream_type_results.lock().unwrap().push(result);
+    pub fn stream_type_result(mut self, result: WriteStreamType) -> Self {
+        self.stream_type_result.replace(result);
         self
     }
+
+    pub fn connect_terminal_writer(
+        mut self,
+        receiver_from_terminal_writer: UnboundedReceiver<String>,
+        reference_for_assertions_on_flushes: Arc<Mutex<Vec<String>>>,
+    ) -> Self {
+        let utils = TerminalWriterLinkToFlushHandleInnerMock {
+            output_receiver: TerminalWriterTestReceiver {
+                receiver_from_terminal_writer,
+            },
+            flushed_strings: reference_for_assertions_on_flushes,
+        };
+        self.terminal_writer_connection_opt = Some(utils);
+        self
+    }
+}
+
+pub async fn allow_spawned_task_to_finish() {
+    tokio::time::sleep(Duration::from_millis(1)).await
 }

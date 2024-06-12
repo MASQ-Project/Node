@@ -16,7 +16,7 @@ pub mod interactive_terminal_interface;
 mod liso_wrappers;
 pub mod non_interactive_terminal_interface;
 pub mod terminal_interface_factory;
-mod test_utils;
+pub mod test_utils;
 mod writing_utils;
 
 #[derive(Debug)]

@@ -3,8 +3,11 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
-    dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    add_char_after, dump_parameter_line,
+    dump_single_line_parameters, transaction, Command, CommandError, STANDARD_COLUMN_WIDTH,
+    STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::commands::configuration_command::value_list_interface::ValueList;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
@@ -16,7 +19,6 @@ use masq_lib::short_writeln;
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::iter::once;
 use std::sync::Arc;
 use thousands::Separable;
 
@@ -58,7 +60,7 @@ impl Command for ConfigurationCommand {
             transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
-                Self::dump_configuration(&stdout, response);
+                Self::dump_configuration(&stdout, response).await;
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
@@ -92,104 +94,141 @@ impl ConfigurationCommand {
         })
     }
 
-    fn dump_configuration(stream: &TerminalWriter, configuration: UiConfigurationResponse) {
-        dump_parameter_line(stream, "NAME", "VALUE");
-        dump_parameter_line(
+    async fn dump_configuration(stream: &TerminalWriter, configuration: UiConfigurationResponse) {
+        dump_parameter_line(stream, "NAME", None, "VALUE").await;
+        dump_single_line_parameters(
             stream,
-            "Blockchain service URL:",
-            &configuration
-                .blockchain_service_url_opt
-                .unwrap_or_else(|| "[?]".to_string()),
-        );
-        dump_parameter_line(stream, "Chain:", &configuration.chain_name);
-        dump_parameter_line(
-            stream,
-            "Clandestine port:",
-            &configuration.clandestine_port.to_string(),
-        );
-        dump_parameter_line(
-            stream,
-            "Consuming wallet private key:",
-            &Self::interpret_option(&configuration.consuming_wallet_private_key_opt),
-        );
-        dump_parameter_line(
-            stream,
-            "Current schema version:",
-            &configuration.current_schema_version,
-        );
-        dump_parameter_line(
-            stream,
-            "Earning wallet address:",
-            &Self::interpret_option(&configuration.earning_wallet_address_opt),
-        );
-        dump_parameter_line(stream, "Gas price:", &configuration.gas_price.to_string());
-        dump_parameter_line(
-            stream,
-            "Neighborhood mode:",
-            &configuration.neighborhood_mode,
-        );
-        dump_parameter_line(
-            stream,
-            "Port mapping protocol:",
-            &Self::interpret_option(&configuration.port_mapping_protocol_opt),
-        );
-        dump_parameter_line(
-            stream,
-            "Start block:",
-            &configuration.start_block.to_string(),
-        );
-        Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
-        let payment_thresholds = Self::preprocess_combined_parameters({
-            let p_c = &configuration.payment_thresholds;
-            &[
-                ("Debt threshold:", &p_c.debt_threshold_gwei, "gwei"),
-                ("Maturity threshold:", &p_c.maturity_threshold_sec, "s"),
-                ("Payment grace period:", &p_c.payment_grace_period_sec, "s"),
+            vec![
                 (
-                    "Permanent debt allowed:",
-                    &p_c.permanent_debt_allowed_gwei,
-                    "gwei",
+                    "Blockchain service URL",
+                    &configuration
+                        .blockchain_service_url_opt
+                        .unwrap_or_else(|| "[?]".to_string()),
                 ),
-                ("Threshold interval:", &p_c.threshold_interval_sec, "s"),
-                ("Unban below:", &p_c.unban_below_gwei, "gwei"),
-            ]
-        });
-        Self::dump_value_list(stream, "Payment thresholds:", &payment_thresholds);
-        let rate_pack = Self::preprocess_combined_parameters({
-            let r_p = &configuration.rate_pack;
-            &[
-                ("Routing byte rate:", &r_p.routing_byte_rate, "wei"),
-                ("Routing service rate:", &r_p.routing_service_rate, "wei"),
-                ("Exit byte rate:", &r_p.exit_byte_rate, "wei"),
-                ("Exit service rate:", &r_p.exit_service_rate, "wei"),
-            ]
-        });
-        Self::dump_value_list(stream, "Rate pack:", &rate_pack);
-        let scan_intervals = Self::preprocess_combined_parameters({
-            let s_i = &configuration.scan_intervals;
-            &[
-                ("Pending payable:", &s_i.pending_payable_sec, "s"),
-                ("Payable:", &s_i.payable_sec, "s"),
-                ("Receivable:", &s_i.receivable_sec, "s"),
-            ]
-        });
-        Self::dump_value_list(stream, "Scan intervals:", &scan_intervals);
-    }
-
-    fn dump_value_list(stream: &TerminalWriter, name: &str, values: &[String]) {
-        if values.is_empty() {
-            dump_parameter_line(stream, name, "[?]");
-            return;
-        }
-        let mut name_row = true;
-        values.iter().for_each(|value| {
-            if name_row {
-                dump_parameter_line(stream, name, value);
-                name_row = false;
-            } else {
-                dump_parameter_line(stream, "", value);
-            }
-        })
+                ("Chain", &configuration.chain_name),
+                (
+                    "Clandestine port",
+                    &configuration.clandestine_port.to_string(),
+                ),
+                (
+                    "Consuming wallet private key",
+                    &Self::interpret_option(&configuration.consuming_wallet_private_key_opt),
+                ),
+                (
+                    "Current schema version",
+                    &configuration.current_schema_version,
+                ),
+                (
+                    "Earning wallet address",
+                    &Self::interpret_option(&configuration.earning_wallet_address_opt),
+                ),
+                ("Gas price", &configuration.gas_price.to_string()),
+                ("Neighborhood mode", &configuration.neighborhood_mode),
+                (
+                    "Port mapping protocol",
+                    &Self::interpret_option(&configuration.port_mapping_protocol_opt),
+                ),
+                ("Start block", &configuration.start_block.to_string()),
+            ],
+        )
+        .await;
+        ValueList::default()
+            .umbrella_parameter_name("Past neighbors")
+            .format_list(&configuration.past_neighbors, |val| val.clone())
+            .dump_list(stream)
+            .await;
+        ValueList::default()
+            .umbrella_parameter_name("Payment thresholds")
+            .format_list(
+                &[
+                    (
+                        "Debt threshold",
+                        &configuration.payment_thresholds.debt_threshold_gwei
+                            as &dyn DisplaySeparable,
+                        "gwei",
+                    ),
+                    (
+                        "Maturity threshold",
+                        &configuration.payment_thresholds.maturity_threshold_sec,
+                        "s",
+                    ),
+                    (
+                        "Payment grace period",
+                        &configuration.payment_thresholds.payment_grace_period_sec,
+                        "s",
+                    ),
+                    (
+                        "Permanent debt allowed",
+                        &configuration.payment_thresholds.permanent_debt_allowed_gwei,
+                        "gwei",
+                    ),
+                    (
+                        "Threshold interval",
+                        &configuration.payment_thresholds.threshold_interval_sec,
+                        "s",
+                    ),
+                    (
+                        "Unban below",
+                        &configuration.payment_thresholds.unban_below_gwei,
+                        "gwei",
+                    ),
+                ],
+                combined_parameters_formatter,
+            )
+            .has_named_sub_parameters()
+            .dump_list(stream)
+            .await;
+        ValueList::default()
+            .umbrella_parameter_name("Rate pack")
+            .format_list(
+                &[
+                    (
+                        "Routing byte rate",
+                        &configuration.rate_pack.routing_byte_rate as &dyn DisplaySeparable,
+                        "wei",
+                    ),
+                    (
+                        "Routing service rate",
+                        &configuration.rate_pack.routing_service_rate,
+                        "wei",
+                    ),
+                    (
+                        "Exit byte rate",
+                        &configuration.rate_pack.exit_byte_rate,
+                        "wei",
+                    ),
+                    (
+                        "Exit service rate",
+                        &configuration.rate_pack.exit_service_rate,
+                        "wei",
+                    ),
+                ],
+                combined_parameters_formatter,
+            )
+            .has_named_sub_parameters()
+            .dump_list(stream)
+            .await;
+        ValueList::default()
+            .umbrella_parameter_name("Scan intervals")
+            .format_list(
+                &[
+                    (
+                        "Pending payable",
+                        &configuration.scan_intervals.pending_payable_sec as &dyn DisplaySeparable,
+                        "s",
+                    ),
+                    ("Payable", &configuration.scan_intervals.payable_sec, "s"),
+                    (
+                        "Receivable",
+                        &configuration.scan_intervals.receivable_sec,
+                        "s",
+                    ),
+                ],
+                combined_parameters_formatter,
+            )
+            .has_named_sub_parameters()
+            .dump_list(stream)
+            .await
     }
 
     fn interpret_option(value_opt: &Option<String>) -> String {
@@ -198,21 +237,115 @@ impl ConfigurationCommand {
             Some(s) => s.clone(),
         }
     }
+}
 
-    fn preprocess_combined_parameters(
-        parameters: &[(&str, &dyn DisplaySeparable, &str)],
-    ) -> Vec<String> {
-        let iter_of_strings = parameters.iter().map(|(description, value, unit)| {
-            format!(
-                "{:width$} {} {}",
-                description,
-                value.separate_with_commas(),
-                unit,
-                width = COLUMN_WIDTH
-            )
-        });
-        once(String::from("")).chain(iter_of_strings).collect()
+pub mod value_list_interface {
+    use crate::commands::commands_common::{
+        dump_already_formatted_parameter_line, dump_parameter_line, STANDARD_COLUMN_WIDTH,
+    };
+    use crate::commands::configuration_command::add_char_after;
+    use crate::terminal::TerminalWriter;
+    use futures::future::join_all;
+
+    #[derive(Default)]
+    pub struct ValueList {
+        umbrella_parameter_name_opt: Option<String>,
+        has_named_sub_parameters: bool,
+        prepared_formatted_values: Vec<String>,
     }
+
+    impl ValueList {
+        pub fn umbrella_parameter_name(mut self, str: &str) -> Self {
+            self.umbrella_parameter_name_opt.replace(str.to_string());
+            self
+        }
+
+        pub fn format_list<Formatter, UnformattedValue>(
+            mut self,
+            unformatted_list: &[UnformattedValue],
+            formatter: Formatter,
+        ) -> Self
+        where
+            Formatter: FnMut(&UnformattedValue) -> String,
+        {
+            self.prepared_formatted_values = unformatted_list.into_iter().map(formatter).collect();
+            self
+        }
+
+        pub fn has_named_sub_parameters(mut self) -> Self {
+            self.has_named_sub_parameters = true;
+            self
+        }
+
+        pub async fn dump_list(self, stream: &TerminalWriter) {
+            if !self.has_named_sub_parameters && self.prepared_formatted_values.is_empty() {
+                self.handle_empty_simple_list(stream).await;
+                return;
+            }
+            self.dump_list_internal(stream).await
+        }
+
+        async fn handle_empty_simple_list(&self, stream: &TerminalWriter) {
+            let header = self
+                .umbrella_parameter_name_opt
+                .as_ref()
+                .expect("Trying to dump an unnamed parameter list while list empty");
+            dump_parameter_line(stream, &header, Some(':'), "[?]").await;
+        }
+
+        async fn dump_list_internal(&self, stream: &TerminalWriter) {
+            let mut iterator = self.prepared_formatted_values.iter();
+            self.first_line_dilemma(&mut iterator, stream).await;
+            self.dump_formatted_values(iterator, stream).await
+        }
+
+        async fn first_line_dilemma(
+            &self,
+            iter: &mut impl Iterator<Item = &String>,
+            stream: &TerminalWriter,
+        ) {
+            let first_line_value = if !self.has_named_sub_parameters {
+                iter.next()
+                    .expect("No entries. Should've been caught previously")
+                    .clone()
+            } else {
+                "".to_string()
+            };
+
+            let header = self
+                .umbrella_parameter_name_opt
+                .as_ref()
+                .expect("Trying to dump an unnamed parameter list");
+            dump_parameter_line(stream, header, Some(':'), &first_line_value).await;
+        }
+
+        async fn dump_formatted_values(
+            &self,
+            iter: impl Iterator<Item = &String>,
+            stream: &TerminalWriter,
+        ) {
+            let _ = join_all(iter.map(|formatted_value| {
+                dump_already_formatted_parameter_line(
+                    stream,
+                    STANDARD_COLUMN_WIDTH + 1,
+                    &formatted_value,
+                )
+            }))
+            .await;
+        }
+    }
+}
+
+fn combined_parameters_formatter(
+    (sub_param_name, value, unit): &(&str, &dyn DisplaySeparable, &str),
+) -> String {
+    format!(
+        "{:width$} {} {}",
+        add_char_after(sub_param_name, Some(':')),
+        value.separate_with_commas(),
+        unit,
+        width = STANDARD_COLUMN_WIDTH
+    )
 }
 
 trait DisplaySeparable: Display + Separable {}
@@ -226,6 +359,7 @@ mod tests {
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
+    use crate::terminal::test_utils::allow_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
@@ -233,6 +367,7 @@ mod tests {
     };
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -295,6 +430,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -357,6 +493,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -454,6 +591,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -517,6 +655,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_spawned_task_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -531,7 +670,7 @@ mod tests {
         );
         stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stdout_all_in_one(),
+            stream_handles.stderr_all_in_one(),
             "Configuration retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }

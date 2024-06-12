@@ -17,9 +17,10 @@ use crate::communications::connection_manager::{ConnectionManagerBootstrapper, R
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
+use crate::terminal::test_utils::FlushHandleInnerMock;
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDup, WTermInterfaceImplementingSend,
+    WTermInterface, WTermInterfaceDup, WTermInterfaceImplementingSend, WriteStreamType,
 };
 use async_trait::async_trait;
 use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
@@ -557,26 +558,24 @@ pub fn make_terminal_writer() -> (TerminalWriter, TerminalWriterTestReceiver) {
     (
         TerminalWriter::new(tx),
         TerminalWriterTestReceiver {
-            unbounded_receiver: rx,
+            receiver_from_terminal_writer: rx,
         },
     )
 }
 
 pub struct TerminalWriterTestReceiver {
-    unbounded_receiver: UnboundedReceiver<String>,
+    pub receiver_from_terminal_writer: UnboundedReceiver<String>,
 }
 
 impl TerminalWriterTestReceiver {
     pub fn drain_test_output(&mut self) -> String {
         let mut captured_output = String::new();
         loop {
-            match self.unbounded_receiver.try_recv() {
+            match self.receiver_from_terminal_writer.try_recv() {
                 Ok(output_fragment) => captured_output.push_str(&output_fragment),
                 Err(e) => match e {
-                    tokio::sync::mpsc::error::TryRecvError::Empty => break,
-                    tokio::sync::mpsc::error::TryRecvError::Disconnected => {
-                        panic!("Test writer already disconnected")
-                    }
+                    tokio::sync::mpsc::error::TryRecvError::Empty
+                    | tokio::sync::mpsc::error::TryRecvError::Disconnected => break,
                 },
             }
         }
@@ -647,11 +646,11 @@ impl RWTermInterface for TermInterfaceMock {
 
 impl WTermInterface for TermInterfaceMock {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
-        todo!()
+        Self::set_up_assertable_write_utils(&self.stdout, WriteStreamType::Stdout)
     }
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
-        todo!()
+        Self::set_up_assertable_write_utils(&self.stderr, WriteStreamType::Stderr)
     }
 }
 
@@ -717,6 +716,21 @@ impl TermInterfaceMock {
             stderr: Either::Right(stderr),
         };
         (mock, stream_handles)
+    }
+
+    fn set_up_assertable_write_utils(
+        test_stream_container_arc: &Arc<Mutex<Vec<String>>>,
+        write_stream_type: WriteStreamType,
+    ) -> (TerminalWriter, FlushHandle) {
+        let (tx, rx) = unbounded_channel();
+        let terminal_writer = TerminalWriter::new(tx);
+        let flush_handle_inner = FlushHandleInnerMock::default()
+            .stream_type_result(write_stream_type)
+            .connect_terminal_writer(rx, test_stream_container_arc.clone());
+        (
+            terminal_writer,
+            FlushHandle::new(Arc::new(tokio::sync::Mutex::new(flush_handle_inner))),
+        )
     }
 }
 

@@ -6,16 +6,15 @@ use crate::commands::commands_common::CommandError::{
 };
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
+use futures::future::join_all;
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::short_writeln;
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;
-use std::fmt::Debug;
 use std::fmt::Display;
+use std::fmt::{Debug};
 use std::io::Write;
-use std::pin::Pin;
-use std::sync::Arc;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
@@ -117,18 +116,59 @@ impl From<ContextError> for CommandError {
     }
 }
 
+pub(in crate::commands) async fn dump_single_line_parameters(
+    stdout: &TerminalWriter,
+    parameter_names_and_values: Vec<(&str, &str)>,
+) {
+    let _ = join_all(
+        parameter_names_and_values
+            .iter()
+            .map(|(name, value)| dump_parameter_line(stdout, name, Some(':'), value)),
+    )
+    .await;
+}
+
 pub(in crate::commands) async fn dump_parameter_line(
     stdout: &TerminalWriter,
     name: &str,
+    char_after_name_opt: Option<char>,
     value: &str,
+) {
+    dump_already_formatted_parameter_line(
+        stdout,
+        0,
+        &format!(
+            "{:width$} {}",
+            add_char_after(name, char_after_name_opt),
+            value,
+            width = STANDARD_COLUMN_WIDTH
+        ),
+    )
+    .await
+}
+
+pub(in crate::commands) async fn dump_already_formatted_parameter_line(
+    stdout: &TerminalWriter,
+    indention: usize,
+    formatted_line: &str,
 ) {
     short_writeln!(
         stdout,
-        "{:width$} {}",
-        name,
-        value,
-        width = STANDARD_COLUMN_WIDTH
+        "{:indention$}{}",
+        "",
+        formatted_line,
+        indention = indention,
     );
+}
+
+pub fn add_char_after(plain_name: &str, char_opt: Option<char>) -> String {
+    format!(
+        "{}{}",
+        plain_name,
+        char_opt
+            .map(|char| char.to_string())
+            .unwrap_or("".to_string())
+    )
 }
 
 #[cfg(test)]
@@ -138,10 +178,12 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
+    use crate::terminal::test_utils::allow_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
+    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -205,12 +247,13 @@ mod tests {
         };
         let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
         let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
-        let (stderr, mut flush_handle) = term_interface.stderr();
+        let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(
