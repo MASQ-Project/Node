@@ -316,6 +316,11 @@ impl DebutHandler {
                                 &debut_node_key,
                                 gossip_source,
                             );
+                            debug!(
+                                self.logger,
+                                "DebutHandler database state: {}",
+                                &database.to_dot_graph(),
+                            );
                             //TODO: Construct explicit Debut Gossip and return GossipAcceptanceResult::Reply here.
                             let mut root_node = database.root().clone();
                             root_node.clear_half_neighbors();

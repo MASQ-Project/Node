@@ -240,6 +240,7 @@ pub trait CountryBlockDeserializer {
     fn next(&mut self) -> Option<CountryBlock>;
 }
 
+#[derive(Debug)]
 pub struct CountryBlockDeserializerIpv4 {
     prev_record: StreamRecordIpv4,
     bit_queue: BitQueue,
@@ -397,6 +398,7 @@ impl CountryBlockDeserializerIpv6 {
     }
 }
 
+#[derive(Debug)]
 struct StreamRecordIpv4 {
     start: Ipv4Addr,
     country_idx: usize,

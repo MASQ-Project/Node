@@ -3,67 +3,117 @@ use crate::country_block_serde::{
 };
 use crate::country_block_stream::{Country, CountryBlock};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use lazy_static::lazy_static;
 
-static mut SEARCHABLE_COUNTRY_BLOCKS_IPV4: Vec<CountryBlock> = vec![];
-static mut SEARCHABLE_COUNTRY_BLOCKS_IPV6: Vec<CountryBlock> = vec![];
-pub fn initialize_country_finder<F1, F2>(ipv4_country_data: F1, ipv6_country_data: F2) {
-
+lazy_static! {
+    static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(crate::dbip_country::ipv4_country_data(), crate::dbip_country::ipv6_country_data());
 }
 
-pub fn country_finder(
-    ip_addr: IpAddr,
-) -> Option<Country>
-{
-    match ip_addr {
-        IpAddr::V4(ipv4_addr) => find_country_ipv4(ipv4_addr), //rewrite those functions with binary search in SEARCHABLE_COUNTRY_BLOCKS_IPV4
-        IpAddr::V6(ipv6_addr) => find_country_ipv6(ipv6_addr),
-    }
+struct CountryCodeFinder {
+    ipv4: Vec<CountryBlock>,
+    ipv6: Vec<CountryBlock>
 }
 
-fn initialize_country_finder_ipv4(data: (Vec<u64>, usize), ip_addr: Ipv4Addr) -> Option<Country> {
-    let mut deserializer = CountryBlockDeserializerIpv4::new(data);
-    loop {
-        match deserializer.next() {
-            None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
-            Some(country_block) => {
-                unsafe {
-                    SEARCHABLE_COUNTRY_BLOCKS.push(country_block);
-                }
-                // if country_block.ip_range.contains(IpAddr::V4(ip_addr)) {
-                //     if country_block.country.index == 0 {
-                //         return None;
-                //     } else {
-                //         return Some(country_block.country.clone());
-                //     }
-                // }
-            }
+impl CountryCodeFinder {
+    pub fn new(ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
+        Self {
+            ipv4: Self::initialize_country_finder_ipv4(ipv4_data),
+            ipv6: Self::initialize_country_finder_ipv6(ipv6_data)
         }
     }
-}
 
-fn find_country_ipv6(data: (Vec<u64>, usize), ip_addr: Ipv6Addr) -> Option<Country> {
-    let mut deserializer = CountryBlockDeserializerIpv6::new(data);
-    loop {
-        match deserializer.next() {
-            None => return None, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
-            Some(country_block) => {
-                if country_block.ip_range.contains(IpAddr::V6(ip_addr)) {
-                    if country_block.country.index == 0 {
-                        return None;
-                    } else {
-                        return Some(country_block.country.clone());
+    fn initialize_country_finder_ipv4(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
+        let mut deserializer = CountryBlockDeserializerIpv4::new(data);
+        let mut result: Vec<CountryBlock> = vec![];
+        loop {
+            match deserializer.next() {
+                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
+                Some(country_block) => {
+                    result.push(country_block);
+                }
+            }
+        }
+        result
+    }
+
+    fn initialize_country_finder_ipv6(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
+        let mut deserializer = CountryBlockDeserializerIpv6::new(data);
+        let mut result: Vec<CountryBlock> = vec![];
+        loop {
+            match deserializer.next() {
+                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
+                Some(country_block) => {
+                    result.push(country_block);
+                }
+            }
+        }
+        result
+    }
+
+    pub fn country_finder(
+        ip_addr: IpAddr,
+    ) -> Option<Country>
+    {
+        match ip_addr {
+            IpAddr::V4(ipv4_addr) => Self::find_country_ipv4(ipv4_addr),
+            IpAddr::V6(ipv6_addr) => Self::find_country_ipv6(ipv6_addr),
+        }
+    }
+
+    fn find_country_ipv4(ip: Ipv4Addr) -> Option<Country> {
+            let partition = COUNTRY_CODE_FINDER.ipv4.binary_search_by(|block| block.ip_range.cmp(ip));
+            let country = match partition {
+                Err(partition) => Some(COUNTRY_CODE_FINDER.ipv4[partition - 1].country.clone()),
+                _ => None
+            };
+            let country = match country {
+                Some(country_inner) => {
+                    match country_inner.iso3166.as_str() {
+                        "ZZ" => None,
+                        _ => Some(country_inner)
                     }
-                }
-            }
-        }
+                },
+                None => Some(COUNTRY_CODE_FINDER.ipv4[partition.unwrap() - 1].country.clone())
+            };
+            country
     }
+
+    fn find_country_ipv6(ip: Ipv6Addr) -> Option<Country> {
+            let partition = COUNTRY_CODE_FINDER.ipv6.binary_search_by(|block| block.ip_range.cmp_v6(ip));
+
+            //println!("len {:?}", COUNTRY_CODE_FINDER.ipv6);
+            // println!("partition {:?}", partition);
+            // eprintln!("CountryBlock: {:?}", COUNTRY_CODE_FINDER.ipv6[partition.unwrap_err() - 1].clone()); //
+            // println!("partition {:?}", partition);
+
+            let country = match partition {
+                Err(partition) => Some(COUNTRY_CODE_FINDER.ipv6[partition - 1].country.clone()),
+                _ => None
+            };
+            // println!("country {:?}", country);
+            let country = match country {
+                Some(country_inner) => {
+                    match country_inner.iso3166.as_str() {
+                        "ZZ" => None,
+                        _ => Some(country_inner)
+                    }
+                },
+                None => Some(COUNTRY_CODE_FINDER.ipv6[partition.unwrap() - 1].country.clone())
+            };
+            // println!("country {:?}", country);
+            country
+        }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Once;
     use super::*;
     use std::str::FromStr;
 
+    lazy_static! {
+        static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(ipv4_country_data(), ipv6_country_data());
+    }
     fn ipv4_country_data() -> (Vec<u64>, usize) {
         (
             vec![
@@ -109,12 +159,22 @@ mod tests {
         )
     }
 
+    static INIT: Once = Once::new();
+
+    pub fn initialize_test_data() {
+        INIT.call_once(|| {
+            CountryCodeFinder::new(
+                ipv4_country_data(),
+                ipv6_country_data()
+            );
+        });
+    }
+
     #[test]
     fn finds_ipv4_address_in_fourth_block() {
-        let result = country_finder(
-            ipv4_country_data,
-            ipv6_country_data,
-            IpAddr::from_str("1.0.5.0").unwrap(),
+        initialize_test_data();
+        let result = CountryCodeFinder::country_finder(
+            IpAddr::from_str("1.0.6.15").unwrap(),
         );
 
         assert_eq!(result, Some(Country::try_from("AU").unwrap()))
@@ -122,9 +182,8 @@ mod tests {
 
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
-        let result = country_finder(
-            ipv4_country_data,
-            ipv6_country_data,
+        initialize_test_data();
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("0.0.5.0").unwrap(),
         );
 
@@ -133,9 +192,9 @@ mod tests {
 
     #[test]
     fn finds_ipv6_address_in_fourth_block() {
-        let result = country_finder(
-            ipv4_country_data,
-            ipv6_country_data,
+        initialize_test_data();
+        println!("ipv6: {}", IpAddr::from_str("1:0:5:0:0:0:0:0").unwrap());
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("1:0:5:0:0:0:0:0").unwrap(),
         );
 
@@ -144,9 +203,8 @@ mod tests {
 
     #[test]
     fn does_not_find_ipv6_address_in_zz_block() {
-        let result = country_finder(
-            ipv4_country_data,
-            ipv6_country_data,
+        initialize_test_data();
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("0:0:5:0:0:0:0:0").unwrap(),
         );
 
@@ -155,24 +213,22 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_google() {
-        let result = country_finder(
-            crate::dbip_country::ipv4_country_data,
-            crate::dbip_country::ipv6_country_data,
+        //initialize();
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
         )
-        .unwrap();
+            .unwrap();
 
         assert_eq!(result.name, "United States".to_string());
     }
 
     #[test]
     fn real_test_ipv4_with_cz_isp() {
-        let result = country_finder(
-            crate::dbip_country::ipv4_country_data,
-            crate::dbip_country::ipv6_country_data,
+        //initialize();
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
         )
-        .unwrap();
+            .unwrap();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "CZ".to_string());
@@ -181,12 +237,11 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_sk_isp() {
-        let result = country_finder(
-            crate::dbip_country::ipv4_country_data,
-            crate::dbip_country::ipv6_country_data,
+        //initialize();
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
-        .unwrap();
+            .unwrap();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
@@ -195,12 +250,11 @@ mod tests {
 
     #[test]
     fn real_test_ipv6_with_google() {
-        let result = country_finder(
-            crate::dbip_country::ipv4_country_data,
-            crate::dbip_country::ipv6_country_data,
+        //initialize();
+        let result = CountryCodeFinder::country_finder(
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
-        .unwrap();
+            .unwrap();
 
         assert_eq!(result.name, "United States".to_string());
     }

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use csv::{StringRecord, StringRecordIter};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -49,6 +50,30 @@ impl IpRange {
                     u128::from(candidate),
                 ),
             },
+        }
+    }
+
+    pub fn cmp(&self, ip_addr: Ipv4Addr) -> Ordering {
+        match self {
+            IpRange::V4(low, _hi) => {
+                match u32::from(*low) < u32::from(ip_addr) {
+                    true => Ordering::Less,
+                    false => Ordering::Greater
+                }
+            },
+            _ => Ordering::Equal
+        }
+    }
+
+    pub fn cmp_v6(&self, ip_addr: Ipv6Addr) -> Ordering {
+        match self {
+            IpRange::V6(low, _hi) => {
+                match u128::from(*low) < u128::from(ip_addr) {
+                    true => Ordering::Less,
+                    false => Ordering::Greater
+                }
+            },
+            _ => Ordering::Equal
         }
     }
 

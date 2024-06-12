@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+#[derive(Debug)]
 pub struct BitQueue {
     back_blank_bit_count: usize, // number of high-order bits in the back byte of the queue that are unused
     byte_queue: VecDeque<u8>,
