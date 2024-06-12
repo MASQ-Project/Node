@@ -3,11 +3,12 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
-    add_char_after, dump_parameter_line,
-    dump_single_line_parameters, transaction, Command, CommandError, STANDARD_COLUMN_WIDTH,
-    STANDARD_COMMAND_TIMEOUT_MILLIS,
+    transaction, Command, CommandError, STANDARD_COLUMN_WIDTH, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::configuration_command::value_list_interface::ValueList;
+use crate::commands::parameter_columns_formatting::{
+    add_char_after, dump_parameter_line, dump_single_line_parameters,
+};
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
@@ -240,10 +241,10 @@ impl ConfigurationCommand {
 }
 
 pub mod value_list_interface {
-    use crate::commands::commands_common::{
-        dump_already_formatted_parameter_line, dump_parameter_line, STANDARD_COLUMN_WIDTH,
+    use crate::commands::commands_common::STANDARD_COLUMN_WIDTH;
+    use crate::commands::parameter_columns_formatting::{
+        dump_already_formatted_parameter_line, dump_parameter_line,
     };
-    use crate::commands::configuration_command::add_char_after;
     use crate::terminal::TerminalWriter;
     use futures::future::join_all;
 

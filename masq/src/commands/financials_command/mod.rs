@@ -9,7 +9,7 @@ pub mod test_utils;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
-    dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::financials_command::args_validation::{
     financials_subcommand, NonZeroU16, TwoRanges,
@@ -21,6 +21,7 @@ use crate::commands::financials_command::pretty_print_utils::restricted::{
     render_accounts_generic, subtitle_for_tops, triple_or_single_blank_line,
     StringValuesFormattableAccount,
 };
+use crate::commands::parameter_columns_formatting::dump_parameter_line;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::ArgMatches;
