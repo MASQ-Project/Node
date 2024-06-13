@@ -40,6 +40,15 @@ pub struct StreamHandlerPoolReal {
 }
 
 struct StreamHandlerPoolRealInner {
+    // TODO: Hashmap with two senders in it
+    // stream_channels: HashMap<StreamKey, SomeStructureThatContainsTheTwoSenders>
+    // The two senders:
+    // 1. writer: Box<dyn SenderWrapper<SequencedPacket>>
+    // 2. signal: Box<dyn SenderWrapper<()>>
+    // KillStreamSignal
+    // Steps to follow:
+    // An Actor A sends a message containing the StreamKey signaling that it wants to Kill the stream
+    //
     accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
     proxy_client_subs: ProxyClientSubs,
     stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
@@ -173,6 +182,7 @@ impl StreamHandlerPoolReal {
         );
     }
 
+    // After sending the last_data = true, wait for few seconds (maybe 5) before we delete the StreamKey
     fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload_0v1,
@@ -185,14 +195,18 @@ impl StreamHandlerPoolReal {
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
+            // TODO: We want to process the payload before we perform what we're supposed to do if last_data is true.
             if last_data {
                 match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(channel) => debug!(
-                        inner.logger,
-                        "Removing StreamWriter {:?} to {}",
-                        stream_key,
-                        channel.peer_addr()
-                    ),
+                    Some(channel) => {
+                        debug!(
+                            inner.logger,
+                            "Removing StreamWriter {:?} to {}",
+                            stream_key,
+                            channel.peer_addr()
+                        )
+                        // TODO: We want the StreamReader to shutdown here
+                    }
                     None => debug!(
                         inner.logger,
                         "Trying to remove StreamWriter {:?}, but it's already gone", stream_key

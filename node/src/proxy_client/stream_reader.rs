@@ -29,6 +29,9 @@ impl Future for StreamReader {
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
+            // TODO: We should check for a message, try_receive()
+            // If the check is successful we want to close the Stream and complete the future.
+            // Async::Ready(()) can be used
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(0)) => {
