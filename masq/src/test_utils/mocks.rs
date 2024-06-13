@@ -581,6 +581,32 @@ impl TerminalWriterTestReceiver {
         }
         captured_output
     }
+
+    pub fn assert_is_empty(&mut self) {
+        if let Some(some_stuff_received) = self.drain_all() {
+            panic!(
+                "We expected this TerminalWriter to do no writing but it did: {}",
+                some_stuff_received
+            )
+        }
+    }
+
+    fn drain_all(&mut self) -> Option<String> {
+        let mut captured_output_opt: Option<String> = None;
+        loop {
+            match self.receiver_from_terminal_writer.try_recv() {
+                Ok(output_fragment) => match captured_output_opt.as_mut() {
+                    Some(container) => container.push_str(&output_fragment),
+                    None => captured_output_opt = Some(output_fragment),
+                },
+                Err(e) => match e {
+                    tokio::sync::mpsc::error::TryRecvError::Empty
+                    | tokio::sync::mpsc::error::TryRecvError::Disconnected => break,
+                },
+            }
+        }
+        captured_output_opt
+    }
 }
 
 pub struct TermInterfaceMock {

@@ -21,7 +21,11 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
-const SHUTDOWN_COMMAND_TIMEOUT_MILLIS: u64 = 60000;
+
+// TODO if this times out it probably isn't because we gave it too little time, but because
+// the conversation with Node is not still properly implemented (it is known that Node is not
+// responding to the request at the time of writing this)
+const SHUTDOWN_COMMAND_TIMEOUT_MILLIS: u64 = 5000;
 
 #[derive(Debug)]
 pub struct ShutdownCommand {
@@ -135,7 +139,6 @@ struct ShutdownAwaiterReal {}
 #[async_trait]
 impl ShutdownAwaiter for ShutdownAwaiterReal {
     async fn wait(&self, active_port: u16, interval_ms: u64, timeout_ms: u64) -> bool {
-        todo!("rewrite me to async");
         let interval = Duration::from_millis(interval_ms);
         let timeout_at = Instant::now().add(Duration::from_millis(timeout_ms));
         let address = SocketAddr::new(localhost(), active_port);
@@ -144,7 +147,7 @@ impl ShutdownAwaiter for ShutdownAwaiterReal {
                 Ok(_) => (),
                 Err(_) => return true,
             }
-            thread::sleep(interval);
+            tokio::time::sleep(interval).await;
         }
         false
     }
@@ -155,6 +158,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use crossbeam_channel::unbounded;
     use futures::FutureExt;
@@ -171,7 +175,7 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL, 250);
         assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_LIMIT, 4);
-        assert_eq!(SHUTDOWN_COMMAND_TIMEOUT_MILLIS, 60000);
+        assert_eq!(SHUTDOWN_COMMAND_TIMEOUT_MILLIS, 5000);
         assert_eq!(
             SHUTDOWN_SUBCOMMAND_ABOUT,
             "Shuts down the running MASQNode. Only valid if Node is already running."
@@ -247,6 +251,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -279,6 +284,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -311,6 +317,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -348,6 +355,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -385,6 +393,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -423,6 +432,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Err(Other("Shutdown failed".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -431,7 +441,7 @@ mod tests {
         );
         stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stdout_all_in_one(),
+            stream_handles.stderr_all_in_one(),
             "MASQNode ignored the instruction to shut down and is still running\n"
         );
         let wait_params = wait_params_arc.lock().unwrap();

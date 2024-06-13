@@ -123,7 +123,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use crate::terminal::test_utils::allow_spawned_task_to_finish;
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -198,7 +198,7 @@ mod tests {
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
-        allow_spawned_task_to_finish().await;
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

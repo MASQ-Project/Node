@@ -191,6 +191,7 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{
         make_terminal_writer, CommandContextMock, TermInterfaceMock, TestStreamFactory,
     };
@@ -262,6 +263,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -329,6 +331,7 @@ scans                         off                                               
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -361,38 +364,37 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         stream_handles.assert_empty_stderr();
     }
 
-    #[test]
-    fn handle_broadcast_works() {
-        todo!("fix me")
-        //         let message = UiSetupBroadcast {
-        //             running: false,
-        //             values: vec![
-        //                 UiSetupResponseValue::new("chain", "eth-mainnet", Set),
-        //                 UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
-        //                 UiSetupResponseValue::new("clandestine-port", "8534", DefaultStatus),
-        //                 UiSetupResponseValue::new("data-directory", "/home/booga/eth-mainnet", Set),
-        //             ],
-        //             errors: vec![("ip".to_string(), "No sir, I don't like it.".to_string())],
-        //         };
-        //         let (stream_factory, handle) = TestStreamFactory::new();
-        //         let (mut stdout, _) = stream_factory.make();
-        //         let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
-        //
-        //         SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
-        //
-        //         assert_eq! (handle.stdout_so_far(),
-        // "\n\
-        // Daemon setup has changed:\n\
-        // \n\
-        // NAME                          VALUE                                                            STATUS\n\
-        // chain                         eth-mainnet                                                      Set\n\
-        // clandestine-port              8534                                                             Default\n\
-        // data-directory                /home/booga/eth-mainnet                                          Set\n\
-        // neighborhood-mode             zero-hop                                                         Configured\n\
-        // \n\
-        // ERRORS:
-        // ip                            No sir, I don't like it.\n\
-        // \nNOTE: your data directory was modified to match the chain parameter.\n\n");
+    #[tokio::test]
+    async fn handle_broadcast_works() {
+        let message = UiSetupBroadcast {
+            running: false,
+            values: vec![
+                UiSetupResponseValue::new("chain", "eth-mainnet", Set),
+                UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
+                UiSetupResponseValue::new("clandestine-port", "8534", DefaultStatus),
+                UiSetupResponseValue::new("data-directory", "/home/booga/eth-mainnet", Set),
+            ],
+            errors: vec![("ip".to_string(), "No sir, I don't like it.".to_string())],
+        };
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
+
+        SetupCommand::handle_broadcast(message, &stdout, &stderr).await;
+
+        assert_eq! (stdout_handle.drain_test_output(),
+        "\n\
+        Daemon setup has changed:\n\
+        \n\
+        NAME                          VALUE                                                            STATUS\n\
+        chain                         eth-mainnet                                                      Set\n\
+        clandestine-port              8534                                                             Default\n\
+        data-directory                /home/booga/eth-mainnet                                          Set\n\
+        neighborhood-mode             zero-hop                                                         Configured\n\
+        \n\
+        ERRORS:\n\
+        ip                            No sir, I don't like it.\n\
+        \nNOTE: your data directory was modified to match the chain parameter.\n\n");
+        stderr_handle.assert_is_empty()
     }
 
     #[derive(Debug, PartialEq, Eq)]
