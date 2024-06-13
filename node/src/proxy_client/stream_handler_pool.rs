@@ -72,8 +72,8 @@ impl StreamHandlerPoolReal {
         exit_service_rate: u64,
         exit_byte_rate: u64,
     ) -> StreamHandlerPoolReal {
-        let (stream_killer_tx, stream_killer_rx) = unbounded();
-        let (stream_adder_tx, stream_adder_rx) = unbounded();
+        let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
+        let (stream_adder_tx, stream_adder_rx) = unbounded_channel();
         StreamHandlerPoolReal {
             inner: Arc::new(Mutex::new(StreamHandlerPoolRealInner {
                 establisher_factory: Box::new(StreamEstablisherFactoryReal {
@@ -578,8 +578,8 @@ mod tests {
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let establisher = StreamEstablisher {
                 cryptde,
-                stream_adder_tx: unbounded().0,
-                stream_killer_tx: unbounded().0,
+                stream_adder_tx: unbounded_channel().0,
+                stream_killer_tx: unbounded_channel().0,
                 stream_connector: Box::new(StreamConnectorMock::new()),
                 proxy_client_sub: peer_actors
                     .proxy_client_opt
@@ -813,9 +813,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
@@ -925,9 +925,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
@@ -1104,9 +1104,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 let establisher = StreamEstablisher {
@@ -1206,9 +1206,9 @@ mod tests {
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
             subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
             let establisher = StreamEstablisher {
                 cryptde,
                 stream_adder_tx,
@@ -1251,7 +1251,7 @@ mod tests {
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
 
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -1316,7 +1316,7 @@ mod tests {
                     .unbounded_send_result(make_send_error(sequenced_packet)),
             );
 
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
             subject.stream_killer_rx = stream_killer_rx;
 
             {
@@ -1568,7 +1568,7 @@ mod tests {
             0,
             0,
         );
-        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -1611,7 +1611,7 @@ mod tests {
             0,
             0,
         );
-        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        let (stream_killer_tx, stream_killer_rx) = unbounded_channel();
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = make_meaningless_stream_key();
         stream_killer_tx.send((stream_key, 47)).unwrap();

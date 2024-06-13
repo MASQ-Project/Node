@@ -197,7 +197,7 @@
 //
 //     #[test]
 //     fn integration_test_terminal_provides_synchronization() {
-//         let (tx_cb, rx_cb) = unbounded();
+//         let (tx_cb, rx_cb) =unbounded_channel();
 //         let mut terminal_interface = IntegrationTestTerminal::default();
 //         let lock = Arc::new(Mutex::new(()));
 //         let console = IntegrationTestTerminalConsole {

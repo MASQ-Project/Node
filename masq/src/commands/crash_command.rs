@@ -60,13 +60,13 @@ impl Command for CrashCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        _term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
         let input = UiCrashRequest {
             actor: self.actor.clone(),
             panic_message: self.panic_message.clone(),
         };
-        let result = send_non_conversational_msg(input, context);
+        let result = send_non_conversational_msg(input, context).await;
         match result {
             Ok(_) => Ok(()),
             Err(e) => Err(e),

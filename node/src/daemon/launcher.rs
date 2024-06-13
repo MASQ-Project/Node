@@ -345,7 +345,7 @@ mod tests {
         let inner_params = params.clone();
         let mut subject = ExecerReal::new();
         subject.spawn_wrapper = Box::new(spawn_wrapper);
-        let (result_tx, result_rx) = unbounded();
+        let (result_tx, result_rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new();
             let crashed_recipient = daemon.start().recipient();
@@ -402,7 +402,7 @@ mod tests {
         let inner_params = params.clone();
         let mut subject = ExecerReal::new();
         subject.spawn_wrapper = Box::new(spawn_wrapper);
-        let (result_tx, result_rx) = unbounded();
+        let (result_tx, result_rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new();
             let crashed_recipient = daemon.start().recipient();

@@ -1006,7 +1006,7 @@ mod tests {
     #[test]
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
         init_test_logging();
-        let (sub_tx, sub_rx) = unbounded();
+        let (sub_tx, sub_rx) = unbounded_channel();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1370,7 +1370,7 @@ mod tests {
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         let poll_write_params_arc = Arc::new(Mutex::new(vec![]));
         let poll_write_params_arc_a = poll_write_params_arc.clone();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new(
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
@@ -1492,7 +1492,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         let (neighborhood, awaiter, recording_arc) = make_recorder();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1685,7 +1685,7 @@ mod tests {
         };
         let msg_a = msg.clone();
 
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1848,7 +1848,7 @@ mod tests {
             peer_addr: peer_addr_a,
         };
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
 
         thread::spawn(move || {
             let system = System::new();
@@ -2168,7 +2168,7 @@ mod tests {
         init_test_logging();
         let outgoing_unmasked = b"Outgoing data".to_vec();
         let outgoing_unmasked_len = outgoing_unmasked.len();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new(
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",

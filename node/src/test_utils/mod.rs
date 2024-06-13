@@ -149,7 +149,7 @@ pub fn to_millis(dur: &Duration) -> u64 {
 }
 
 pub fn signal() -> (Signaler, Waiter) {
-    let (tx, rx) = unbounded();
+    let (tx, rx) = unbounded_channel();
     (Signaler { tx }, Waiter { rx })
 }
 
@@ -859,7 +859,7 @@ pub mod unshared_test_utils {
 
         impl SystemKillerActor {
             pub fn new(after: Duration) -> Self {
-                let (tx, rx) = unbounded();
+                let (tx, rx) = unbounded_channel();
                 Self { after, tx, rx }
             }
 

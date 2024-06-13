@@ -201,7 +201,7 @@
 //     {
 //         let interface = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
 //         let barrier = Arc::new(Barrier::new(2));
-//         let (tx, rx) = unbounded();
+//         let (tx, rx) =unbounded_channel();
 //         let stdout_c1 = StdoutBlender::new(tx);
 //         let stdout_c2 = stdout_c1.clone();
 //         let handles: Vec<_> = vec![(closure1, stdout_c1), (closure2, stdout_c2)]

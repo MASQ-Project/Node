@@ -841,7 +841,7 @@ mod tests {
     impl TestServer {
         fn start(port: u16, bodies: Vec<Vec<u8>>) -> Self {
             std::env::set_var("SIMPLESERVER_THREADS", "1");
-            let (tx, rx) = unbounded();
+            let (tx, rx) = unbounded_channel();
             let _ = thread::spawn(move || {
                 let bodies_arc = Arc::new(Mutex::new(bodies));
                 Server::new(move |req, mut rsp| {

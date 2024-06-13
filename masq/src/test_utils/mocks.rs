@@ -23,7 +23,6 @@ use crate::terminal::{
     WTermInterface, WTermInterfaceDup, WTermInterfaceImplementingSend, WriteStreamType,
 };
 use async_trait::async_trait;
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
 use itertools::Either;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
@@ -80,17 +79,18 @@ pub struct CommandContextMock {
     transact_results: RefCell<Vec<Result<MessageBody, ContextError>>>,
 }
 
+#[async_trait(?Send)]
 impl CommandContext for CommandContextMock {
-    fn active_port(&self) -> Option<u16> {
+    async fn active_port(&self) -> Option<u16> {
         self.active_port_results.borrow_mut().remove(0)
     }
 
-    fn send_one_way(&self, message: MessageBody) -> Result<(), ContextError> {
+    async fn send_one_way(&self, message: MessageBody) -> Result<(), ContextError> {
         self.send_one_way_params.lock().unwrap().push(message);
         self.send_one_way_results.borrow_mut().remove(0)
     }
 
-    fn transact(
+    async fn transact(
         &self,
         message: MessageBody,
         timeout_millis: u64,
@@ -212,7 +212,7 @@ pub struct CommandContextFactoryMock {
     make_results: Arc<Mutex<Vec<Result<Box<dyn CommandContext>, CommandError>>>>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CommandContextFactory for CommandContextFactoryMock {
     async fn make(
         &self,
@@ -325,7 +325,7 @@ impl Command for MockCommand {
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         stdout.write("MockCommand output").await;
         stderr.write("MockCommand error").await;
-        match context.transact(self.message.clone(), 1000) {
+        match context.transact(self.message.clone(), 1000).await {
             Ok(_) => self.execute_results.lock().unwrap().remove(0),
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }
@@ -345,146 +345,146 @@ impl MockCommand {
         self
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct TestWrite {
-    write_tx: Sender<String>,
-}
-
-impl Write for TestWrite {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
-        let len = buf.len();
-        let string = String::from_utf8(buf.to_vec()).unwrap();
-        self.write_tx.send(string).unwrap();
-        Ok(len)
-    }
-
-    fn flush(&mut self) -> Result<(), io::Error> {
-        Ok(())
-    }
-}
-
-impl TestWrite {
-    pub fn new(write_tx: Sender<String>) -> Self {
-        Self { write_tx }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct TestStreamFactory {
-    // I have an opinion that the standard Mutex is okay as long as we don't use it to keep multiple
-    // references to the product. We don't, we just create it once. It is important tokio::sync::Mutex
-    // would require the trait of the factory use an async method which makes everything much more
-    // complicated
-    // Eh, shouldn't it be implemented with a vector and not an option?
-    stdout_arc_opt: Arc<Mutex<Option<TestWrite>>>,
-    stderr_arc_opt: Arc<Mutex<Option<TestWrite>>>,
-}
-
-impl AsyncStdStreamsFactory for TestStreamFactory {
-    fn make(&self) -> AsyncStdStreams {
-        todo!()
-        // let stdout = self.stdout_arc_opt.lock().unwrap().take().unwrap();
-        // let stderr = self.stderr_arc_opt.lock().unwrap().take().unwrap();
-        // (Box::new(stdout), Box::new(stderr))
-    }
-}
-
-impl TestStreamFactory {
-    pub fn new() -> (TestStreamFactory, TestStreamFactoryHandle) {
-        let (stdout_tx, stdout_rx) = unbounded();
-        let (stderr_tx, stderr_rx) = unbounded();
-        let stdout = TestWrite::new(stdout_tx);
-        let stderr = TestWrite::new(stderr_tx);
-        let factory = TestStreamFactory {
-            stdout_arc_opt: Arc::new(Mutex::new(Some(stdout))),
-            stderr_arc_opt: Arc::new(Mutex::new(Some(stderr))),
-        };
-        let handle = TestStreamFactoryHandle {
-            stdout_rx,
-            stderr_rx,
-        };
-        (factory, handle)
-    }
-
-    pub fn clone_stdout_writer(&self) -> Sender<String> {
-        self.stdout_arc_opt
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .write_tx
-            .clone()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct TestStreamFactoryHandle {
-    stdout_rx: Receiver<String>,
-    stderr_rx: Receiver<String>,
-}
-
-impl TestStreamFactoryHandle {
-    pub fn stdout_so_far(&self) -> String {
-        Self::text_so_far(&self.stdout_rx)
-    }
-
-    pub fn stderr_so_far(&self) -> String {
-        Self::text_so_far(&self.stderr_rx)
-    }
-
-    fn text_so_far(rx: &Receiver<String>) -> String {
-        let mut accum = String::new();
-        let mut retries_left = 5;
-        loop {
-            match rx.try_recv() {
-                Ok(s) => {
-                    accum.push_str(&s);
-                    retries_left = 5;
-                }
-                Err(TryRecvError::Empty) => {
-                    retries_left -= 1;
-                    if retries_left <= 0 {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(100));
-                }
-                Err(_) => break,
-            }
-        }
-        accum
-    }
-}
-
-// This is used in tests aimed at synchronization
-#[derive(Clone)]
-pub struct StdoutBlender {
-    channel_half: Sender<String>,
-}
-
-impl StdoutBlender {
-    pub fn new(sender: Sender<String>) -> Self {
-        StdoutBlender {
-            channel_half: sender,
-        }
-    }
-}
-
-impl Write for StdoutBlender {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let chunk = std::str::from_utf8(buf).unwrap().to_string();
-        let length = chunk.len();
-        self.channel_half.send(chunk).unwrap();
-        Ok(length)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-    fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
-        self.channel_half.send(fmt.to_string()).unwrap();
-        Ok(())
-    }
-}
+//
+// #[derive(Clone, Debug)]
+// pub struct TestWrite {
+//     write_tx: UnboundedSender<String>,
+// }
+//
+// impl Write for TestWrite {
+//     fn write(&mut self, buf: &[u8]) -> Result<usize, io::Error> {
+//         let len = buf.len();
+//         let string = String::from_utf8(buf.to_vec()).unwrap();
+//         self.write_tx.send(string).unwrap();
+//         Ok(len)
+//     }
+//
+//     fn flush(&mut self) -> Result<(), io::Error> {
+//         Ok(())
+//     }
+// }
+//
+// impl TestWrite {
+//     pub fn new(write_tx: UnboundedSender<String>) -> Self {
+//         Self { write_tx }
+//     }
+// }
+//
+// #[derive(Clone, Debug)]
+// pub struct TestStreamFactory {
+//     // I have an opinion that the standard Mutex is okay as long as we don't use it to keep multiple
+//     // references to the product. We don't, we just create it once. It is important tokio::sync::Mutex
+//     // would require the trait of the factory use an async method which makes everything much more
+//     // complicated
+//     // Eh, shouldn't it be implemented with a vector and not an option?
+//     stdout_arc_opt: Arc<Mutex<Option<TestWrite>>>,
+//     stderr_arc_opt: Arc<Mutex<Option<TestWrite>>>,
+// }
+//
+// impl AsyncStdStreamsFactory for TestStreamFactory {
+//     fn make(&self) -> AsyncStdStreams {
+//         todo!()
+//         // let stdout = self.stdout_arc_opt.lock().unwrap().take().unwrap();
+//         // let stderr = self.stderr_arc_opt.lock().unwrap().take().unwrap();
+//         // (Box::new(stdout), Box::new(stderr))
+//     }
+// }
+//
+// impl TestStreamFactory {
+//     pub fn new() -> (TestStreamFactory, TestStreamFactoryHandle) {
+//         let (stdout_tx, stdout_rx) =unbounded_channel();
+//         let (stderr_tx, stderr_rx) =unbounded_channel();
+//         let stdout = TestWrite::new(stdout_tx);
+//         let stderr = TestWrite::new(stderr_tx);
+//         let factory = yTestStreamFactory {
+//             stdout_arc_opt: Arc::new(Mutex::new(Some(stdout))),
+//             stderr_arc_opt: Arc::new(Mutex::new(Some(stderr))),
+//         };
+//         let handle = TestStreamFactoryHandle {
+//             stdout_rx,
+//             stderr_rx,
+//         };
+//         (factory, handle)
+//     }
+//
+//     pub fn clone_stdout_writer(&self) -> UnboundedSender<String> {
+//         self.stdout_arc_opt
+//             .lock()
+//             .unwrap()
+//             .as_ref()
+//             .unwrap()
+//             .write_tx
+//             .clone()
+//     }
+// }
+//
+// #[derive(Clone, Debug)]
+// pub struct TestStreamFactoryHandle {
+//     stdout_rx: Receiver<String>,
+//     stderr_rx: Receiver<String>,
+// }
+//
+// impl TestStreamFactoryHandle {
+//     pub fn stdout_so_far(&self) -> String {
+//         Self::text_so_far(&self.stdout_rx)
+//     }
+//
+//     pub fn stderr_so_far(&self) -> String {
+//         Self::text_so_far(&self.stderr_rx)
+//     }
+//
+//     fn text_so_far(rx: &Receiver<String>) -> String {
+//         let mut accum = String::new();
+//         let mut retries_left = 5;
+//         loop {
+//             match rx.try_recv() {
+//                 Ok(s) => {
+//                     accum.push_str(&s);
+//                     retries_left = 5;
+//                 }
+//                 Err(TryRecvError::Empty) => {
+//                     retries_left -= 1;
+//                     if retries_left <= 0 {
+//                         break;
+//                     }
+//                     thread::sleep(Duration::from_millis(100));
+//                 }
+//                 Err(_) => break,
+//             }
+//         }
+//         accum
+//     }
+// // }
+//
+// // This is used in tests aimed at synchronization
+// #[derive(Clone)]
+// pub struct StdoutBlender {
+//     channel_half: Sender<String>,
+// }
+//
+// impl StdoutBlender {
+//     pub fn new(sender: Sender<String>) -> Self {
+//         StdoutBlender {
+//             channel_half: sender,
+//         }
+//     }
+// }
+//
+// impl Write for StdoutBlender {
+//     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+//         let chunk = std::str::from_utf8(buf).unwrap().to_string();
+//         let length = chunk.len();
+//         self.channel_half.send(chunk).unwrap();
+//         Ok(length)
+//     }
+//     fn flush(&mut self) -> std::io::Result<()> {
+//         Ok(())
+//     }
+//     fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
+//         self.channel_half.send(fmt.to_string()).unwrap();
+//         Ok(())
+//     }
+// }
 
 #[derive(Default)]
 pub struct StandardBroadcastHandlerMock {

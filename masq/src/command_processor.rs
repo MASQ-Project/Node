@@ -191,10 +191,8 @@ mod tests {
     };
     use crate::test_utils::mocks::{
         StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock, TermInterfaceMock,
-        TestStreamFactory,
     };
     use async_trait::async_trait;
-    use crossbeam_channel::{bounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
@@ -202,6 +200,7 @@ mod tests {
     use std::pin::Pin;
     use std::thread;
     use std::time::Duration;
+    use tokio::sync::mpsc::UnboundedSender;
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
@@ -319,7 +318,7 @@ mod tests {
 
     #[derive(Debug)]
     struct TameCommand {
-        stdout_writer: Sender<String>,
+        stdout_writer: UnboundedSender<String>,
     }
 
     impl<'a> TameCommand {

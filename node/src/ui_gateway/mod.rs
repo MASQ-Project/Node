@@ -239,7 +239,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject_addr = subject.start();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         let check = MailboxCapacityCheck { tx };
 
         subject_addr.try_send(check).unwrap();
@@ -263,7 +263,7 @@ mod tests {
         let daemon_bind_message = make_daemon_bind_message(ui_gateway);
         let subject_addr = subject.start();
         subject_addr.try_send(daemon_bind_message).unwrap();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         let check = MailboxCapacityCheck { tx };
 
         subject_addr.try_send(check).unwrap();

@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn notify_handles_real_sends_their_messages_correctly() {
-        let (sender, receiver) = unbounded();
+        let (sender, receiver) = unbounded_channel();
         let test_actor = NotifyHandlesTestActor::new(sender);
         let _ = test_actor.start();
         let system = System::new();

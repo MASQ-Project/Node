@@ -2540,7 +2540,6 @@ dependencies = [
  "async-trait",
  "atty",
  "clap",
- "crossbeam-channel",
  "ctrlc",
  "futures 0.3.30",
  "itertools 0.8.2",

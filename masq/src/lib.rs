@@ -11,8 +11,6 @@ mod notifications;
 mod schema;
 pub mod terminal;
 
-extern crate crossbeam_channel;
-
 pub mod command_context_factory;
 pub mod run_modes;
 #[cfg(test)]

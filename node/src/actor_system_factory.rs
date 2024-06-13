@@ -1336,7 +1336,7 @@ mod tests {
     #[test]
     fn discovered_automap_protocol_is_written_into_the_db() {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let (tx, _rx) = unbounded();
+        let (tx, _rx) = unbounded_channel();
         let mut config = BootstrapperConfig::default();
         config.neighborhood_config.mode = NeighborhoodMode::Standard(
             NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),

@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (sub_tx, sub_rx) = unbounded();
+        let (sub_tx, sub_rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -155,12 +155,12 @@ mod tests {
             system.run();
         });
 
-        let (ibsd_tx, ibsd_rx) = unbounded();
+        let (ibsd_tx, ibsd_rx) = unbounded_channel();
         let test_future = async {
             let proxy_client_sub = sub_rx.recv().unwrap();
 
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
-            let (stream_killer_tx, _) = unbounded();
+            let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
+            let (stream_killer_tx, _) = unbounded_channel();
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![

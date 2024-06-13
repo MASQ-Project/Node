@@ -81,7 +81,7 @@ impl Command for ShutdownCommand {
                 panic!("Unexpected error: please report to us: {}", unknown_error)
             }
         }
-        match context.active_port() {
+        match context.active_port().await {
             None => {
                 short_writeln!(
                     stdout,
@@ -160,7 +160,6 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
-    use crossbeam_channel::unbounded;
     use futures::FutureExt;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -170,6 +169,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Instant;
+    use tokio::sync::mpsc::unbounded_channel;
 
     #[test]
     fn constants_have_correct_values() {
@@ -453,7 +453,7 @@ mod tests {
         let port = find_free_port();
         let server = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
         server.set_nonblocking(true).unwrap();
-        let (term_tx, term_rx) = unbounded();
+        let (term_tx, mut term_rx) = unbounded_channel();
         let handle = thread::spawn(move || {
             while term_rx.try_recv().is_err() {
                 let _ = server.accept();

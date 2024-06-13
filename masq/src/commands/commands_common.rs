@@ -66,14 +66,14 @@ pub trait Command: Debug {
     }
 }
 
-pub fn send_non_conversational_msg<I>(
+pub async fn send_non_conversational_msg<I>(
     input: I,
     context: &dyn CommandContext,
 ) -> Result<(), CommandError>
 where
     I: ToMessageBody,
 {
-    match context.send_one_way(input.tmb(0)) {
+    match context.send_one_way(input.tmb(0)).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -89,7 +89,7 @@ where
     I: ToMessageBody,
     O: FromMessageBody,
 {
-    let message: MessageBody = match context.transact(input.tmb(0), timeout_millis) {
+    let message: MessageBody = match context.transact(input.tmb(0), timeout_millis).await {
         Ok(ntum) => ntum,
         Err(e) => return Err(e.into()),
     };

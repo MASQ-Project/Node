@@ -2211,7 +2211,7 @@ mod tests {
 
     impl ActorSystemFactoryActiveMock {
         fn new() -> ActorSystemFactoryActiveMock {
-            let (tx, rx) = unbounded();
+            let (tx, rx) = unbounded_channel();
             thread::spawn(move || {
                 let system = System::new();
 

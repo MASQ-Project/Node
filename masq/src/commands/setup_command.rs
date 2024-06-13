@@ -192,9 +192,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{
-        make_terminal_writer, CommandContextMock, TermInterfaceMock, TestStreamFactory,
-    };
+    use crate::test_utils::mocks::{make_terminal_writer, CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{
@@ -511,7 +509,6 @@ NAME                          VALUE                                             
             ],
             errors: vec![],
         };
-        let (stream_factory, handle) = TestStreamFactory::new();
         let (stdout, mut stdout_handle) = make_terminal_writer();
 
         SetupCommand::dump_setup(UiSetupInner::from(message), &stdout).await;

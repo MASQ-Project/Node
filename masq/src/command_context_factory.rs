@@ -6,7 +6,7 @@ use crate::commands::commands_common::CommandError;
 use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
 use async_trait::async_trait;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait CommandContextFactory {
     async fn make(
         &self,
@@ -23,7 +23,7 @@ impl Default for CommandContextFactoryReal {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CommandContextFactory for CommandContextFactoryReal {
     async fn make(
         &self,

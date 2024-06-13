@@ -7,7 +7,6 @@ use crate::notifications::connection_change_notification::ConnectionChangeNotifi
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 use async_trait::async_trait;
-use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
     UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
@@ -22,7 +21,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -78,7 +77,7 @@ impl BroadcastHandle<MessageBody> for BroadcastHandleInactive {
 }
 
 pub struct StandardBroadcastHandle {
-    message_tx: Sender<MessageBody>,
+    message_tx: UnboundedSender<MessageBody>,
 }
 
 impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
@@ -131,13 +130,15 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
         match self.interactive_mode_dependencies_opt.take() {
             Some(mut term_interface) => {
-                let (message_tx, message_rx) = unbounded();
+                let (message_tx, mut message_rx) = unbounded_channel();
                 tokio::task::spawn(async move {
                     let mut flag = true;
                     while flag {
-                        flag =
-                            Self::handle_message_body(message_rx.recv(), term_interface.as_mut())
-                                .await;
+                        flag = Self::handle_message_body(
+                            message_rx.recv().await,
+                            term_interface.as_mut(),
+                        )
+                        .await;
                     }
                 });
 
@@ -158,14 +159,14 @@ impl StandardBroadcastHandlerReal {
     }
 
     async fn handle_message_body(
-        message_body_result: Result<MessageBody, RecvError>,
+        message_body_result: Option<MessageBody>,
         terminal_interface: &mut dyn WTermInterfaceImplementingSend,
     ) -> bool {
         let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
         let (stderr, _stderr_flush_handle) = terminal_interface.stderr();
         match message_body_result {
-            Err(_) => false, // Receiver died; masq is going down
-            Ok(message_body) => {
+            None => false, // Receiver died; masq is going down
+            Some(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
                     handle_ui_log_broadcast(body, &stdout, &stderr).await
                 } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
@@ -297,8 +298,7 @@ impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
 mod tests {
     use super::*;
     use crate::terminal::async_streams::AsyncStdStreams;
-    use crate::test_utils::mocks::{StdoutBlender, TermInterfaceMock, TestStreamFactory};
-    use crossbeam_channel::{bounded, unbounded, Receiver};
+    use crate::test_utils::mocks::TermInterfaceMock;
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
@@ -430,7 +430,7 @@ mod tests {
         .tmb(0);
 
         let result = StandardBroadcastHandlerReal::handle_message_body(
-            Ok(message_body),
+            Some(message_body),
             &mut term_interface,
         )
         .await;
@@ -680,7 +680,7 @@ Cannot handle crash request: Node is not running.
         U: Debug + PartialEq + Clone,
     {
         todo!()
-        // let (tx, rx) = unbounded();
+        // let (tx, rx) =unbounded_channel();
         // let mut stdout = StdoutBlender::new(tx);
         // let stdout_clone = stdout.clone();
         // let stdout_second_clone = stdout.clone();

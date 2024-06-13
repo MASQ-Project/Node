@@ -116,6 +116,6 @@ impl ResolverWrapperFactoryMock {
 }
 
 pub fn make_send_error<T>(msg: T) -> Result<(), SendError<T>> {
-    let (tx, _) = unbounded();
+    let (tx, _) = unbounded_channel();
     tx.send(msg)
 }

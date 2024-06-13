@@ -291,7 +291,7 @@ mod tests {
         init_test_logging();
         let (stream_handler_pool, _, recording_arc) = make_recorder();
 
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new();
             let add_stream_sub = start_recorder(stream_handler_pool);
@@ -378,7 +378,7 @@ mod tests {
     fn converts_connections_into_connection_infos() {
         let (stream_handler_pool, awaiter, recording_arc) = make_recorder();
 
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         thread::spawn(move || {
             let system = System::new();
             let add_stream_sub = start_recorder(stream_handler_pool);
