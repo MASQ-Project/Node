@@ -669,12 +669,10 @@ mod tests {
 
     fn assert_null(key: &str, map: &Map<String, Value>) {
         assert!(map.contains_key(key));
-        match map
+        let value = map
             .get(key)
-            .unwrap_or_else(|| panic!("record for {} is missing", key))
-        {
-            value => assert!(value.is_null()),
-        }
+            .unwrap_or_else(|| panic!("record for {} is missing", key));
+        assert!(value.is_null())
     }
 
     fn assert_encrypted_value(
