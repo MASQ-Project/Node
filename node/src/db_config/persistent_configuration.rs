@@ -137,7 +137,7 @@ pub trait PersistentConfiguration {
     fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
     fn set_start_block_from_txn(
         &mut self,
-        value: u64,
+        value: Option<u64>,
         transaction: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
@@ -424,7 +424,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_start_block_from_txn(
         &mut self,
-        value: u64,
+        value: Option<u64>,
         transaction: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError> {
         self.simple_set_method_from_provided_txn("start_block", value, transaction)
@@ -568,12 +568,14 @@ impl PersistentConfigurationReal {
     fn simple_set_method_from_provided_txn<T: Display>(
         &mut self,
         parameter_name: &str,
-        value: T,
+        value: Option<T>,
         txn: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set_by_guest_transaction(txn, parameter_name, Some(value.to_string()))?)
+        Ok(self.dao.set_by_guest_transaction(
+            txn,
+            parameter_name,
+            value.map(|v| v.to_string()).or(None),
+        )?)
     }
 
     fn combined_params_get_method<'a, T, C>(
@@ -1510,7 +1512,7 @@ mod tests {
     }
 
     #[test]
-    fn set_start_block_success() {
+    fn set_start_block_success_with_some() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
@@ -1543,7 +1545,7 @@ mod tests {
         let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
-        let result = subject.set_start_block_from_txn(1234, &mut txn);
+        let result = subject.set_start_block_from_txn(Some(1234), &mut txn);
 
         assert_eq!(result, Ok(()));
         let set_params = set_params_arc.lock().unwrap();
@@ -1551,6 +1553,23 @@ mod tests {
             *set_params,
             vec![(txn_id, "start_block".to_string(), Some("1234".to_string()))]
         )
+    }
+
+    #[test]
+    fn set_start_block_success_with_none() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
+                .set_params(&set_params_arc)
+                .set_result(Ok(())),
+        );
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_start_block(None);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("start_block".to_string(), None)])
     }
 
     #[test]
