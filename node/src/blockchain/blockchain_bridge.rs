@@ -9,7 +9,7 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
-use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
+// use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, PayableTransactionError,
@@ -253,7 +253,9 @@ impl BlockchainBridge {
                 // probably want to make BlockchainInterfaceInitializer a collaborator that's a part of the actor
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
-            None => Box::new(BlockchainInterfaceNull::default()),
+
+            None => todo!("GH-744: Replace with BlockchainInterfaceNull"),
+            // None => Box::new(BlockchainInterfaceNull::default()),
         }
     }
 
@@ -601,7 +603,7 @@ mod tests {
     };
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
+    // use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
@@ -612,8 +614,8 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };
     use crate::blockchain::blockchain_interface::lower_level_interface::LatestBlockNumber;
-    use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
-    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock, make_blockchain_interface_web3};
+    // use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
+    use crate::blockchain::test_utils::{make_tx_hash, make_blockchain_interface_web3, BlockchainInterfaceMock};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
@@ -703,7 +705,7 @@ mod tests {
     }
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
-        Box::new(BlockchainInterfaceMock::default())
+        Box::new(make_blockchain_interface_web3(None))
     }
 
     #[test]
@@ -740,10 +742,12 @@ mod tests {
     fn blockchain_interface_null_as_result_of_missing_blockchain_service_url() {
         let result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
 
-        result
-            .as_any()
-            .downcast_ref::<BlockchainInterfaceNull>()
-            .unwrap();
+        todo!("GH-744 - What is this? ")
+
+        // result
+        //     .as_any()
+        //     .downcast_ref::<BlockchainInterfaceNull>()
+        //     .unwrap();
     }
 
     #[test]
@@ -906,7 +910,7 @@ mod tests {
 
     #[test]
     fn handle_request_balances_to_pay_payables_fails_at_missing_consuming_wallet() {
-        let blockchain_interface = BlockchainInterfaceMock::default();
+        let blockchain_interface = make_blockchain_interface_web3(None);
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1694,14 +1698,14 @@ mod tests {
                 },
             ],
         };
-        let lower_interface =
-            LowBlockchainIntMock::default().get_block_number_result(LatestBlockNumber::Err(
-                BlockchainError::QueryFailed("Failed to read the latest block number".to_string()),
-            ));
+        // let lower_interface =
+        //     LowBlockchainIntMock::default().get_block_number_result(LatestBlockNumber::Err(
+        //         BlockchainError::QueryFailed("Failed to read the latest block number".to_string()),
+        //     ));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
-            .retrieve_transactions_result(Ok(expected_transactions.clone()))
-            .lower_interface_results(Box::new(lower_interface));
+            .retrieve_transactions_result(Ok(expected_transactions.clone()));
+            // .lower_interface_results(Box::new(lower_interface));
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(10000u64)))
             .start_block_result(Ok(6));

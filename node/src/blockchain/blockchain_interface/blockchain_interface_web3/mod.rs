@@ -25,6 +25,7 @@ use web3::contract::{Contract};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, FilterBuilder};
 use web3::Web3;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, get_transaction_id, create_blockchain_agent_web3, BlockchainAgentFutureResult, get_gas_price, get_block_number};
 
 const CONTRACT_ABI: &str = indoc!(
@@ -73,7 +74,7 @@ pub struct BlockchainInterfaceWeb3 {
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     transport: Http,
-    // lower_interface // TODO: GH-744 Add this back here....
+    lower_interface: Box<dyn LowBlockchainInt>
 }
 
 pub const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -237,27 +238,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         _wallet_address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         // Box::new(
-
         todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
         // self.get_contract()
         //     .query("balanceOf", wallet_address, None, Options::default(), None)
         //     .map_err(move |e| {
         //         BlockchainError::QueryFailed(format!("{:?} for wallet {}", e, wallet_address))
         //     }),
-        // )
-    }
-
-    fn get_transaction_fee_balance(
-        // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
-        &self,
-        _wallet: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
-        // Box::new(
-        //     // self.get_web3()
-        //     //     .eth()
-        //     //     .balance(wallet.address(), None)
-        //     //     .map_err(|e| QueryFailed(e.to_string())),
         // )
     }
 
@@ -292,6 +278,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
+    // TODO: GH-744: Remove this wait
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
         self.get_web3()
             .eth()
@@ -331,13 +318,14 @@ impl BlockchainInterfaceWeb3 {
 
         Self {
             logger: Logger::new("BlockchainInterface"),
-            chain,
+            chain, // GH-744: Move this to lower_interface
             gas_limit_const_part,
-            _event_loop_handle: event_loop_handle,
+            _event_loop_handle: event_loop_handle,  // GH-744: Move this to lower_interface?
             // lower_interface: lower_level_blockchain_interface,
-            transport,
+            transport: transport.clone(), // GH-744: Move this to lower_interface
             // web3,
             // contract,
+            lower_interface: Box::new(LowBlockchainIntWeb3::new(transport, chain))
         }
     }
 

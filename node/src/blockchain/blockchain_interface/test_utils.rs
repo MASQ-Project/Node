@@ -8,10 +8,14 @@ use crate::blockchain::blockchain_interface::lower_level_interface::{
 use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use ethereum_types::U256;
+use futures::Future;
+use web3::types::Address;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 
 #[derive(Default)]
 pub struct LowBlockchainIntMock {
-    get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
+    get_transaction_fee_balance_params: Arc<Mutex<Vec<Address>>>,
     get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
     get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
     get_masq_balance_results: RefCell<Vec<ResultForBalance>>,
@@ -21,15 +25,18 @@ pub struct LowBlockchainIntMock {
 }
 
 impl LowBlockchainInt for LowBlockchainIntMock {
-    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
-        self.get_transaction_fee_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        self.get_transaction_fee_balance_results
-            .borrow_mut()
-            .remove(0)
+    fn get_transaction_fee_balance(&self, address: Address) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
+        // self.get_transaction_fee_balance_params
+        //     .lock()
+        //     .unwrap()
+        //     .push(address);
+        // let result_for_balance = self.get_transaction_fee_balance_results.borrow_mut().remove(0);
+        // Box::new(
+        //     result_for_balance
+        // )
+        todo!("GH-744: Come back to this - get_transaction_fee_balance - Mock");
     }
+
 
     fn get_service_fee_balance(&self, address: &Wallet) -> ResultForBalance {
         self.get_masq_balance_params
@@ -57,7 +64,7 @@ impl LowBlockchainInt for LowBlockchainIntMock {
 }
 
 impl LowBlockchainIntMock {
-    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
+    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Address>>>) -> Self {
         self.get_transaction_fee_balance_params = params.clone();
         self
     }

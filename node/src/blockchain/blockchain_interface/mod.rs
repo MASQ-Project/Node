@@ -52,11 +52,6 @@ pub trait BlockchainInterface {
         wallet_address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_transaction_fee_balance(
-        &self,
-        address: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
-
     fn get_token_balance(
         &self,
         address: &Wallet,

@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use ethereum_types::U256;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::{
@@ -9,9 +10,10 @@ use crate::sub_lib::wallet::Wallet;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use web3::contract::{Contract, Options};
-use web3::transports::{Batch, Http};
-use web3::types::{BlockNumber};
+use web3::transports::{Batch, EventLoopHandle, Http};
+use web3::types::{Address, BlockNumber};
 use web3::{Web3};
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 
 pub struct LowBlockchainIntWeb3 {
     // web3: Rc<Web3<Http>>,
@@ -23,21 +25,18 @@ pub struct LowBlockchainIntWeb3 {
 }
 
 impl LowBlockchainInt for LowBlockchainIntWeb3 {
-    fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
-        self.get_web3()
-            .eth()
-            .balance(wallet.address(), None)
-            .map_err(|e| BlockchainError::QueryFailed(format!("{} for wallet {}", e, wallet)))
-            .wait()
+    fn get_transaction_fee_balance(
+        &self,
+        address: Address,
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+        Box::new(
+            self.get_web3()
+                .eth()
+                .balance(address, None)
+                .map_err(|e| QueryFailed(e.to_string())),
+        )
     }
 
-    // fn get_transaction_fee_balance(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-    //     Box::new(
-    //         self.get_web3().eth()
-    //             .balance(address, None)
-    //             .map_err(|e| QueryFailed(e.to_string())),
-    //     )
-    // }
 
     // TODO: GH-744:  Move to blockchain_interface_utils for now
     fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
@@ -126,8 +125,57 @@ mod tests {
     use serde_json::{Value};
     use std::net::Ipv4Addr;
     use std::str::FromStr;
+    use ethabi::Address;
+    use futures::Future;
     use web3::transports::{Http};
     use web3::types::U256;
+    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
+    use crate::test_utils::make_wallet;
+
+
+    fn nested_get_transaction_fee_balance_future(subject: LowBlockchainIntWeb3, address: Address) -> Box<dyn Future<Item = (), Error = String>> {
+        Box::new(
+            subject.get_transaction_fee_balance(address).map_err(|e| {
+                format!("Error: 1 {:?}", e)
+            }).and_then(move |balance_1| {
+                subject.get_transaction_fee_balance(address).map_err(|e| {
+                    format!("Error: 2 {:?}", e)
+                }).and_then(move |balance_2| {
+                    subject.get_transaction_fee_balance(address).map_err(|e| {
+                        format!("Error: 3 {:?}", e)
+                    }).and_then(move |balance_3| {
+                        eprintln!("balance_1: {:?}", balance_1);
+                        eprintln!("balance_2: {:?}", balance_2);
+                        eprintln!("balance_3: {:?}", balance_3);
+                        Ok(())
+                    })
+                })
+            })
+        )
+    }
+
+    #[test]
+    fn tmp_nested_future_test() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0xDEADBEEF".to_string(), 0)
+            .response("0xDEADBEEE".to_string(), 0)
+            .response("0xDEADBEED".to_string(), 0)
+            .start();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = make_subject(transport, chain);
+        let wallet = make_wallet("test_wallet");
+        let address = wallet.address();
+
+        let result = nested_get_transaction_fee_balance_future(subject, address);
+
+        result.wait().expect("TODO: panic message");
+    }
 
     #[test]
     fn low_interface_web3_transaction_fee_balance_works() {
@@ -146,9 +194,9 @@ mod tests {
 
         let result = subject
             .get_transaction_fee_balance(
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+                Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address(),
             )
-            .unwrap();
+            .wait().unwrap();
 
         assert_eq!(result, U256::from(0xDEADBEEF_u64));
         let requests = test_server.requests_so_far();
@@ -176,15 +224,15 @@ mod tests {
         let chain = TEST_DEFAULT_CHAIN;
         let subject = make_subject(transport, chain);
 
-        let result = subject.get_transaction_fee_balance(&Wallet::new("0x_invalid_wallet_address"));
+        let result = subject.get_transaction_fee_balance(Wallet::new("0x_invalid_wallet_address").address()).wait();
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
 
     #[test]
     fn low_interface_web3_get_transaction_fee_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &LowBlockchainIntWeb3, wallet: &Wallet| {
-            subject.get_transaction_fee_balance(wallet)
+        let act = |subject: &LowBlockchainIntWeb3, address: Address| {
+            subject.get_transaction_fee_balance(address).wait()
         };
 
         assert_error_from_unintelligible_response(act, "invalid hex character");
@@ -244,11 +292,12 @@ mod tests {
 
     #[test]
     fn low_interface_web3_get_masq_balance_returns_err_for_unintelligible_response() {
-        let act = |subject: &LowBlockchainIntWeb3, wallet: &Wallet| {
-            subject.get_service_fee_balance(wallet)
-        };
-
-        assert_error_from_unintelligible_response(act, "Invalid hex");
+            todo!("GH744 - Fix this once trait declaration has changed");
+        // let act = |subject: &LowBlockchainIntWeb3, address: Address| {
+        //     // subject.get_service_fee_balance(address)
+        // };
+        //
+        // assert_error_from_unintelligible_response(act, "Invalid hex");
     }
 
     #[test]
@@ -381,7 +430,7 @@ mod tests {
 
     fn assert_error_from_unintelligible_response<F>(act: F, expected_err_fragment: &str)
     where
-        F: FnOnce(&LowBlockchainIntWeb3, &Wallet) -> ResultForBalance,
+        F: FnOnce(&LowBlockchainIntWeb3, Address) -> ResultForBalance,
     {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
@@ -393,10 +442,10 @@ mod tests {
         )
         .unwrap();
         let chain = TEST_DEFAULT_CHAIN;
-        let wallet = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
+        let address = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap().address();
         let subject = make_subject(transport, chain);
 
-        let result = act(&subject, &wallet);
+        let result = act(&subject, address);
 
         let err_msg = match result {
             Err(BlockchainError::QueryFailed(msg)) => msg,
@@ -411,7 +460,7 @@ mod tests {
         assert!(
             err_msg.contains("for wallet 0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc"),
             "Expected the wallet to be cited in the err msg like \" for wallet {}\" but wasn't",
-            wallet
+            address
         )
     }
 

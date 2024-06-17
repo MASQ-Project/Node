@@ -319,13 +319,13 @@ fn make_init_config(chain: Chain) -> DbInitializationConfig {
 
 fn assert_balances(
     wallet: &Wallet,
-    blockchain_interface: &BlockchainInterfaceWeb3<Http>,
+    blockchain_interface: &BlockchainInterfaceWeb3,
     expected_eth_balance: &str,
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
         .lower_interface()
-        .get_transaction_fee_balance(&wallet)
+        .get_transaction_fee_balance(wallet.address())
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),

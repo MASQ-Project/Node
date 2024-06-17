@@ -329,6 +329,7 @@ pub fn get_transaction_fee_balance(
     web3: Web3<Http>,
     address: Address,
 ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    todo!("GH-744 -- Delete this -- move to lower_interface");
     Box::new(
         web3.eth()
             .balance(address, None)
@@ -358,8 +359,6 @@ pub fn get_service_fee_balance(
     )
 }
 
-
-// LatestBlockNumber
 pub fn get_block_number(
     web3: Web3<Http>,
 ) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
@@ -369,7 +368,6 @@ pub fn get_block_number(
         .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
     )
 }
-
 
 pub fn get_transaction_id(
     web3: Web3<Http>,

@@ -15,7 +15,7 @@ use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RetrievedBlockchainTransactions,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
+// use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
@@ -39,6 +39,7 @@ use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, SignedTransaction, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
+use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -185,23 +186,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     //     self.send_batch_of_payables_results.borrow_mut().remove(0)
     // }
 
-    fn get_transaction_fee_balance(
-        &self,
-        _address: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - This function has moved to lower interface")
-        // self.get_transaction_fee_balance_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(address.clone());
-        // Box::new(result(
-        //     self.get_transaction_fee_balance_results
-        //         .borrow_mut()
-        //         .remove(0),
-        // ))
-    }
-
-    fn get_token_balance(
+     fn get_token_balance(
         &self,
         _address: &Wallet,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
@@ -336,99 +321,6 @@ impl BlockchainInterfaceMock {
     set_arbitrary_id_stamp_in_mock_impl!();
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct TestTransport {
-    // neither prepare_results or send_results can be effectively implemented the traditional way,
-    // their queue would never progress and would return always the first prepared result despite
-    // taking multiple calls; the reason is that the Web3 library tends to clone (!!) the transport
-    // and by doing that, removing one element affects just the current clone, and next time an intact
-    // version of the same full queue will come in again as another individualistic clone
-    prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
-    send_params: Arc<Mutex<Vec<(RequestId, rpc::Call)>>>,
-    send_results: RefCell<VecDeque<rpc::Value>>,
-    send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
-    send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
-    //to check inheritance from a certain descendant, be proving a relation with reference counting
-    reference_counter_opt: Option<Arc<()>>,
-}
-
-impl Transport for TestTransport {
-    type Out = web3::Result<rpc::Value>;
-
-    fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
-        let request = web3::helpers::build_request(1, method, params.clone());
-        let mut prepare_params = self.prepare_params.lock().unwrap();
-        prepare_params.push((method.to_string(), params));
-        (prepare_params.len(), request)
-    }
-
-    fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-        self.send_params.lock().unwrap().push((id, request.clone()));
-        match self.send_results.borrow_mut().pop_front() {
-            Some(response) => Box::new(futures::finished(response)),
-            None => {
-                println!("Unexpected request (id: {:?}): {:?}", id, request);
-                Box::new(futures::failed(Web3Error::Unreachable))
-            }
-        }
-    }
-}
-
-impl BatchTransport for TestTransport {
-    type Batch = web3::Result<Vec<Result<rpc::Value, web3::Error>>>;
-
-    fn send_batch<T>(&self, requests: T) -> Self::Batch
-    where
-        T: IntoIterator<Item = (RequestId, rpc::Call)>,
-    {
-        self.send_batch_params
-            .lock()
-            .unwrap()
-            .push(requests.into_iter().collect());
-        let response = self.send_batch_results.borrow_mut().remove(0);
-        Box::new(futures::finished(response))
-    }
-}
-
-impl TestTransport {
-    pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>) -> Self {
-        self.prepare_params = params.clone();
-        self
-    }
-
-    //why prepare_result missing? Look up for a comment at the struct
-
-    pub fn send_params(mut self, params: &Arc<Mutex<Vec<(RequestId, rpc::Call)>>>) -> Self {
-        self.send_params = params.clone();
-        self
-    }
-
-    pub fn send_result(self, rpc_call_response: rpc::Value) -> Self {
-        self.send_results.borrow_mut().push_back(rpc_call_response);
-        self
-    }
-
-    pub fn send_batch_params(
-        mut self,
-        params: &Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
-    ) -> Self {
-        self.send_batch_params = params.clone();
-        self
-    }
-
-    pub fn send_batch_result(
-        self,
-        batched_responses: Vec<Result<rpc::Value, web3::Error>>,
-    ) -> Self {
-        self.send_batch_results.borrow_mut().push(batched_responses);
-        self
-    }
-
-    pub fn initiate_reference_counter(mut self, reference_arc: &Arc<()>) -> Self {
-        self.reference_counter_opt = Some(reference_arc.clone());
-        self
-    }
-}
 
 pub fn make_fake_event_loop_handle() -> EventLoopHandle {
     Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
