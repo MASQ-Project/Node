@@ -150,18 +150,24 @@ impl CountryBlockSerializer {
     }
 
     pub fn finish(mut self) -> (BitQueue, BitQueue) {
-        self.add_ipv4(
-            plus_one_ipv4(self.prev_end_ipv4),
-            Ipv4Addr::new(0xFF, 0xFF, 0xFF, 0xFF),
-            0,
+        let last_ipv4 = Ipv4Addr::new(0xFF, 0xFF, 0xFF, 0xFF);
+        let last_ipv6 = Ipv6Addr::new(
+            0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
         );
-        self.add_ipv6(
-            plus_one_ipv6(self.prev_end_ipv6),
-            Ipv6Addr::new(
-                0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
-            ),
-            0,
-        );
+        if self.prev_end_ipv4 != last_ipv4 {
+            self.add_ipv4(
+                plus_one_ipv4(self.prev_end_ipv4),
+                last_ipv4,
+                0,
+            );
+        }
+        if self.prev_end_ipv6 != last_ipv6 {
+            self.add_ipv6(
+                plus_one_ipv6(self.prev_end_ipv6),
+                last_ipv6,
+                0,
+            );
+        }
         (self.bit_queue_ipv4, self.bit_queue_ipv6)
     }
 
@@ -471,13 +477,13 @@ fn bit_queue_from_country_data(country_data_pair: (Vec<u64>, usize)) -> BitQueue
     bit_queue
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::country_block_stream::{Country, IpRange};
     use std::net::Ipv4Addr;
     use std::str::FromStr;
 
-    #[allow(unused)]
     fn ipv4_country_blocks() -> Vec<CountryBlock> {
         vec![
             CountryBlock {
@@ -504,7 +510,6 @@ mod tests {
         ]
     }
 
-    #[allow(unused)]
     fn ipv6_country_blocks() -> Vec<CountryBlock> {
         vec![
             CountryBlock {
@@ -768,6 +773,56 @@ mod tests {
                 country: Country::from(0usize) // sentinel
             }
         );
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn finish_does_not_touch_complete_ipv4_list() {
+        let mut country_blocks = ipv4_country_blocks();
+        let mut subject = CountryBlockSerializer::new();
+        subject.add(CountryBlock {
+            ip_range: IpRange::V4(
+                Ipv4Addr::from_str("0.0.0.0").unwrap(),
+                Ipv4Addr::from_str("1.2.3.3").unwrap(),
+            ),
+            country: Country::try_from("Sk").unwrap().clone(),
+        });
+        subject.add(country_blocks.remove(0));
+        subject.add(country_blocks.remove(0));
+        subject.add(country_blocks.remove(0));
+        subject.add(CountryBlock {
+            ip_range: IpRange::V4(
+                Ipv4Addr::from_str("11.11.12.14").unwrap(),
+                Ipv4Addr::from_str("255.255.255.255").unwrap(),
+            ),
+            country: Country::try_from("CZ").unwrap().clone(),
+        });
+        let mut bitqueue = subject.finish().0;
+        let len = bitqueue.len();
+        let mut vec_64 = vec![];
+        while bitqueue.len() >= 64 {
+            let data = bitqueue.take_bits(64).unwrap();
+            vec_64.push(data);
+        }
+        let remaining_bit_count = bitqueue.len();
+        let data = bitqueue.take_bits(remaining_bit_count).unwrap();
+        vec_64.push(data);
+
+        let mut deserializer = CountryBlockDeserializerIpv4::new((vec_64, len));
+
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "SK");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "AS");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "AD");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "ZZ");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "AO");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "CZ");
+        let result = deserializer.next();
         assert_eq!(result, None);
     }
 
@@ -1088,6 +1143,59 @@ mod tests {
                 country: Country::from(0usize) // sentinel
             }
         );
+        assert_eq!(result, None);
+    }
+
+
+    #[test]
+    fn finish_does_not_touch_complete_ipv6_list() {
+        let mut country_blocks = ipv6_country_blocks();
+        let mut subject = CountryBlockSerializer::new();
+        subject.add(CountryBlock {
+            ip_range: IpRange::V6(
+                Ipv6Addr::from_str("0:0:0:0:0:0:0:0").unwrap(),
+                Ipv6Addr::from_str("1:2:3:4:5:6:7:7").unwrap()
+            ),
+            country: Country::from(0usize) // sentinel
+        });
+        subject.add(country_blocks.remove(0));
+        subject.add(country_blocks.remove(0));
+        subject.add(country_blocks.remove(0));
+        subject.add(CountryBlock {
+            ip_range: IpRange::V6(
+                Ipv6Addr::from_str("14:14:15:16:17:18:19:1A").unwrap(),
+                Ipv6Addr::from_str("FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF").unwrap(),
+            ),
+            country: Country::try_from("CZ").unwrap().clone(),
+        });
+        let mut bitqueue = subject.finish().1;
+        let len = bitqueue.len();
+        let mut vec_64 = vec![];
+        while bitqueue.len() >= 64 {
+            let data = bitqueue.take_bits(64).unwrap();
+            vec_64.push(data);
+        }
+        let remaining_bit_count = bitqueue.len();
+        let data = bitqueue.take_bits(remaining_bit_count).unwrap();
+        vec_64.push(data);
+
+        let mut deserializer = CountryBlockDeserializerIpv6::new((vec_64, len));
+
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "ZZ");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "AS");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "AD");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "ZZ");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "AO");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "ZZ");
+        let result = deserializer.next();
+        assert_eq!(result.unwrap().country.iso3166, "CZ");
+        let result = deserializer.next();
         assert_eq!(result, None);
     }
 }

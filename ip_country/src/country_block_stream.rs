@@ -53,28 +53,36 @@ impl IpRange {
         }
     }
 
-    pub fn cmp(&self, ip_addr: Ipv4Addr) -> Ordering {
-        match self {
-            IpRange::V4(low, _hi) => {
-                match u32::from(*low) < u32::from(ip_addr) {
-                    true => Ordering::Less,
-                    false => Ordering::Greater
+    pub fn in_range(&self, ip_addr: IpAddr) -> Ordering {
+        match (ip_addr, self) {
+            (IpAddr::V4(ip), IpRange::V4(low, hi) )=> {
+                let (low_range, hi_range) = (u32::from(*low), u32::from(*hi));
+                let ip_num = u32::from(ip);
+                if ip_num < low_range {
+                    Ordering::Greater
+                } else if ip_num > hi_range {
+                    Ordering::Less
+                }
+                else {
+                    Ordering::Equal
                 }
             },
-            _ => Ordering::Equal
+            (IpAddr::V6(ip), IpRange::V6(low, hi)) => {
+                let (low_range, hi_range) = (u128::from(*low), u128::from(*hi));
+                let ip_num = u128::from(ip);
+                if ip_num < low_range {
+                    Ordering::Greater
+                } else if ip_num > hi_range {
+                    Ordering::Less
+                }
+                else {
+                    Ordering::Equal
+                }
+            }
+            (_ip, _range) => panic!("Mismatch ip and range versions")
+            //TODO write test for this panic!
         }
-    }
 
-    pub fn cmp_v6(&self, ip_addr: Ipv6Addr) -> Ordering {
-        match self {
-            IpRange::V6(low, _hi) => {
-                match u128::from(*low) < u128::from(ip_addr) {
-                    true => Ordering::Less,
-                    false => Ordering::Greater
-                }
-            },
-            _ => Ordering::Equal
-        }
     }
 
     fn contains_inner(begin: u128, end: u128, candidate: u128) -> bool {

@@ -23,7 +23,7 @@ impl Eq for NodeLocation {}
 pub fn get_node_location(ip: Option<IpAddr>) -> Option<NodeLocation> {
     match ip {
         Some(ip_addr) => {
-            let country = country_finder(
+            let country = find_country(
                 dbip_country::ipv4_country_data,
                 dbip_country::ipv6_country_data,
                 ip_addr,
