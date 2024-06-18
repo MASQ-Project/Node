@@ -155,18 +155,10 @@ impl CountryBlockSerializer {
             0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
         );
         if self.prev_end_ipv4 != last_ipv4 {
-            self.add_ipv4(
-                plus_one_ipv4(self.prev_end_ipv4),
-                last_ipv4,
-                0,
-            );
+            self.add_ipv4(plus_one_ipv4(self.prev_end_ipv4), last_ipv4, 0);
         }
         if self.prev_end_ipv6 != last_ipv6 {
-            self.add_ipv6(
-                plus_one_ipv6(self.prev_end_ipv6),
-                last_ipv6,
-                0,
-            );
+            self.add_ipv6(plus_one_ipv6(self.prev_end_ipv6), last_ipv6, 0);
         }
         (self.bit_queue_ipv4, self.bit_queue_ipv6)
     }
@@ -1146,7 +1138,6 @@ mod tests {
         assert_eq!(result, None);
     }
 
-
     #[test]
     fn finish_does_not_touch_complete_ipv6_list() {
         let mut country_blocks = ipv6_country_blocks();
@@ -1154,9 +1145,9 @@ mod tests {
         subject.add(CountryBlock {
             ip_range: IpRange::V6(
                 Ipv6Addr::from_str("0:0:0:0:0:0:0:0").unwrap(),
-                Ipv6Addr::from_str("1:2:3:4:5:6:7:7").unwrap()
+                Ipv6Addr::from_str("1:2:3:4:5:6:7:7").unwrap(),
             ),
-            country: Country::from(0usize) // sentinel
+            country: Country::from(0usize), // sentinel
         });
         subject.add(country_blocks.remove(0));
         subject.add(country_blocks.remove(0));

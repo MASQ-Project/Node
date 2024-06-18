@@ -22,10 +22,7 @@ impl Eq for NodeLocation {}
 pub fn get_node_location(ip: Option<IpAddr>) -> Option<NodeLocation> {
     match ip {
         Some(ip_addr) => {
-            let country = CountryCodeFinder::find_country(
-                &COUNTRY_CODE_FINDER,
-                ip_addr,
-            );
+            let country = CountryCodeFinder::find_country(&COUNTRY_CODE_FINDER, ip_addr);
             match country {
                 Some(country) => Some(NodeLocation {
                     country_code: country.iso3166.to_string(),
@@ -61,9 +58,7 @@ mod tests {
     #[test]
     fn construct_node_record_metadata_with_free_world_bit() {
         let mut metadata = NodeRecordMetadata::new();
-        metadata.node_location_opt = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(
-            1, 1, 1, 1,
-        ))));
+        metadata.node_location_opt = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
         assert_eq!(
             metadata.node_location_opt.as_ref().unwrap(),
             &NodeLocation {

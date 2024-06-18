@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
 use csv::{StringRecord, StringRecordIter};
+use std::cmp::Ordering;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
@@ -55,18 +55,17 @@ impl IpRange {
 
     pub fn in_range(&self, ip_addr: IpAddr) -> Ordering {
         match (ip_addr, self) {
-            (IpAddr::V4(ip), IpRange::V4(low, hi) )=> {
+            (IpAddr::V4(ip), IpRange::V4(low, hi)) => {
                 let (low_range, hi_range) = (u32::from(*low), u32::from(*hi));
                 let ip_num = u32::from(ip);
                 if ip_num < low_range {
                     Ordering::Greater
                 } else if ip_num > hi_range {
                     Ordering::Less
-                }
-                else {
+                } else {
                     Ordering::Equal
                 }
-            },
+            }
             (IpAddr::V6(ip), IpRange::V6(low, hi)) => {
                 let (low_range, hi_range) = (u128::from(*low), u128::from(*hi));
                 let ip_num = u128::from(ip);
@@ -74,15 +73,12 @@ impl IpRange {
                     Ordering::Greater
                 } else if ip_num > hi_range {
                     Ordering::Less
-                }
-                else {
+                } else {
                     Ordering::Equal
                 }
             }
-            (_ip, _range) => panic!("Mismatch ip and range versions")
-            //TODO write test for this panic!
+            (_ip, _range) => panic!("Mismatch ip and range versions"), //TODO write test for this panic!
         }
-
     }
 
     fn contains_inner(begin: u128, end: u128, candidate: u128) -> bool {
