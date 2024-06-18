@@ -6,9 +6,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(crate::dbip_country::ipv4_country_data(), crate::dbip_country::ipv6_country_data());
+    pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(crate::dbip_country::ipv4_country_data(), crate::dbip_country::ipv6_country_data());
 }
-struct CountryCodeFinder {
+pub struct CountryCodeFinder {
     ipv4: Vec<CountryBlock>,
     ipv6: Vec<CountryBlock>
 }
@@ -50,13 +50,13 @@ impl CountryCodeFinder {
     }
 
     pub fn find_country(
-        country_code_block: &Vec<CountryBlock>,
+        country_code_block: &CountryCodeFinder,
         ip_addr: IpAddr,
     ) -> Option<Country>
     {
         match ip_addr {
-            IpAddr::V4(ipv4_addr) => Self::find_country_ipv4(country_code_block, ipv4_addr),
-            IpAddr::V6(ipv6_addr) => Self::find_country_ipv6(country_code_block, ipv6_addr),
+            IpAddr::V4(ipv4_addr) => Self::find_country_ipv4(&country_code_block.ipv4, ipv4_addr),
+            IpAddr::V6(ipv6_addr) => Self::find_country_ipv6(&country_code_block.ipv6, ipv6_addr),
         }
     }
 
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn finds_ipv4_address_in_fourth_block() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER_TEST.ipv4,
+            &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("1.0.6.15").unwrap(),
         );
         //crate::country_finder::COUNTRY_CODE_FINDER.ipv4.remove(COUNTRY_CODE_FINDER.ipv4.len() - 1);
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER_TEST.ipv4,
+            &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("0.0.5.0").unwrap(),
         );
 
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn finds_ipv6_address_in_fourth_block() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER_TEST.ipv6,
+            &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("1:0:5:0:0:0:0:0").unwrap(),
         );
 
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn does_not_find_ipv6_address_in_zz_block() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER_TEST.ipv6,
+            &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("0:0:5:0:0:0:0:0").unwrap(),
         );
 
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_google() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER.ipv4,
+            &COUNTRY_CODE_FINDER,
             IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
         )
             .unwrap();
@@ -209,7 +209,7 @@ mod tests {
     fn real_test_ipv4_with_cz_isp() {
         //initialize();
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER.ipv4,
+            &COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
         )
             .unwrap();
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_sk_isp() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER.ipv4,
+            &COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
             .unwrap();
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn real_test_ipv6_with_google() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER.ipv6,
+            &COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
             .unwrap();

@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use ip_country_lib;
-use ip_country_lib::country_finder::country_finder;
-use ip_country_lib::dbip_country;
+use ip_country_lib::country_finder::{CountryCodeFinder, COUNTRY_CODE_FINDER};
 use std::net::IpAddr;
 
 #[allow(dead_code)]
@@ -23,9 +22,8 @@ impl Eq for NodeLocation {}
 pub fn get_node_location(ip: Option<IpAddr>) -> Option<NodeLocation> {
     match ip {
         Some(ip_addr) => {
-            let country = find_country(
-                dbip_country::ipv4_country_data,
-                dbip_country::ipv6_country_data,
+            let country = CountryCodeFinder::find_country(
+                &COUNTRY_CODE_FINDER,
                 ip_addr,
             );
             match country {
@@ -137,74 +135,79 @@ mod tests {
 #[allow(dead_code, unused_imports)]
 #[cfg(not(test))]
 mod test_ip_country_performance {
-    use crate::neighborhood::node_location::get_node_location;
+    use crate::neighborhood::node_location::{get_node_location, NodeLocation};
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::time::SystemTime;
 
     #[test]
     fn get_node_location_for_test_with_1000_v4_high_val_ips() {
-        let start = 0xFFFF0101u32;
+        let mut result_vec: Vec<Option<NodeLocation>> = vec![];
+        let start = 0xdfff8000u32;
         let timestart = SystemTime::now();
+
         (start..(start + 1000)).for_each(|num| {
             let address = IpAddr::V4(Ipv4Addr::from(num));
-            println!("ip: {}", &address);
-            let node_location = get_node_location(Some(address));
-            match node_location {
-                Some(node_location) => println!("fwb: {}", node_location.free_world_bit),
-                None => println!("ip does not exists: {}", address),
-            }
+            result_vec.push(get_node_location(Some(address)));
         });
 
         let timeend = SystemTime::now();
-        // 2.681 s
-        // 2.898 s
+
         println!(
-            "Elapesd time: {}",
+            "get_node_location_for_test_with_1000_v4_high_val_ips Elapesd time: {}",
             timeend.duration_since(timestart).unwrap().as_secs()
         );
+        assert!(timeend.duration_since(timestart).unwrap().as_secs() < 20);
+        while !result_vec.is_empty() {
+            let location = result_vec.remove(0);
+            assert_eq!(location.unwrap().free_world_bit, true);
+        }
     }
 
     #[test]
     fn get_node_location_for_test_with_1000_v4_low_val_ips() {
-        let start = 0x00000101u32;
+        let mut result_vec: Vec<Option<NodeLocation>> = vec![];
+        let start = 0x10100101u32;
         let timestart = SystemTime::now();
+
         (start..(start + 1000)).for_each(|num| {
             let address = IpAddr::V4(Ipv4Addr::from(num));
-            println!("ip: {}", &address);
-            let node_location = get_node_location(Some(address));
-            match node_location {
-                Some(node_location) => println!("fwb: {}", node_location.free_world_bit),
-                None => println!("ip does not exists: {}", address),
-            }
+            result_vec.push(get_node_location(Some(address)));
         });
 
         let timeend = SystemTime::now();
-        // 1494
+
         println!(
-            "Elapesd time: {}",
+            "get_node_location_for_test_with_1000_v4_high_val_ips Elapesd time: {}",
             timeend.duration_since(timestart).unwrap().as_secs()
         );
+        assert!(timeend.duration_since(timestart).unwrap().as_secs() < 20);
+        while !result_vec.is_empty() {
+            let location = result_vec.remove(0);
+            assert_eq!(location.unwrap().free_world_bit, true);
+        }
     }
 
     #[test]
     fn get_node_location_for_test_with_1000_v6_middle_val_ips() {
+        let mut result_vec: Vec<Option<NodeLocation>> = vec![];
         let start = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000u128;
         let timestart = SystemTime::now();
+
         (start..(start + 1000)).for_each(|num| {
             let address = IpAddr::V6(Ipv6Addr::from(num));
-            println!("ip: {}", &address);
-            let node_location = get_node_location(Some(address));
-            match node_location {
-                Some(node_location) => println!("fwb: {}", node_location.free_world_bit),
-                None => println!("ip does not exists: {}", address),
-            }
+            result_vec.push(get_node_location(Some(address)));
         });
 
         let timeend = SystemTime::now();
-        // 3.739
+
         println!(
-            "Elapesd time: {}",
+            "get_node_location_for_test_with_1000_v4_high_val_ips Elapesd time: {}",
             timeend.duration_since(timestart).unwrap().as_secs()
         );
+        assert!(timeend.duration_since(timestart).unwrap().as_secs() < 20);
+        while !result_vec.is_empty() {
+            let location = result_vec.remove(0);
+            assert_eq!(location.unwrap().free_world_bit, true);
+        }
     }
 }
