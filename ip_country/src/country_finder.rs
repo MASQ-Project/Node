@@ -206,7 +206,6 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_cz_isp() {
-        //initialize();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
