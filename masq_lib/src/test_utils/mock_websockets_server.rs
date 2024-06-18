@@ -320,8 +320,8 @@ impl MockWebSocketsServer {
             index,
             format!("Listening on: {}", socket_addr).as_str(),
         );
-        let static_socket_addr_str: &'static str =
-            Box::leak(socket_addr.to_string().into_boxed_str());
+        let socket_addr_str = socket_addr.to_string();
+        let static_socket_addr_str = Box::leak(socket_addr_str.into_boxed_str());
         let future = server.listen(static_socket_addr_str, None);
         task::spawn(future);
 

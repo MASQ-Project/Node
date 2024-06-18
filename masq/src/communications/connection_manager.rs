@@ -5,7 +5,9 @@ use crate::communications::broadcast_handlers::{
     RedirectBroadcastHandleFactory, RedirectBroadcastHandleFactoryReal,
     StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal,
 };
-use crate::communications::client_listener_thread::{ClientListener, ClientListenerError};
+use crate::communications::client_listener_thread::{
+    ClientListener, ClientListenerError, ClientListenerHandle,
+};
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
@@ -19,11 +21,9 @@ use masq_lib::utils::localhost;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::process::Output;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::select;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -105,7 +105,7 @@ impl ConnectionManagerBootstrapper {
             self.prepare_launch(port, terminal_interface_opt, timeout_millis);
 
         let talker_half = (launch_platform.spawn_ws_client_listener)().await?;
-
+        todo!("get rid of this silly procedure and go sequentially as intuitive");
         let standard_broadcast_handle = (launch_platform.spawn_standard_broadcast_handler)();
 
         (launch_platform.spawn_cms_event_loop)(talker_half, standard_broadcast_handle);
@@ -123,7 +123,7 @@ impl ConnectionManagerBootstrapper {
         let closing_stage = Arc::new(AtomicBool::new(false));
         let closing_stage_clone = closing_stage.clone();
 
-        let spawn_ws_client_listener: ClientListenerSpawner = Box::new(move || {
+        let spawn_ws_client_listener: SpawnClientListenerFuture = Box::new(move || {
             Box::pin(make_client_listener(
                 port,
                 listener_to_manager_tx,
@@ -149,7 +149,7 @@ impl ConnectionManagerBootstrapper {
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
 
         let spawn_cms_event_loop = Box::new(
-            move |talker_half: WSSender<(Message, Ack)>,
+            move |client_listener_handle: ClientListenerHandle,
                   standard_broadcast_handle: Box<dyn BroadcastHandle<MessageBody>>| {
                 let broadcast_handles =
                     BroadcastHandles::new(standard_broadcast_handle, redirect_broadcast_handle);
@@ -166,7 +166,7 @@ impl ConnectionManagerBootstrapper {
                     conversations_to_manager_tx,
                     conversations_to_manager_rx,
                     listener_to_manager_rx,
-                    talker_half,
+                    client_listener_handle,
                     broadcast_handles,
                     redirect_order_rx,
                     redirect_response_tx,
@@ -195,28 +195,27 @@ impl ConnectionManagerBootstrapper {
     }
 }
 
-type ClientListenerSpawner = Box<
-    dyn FnOnce() -> Pin<
-        Box<dyn Future<Output = Result<WSSender<(Message, Ack)>, ClientListenerError>>>,
-    >,
+type SpawnClientListenerFuture = Box<
+    dyn FnOnce()
+        -> Pin<Box<dyn Future<Output = Result<ClientListenerHandle, ClientListenerError>>>>,
 >;
 
-type StandardBroadcastSpawner = Box<dyn FnOnce() -> Box<dyn BroadcastHandle<MessageBody>>>;
+type SpawnStandardBroadcastHandler = Box<dyn FnOnce() -> Box<dyn BroadcastHandle<MessageBody>>>;
 
-type CMSLoopSpawner =
-    Box<dyn FnOnce(WSSender<(Message, Ack)>, Box<dyn BroadcastHandle<MessageBody>>)>;
+type SpawnCMSEventLoop =
+    Box<dyn FnOnce(ClientListenerHandle, Box<dyn BroadcastHandle<MessageBody>>)>;
 
 struct LaunchPlatform {
-    spawn_ws_client_listener: ClientListenerSpawner,
-    spawn_standard_broadcast_handler: StandardBroadcastSpawner,
-    spawn_cms_event_loop: CMSLoopSpawner,
+    spawn_ws_client_listener: SpawnClientListenerFuture,
+    spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
+    spawn_cms_event_loop: SpawnCMSEventLoop,
 }
 
 impl LaunchPlatform {
     pub fn new(
-        spawn_ws_client_listener: ClientListenerSpawner,
-        spawn_standard_broadcast_handler: StandardBroadcastSpawner,
-        spawn_cms_event_loop: CMSLoopSpawner,
+        spawn_ws_client_listener: SpawnClientListenerFuture,
+        spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
+        spawn_cms_event_loop: SpawnCMSEventLoop,
     ) -> Self {
         todo!()
     }
@@ -300,15 +299,18 @@ async fn make_client_listener(
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     closing_stage: Arc<AtomicBool>,
     timeout_millis: u64,
-) -> Result<WSSender<(Message, Ack)>, ClientListenerError> {
+) -> Result<ClientListenerHandle, ClientListenerError> {
     let url = format!("ws://{}:{}", localhost(), port);
     // TODO should the values be set in this config comprehensively tested?
     let mut ws_config = WebSocketConfig::default();
-    ws_config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
+
+    // TODO implement the handshake when ready
+    // ws_config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
     let websocket: WebSocket = match WebSocket::new(Some(&url), Some(ws_config)) {
         Ok(ws) => ws,
         Err(e) => todo!(),
     };
+
     // TODO should the values be set in this config comprehensively tested?
     let mut connect_options = ConnectOptions::default();
     connect_options.block_async_connect = false;
@@ -322,11 +324,9 @@ async fn make_client_listener(
         Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
 
-    let listener_half = websocket.receiver_rx().clone();
-    let talker_half = websocket.sender_tx().clone();
-    let client_listener = ClientListener::new();
-    client_listener
-        .start(listener_half, closing_stage, listener_to_manager_tx)
+    let mut client_listener = ClientListener::new(websocket);
+    let talker_half = client_listener
+        .start(closing_stage, listener_to_manager_tx)
         .await;
 
     Ok(talker_half)
@@ -371,7 +371,7 @@ struct CmsInner {
     conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
     conversations_to_manager_rx: async_channel::Receiver<OutgoingMessageType>,
     listener_to_manager_rx: UnboundedReceiver<Result<MessageBody, ClientListenerError>>,
-    talker_half: WSSender<(Message, Ack)>,
+    client_listener_handle: ClientListenerHandle,
     broadcast_handles: BroadcastHandles,
     redirect_order_rx: UnboundedReceiver<RedirectOrder>,
     redirect_response_tx: UnboundedSender<Result<(), ClientListenerError>>,
@@ -498,7 +498,7 @@ impl ConnectionManagerEventLoop {
                 MessagePath::Conversation(context_id) => {
                     let conversation_result = inner.conversations.get(&context_id);
                     if conversation_result.is_some() {
-                        let send_message_result = inner.talker_half.send((Message::Text(UiTrafficConverter::new_marshal(message_body)), None)).await;
+                        let send_message_result = inner.client_listener_handle.send(Message::Text(UiTrafficConverter::new_marshal(message_body))).await;
                         match send_message_result {
                             Ok(_) => {
                                 inner.conversations_waiting.insert(context_id);
@@ -513,7 +513,7 @@ impl ConnectionManagerEventLoop {
             },
             Ok(OutgoingMessageType::FireAndForgetMessage(message_body, context_id)) => match message_body.path {
                 MessagePath::FireAndForget => {
-                    match inner.talker_half.send((Message::Text(UiTrafficConverter::new_marshal(message_body)), None)).await {
+                    match inner.client_listener_handle.send(Message::Text(UiTrafficConverter::new_marshal(message_body))).await {
                         Ok (_) => {
                             if let Some(manager_to_conversation_tx) = inner.conversations.get(&context_id) {
                                 match manager_to_conversation_tx.send(Err(NodeConversationTermination::FiredAndForgotten)).await {
@@ -566,7 +566,7 @@ impl ConnectionManagerEventLoop {
         inner.node_port = Some(redirect_order.port);
         inner.active_port = Some(redirect_order.port);
         inner.listener_to_manager_rx = listener_to_manager_rx;
-        inner.talker_half = talker_half;
+        inner.client_listener_handle = talker_half;
         //TODO this is a working solution for conversations; know that a redirected fire-and-forget is just ignored and it does not resend if it's the absolutely first message: GH-487
         inner.conversations_waiting.iter().for_each(|context_id| {
             let error = if *context_id == redirect_order.context_id {
@@ -598,8 +598,8 @@ impl ConnectionManagerEventLoop {
 
     async fn handle_close(mut inner: CmsInner) -> CmsInner {
         inner.closing_stage.store(true, Ordering::Relaxed);
-        let _ = inner.talker_half.send((Message::Close, None));
-        let _ = inner.talker_half.close();
+        let _ = inner.client_listener_handle.send(Message::Close);
+        let _ = inner.client_listener_handle.close();
         inner = Self::fallback(inner, NodeConversationTermination::Graceful).await;
         inner
     }
@@ -628,7 +628,7 @@ impl ConnectionManagerEventLoop {
         )
         .await
         {
-            Ok(talker_half) => inner.talker_half = talker_half,
+            Ok(talker_half) => inner.client_listener_handle = talker_half,
             Err(e) => panic!("ClientListenerThread could not be restarted: {:?}", e),
         };
         inner = Self::disappoint_waiting_conversations(inner, NodeConversationTermination::Fatal);
@@ -675,9 +675,8 @@ impl ConnectionManagerEventLoop {
 mod tests {
     use super::*;
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
-    use crate::test_utils::client_utils::WSTestClient;
     use crate::test_utils::mocks::{
-        RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock,
+        websocket_utils, RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock,
         StandardBroadcastHandlerMock,
     };
     use async_channel::TryRecvError;
@@ -699,6 +698,7 @@ mod tests {
     use std::hash::Hash;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::thread::spawn;
     use std::time::Duration;
     use tokio::runtime::Runtime;
     use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
@@ -874,7 +874,8 @@ mod tests {
             .queue_string("irrelevant")
             .queue_string("irrelevant");
         let stop_handle = server.start().await;
-        let (_, talker_half) = WSTestClient::new(port).split();
+        let client_listener_handle =
+            make_client_listener_handler_with_meaningless_event_loop_handle(port).await;
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
@@ -886,7 +887,7 @@ mod tests {
         inner.listener_to_manager_rx = listener_to_manager_rx;
         inner.conversations_to_manager_tx = conversations_to_manager_tx;
         inner.conversations_to_manager_rx = conversations_to_manager_rx;
-        inner.talker_half = talker_half;
+        inner.client_listener_handle = client_listener_handle;
         inner.redirect_order_rx = redirect_order_rx;
         inner.demand_rx = demand_rx;
         demand_tx.send(Demand::Conversation).unwrap();
@@ -1445,7 +1446,8 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (_, talker_half) = WSTestClient::new(port).split();
+        let client_listener_handle =
+            make_client_listener_handler_with_meaningless_event_loop_handle(port).await;
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (_listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
@@ -1454,7 +1456,7 @@ mod tests {
         inner.conversations_to_manager_tx = conversations_to_manager_tx;
         inner.conversations_to_manager_rx = conversations_to_manager_rx;
         inner.listener_to_manager_rx = listener_to_manager_rx;
-        inner.talker_half = talker_half;
+        inner.client_listener_handle = client_listener_handle;
         inner.redirect_order_rx = redirect_order_rx;
         let outgoing_message = UiUnmarshalError {
             message: "".to_string(),
@@ -1661,7 +1663,7 @@ mod tests {
             conversations_to_manager_tx: async_channel::unbounded().0,
             conversations_to_manager_rx: async_channel::unbounded().1,
             listener_to_manager_rx: unbounded_channel().1,
-            talker_half: make_broken_talker_half().await,
+            client_listener_handle: make_broken_talker_half().await,
             broadcast_handles,
             redirect_order_rx: unbounded_channel().1,
             redirect_response_tx: unbounded_channel().0,
@@ -1670,15 +1672,27 @@ mod tests {
         }
     }
 
-    pub async fn make_broken_talker_half() -> WSSender<(Message, Ack)> {
+    pub async fn make_broken_talker_half() -> ClientListenerHandle {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let client = WSTestClient::new(port);
-        let (_, talker_half) = client.split();
+        let client_listener_handle =
+            make_client_listener_handler_with_meaningless_event_loop_handle(port).await;
         let _ = stop_handle.kill();
-        let _ = talker_half.close();
-        talker_half
+        let _ = client_listener_handle.close();
+        client_listener_handle
+    }
+
+    pub async fn make_client_listener_handler_with_meaningless_event_loop_handle(
+        port: u16,
+    ) -> ClientListenerHandle {
+        let (websocket, talker_half, _) = websocket_utils(port).await;
+        let meaningless_spawn_handle = tokio::task::spawn(async {
+            loop {
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        });
+        ClientListenerHandle::new(websocket, meaningless_spawn_handle)
     }
 
     pub fn vec_to_set<T>(vec: Vec<T>) -> HashSet<T>

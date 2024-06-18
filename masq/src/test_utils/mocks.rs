@@ -22,6 +22,7 @@ use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
     WTermInterface, WTermInterfaceDup, WTermInterfaceImplementingSend, WriteStreamType,
 };
+use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::command::StdStreams;
@@ -32,6 +33,7 @@ use masq_lib::test_utils::fake_stream_holder::{
     StringAssertionMethods,
 };
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::utils::localhost;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::future::Future;
@@ -45,6 +47,9 @@ use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use workflow_websocket::client::{
+    Ack, ConnectOptions, ConnectStrategy, Message, WebSocket, WebSocketConfig,
+};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -344,6 +349,34 @@ impl MockCommand {
         self.execute_results.lock().unwrap().push(result);
         self
     }
+}
+
+pub async fn make_websocket(port: u16) -> WebSocket {
+    let url = format!("ws://{}:{}", localhost(), port);
+    let mut config = WebSocketConfig::default();
+    // config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
+    let websocket = WebSocket::new(Some(&url), Some(config))
+        .expect("Couldn't initialize websocket for the client");
+    connect(&websocket).await;
+    websocket
+}
+
+pub async fn connect(websocket: &WebSocket) {
+    let mut connect_options = ConnectOptions::default();
+    connect_options.block_async_connect = true;
+    connect_options.connect_timeout = Some(Duration::from_millis(1000));
+    connect_options.strategy = ConnectStrategy::Fallback;
+    websocket
+        .connect(connect_options)
+        .await
+        .expect("Connecting to the websocket server failed");
+}
+
+pub async fn websocket_utils(port: u16) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
+    let websocket = make_websocket(port).await;
+    let talker_half = websocket.sender_tx().clone();
+    let listener_half = websocket.receiver_rx().clone();
+    (websocket, talker_half, listener_half)
 }
 //
 // #[derive(Clone, Debug)]

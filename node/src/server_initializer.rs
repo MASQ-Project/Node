@@ -194,8 +194,8 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
 
-        // Info level is not shown within the log
-        log!(Level::Info, "{}", logger::Logger::log_file_heading());
+        // Log level is not shown within the log
+        log::info!("{}", logger::Logger::log_file_heading());
 
         unsafe {
             // This resets the format function after specialized formatting for the log heading is used.
