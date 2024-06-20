@@ -685,6 +685,7 @@ mod tests {
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
                 min_hops: Hops::ThreeHops,
+                country: "ZZ".to_string()
             }
         );
         assert_eq!(

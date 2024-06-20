@@ -63,6 +63,7 @@ fn generate_rust_code(
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
+    //TODO add number of country blocks to each run and create getters to retrieve number of blocks
     generate_country_data("ipv4_country_data", ipv4_bit_queue, output)?;
     generate_country_data("ipv6_country_data", ipv6_bit_queue, output)?;
     Ok(())

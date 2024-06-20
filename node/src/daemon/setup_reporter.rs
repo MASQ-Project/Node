@@ -1357,6 +1357,7 @@ mod tests {
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &[1234],
             )),
+            country_code: "ZZ".to_string(),
         };
         let neighbor2 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"EFGH"),
@@ -1365,6 +1366,7 @@ mod tests {
                 &IpAddr::from_str("5.6.7.8").unwrap(),
                 &[5678],
             )),
+            country_code: "ZZ".to_string(),
         };
         config
             .set_past_neighbors(Some(vec![neighbor1, neighbor2]), "password")

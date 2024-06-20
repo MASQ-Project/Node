@@ -344,6 +344,7 @@ mod tests {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
             node_addr_opt: None,
+            country_code: "ZZ".to_string(),
         };
         let _connection_progress = ConnectionProgress::new(descriptor_with_no_ip_address);
     }
