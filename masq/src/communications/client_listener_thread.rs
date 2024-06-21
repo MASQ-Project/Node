@@ -44,8 +44,7 @@ impl ClientListener {
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     ) -> ClientListenerHandle {
         let listener_half = self.websocket.receiver_rx().clone();
-        let loop_starter =
-            ClientListenerEventLoopSpawner::new(listener_half, message_body_tx, is_closing);
+        let loop_starter = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
         let task_handle = loop_starter.spawn();
         ClientListenerHandle::new(self.websocket, task_handle)
     }
@@ -74,7 +73,7 @@ impl ClientListenerHandle {
         self.websocket.post(msg).await
     }
 
-    pub fn close(&self) -> bool {
+    pub fn close_talker_half(&self) -> bool {
         todo!();
         //self.talker_half.close();
     }
@@ -84,13 +83,13 @@ impl ClientListenerHandle {
     }
 }
 
-struct ClientListenerEventLoopSpawner {
+struct ClientListenerEventLoop {
     listener_half: WSReceiver<Message>,
     message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     is_closing: Arc<AtomicBool>,
 }
 
-impl ClientListenerEventLoopSpawner {
+impl ClientListenerEventLoop {
     pub fn new(
         listener_half: WSReceiver<Message>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
@@ -104,55 +103,57 @@ impl ClientListenerEventLoopSpawner {
     }
 
     pub fn spawn(self) -> JoinHandle<()> {
-        let future = async move {
-            loop {
-                let received_ws_message = self.listener_half.recv().await;
-                let is_closing = self.is_closing.load(Ordering::Relaxed);
+        let future = async move { self.loop_guts().await };
 
-                match (received_ws_message, is_closing) {
-                    (_, true) => todo!(),
-                    (Ok(Message::Text(string)), _) => {
-                        match UiTrafficConverter::new_unmarshal(&string) {
-                            Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
-                                Ok(_) => (),
-                                Err(_) => break,
-                            },
-                            Err(_) => match self
-                                .message_body_tx
-                                .send(Err(ClientListenerError::UnexpectedPacket))
-                            {
-                                Ok(_) => (),
-                                Err(_) => break,
-                            },
-                        }
-                    }
-                    (Ok(Message::Open), _) => {
-                        // Dropping, it doesn't say anything but what we already know
-                    }
-                    (Ok(Message::Close), _) => {
-                        let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
-                        break;
-                    }
-                    (Ok(_unexpected), _) => {
-                        match self
+        tokio::task::spawn(future)
+    }
+
+    async fn loop_guts(self) {
+        loop {
+            let received_ws_message = self.listener_half.recv().await;
+            let is_closing = self.is_closing.load(Ordering::Relaxed);
+
+            match (received_ws_message, is_closing) {
+                (_, true) => break,
+                (Ok(Message::Text(string)), _) => {
+                    match UiTrafficConverter::new_unmarshal(&string) {
+                        Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
+                            Ok(_) => (),
+                            Err(_) => break,
+                        },
+                        Err(_) => match self
                             .message_body_tx
                             .send(Err(ClientListenerError::UnexpectedPacket))
                         {
                             Ok(_) => (),
                             Err(_) => break,
-                        }
-                    }
-                    (Err(error), _) => {
-                        let _ = self
-                            .message_body_tx
-                            .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
-                        break;
+                        },
                     }
                 }
+                (Ok(Message::Open), _) => {
+                    // Dropping, it doesn't say anything but what we already know
+                }
+                (Ok(Message::Close), _) => {
+                    let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
+                    break;
+                }
+                (Ok(_unexpected), _) => {
+                    match self
+                        .message_body_tx
+                        .send(Err(ClientListenerError::UnexpectedPacket))
+                    {
+                        Ok(_) => (),
+                        Err(_) => break,
+                    }
+                }
+                (Err(error), _) => {
+                    let _ = self
+                        .message_body_tx
+                        .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
+                    break;
+                }
             }
-        };
-
-        tokio::task::spawn(future)
+        }
     }
 }
 
@@ -161,12 +162,17 @@ mod tests {
     use super::*;
     use crate::test_utils::mocks::{make_websocket, websocket_utils};
     use async_channel::{unbounded, Sender};
-    use masq_lib::messages::ToMessageBody;
+    use futures::{FutureExt, TryFutureExt};
+    use masq_lib::messages::{
+        FromMessageBody, ToMessageBody, UiCheckPasswordResponse, UiDescriptorResponse,
+    };
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
     use std::time::{Duration, SystemTime};
+    use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::unbounded_channel;
+    use tokio::task::JoinError;
     use workflow_websocket::client::{Ack, Message as ClientMessage};
     use workflow_websocket::server::Message as ServerMessage;
 
@@ -176,9 +182,11 @@ mod tests {
         }
     }
 
-    async fn stimulate_queued_response_from_server(client_listener_handle: &ClientListenerHandle) {
-        let message = Message::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
-        client_listener_handle.send(message).await.unwrap();
+    async fn stimulate_queued_response_from_server(client_talker_half: &Sender<(Message, Ack)>) {
+        let message = Message::Text(UiTrafficConverter::new_marshal(
+            UiShutdownRequest {}.tmb(345345),
+        ));
+        client_talker_half.send((message, None)).await.unwrap();
     }
 
     #[tokio::test]
@@ -195,7 +203,7 @@ mod tests {
         let client_listener_handle = subject
             .start(Arc::new(AtomicBool::new(false)), message_body_tx)
             .await;
-        stimulate_queued_response_from_server(&client_listener_handle).await;
+        stimulate_queued_response_from_server(client_listener_handle.websocket.sender_tx()).await;
 
         let message_body = message_body_rx.recv().await.unwrap().unwrap();
 
@@ -268,7 +276,7 @@ mod tests {
         let client_listener_handle = subject
             .start(Arc::new(AtomicBool::new(false)), message_body_tx)
             .await;
-        stimulate_queued_response_from_server(&client_listener_handle).await;
+        stimulate_queued_response_from_server(&client_listener_handle.websocket.sender_tx()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
@@ -292,7 +300,7 @@ mod tests {
         let client_listener_handle = subject
             .start(Arc::new(AtomicBool::new(false)), message_body_tx)
             .await;
-        stimulate_queued_response_from_server(&client_listener_handle).await;
+        stimulate_queued_response_from_server(client_listener_handle.websocket.sender_tx()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
@@ -328,7 +336,51 @@ mod tests {
         while Arc::strong_count(&ref_counting_object) > 1 {
             tokio::time::sleep(Duration::from_millis(10)).await
         }
-        let count_after = Arc::strong_count(&ref_counting_object);
+        let _ = stop_handle.stop();
+    }
+
+    #[tokio::test]
+    async fn no_new_received_message_is_processed_at_closing_stage() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port)
+            .queue_response(
+                UiDescriptorResponse {
+                    node_descriptor_opt: None,
+                }
+                .tmb(1234),
+            )
+            .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
+        let stop_handle = server.start().await;
+        let (websocket, talker_half, listener_half) = websocket_utils(port).await;
+        let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        let is_closing = Arc::new(AtomicBool::new(false));
+        let is_closing_cloned = is_closing.clone();
+        let subject = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
+        let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
+        let count_before = Arc::strong_count(&is_closing_cloned);
+        stimulate_queued_response_from_server(&talker_half).await;
+        let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();
+        let (received_message, context_id) = UiDescriptorResponse::fmb(received_msg_body).unwrap();
+
+        is_closing_cloned.store(true, Ordering::Relaxed);
+        stimulate_queued_response_from_server(&talker_half).await;
+
+        assert_eq!(count_before, 2);
+        assert_eq!(
+            received_message,
+            UiDescriptorResponse {
+                node_descriptor_opt: None
+            }
+        );
+        assert_eq!(context_id, 1234);
+        while Arc::strong_count(&is_closing_cloned) > 1 {
+            tokio::time::sleep(Duration::from_millis(10)).await
+        }
+        let second_msg_attempt = message_body_rx.try_recv();
+        assert_eq!(second_msg_attempt, Err(TryRecvError::Disconnected));
+        join_handle
+            .await
+            .expect("We expected peacefully completed task");
         let _ = stop_handle.stop();
     }
 

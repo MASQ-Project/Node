@@ -217,7 +217,11 @@ impl LaunchPlatform {
         spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
         spawn_cms_event_loop: SpawnCMSEventLoop,
     ) -> Self {
-        todo!()
+        Self {
+            spawn_ws_client_listener,
+            spawn_standard_broadcast_handler,
+            spawn_cms_event_loop,
+        }
     }
 }
 
@@ -240,8 +244,17 @@ impl ConnectionManagerConnectors {
         redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
         active_port_response_rx: UnboundedReceiver<Option<u16>>,
     ) -> Self {
-        todo!()
+        let receivers = ReceiverHalves {
+            conversation_return_rx,
+            redirect_response_rx,
+            active_port_response_rx,
+        };
+        Self {
+            demand_tx,
+            receivers,
+        }
     }
+
     pub fn receivers_mut(&self) -> &mut ReceiverHalves {
         todo!()
     }
@@ -599,7 +612,7 @@ impl ConnectionManagerEventLoop {
     async fn handle_close(mut inner: CmsInner) -> CmsInner {
         inner.closing_stage.store(true, Ordering::Relaxed);
         let _ = inner.client_listener_handle.send(Message::Close);
-        let _ = inner.client_listener_handle.close();
+        let _ = inner.client_listener_handle.close_talker_half();
         inner = Self::fallback(inner, NodeConversationTermination::Graceful).await;
         inner
     }
@@ -753,7 +766,7 @@ mod tests {
     async fn handle_demand_brings_the_party_to_a_close_if_the_channel_fails() {
         let inner = make_inner().await;
 
-        let inner = make_rt().block_on(ConnectionManagerEventLoop::handle_demand(inner, None));
+        let inner = ConnectionManagerEventLoop::handle_demand(inner, None).await;
 
         assert_eq!(inner.active_port, None);
     }
@@ -1615,7 +1628,6 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        thread::sleep(Duration::from_millis(500)); // let the server get started
         let mut bootstrapper = ConnectionManagerBootstrapper::default();
         let connectors = bootstrapper
             .spawn_background_loops(port, None, 1000)
@@ -1627,7 +1639,6 @@ mod tests {
 
         subject.close();
 
-        thread::sleep(Duration::from_millis(100)); // let the disappointment message show up
         let result = conversation1
             .transact(UiShutdownRequest {}.tmb(0), 1000)
             .await;
@@ -1679,7 +1690,6 @@ mod tests {
         let client_listener_handle =
             make_client_listener_handler_with_meaningless_event_loop_handle(port).await;
         let _ = stop_handle.kill();
-        let _ = client_listener_handle.close();
         client_listener_handle
     }
 

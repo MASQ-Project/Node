@@ -105,7 +105,7 @@ impl Default for StandardBroadcastHandlerFactoryReal {
 
 impl StandardBroadcastHandlerFactoryReal {
     pub fn new() -> Self {
-        todo!()
+        StandardBroadcastHandlerFactoryReal {}
     }
 }
 
@@ -114,7 +114,7 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
-        todo!()
+        Box::new(StandardBroadcastHandlerReal::new(terminal_interface_opt))
     }
 }
 
