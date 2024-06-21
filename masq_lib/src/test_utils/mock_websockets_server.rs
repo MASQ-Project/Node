@@ -553,9 +553,9 @@ impl MockWebSocketsServerStopHandle {
         self.send_terminate_order(false)
     }
 
-    pub fn kill(self) -> Vec<Result<MessageBody, String>> {
+    pub async fn kill(self) -> Vec<Result<MessageBody, String>> {
         let result = self.send_terminate_order(true);
-        thread::sleep(Duration::from_millis(150));
+        tokio::time::sleep(Duration::from_millis(150)).await;
         result
     }
 

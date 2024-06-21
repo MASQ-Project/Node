@@ -57,7 +57,7 @@ pub struct ClientListenerHandle {
 
 impl Drop for ClientListenerHandle {
     fn drop(&mut self) {
-        self.shut_down_listener()
+        self.dismiss_event_loop()
     }
 }
 
@@ -74,11 +74,10 @@ impl ClientListenerHandle {
     }
 
     pub fn close_talker_half(&self) -> bool {
-        todo!();
-        //self.talker_half.close();
+        self.websocket.sender_tx().close()
     }
 
-    pub fn shut_down_listener(&self) {
+    pub fn dismiss_event_loop(&self) {
         self.event_loop_join_handle.abort()
     }
 }
@@ -381,6 +380,29 @@ mod tests {
         join_handle
             .await
             .expect("We expected peacefully completed task");
+        let _ = stop_handle.stop();
+    }
+
+    #[tokio::test]
+    async fn close_talker_half_works(){
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let stop_handle = server.start().await;
+        let websocket = make_websocket(port).await;
+        let meaningless_event_loop_join_handle = tokio::task::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        });
+        let subject = ClientListenerHandle::new(websocket, meaningless_event_loop_join_handle);
+        let is_closed_before = subject.websocket.sender_tx().is_closed();
+
+        let closed_successfully = subject.close_talker_half();
+
+        let is_closed_after = subject.websocket.sender_tx().is_closed();
+        assert_eq!(is_closed_before, false);
+        assert_eq!(closed_successfully, true);
+        assert_eq!(is_closed_after, true);
         let _ = stop_handle.stop();
     }
 

@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::cell::{RefCell, RefMut};
 use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, BroadcastHandles, RedirectBroadcastHandle,
     RedirectBroadcastHandleFactory, RedirectBroadcastHandleFactoryReal,
@@ -20,6 +21,7 @@ use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -105,7 +107,7 @@ impl ConnectionManagerBootstrapper {
             self.prepare_launch(port, terminal_interface_opt, timeout_millis);
 
         let talker_half = (launch_platform.spawn_ws_client_listener)().await?;
-        todo!("get rid of this silly procedure and go sequentially as intuitive");
+
         let standard_broadcast_handle = (launch_platform.spawn_standard_broadcast_handler)();
 
         (launch_platform.spawn_cms_event_loop)(talker_half, standard_broadcast_handle);
@@ -227,7 +229,7 @@ impl LaunchPlatform {
 
 pub struct ConnectionManagerConnectors {
     demand_tx: UnboundedSender<Demand>,
-    receivers: ReceiverHalves,
+    receivers: RefCell<ReceiverHalves>,
 }
 
 struct ReceiverHalves {
@@ -244,19 +246,19 @@ impl ConnectionManagerConnectors {
         redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
         active_port_response_rx: UnboundedReceiver<Option<u16>>,
     ) -> Self {
-        let receivers = ReceiverHalves {
+        let receivers = RefCell::new(ReceiverHalves {
             conversation_return_rx,
             redirect_response_rx,
             active_port_response_rx,
-        };
+        });
         Self {
             demand_tx,
             receivers,
         }
     }
 
-    pub fn receivers_mut(&self) -> &mut ReceiverHalves {
-        todo!()
+    pub fn receivers_mut(&self) -> RefMut<'_,ReceiverHalves> {
+       self.receivers.borrow_mut()
     }
 }
 
@@ -269,9 +271,8 @@ impl ConnectionManager {
             .demand_tx
             .send(Demand::ActivePort)
             .expect("ConnectionManagerThread is dead");
-        let request_fut = self
-            .connectors
-            .receivers_mut()
+        let mut receivers = self.connectors.receivers_mut();
+        let request_fut = receivers
             .active_port_response_rx
             .recv();
         // (Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS))
@@ -1653,7 +1654,7 @@ mod tests {
             )
             .await;
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        let received = stop_handle.stop();
+        stop_handle.stop();
         assert_eq!(received, vec![Err("Close(None)".to_string())]);
     }
 

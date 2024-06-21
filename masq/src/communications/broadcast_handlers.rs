@@ -59,7 +59,6 @@ impl BroadcastHandles {
     where
         Broadcast: ToMessageBody,
     {
-        todo!();
         self.standard.send(notification.tmb(0))
     }
 }
@@ -69,6 +68,7 @@ pub trait BroadcastHandle<Message>: Send {
     declare_as_any!();
 }
 
+#[derive(Default)]
 pub struct BroadcastHandleInactive;
 
 impl BroadcastHandle<MessageBody> for BroadcastHandleInactive {
@@ -144,7 +144,7 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
 
                 Box::new(StandardBroadcastHandle { message_tx })
             }
-            None => todo!(),
+            None => Box::new(BroadcastHandleInactive::default()),
         }
     }
 }
@@ -191,6 +191,7 @@ impl StandardBroadcastHandlerReal {
     }
 }
 
+#[derive(Default)]
 pub struct BroadcastHandlerNull {}
 
 impl BroadcastHandler<MessageBody> for BroadcastHandlerNull {

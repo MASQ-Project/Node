@@ -136,7 +136,7 @@ impl NodeConversation {
                     Ok(Err(NodeConversationTermination::FiredAndForgotten)) => {
                         panic!("Two-way transaction should never result in FiredAndForgotten")
                     }
-                    Err(e) => todo!(), //Err(ClientError::ConnectionDropped),
+                    Err(_) => Err(ClientError::ConnectionDropped),
                 }
             }
             Err(_) => Err(ClientError::ConnectionDropped),
