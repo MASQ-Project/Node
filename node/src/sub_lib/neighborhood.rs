@@ -206,7 +206,7 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
                 )
                 .expect("Internal error"),
             node_addr_opt: node_record.node_addr_opt(),
-            country_code: get_node_location(Some(node_record.node_addr_opt().expect("expect ip").ip_addr.clone())).expect("expexted country").country_code,
+            country_code: get_node_location(Some(node_record.node_addr_opt().expect("expect ip").ip_addr)).expect("expexted country").country_code,
         }
     }
 }
