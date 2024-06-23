@@ -672,7 +672,11 @@ mod tests {
         let value = map
             .get(key)
             .unwrap_or_else(|| panic!("record for {} is missing", key));
-        assert!(value.is_null())
+        assert!(
+            value.is_null(),
+            "Expecting {} to be null, but it wasn't",
+            value
+        )
     }
 
     fn assert_encrypted_value(

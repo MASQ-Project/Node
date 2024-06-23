@@ -876,6 +876,8 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                             &new_start_block, e
                         ),
                     }
+                } else {
+                    warning!(logger, "The new_start_block ({}) is less than the current_start_block ({}). This is not a problem but by checking we avoid rescanning the same blocks again later.", &new_start_block, &current_start_block);
                 }
             }
         } else {
@@ -941,6 +943,8 @@ impl ReceivableScanner {
                     }
                     Err(e) => panic!("Commit of received transactions failed: {:?}", e),
                 }
+            } else {
+                warning!(logger, "The new_start_block ({}) is less than the current_start_block ({}). This is not a problem but by checking we avoid rescanning the same blocks again later.", &new_start_block, &current_start_block);
             }
         }
 
