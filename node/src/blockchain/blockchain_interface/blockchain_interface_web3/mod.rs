@@ -134,7 +134,7 @@ where
         let logger = self.logger.clone();
         match self.web3_batch.transport().submit_batch().wait() {
             Ok(_) => {
-                let response_block_number = match block_request.wait() {
+                let response_block_number_opt = match block_request.wait() {
                     Ok(block_nbr) => {
                         debug!(logger, "Latest block number: {}", block_nbr.as_u64());
                         Some(block_nbr.as_u64())
@@ -178,7 +178,7 @@ where
                             // was not successful.
                             let transaction_max_block_number = self
                                 .find_largest_transaction_block_number(
-                                    response_block_number,
+                                    response_block_number_opt,
                                     &transactions,
                                 );
                             debug!(
@@ -188,9 +188,8 @@ where
                             );
                             Ok(RetrievedBlockchainTransactions {
                                 new_start_block: transaction_max_block_number
-                                    .map_or(BlockNumber::Latest, |nsb| {
-                                        BlockNumber::Number((1u64 + nsb).into())
-                                    }),
+                                    .map(|nsb| BlockNumber::Number((1u64 + nsb).into()))
+                                    .unwrap_or(BlockNumber::Latest),
                                 transactions,
                             })
                         }

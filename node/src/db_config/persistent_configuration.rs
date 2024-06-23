@@ -571,11 +571,9 @@ impl PersistentConfigurationReal {
         value: Option<T>,
         txn: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set_by_guest_transaction(
-            txn,
-            parameter_name,
-            value.map(|v| v.to_string()).or(None),
-        )?)
+        Ok(self
+            .dao
+            .set_by_guest_transaction(txn, parameter_name, value.map(|v| v.to_string()))?)
     }
 
     fn combined_params_get_method<'a, T, C>(
