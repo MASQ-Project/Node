@@ -25,6 +25,7 @@ impl CountryCodeFinder {
     }
 
     fn initialize_country_finder_ipv4(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
+        //TODO write two tests - one for deserializer and one for loop to fill up the vec
         let mut deserializer = CountryBlockDeserializerIpv4::new(data);
         let mut result: Vec<CountryBlock> = vec![];
         loop {
@@ -102,6 +103,7 @@ mod tests {
     use super::*;
     use lazy_static::lazy_static;
     use std::str::FromStr;
+    use std::time::SystemTime;
 
     lazy_static! {
         static ref COUNTRY_CODE_FINDER_TEST: CountryCodeFinder =
@@ -165,12 +167,17 @@ mod tests {
 
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
+        let timestart = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("0.0.5.0").unwrap(),
         );
+        let timeend = SystemTime::now();
 
-        assert_eq!(result, None)
+        assert_eq!(result, None);
+        let duration = timeend.duration_since(timestart).unwrap().as_secs();
+        println!("duration: {}", duration);
+        assert!(duration <= 5);
     }
 
     #[test]
@@ -219,25 +226,71 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_sk_isp() {
+        let timestart = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
         .unwrap();
+        let timeend = SystemTime::now();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
         assert_eq!(result.name, "Slovakia".to_string());
+        let duration = timeend.duration_since(timestart).unwrap().as_secs();
+        println!("duration: {}", duration);
+        assert!(duration <= 5);
     }
 
     #[test]
     fn real_test_ipv6_with_google() {
+        let timestart = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
         .unwrap();
+        let timeend = SystemTime::now();
 
         assert_eq!(result.name, "United States".to_string());
+        let duration = timeend.duration_since(timestart).unwrap().as_secs();
+        println!("duration: {}", duration);
+        assert!(duration <= 5);
+    }
+
+    #[test]
+    fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
+        let mut result_ipv4: Vec<CountryBlock> = vec![];
+        let mut result_ipv6: Vec<CountryBlock> = vec![];
+        let timestart = SystemTime::now();
+        let mut deserializer_ipv4 = CountryBlockDeserializerIpv4::new(crate::dbip_country::ipv4_country_data());
+        let mut deserializer_ipv6 = CountryBlockDeserializerIpv6::new(crate::dbip_country::ipv6_country_data());
+        let timeend = SystemTime::now();
+
+        let timestart_fill = SystemTime::now();
+        loop {
+            match deserializer_ipv4.next() {
+                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
+                Some(country_block) => {
+                    result_ipv4.push(country_block);
+                }
+            }
+        }
+        loop {
+            match deserializer_ipv6.next() {
+                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
+                Some(country_block) => {
+                    result_ipv6.push(country_block);
+                }
+            }
+        }
+        let timeend_fill = SystemTime::now();
+
+        let duration = timeend.duration_since(timestart).unwrap().as_secs();
+        let duration_fill = timeend_fill.duration_since(timestart_fill).unwrap().as_secs();
+        println!("duration deserialize: {}", duration);
+        assert!(duration < 8);
+        println!("duration fill_vec: {}", duration_fill);
+        assert!(duration_fill < 8);
     }
 }

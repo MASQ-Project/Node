@@ -507,11 +507,19 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
+        let node_ip = match self.config.neighborhood_config.mode.node_addr_opt() {
+            Some(node_addr) => Some(node_addr.ip_addr),
+            None => None
+        };
+        let country_code = match get_node_location(node_ip) {
+            Some(country) => country.country_code,
+            None => "ZZ".to_string()
+        };
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
-            self.config.neighborhood_config.country,
+            country_code,
         );
         self.config.node_descriptor = node_descriptor;
         // Before you remove local-descriptor reporting for non-Standard neighborhood modes, make
