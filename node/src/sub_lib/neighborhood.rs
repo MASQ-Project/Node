@@ -198,6 +198,14 @@ impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE, String)> for NodeDescript
 impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, Chain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
+        let ip_addr = match node_record.node_addr_opt() {
+            Some(ip) => Some(ip.ip_addr),
+            None => None
+        };
+        let country_code = match get_node_location(ip_addr) {
+            Some(country) => country.country_code,
+            None => "ZZ".to_string()
+        };
         NodeDescriptor {
             blockchain,
             encryption_public_key: cryptde
@@ -206,7 +214,7 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
                 )
                 .expect("Internal error"),
             node_addr_opt: node_record.node_addr_opt(),
-            country_code: get_node_location(Some(node_record.node_addr_opt().expect("expect ip").ip_addr)).expect("expexted country").country_code,
+            country_code,
         }
     }
 }
@@ -218,16 +226,23 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
         let (cryptde, str_descriptor) = tuple;
         let (blockchain, key, str_node_addr) = NodeDescriptor::parse_url(str_descriptor)?;
         let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
+        let mut ip_addr = None;
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
-            Some(NodeAddr::from_str(str_node_addr)?)
+            let node_addr = NodeAddr::from_str(str_node_addr)?;
+            ip_addr = Some(node_addr.ip_addr);
+            Some(node_addr)
+        };
+        let country_code = match get_node_location(ip_addr) {
+            Some(country) => country.country_code,
+            None => "ZZ".to_string()
         };
         Ok(NodeDescriptor {
             blockchain,
             encryption_public_key,
             node_addr_opt,
-            country_code: get_node_location(Some(IpAddr::V4(str_node_addr.parse().expect("expexted ip")))).expect("expexted country").country_code,
+            country_code,
         })
     }
 }
