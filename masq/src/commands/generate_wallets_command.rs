@@ -1,14 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use async_trait::async_trait;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
 use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
@@ -222,39 +225,50 @@ impl GenerateWalletsCommand {
         })
     }
 
-    fn process_response(response: UiGenerateWalletsResponse, context: &mut dyn CommandContext) {
+    async fn process_response(
+        response: UiGenerateWalletsResponse,
+        stdout: &TerminalWriter,
+        stderr: &TerminalWriter,
+    ) {
         if let Some(mnemonic_phrase) = response.mnemonic_phrase_opt {
             short_writeln!(
-                context.stdout(),
+                stdout,
                 "Copy this phrase down and keep it safe; you'll need it to restore your wallet:"
             );
-            short_writeln!(context.stdout(), "'{}'", mnemonic_phrase.join(" "));
+            short_writeln!(stdout, "'{}'", mnemonic_phrase.join(" "));
         }
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Address of     consuming wallet: {}",
             response.consuming_wallet_address
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Private key of consuming wallet: {}",
             response.consuming_wallet_private_key
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Address of       earning wallet: {}",
             response.earning_wallet_address
         );
         short_writeln!(
-            context.stdout(),
+            stdout,
             "Private key of   earning wallet: {}",
             response.earning_wallet_private_key
         );
     }
 }
 
+#[async_trait(?Send)]
 impl Command for GenerateWalletsCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiGenerateWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self
@@ -269,8 +283,8 @@ impl Command for GenerateWalletsCommand {
             earning_derivation_path_opt: self.earning_path_opt.as_ref().cloned(),
         };
         let response: UiGenerateWalletsResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        Self::process_response(response, context);
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+        Self::process_response(response, &stdout, &stderr).await;
         Ok(())
     }
 
@@ -339,15 +353,13 @@ pub fn generate_wallets_subcommand() -> ClapCommand {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use super::*;
+    use crate::command_context::ContextError;
+    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     };
-
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
-
-    use super::*;
-    use crate::command_context::ContextError;
 
     const WORD_COUNT_ARG_POSSIBLE_VALUES: [WordCount; 5] = [
         WordCount::Twelve,
@@ -825,12 +837,13 @@ mod tests {
         assert_eq!(msg.contains("unexpected argument"), true, "{}", msg);
     }
 
-    #[test]
-    fn command_with_both_paths_is_correctly_translated() {
+    #[tokio::test]
+    async fn command_with_both_paths_is_correctly_translated() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -842,7 +855,11 @@ mod tests {
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        subject.execute(&mut context).err().unwrap(); // don't need success, just request translation
+        Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await
+            .err()
+            .unwrap(); // don't need success, just request translation
 
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -864,12 +881,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn command_with_neither_path_is_correctly_translated() {
+    #[tokio::test]
+    async fn command_with_neither_path_is_correctly_translated() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -877,7 +895,11 @@ mod tests {
             earning_path_opt: None,
         };
 
-        subject.execute(&mut context).err().unwrap(); // don't need success, just request translation
+        Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await
+            .err()
+            .unwrap(); // don't need success, just request translation
 
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -895,11 +917,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn response_with_mnemonic_phrase_is_processed() {
+    #[tokio::test]
+    async fn response_with_mnemonic_phrase_is_processed() {
         let mut context = CommandContextMock::new();
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (stdout, mut stdout_flush_handle) = term_interface.stdout();
+        let (stderr, mut stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
             mnemonic_phrase_opt: Some(vec![
                 "taxation".to_string(),
@@ -912,28 +935,31 @@ mod tests {
             earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
         };
 
-        GenerateWalletsCommand::process_response(response, &mut context);
+        GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        drop(stdout_flush_handle);
+        drop(stderr_flush_handle);
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            &stdout.get_string(),
-            "Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
+            stream_handles.stdout_flushed_strings(),
+            vec![
+                "Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
 'taxation is theft'\n\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\
 Private key of consuming wallet: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\
 Address of       earning wallet: EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n\
 Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 "
+                .to_string()
+            ]
         );
     }
 
-    #[test]
-    fn response_without_mnemonic_phrase_is_processed() {
-        let mut context = CommandContextMock::new();
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+    #[tokio::test]
+    async fn response_without_mnemonic_phrase_is_processed() {
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
             mnemonic_phrase_opt: None,
             consuming_wallet_address: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
@@ -942,13 +968,11 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
         };
 
-        GenerateWalletsCommand::process_response(response, &mut context);
+        GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one(),
             "\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\
 Private key of consuming wallet: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n\
@@ -958,8 +982,8 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
         );
     }
 
-    #[test]
-    fn successful_result_is_printed() {
+    #[tokio::test]
+    async fn successful_result_is_printed() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -976,8 +1000,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
             }
             .tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -989,7 +1012,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             earning_path_opt: Some("m/44'/60'/0'/100/0/201".to_string()),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -1010,11 +1035,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one(),
             "Copy this phrase down and keep it safe; you'll need it to restore your wallet:\n\
 'taxation is theft'\n\
 Address of     consuming wallet: CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n\

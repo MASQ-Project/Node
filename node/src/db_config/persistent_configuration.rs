@@ -25,7 +25,6 @@ use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use websocket::url::Url;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {

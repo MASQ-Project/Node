@@ -1,6 +1,5 @@
-use std::future::Future;
-use std::io;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use std::future::Future;
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
@@ -258,9 +257,8 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Ok(Async::Ready(0)))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_ok(vec![]);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -290,7 +288,7 @@ mod tests {
             }
         );
 
-        assert_eq!(result, Ok(Async::Ready(())));
+        assert_eq!(result, Poll::Ready(Ok(())));
 
         TestLogHandler::new().exists_log_containing(
             "DEBUG: StreamReader for 1.2.3.4:5678: Stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678 has shut down (0-byte read)",
@@ -307,9 +305,8 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Err(io::Error::from(ErrorKind::BrokenPipe)))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_result(vec![], Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe))));
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -357,7 +354,7 @@ mod tests {
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Ok(Async::NotReady))],
+            poll_read_results: vec![(vec![], Poll::Pending)],
         };
 
         let mut subject = StreamReaderReal::new(
@@ -377,7 +374,7 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
-        assert_eq!(result, Ok(Async::NotReady));
+        assert_eq!(result, Poll::Pending);
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(shp_recording.len(), 0);
@@ -396,12 +393,9 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (vec![], Err(io::Error::from(ErrorKind::Other))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_result(vec![], Poll::Ready(Err(io::Error::from(ErrorKind::Other))))
+            .poll_read_result(vec![], Poll::Pending);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -439,9 +433,8 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> = vec![];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Ok(Async::Ready(5)))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_result(vec![], Poll::Ready(Ok(5)));
 
         let _subject = StreamReaderReal::new(
             Box::new(reader),
@@ -468,19 +461,10 @@ mod tests {
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let partial_request = Vec::from("GET http://her".as_bytes());
         let remaining_request = Vec::from("e.com HTTP/1.1\r\n\r\n".as_bytes());
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (
-                    partial_request.clone(),
-                    Ok(Async::Ready(partial_request.len())),
-                ),
-                (
-                    remaining_request.clone(),
-                    Ok(Async::Ready(remaining_request.len())),
-                ),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_ok(partial_request.clone())
+            .poll_read_ok(remaining_request.clone())
+            .poll_read_result(vec![], Poll::Pending);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -539,16 +523,10 @@ mod tests {
         let http_connect_request = Vec::from("CONNECT example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
         // Magic TLS Sauce stolen from Configuration
         let tls_request = Vec::from(&[0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (
-                    http_connect_request.clone(),
-                    Ok(Async::Ready(http_connect_request.len())),
-                ),
-                (tls_request.clone(), Ok(Async::Ready(tls_request.len()))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_ok(http_connect_request.clone())
+            .poll_read_ok(tls_request.clone())
+            .poll_read_result(vec![], Poll::Pending);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -593,14 +571,11 @@ mod tests {
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let request1 = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
         let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (request1.clone(), Ok(Async::Ready(request1.len()))),
-                (vec![], Ok(Async::NotReady)),
-                (request2.clone(), Ok(Async::Ready(request2.len()))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_ok(request1.clone())
+            .poll_read_result(vec![], Poll::Pending)
+            .poll_read_ok(request2.clone())
+            .poll_read_result(vec![], Poll::Pending);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -670,12 +645,9 @@ mod tests {
                 .mask("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes())
                 .unwrap(),
         );
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (request.clone(), Ok(Async::Ready(request.len()))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .poll_read_ok(request.clone())
+            .poll_read_result(vec![], Poll::Pending);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -722,7 +694,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let reader = ReadHalfWrapperMock::new().poll_read_ok(vec![]);
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
             None,
@@ -761,7 +733,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let reader = ReadHalfWrapperMock::new().poll_read_ok(vec![]);
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
             Some(HTTP_PORT),

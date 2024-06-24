@@ -20,19 +20,19 @@ use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpStream};
 use tokio::task;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::protocol::CloseFrame;
 use workflow_websocket::server::handshake::greeting;
 use workflow_websocket::server::result::Result as WWResult;
-use workflow_websocket::server::Error::{Done, ServerClose};
+use workflow_websocket::server::Error::{Done};
 use workflow_websocket::server::{
     Error, Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer,
     WebSocketSink,
 };
 
-trait WebSocketSupervisor {
+pub trait WebSocketSupervisor {
     fn send_msg(&self, msg: NodeToUiMessage);
 }
 
@@ -598,12 +598,8 @@ mod tests {
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
     use masq_lib::utils::{find_free_port, localhost};
-    use std::cell::RefCell;
-    use std::io::{Error, ErrorKind};
     use std::net::{IpAddr, Ipv4Addr, Shutdown};
-    use std::pin::Pin;
     use std::str::FromStr;
-    use std::task::{Context, Poll};
     use std::thread;
     use std::time::Duration;
     use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};

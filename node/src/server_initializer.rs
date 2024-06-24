@@ -19,15 +19,12 @@ use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
-use std::future::Future;
 use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use time::OffsetDateTime;
-use tokio::task;
-use tokio::task::{JoinHandle, JoinSet};
-use websocket::futures::try_ready;
+use tokio::task::{JoinSet};
 
 pub struct ServerInitializerReal {
     dns_socket_server: Box<dyn ConfiguredServer<Output = ()>>,

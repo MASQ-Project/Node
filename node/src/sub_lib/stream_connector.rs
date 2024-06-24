@@ -3,7 +3,6 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapperReal;
-use actix::ActorFutureExt;
 use masq_lib::logger::Logger;
 use std::io::ErrorKind;
 use std::net::IpAddr;
@@ -11,7 +10,6 @@ use std::net::SocketAddr;
 use std::net::TcpStream as StdTcpStream;
 use std::time::Duration;
 use tokio::io;
-use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
 use tokio::time::{timeout_at, Instant};
 

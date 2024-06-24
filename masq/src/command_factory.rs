@@ -17,6 +17,7 @@ use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 use crate::commands::wallet_addresses_command::WalletAddressesCommand;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommandFactoryError {
@@ -29,7 +30,7 @@ pub trait CommandFactory {
 }
 
 #[derive(Default)]
-pub struct CommandFactoryReal;
+pub struct CommandFactoryReal {}
 
 impl CommandFactory for CommandFactoryReal {
     fn make(&self, pieces: &[String]) -> Result<Box<dyn Command>, CommandFactoryError> {
@@ -93,7 +94,6 @@ impl CommandFactory for CommandFactoryReal {
 }
 
 impl CommandFactoryReal {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

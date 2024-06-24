@@ -4,7 +4,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::terminal::terminal_interface::TerminalWrapper;
+use crate::terminal::{TerminalWriter, WTermInterface};
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
@@ -13,6 +14,8 @@ use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::io::Write;
+use std::pin::Pin;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
@@ -58,26 +61,31 @@ impl ChangePasswordCommand {
         }
     }
 
-    pub fn handle_broadcast(
+    pub async fn handle_broadcast(
         _body: UiNewPasswordBroadcast,
-        stdout: &mut dyn Write,
-        term_interface: &TerminalWrapper,
+        stdout: &TerminalWriter,
+        _stderr: &TerminalWriter,
     ) {
-        let _lock = term_interface.lock();
-        write!(stdout, "\nThe Node's database password has changed.\n\n").expect("write! failed");
-        stdout.flush().expect("flush failed");
+        short_writeln!(stdout, "\nThe Node's database password has changed.\n\n");
     }
 }
 
+#[async_trait(?Send)]
 impl Command for ChangePasswordCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiChangePasswordRequest {
             old_password_opt: self.old_password.clone(),
             new_password: self.new_password.clone(),
         };
         let _: UiChangePasswordResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        short_writeln!(context.stdout(), "Database password has been changed");
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+        short_writeln!(stdout, "Database password has been changed");
         Ok(())
     }
 
@@ -121,7 +129,7 @@ pub fn set_password_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
 
@@ -143,27 +151,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn set_password_command_works_when_changing_from_no_password() {
+    #[tokio::test]
+    async fn set_password_command_works_when_changing_from_no_password() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = factory
             .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one(),
             "Database password has been changed\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -178,14 +185,13 @@ mod tests {
         )
     }
 
-    #[test]
-    fn change_password_command_changed_db_password_successfully_with_both_parameters_supplied() {
+    #[tokio::test]
+    async fn change_password_command_changed_db_password_successfully_with_both_parameters_supplied(
+    ) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -194,15 +200,16 @@ mod tests {
                 "boringPassword".to_string(),
             ])
             .unwrap();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one(),
             "Database password has been changed\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,

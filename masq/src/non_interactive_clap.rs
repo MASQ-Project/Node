@@ -1,29 +1,40 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::schema::app;
+use crate::terminal::async_streams::AsyncStdStreams;
 use clap::error::ErrorKind;
 use masq_lib::shared_schema::InsecurePort;
 
-pub trait NonInteractiveClapFactory {
-    fn make(&self) -> Box<dyn NonInteractiveClap>;
+// pub trait NonInteractiveClapFactory: Send {
+//     fn make(&self) -> Box<dyn InitialArgsParser>;
+// }
+
+// #[derive(Default)]
+// pub struct NonInteractiveClapFactoryReal {}
+//
+// impl NonInteractiveClapFactory for NonInteractiveClapFactoryReal {
+//     fn make(&self) -> Box<dyn InitialArgsParser> {
+//         Box::new(InitialClapParserReal::default())
+//     }
+// }
+
+pub trait InitialArgsParser {
+    fn parse_initialization_args(
+        &self,
+        args: &[String],
+        std_streams: &AsyncStdStreams,
+    ) -> InitializationArgs;
 }
 
-pub struct NonInteractiveClapFactoryReal;
+#[derive(Default)]
+pub struct InitialArgsParserReal {}
 
-impl NonInteractiveClapFactory for NonInteractiveClapFactoryReal {
-    fn make(&self) -> Box<dyn NonInteractiveClap> {
-        Box::new(NonInteractiveClapReal)
-    }
-}
-
-pub trait NonInteractiveClap {
-    fn parse_initialization_args(&self, args: &[String]) -> InitializationArgs;
-}
-
-pub struct NonInteractiveClapReal;
-
-impl NonInteractiveClap for NonInteractiveClapReal {
-    fn parse_initialization_args(&self, args: &[String]) -> InitializationArgs {
+impl InitialArgsParser for InitialArgsParserReal {
+    fn parse_initialization_args(
+        &self,
+        args: &[String],
+        std_streams: &AsyncStdStreams,
+    ) -> InitializationArgs {
         let matches = match app().try_get_matches_from(args) {
             Ok(m) => m,
             Err(e) if e.kind() == ErrorKind::DisplayHelp => {
@@ -55,29 +66,40 @@ impl InitializationArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::mocks::make_async_std_streams;
     use masq_lib::constants::DEFAULT_UI_PORT;
 
-    #[test]
-    fn non_interactive_clap_real_produces_default_values() {
-        let result = NonInteractiveClapReal.parse_initialization_args(
+    #[tokio::test]
+    async fn initial_args_parser_real_produces_default_values() {
+        let (streams, handles) = make_async_std_streams(vec![]);
+
+        let result = InitialArgsParserReal::default().parse_initialization_args(
             &vec!["masq", "setup", "--chain"]
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),
+            &streams,
         );
 
-        assert_eq!(result.ui_port, DEFAULT_UI_PORT)
+        assert_eq!(result.ui_port, DEFAULT_UI_PORT);
+        handles.assert_empty_stderr();
+        handles.assert_empty_stdout();
     }
 
-    #[test]
-    fn non_interactive_clap_real_produces_custom_values() {
-        let result = NonInteractiveClapReal.parse_initialization_args(
+    #[tokio::test]
+    async fn initial_args_parser_real_produces_custom_values() {
+        let (streams, handles) = make_async_std_streams(vec![]);
+
+        let result = InitialArgsParserReal::default().parse_initialization_args(
             &vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
                 .iter()
                 .map(|str| str.to_string())
                 .collect::<Vec<String>>(),
+            &streams,
         );
 
-        assert_eq!(result.ui_port, 10000)
+        assert_eq!(result.ui_port, 10000);
+        handles.assert_empty_stderr();
+        handles.assert_empty_stdout();
     }
 }

@@ -4,12 +4,15 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
@@ -33,15 +36,23 @@ pub fn check_password_subcommand() -> ClapCommand {
         )
 }
 
+#[async_trait(?Send)]
 impl Command for CheckPasswordCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
+
         let input = UiCheckPasswordRequest {
             db_password_opt: self.db_password_opt.clone(),
         };
         let msg: UiCheckPasswordResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
         short_writeln!(
-            context.stdout(),
+            stdout,
             "{}",
             if msg.matches {
                 "Password is correct"
@@ -73,7 +84,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
     use std::sync::{Arc, Mutex};
 
@@ -125,27 +136,23 @@ mod tests {
         }
     }
 
-    #[test]
-    fn check_password_command_with_a_password_right() {
+    #[tokio::test]
+    async fn check_password_command_with_a_password_right() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: true }.tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["check-password".to_string(), "bonkers".to_string()])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "Password is correct\n"
-        );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        assert_eq!(stream_handles.stdout_all_in_one(), "Password is correct\n");
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -159,25 +166,24 @@ mod tests {
         )
     }
 
-    #[test]
-    fn check_password_command_with_no_password_wrong() {
+    #[tokio::test]
+    async fn check_password_command_with_no_password_wrong() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: false }.tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["check-password".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one(),
             "Password is incorrect\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -191,16 +197,19 @@ mod tests {
         )
     }
 
-    #[test]
-    fn check_password_command_handles_send_failure() {
+    #[tokio::test]
+    async fn check_password_command_handles_send_failure() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject =
             CheckPasswordCommand::new(&["check-password".to_string(), "bonkers".to_string()])
                 .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,

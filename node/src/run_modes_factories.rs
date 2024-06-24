@@ -18,7 +18,6 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
-use std::future::Future;
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 

@@ -4,6 +4,8 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
+use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
@@ -12,6 +14,7 @@ use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWa
 use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -91,8 +94,15 @@ impl RecoverWalletsCommand {
     }
 }
 
+#[async_trait(?Send)]
 impl Command for RecoverWalletsCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiRecoverWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self
@@ -121,8 +131,8 @@ impl Command for RecoverWalletsCommand {
             },
         };
         let _: UiRecoverWalletsResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        short_writeln!(context.stdout(), "Wallets were successfully recovered");
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
+        short_writeln!(stdout, "Wallets were successfully recovered");
         Ok(())
     }
 
@@ -250,9 +260,10 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
+    use std::vec;
 
     #[test]
     fn constants_have_correct_values() {
@@ -490,14 +501,13 @@ mod tests {
         assert_eq!(msg.contains("cannot be used with"), true, "{}", msg);
     }
 
-    #[test]
-    fn execute_works_with_derivation_paths() {
+    #[tokio::test]
+    async fn execute_works_with_derivation_paths() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -509,7 +519,9 @@ mod tests {
             earning: Either::Right("earning path".to_string()),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -532,23 +544,20 @@ mod tests {
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one(),
             "Wallets were successfully recovered\n"
         );
     }
 
-    #[test]
-    fn execute_works_with_key_and_address() {
+    #[tokio::test]
+    async fn execute_works_with_key_and_address() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -556,7 +565,9 @@ mod tests {
             earning: Either::Left("earning address".to_string()),
         };
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -575,11 +586,9 @@ mod tests {
                 1000
             )]
         );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(*stderr.get_string(), String::new());
-        let stdout = stdout_arc.lock().unwrap();
+        stream_handles.assert_empty_stderr();
         assert_eq!(
-            &stdout.get_string(),
+            stream_handles.stdout_all_in_one(),
             "Wallets were successfully recovered\n"
         );
     }

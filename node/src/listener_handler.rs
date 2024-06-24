@@ -140,7 +140,6 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
-    use crate::test_utils::unshared_test_utils::make_rt;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -156,7 +155,7 @@ mod tests {
     use std::net::Shutdown;
     use std::net::TcpStream as StdTcpStream;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc};
     use std::thread;
     use std::time::Duration;
     use tokio;

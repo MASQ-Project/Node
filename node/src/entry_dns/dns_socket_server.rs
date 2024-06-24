@@ -92,7 +92,7 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use crate::test_utils::unshared_test_utils::{make_rt, make_simplified_multi_config};
+    use crate::test_utils::unshared_test_utils::{make_simplified_multi_config};
     use hickory_proto::op::ResponseCode;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -108,8 +108,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use tokio;
-    use tokio::runtime::Runtime;
-    use tokio::task;
 
     #[test]
     fn constants_have_correct_values() {

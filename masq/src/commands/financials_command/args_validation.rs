@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::terminal::TerminalWriter;
 use clap::builder::{ArgPredicate, ValueRange};
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
@@ -353,8 +354,8 @@ impl TwoRanges {
         captures.get(idx).map(|catch| catch.as_str().to_owned())
     }
 
-    pub fn title_for_custom_query<R>(
-        stdout: &mut dyn Write,
+    pub async fn title_for_custom_query<R>(
+        stdout: &TerminalWriter,
         table_type: &str,
         range_query: RangeQuery<R>,
     ) where

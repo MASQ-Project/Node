@@ -2,14 +2,13 @@
 
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use futures::{AsyncRead, AsyncWrite};
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use tokio::io::ReadBuf;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 type PollReadResult = (Vec<u8>, Poll<io::Result<usize>>);
 
@@ -32,14 +31,14 @@ impl AsyncRead for ReadHalfWrapperMock {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<usize>> {
-        if self.poll_read_results.is_empty() {
-            panic!("ReadHalfWrapperMock: poll_read_results is empty")
+        let (data, read_result) = self.poll_read_results.remove(0);
+        match read_result {
+            Poll::Ready(Ok(_)) => {
+                buf.put_slice(&data);
+                read_result
+            },
+            x => x
         }
-        let (to_buf, result) = self.poll_read_results.remove(0);
-        buf.as_mut()
-            .write_all(to_buf.as_slice())
-            .expect("couldn't write_all");
-        result
     }
 }
 
@@ -53,6 +52,11 @@ impl ReadHalfWrapperMock {
         data: Vec<u8>,
         result: Poll<io::Result<usize>>,
     ) -> ReadHalfWrapperMock {
+        if let Poll::Ready(Ok(len)) = result {
+            if data.len() != len {
+                panic!("ReadHalfWrapperMock: provided result expects {} bytes, but {} bytes were provided", len, data.len())
+            }
+        }
         self.poll_read_results.push((data, result));
         self
     }
@@ -100,7 +104,7 @@ impl AsyncWrite for WriteHalfWrapperMock {
         unimplemented!("Not needed")
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.poll_close_results.lock().unwrap().is_empty() {
             panic!("WriteHalfWrapperMock: poll_close_results is empty")
         }

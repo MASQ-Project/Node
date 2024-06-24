@@ -9,11 +9,10 @@ use crate::run_modes_factories::{
 };
 use actix::System;
 use clap::Error;
-use futures::future::Future;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use tokio::{task, task_local};
+use tokio::{task};
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -76,7 +75,7 @@ impl RunModes {
     }
 
     fn process_gathered_errors(error: ConfiguratorError, streams: &mut StdStreams) {
-        short_writeln!(streams.stderr, "Configuration error");
+        writeln!(streams.stderr, "Configuration error").expect("writeln failed");
         Self::produce_unified_err_msgs(streams, error.param_errors)
     }
 
@@ -108,7 +107,7 @@ impl RunModes {
             err if err.kind() == clap::error::ErrorKind::DisplayHelp
                 || err.kind() == clap::error::ErrorKind::DisplayVersion =>
             {
-                short_writeln!(streams.stdout, "{}", err.message);
+                writeln!(streams.stdout, "{}", err.message).expect("writeln failed");
                 ExitCode(0)
             }
             err => {
@@ -148,11 +147,11 @@ impl RunModes {
         privilege_required: bool,
         streams: &mut StdStreams,
     ) {
-        short_writeln!(
+        writeln!(
             streams.stderr,
             "{}",
             Self::privilege_mismatch_message(mode, privilege_required)
-        )
+        ).expect("writeln failed")
     }
 
     fn is_help_or_version(args: &[String]) -> bool {
@@ -163,12 +162,12 @@ impl RunModes {
 
     fn produce_unified_err_msgs(streams: &mut StdStreams, error: Vec<ParamError>) {
         error.into_iter().for_each(|err_case| {
-            short_writeln!(
+            writeln!(
                 streams.stderr,
                 "{} - {}",
                 err_case.parameter,
                 err_case.reason
-            )
+            ).expect("writeln failed")
         })
     }
 

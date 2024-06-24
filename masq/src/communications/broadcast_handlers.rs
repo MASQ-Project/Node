@@ -5,7 +5,8 @@ use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal::terminal_interface::TerminalWrapper;
+use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
+use async_trait::async_trait;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
@@ -88,19 +89,23 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
     }
 }
 
-pub trait StandardBroadcastHandlerFactory {
+pub trait StandardBroadcastHandlerFactory: Send + Sync {
     fn make(
         &self,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>>;
 }
 
-pub struct StandardBroadcastHandlerFactoryReal {
-    pub stream_factory: Box<dyn StreamFactory>,
+pub struct StandardBroadcastHandlerFactoryReal {}
+
+impl Default for StandardBroadcastHandlerFactoryReal {
+    fn default() -> Self {
+        todo!()
+    }
 }
 
 impl StandardBroadcastHandlerFactoryReal {
-    pub fn new(stream_factory: Box<dyn StreamFactory>) -> Self {
+    pub fn new() -> Self {
         todo!()
     }
 }
@@ -108,48 +113,35 @@ impl StandardBroadcastHandlerFactoryReal {
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
     fn make(
         &self,
-        terminal_interface_opt: Option<TerminalWrapper>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         todo!()
     }
 }
 
-pub trait BroadcastHandler<Message> {
+pub trait BroadcastHandler<Message>: Send {
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<Message>>;
 }
 
 pub struct StandardBroadcastHandlerReal {
-    interactive_mode_dependencies_opt: Option<InteractiveModeDependencies>,
+    interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
 }
 
 impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
         match self.interactive_mode_dependencies_opt.take() {
-            Some(dependencies) => {
-                todo!()
-                // let (message_tx, message_rx) = unbounded();
-                // let terminal_interface = self
-                //     .terminal_interface
-                //     .take()
-                //     .expectv("Some(TerminalWrapper)");
-                //
-                // // TODO Grr, I can't use Async because I'd have to deal with all the places where we write
-                // // into the std streams, and those are a lot out there
-                // thread::spawn(move || {
-                //     let (mut stdout, mut stderr) = stream_factory.make();
-                //
-                //     let mut flag = true;
-                //     while flag {
-                //         flag = Self::handle_message_body(
-                //             message_rx.recv(),
-                //             stdout.as_mut(),
-                //             stderr.as_mut(),
-                //             &terminal_interface,
-                //         );
-                //     }
-                // });
-                //
-                // Box::new(StandardBroadcastHandle { message_tx })
+            Some(mut term_interface) => {
+                let (message_tx, message_rx) = unbounded();
+                tokio::task::spawn(async move {
+                    let mut flag = true;
+                    while flag {
+                        flag =
+                            Self::handle_message_body(message_rx.recv(), term_interface.as_mut())
+                                .await;
+                    }
+                });
+
+                Box::new(StandardBroadcastHandle { message_tx })
             }
             None => todo!(),
         }
@@ -157,65 +149,43 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
 }
 
 impl StandardBroadcastHandlerReal {
-    pub fn new(interactive_mode_dependencies_opt: Option<InteractiveModeDependencies>) -> Self {
+    pub fn new(
+        interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+    ) -> Self {
         Self {
             interactive_mode_dependencies_opt,
         }
     }
 
-    fn handle_message_body(
+    async fn handle_message_body(
         message_body_result: Result<MessageBody, RecvError>,
-        stdout: &mut dyn Write,
-        stderr: &mut dyn Write,
-        terminal_interface: &TerminalWrapper,
+        terminal_interface: &mut dyn WTermInterfaceImplementingSend,
     ) -> bool {
+        let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
+        let (stderr, _stderr_flush_handle) = terminal_interface.stderr();
         match message_body_result {
             Err(_) => false, // Receiver died; masq is going down
             Ok(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
-                    handle_ui_log_broadcast(body, stdout, terminal_interface)
+                    handle_ui_log_broadcast(body, &stdout, &stderr).await
                 } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
-                    SetupCommand::handle_broadcast(body, stdout, terminal_interface);
+                    SetupCommand::handle_broadcast(body, &stdout, &stderr).await;
                 } else if let Ok((body, _)) = UiNodeCrashedBroadcast::fmb(message_body.clone()) {
-                    CrashNotifier::handle_broadcast(body, stdout, terminal_interface);
+                    CrashNotifier::handle_broadcast(body, &stdout, &stderr).await;
                 } else if let Ok((body, _)) = UiNewPasswordBroadcast::fmb(message_body.clone()) {
-                    ChangePasswordCommand::handle_broadcast(body, stdout, terminal_interface);
+                    ChangePasswordCommand::handle_broadcast(body, &stdout, &stderr).await;
                 } else if let Ok((body, _)) = UiUndeliveredFireAndForget::fmb(message_body.clone())
                 {
-                    handle_node_is_dead_while_f_f_on_the_way_broadcast(
-                        body,
-                        stdout,
-                        terminal_interface,
-                    );
+                    handle_node_is_dead_while_f_f_on_the_way_broadcast(body, &stdout, &stderr)
+                        .await;
                 } else if let Ok((body, _)) = UiConnectionChangeBroadcast::fmb(message_body.clone())
                 {
-                    ConnectionChangeNotification::handle_broadcast(
-                        body,
-                        stdout,
-                        terminal_interface,
-                    );
+                    ConnectionChangeNotification::handle_broadcast(body, &stdout, &stderr).await;
                 } else {
-                    handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
+                    handle_unrecognized_broadcast(message_body, &stdout, &stderr).await
                 }
                 true
             }
-        }
-    }
-}
-
-pub struct InteractiveModeDependencies {
-    terminal_interface: TerminalWrapper,
-    stream_factory: Box<dyn StreamFactory>,
-}
-
-impl InteractiveModeDependencies {
-    pub fn new(
-        terminal_interface: TerminalWrapper,
-        stream_factory: Box<dyn StreamFactory>,
-    ) -> Self {
-        Self {
-            terminal_interface,
-            stream_factory,
         }
     }
 }
@@ -228,64 +198,36 @@ impl BroadcastHandler<MessageBody> for BroadcastHandlerNull {
     }
 }
 
-pub trait StreamFactory: Send + Debug {
-    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>);
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
-pub struct StreamFactoryReal;
-
-impl StreamFactory for StreamFactoryReal {
-    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        (Box::new(std::io::stdout()), Box::new(std::io::stderr()))
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct StreamFactoryNull;
-
-impl StreamFactory for StreamFactoryNull {
-    fn make(&self) -> (Box<dyn Write>, Box<dyn Write>) {
-        intentionally_blank!()
-    }
-}
-
-pub fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
+async fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
     body: UiUndeliveredFireAndForget,
-    stdout: &mut dyn Write,
-    term_interface: &TerminalWrapper,
+    _stdout: &TerminalWriter,
+    stderr: &TerminalWriter,
 ) {
-    let _lock = term_interface.lock();
-    short_writeln!(
-        stdout,
-        "\nCannot handle {} request: Node is not running.\n",
-        body.opcode
-    );
-    stdout.flush().expect("flush failed");
-}
-
-pub fn handle_unrecognized_broadcast(
-    message_body: MessageBody,
-    stderr: &mut dyn Write,
-    term_interface: &TerminalWrapper,
-) {
-    let _lock = term_interface.lock();
     short_writeln!(
         stderr,
-        "Discarding unrecognized broadcast with opcode '{}'\n",
-        message_body.opcode
-    );
-    stderr.flush().expect("flush failed");
+        "\nCannot handle {} request: Node is not running.\n",
+        body.opcode
+    )
 }
 
-pub fn handle_ui_log_broadcast(
-    body: UiLogBroadcast,
-    stdout: &mut dyn Write,
-    term_interface: &TerminalWrapper,
+async fn handle_unrecognized_broadcast(
+    message_body: MessageBody,
+    stdout: &TerminalWriter,
+    _stderr: &TerminalWriter,
 ) {
-    let _lock = term_interface.lock();
-    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg);
-    stdout.flush().expect("flush failed");
+    short_writeln!(
+        stdout,
+        "Discarding unrecognized broadcast with opcode '{}'\n",
+        message_body.opcode
+    )
+}
+
+async fn handle_ui_log_broadcast(
+    body: UiLogBroadcast,
+    stdout: &TerminalWriter,
+    _stderr: &TerminalWriter,
+) {
+    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg)
 }
 
 pub struct RedirectBroadcastHandle {
@@ -332,7 +274,7 @@ impl RedirectBroadcastHandle {
 //     }
 // }
 
-pub trait RedirectBroadcastHandleFactory {
+pub trait RedirectBroadcastHandleFactory: Send + Sync {
     fn make(
         &self,
         redirect_order_tx: UnboundedSender<RedirectOrder>,
@@ -354,39 +296,35 @@ impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{
-        make_tools_for_test_streams_with_thread_life_checker, StdoutBlender, TerminalActiveMock,
-        TerminalPassiveMock, TestStreamFactory,
-    };
+    use crate::terminal::async_streams::AsyncStdStreams;
+    use crate::test_utils::mocks::{StdoutBlender, TermInterfaceMock, TestStreamFactory};
     use crossbeam_channel::{bounded, unbounded, Receiver};
-    use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default};
+    use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
         UiConnectionStage, UiLogBroadcast, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
+    use std::default::Default;
+    use std::future::Future;
+    use std::process::Output;
     use std::sync::Arc;
     use std::time::Duration;
 
-    fn make_subject(
-        test_stream_factory: Box<(dyn StreamFactory)>,
-    ) -> Box<dyn BroadcastHandle<MessageBody>> {
-        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
-        let dependencies =
-            InteractiveModeDependencies::new(terminal_interface, test_stream_factory);
-        StandardBroadcastHandlerReal::new(Some(dependencies)).spawn()
-    }
-
-    #[test]
-    fn broadcast_of_setup_triggers_correct_handler() {
-        let (factory, handle) = TestStreamFactory::new();
-        let subject = make_subject(Box::new(factory));
+    #[tokio::test]
+    async fn broadcast_of_setup_triggers_correct_handler() {
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiSetupBroadcast {
             running: true,
             values: vec![
                 UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
-                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+                UiSetupResponseValue::new(
+                    "data-directory",
+                    "/home/booga",
+                    UiSetupResponseValueStatus::Default,
+                ),
             ],
             errors: vec![],
         }
@@ -394,26 +332,20 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = handle.stdout_so_far();
+        let stdout = streams_handle.stdout_all_in_one();
         assert_eq!(
             stdout.contains("the Node is currently running"),
             true,
             "stdout: '{}' doesn't contain 'the Node is currently running'",
             stdout
         );
-
-        assert_eq!(
-            handle.stderr_so_far(),
-            "".to_string(),
-            "stderr: '{}'",
-            stdout
-        );
+        streams_handle.assert_empty_stderr();
     }
 
-    #[test]
-    fn broadcast_of_ui_log_was_successful() {
-        let (factory, handle) = TestStreamFactory::new();
-        let subject = make_subject(Box::new(factory));
+    #[tokio::test]
+    async fn broadcast_of_ui_log_was_successful() {
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = masq_lib::messages::UiLogBroadcast {
             msg: "Empty. No Nodes to report to; continuing".to_string(),
             log_level: SerializableLogLevel::Info,
@@ -422,23 +354,18 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = handle.stdout_so_far();
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
-            "\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n",
+            vec!["\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n".to_string()],
         );
-        assert_eq!(
-            handle.stderr_so_far(),
-            "".to_string(),
-            "stderr: '{}'",
-            stdout
-        );
+        streams_handle.assert_empty_stderr();
     }
 
-    #[test]
-    fn broadcast_of_crashed_triggers_correct_handler() {
-        let (factory, handle) = TestStreamFactory::new();
-        let subject = make_subject(Box::new(factory));
+    #[tokio::test]
+    async fn broadcast_of_crashed_triggers_correct_handler() {
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -447,46 +374,38 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = handle.stdout_so_far();
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
-            "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n\
+            vec![
+                "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n\
             ------\nThe Daemon is once more accepting setup changes.\n\n"
-                .to_string()
+                    .to_string()
+            ]
         );
-        assert_eq!(
-            handle.stderr_so_far(),
-            "".to_string(),
-            "stderr: '{}'",
-            stdout
-        );
+        streams_handle.assert_empty_stderr();
     }
 
-    #[test]
-    fn broadcast_of_new_password_triggers_correct_handler() {
-        let (factory, handle) = TestStreamFactory::new();
-        let subject = make_subject(Box::new(factory));
+    #[tokio::test]
+    async fn broadcast_of_new_password_triggers_correct_handler() {
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
 
-        let stdout = handle.stdout_so_far();
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
-            "\nThe Node's database password has changed.\n\n".to_string()
+            vec!["\nThe Node's database password has changed.\n\n".to_string()]
         );
-        assert_eq!(
-            handle.stderr_so_far(),
-            "".to_string(),
-            "stderr: '{}'",
-            stdout
-        );
+        streams_handle.assert_empty_stderr();
     }
 
-    #[test]
-    fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
-        let (factory, handle) = TestStreamFactory::new();
-        let subject = make_subject(Box::new(factory));
+    #[tokio::test]
+    async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -494,25 +413,17 @@ mod tests {
 
         subject.send(message);
 
-        let stdout = handle.stdout_so_far();
+        let stdout = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout,
-            "\nCannot handle uninventedMessage request: Node is not running.\n\n".to_string()
+            vec!["\nCannot handle uninventedMessage request: Node is not running.\n\n".to_string()]
         );
-        assert_eq!(
-            handle.stderr_so_far(),
-            "".to_string(),
-            "stderr: '{}'",
-            stdout
-        );
+        streams_handle.assert_empty_stderr();
     }
 
-    #[test]
-    fn ui_connection_change_broadcast_is_handled_properly() {
-        let (factory, handle) = TestStreamFactory::new();
-        let (mut stdout, mut stderr) = factory.make();
-        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
-
+    #[tokio::test]
+    async fn ui_connection_change_broadcast_is_handled_properly() {
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let message_body = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::ConnectedToNeighbor,
         }
@@ -520,30 +431,26 @@ mod tests {
 
         let result = StandardBroadcastHandlerReal::handle_message_body(
             Ok(message_body),
-            &mut stdout,
-            &mut stderr,
-            &terminal_interface,
-        );
+            &mut term_interface,
+        )
+        .await;
 
         assert_eq!(result, true);
-        let stdout = handle.stdout_so_far();
+        let stdout = stream_handles.stdout_flushed_strings();
         assert_eq!(
             stdout,
-            "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
-                .to_string()
+            vec![
+                "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
+                    .to_string()
+            ]
         );
-        assert_eq!(
-            handle.stderr_so_far(),
-            "".to_string(),
-            "stderr: '{}'",
-            stdout
-        );
+        stream_handles.assert_empty_stderr()
     }
 
-    #[test]
-    fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
-        let (factory, handle) = TestStreamFactory::new();
-        let subject = make_subject(Box::new(factory));
+    #[tokio::test]
+    async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
+        let (terminal_interface, stream_handles) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,
@@ -553,7 +460,11 @@ mod tests {
             running: true,
             values: vec![
                 UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
-                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+                UiSetupResponseValue::new(
+                    "data-directory",
+                    "/home/booga",
+                    UiSetupResponseValueStatus::Default,
+                ),
             ],
             errors: vec![],
         }
@@ -561,47 +472,58 @@ mod tests {
 
         subject.send(bad_message);
 
-        assert_eq!(handle.stdout_so_far(), String::new());
+        stream_handles.assert_empty_stdout();
+        let expected_err_message =
+            "Discarding unrecognized broadcast with opcode 'unrecognized'\n\n".to_string();
         assert_eq!(
-            handle.stderr_so_far(),
-            ("Discarding unrecognized broadcast with opcode 'unrecognized'\n\n")
+            stream_handles.stderr_flushed_strings(),
+            vec![expected_err_message]
         );
 
         subject.send(good_message);
 
-        let stdout = handle.stdout_so_far();
+        let stdout = stream_handles.stdout_all_in_one();
         assert_eq!(
             stdout.contains("the Node is currently running"),
             true,
             "stdout: '{}' doesn't contain 'the Node is currently running'",
             stdout
         );
-        assert_eq!(handle.stderr_so_far(), String::new());
+        stream_handles.assert_empty_stderr();
     }
 
-    #[test]
-    fn broadcast_handler_thread_terminates_immediately_if_it_senses_that_masq_is_gone() {
-        let (life_checker_handle, stream_factory, stream_handle) =
-            make_tools_for_test_streams_with_thread_life_checker();
-        let mut broadcast_handle = make_subject(Box::new(stream_factory));
+    #[tokio::test]
+    async fn broadcast_handler_event_loop_terminates_immediately_if_it_senses_that_masq_is_gone() {
+        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let subject = StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface))).spawn();
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
-        broadcast_handle.send(example_broadcast);
 
-        let stdout_content = stream_handle.stdout_so_far();
+        subject.send(example_broadcast);
 
+        let stdout_content = streams_handle.stdout_flushed_strings();
         assert_eq!(
             stdout_content,
-            "\
+            vec![
+                "\
        \nThe Node's database password has changed.\n\n"
+            ]
         );
+        let count_before_drop =
+            Arc::strong_count(&streams_handle.stdout.as_ref().left().unwrap().inner_arc());
 
-        //I'm dropping this handle...handler should next terminate.
-        drop(broadcast_handle);
+        // Dropping this handle...handler should next terminate.
+        drop(subject);
 
-        //we should get a message meaning that objects in the background thread were dropped before the thread stopped to exist
-        let result = life_checker_handle.recv_timeout(Duration::from_millis(100));
+        let count_after_drop =
+            Arc::strong_count(&streams_handle.stdout.as_ref().left().unwrap().inner_arc());
+        assert_eq!(count_before_drop, 2);
+        assert_eq!(count_after_drop, 1);
+    }
 
-        assert!(result.is_ok())
+    macro_rules! as_generic_broadcast {
+        ($broadcast_handler: expr) => {
+            |broadcast, stdout, stderr| Box::new($broadcast_handler(broadcast, stdout, stderr))
+        };
     }
 
     #[test]
@@ -650,7 +572,11 @@ log-level                     error                                             
 neighborhood-mode             standard                                                         Default
 ";
 
-        assertion_for_handle_broadcast(SetupCommand::handle_broadcast, setup_body, broadcast_output)
+        assertion_for_handle_broadcast(
+            as_generic_broadcast!(SetupCommand::handle_broadcast),
+            setup_body,
+            broadcast_output,
+        )
     }
 
     #[test]
@@ -667,7 +593,7 @@ The Daemon is once more accepting setup changes.
 ";
 
         assertion_for_handle_broadcast(
-            CrashNotifier::handle_broadcast,
+            as_generic_broadcast!(CrashNotifier::handle_broadcast),
             crash_notifier_body,
             broadcast_output,
         )
@@ -683,7 +609,7 @@ The Node's database password has changed.
 ";
 
         assertion_for_handle_broadcast(
-            ChangePasswordCommand::handle_broadcast,
+            as_generic_broadcast!(ChangePasswordCommand::handle_broadcast),
             change_password_body,
             broadcast_output,
         )
@@ -701,7 +627,7 @@ Cannot handle crash request: Node is not running.
 ";
 
         assertion_for_handle_broadcast(
-            handle_node_is_dead_while_f_f_on_the_way_broadcast,
+            as_generic_broadcast!(handle_node_is_dead_while_f_f_on_the_way_broadcast),
             ffm_undelivered_body,
             broadcast_output,
         )
@@ -718,7 +644,7 @@ Cannot handle crash request: Node is not running.
         let broadcast_output = "Discarding unrecognized broadcast with opcode 'messageFromMars'\n";
 
         assertion_for_handle_broadcast(
-            handle_unrecognized_broadcast,
+            as_generic_broadcast!(handle_unrecognized_broadcast),
             unrecognizable_broadcast,
             broadcast_output,
         )
@@ -733,7 +659,11 @@ Cannot handle crash request: Node is not running.
 
         let broadcast_output = "\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n";
 
-        assertion_for_handle_broadcast(handle_ui_log_broadcast, ui_log_broadcast, broadcast_output)
+        assertion_for_handle_broadcast(
+            as_generic_broadcast!(handle_ui_log_broadcast),
+            ui_log_broadcast,
+            broadcast_output,
+        )
     }
 
     fn assertion_for_handle_broadcast<F, U>(
@@ -741,114 +671,120 @@ Cannot handle crash request: Node is not running.
         broadcast_msg: U,
         broadcast_desired_output: &str,
     ) where
-        F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
+        F: for<'a> FnOnce(
+                U,
+                &'a TerminalWriter,
+                &'a TerminalWriter,
+            ) -> Box<dyn Future<Output = ()> + 'a>
+            + Copy,
         U: Debug + PartialEq + Clone,
     {
-        let (tx, rx) = unbounded();
-        let mut stdout = StdoutBlender::new(tx);
-        let stdout_clone = stdout.clone();
-        let stdout_second_clone = stdout.clone();
-        let synchronizer = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
-        let synchronizer_clone_idle = synchronizer.clone();
-
-        //synchronized part proving that the broadcast print is synchronized
-        let full_stdout_output_sync = background_thread_making_interferences(
-            true,
-            &mut stdout,
-            Box::new(stdout_clone),
-            synchronizer,
-            broadcast_handler,
-            broadcast_msg.clone(),
-            rx.clone(),
-        );
-
-        assert!(
-            full_stdout_output_sync.contains(broadcast_desired_output),
-            "The message from the broadcast handle isn't correct or entire: {}",
-            full_stdout_output_sync
-        );
-        assert!(
-            full_stdout_output_sync.contains(&format!("{}", "*".repeat(40))),
-            "Each group of 40 asterisks must keep together: {}",
-            full_stdout_output_sync
-        );
-
-        //unsynchronized part proving that the broadcast print would be messed without synchronization
-        let full_stdout_output_without_sync = background_thread_making_interferences(
-            false,
-            &mut stdout,
-            Box::new(stdout_second_clone),
-            synchronizer_clone_idle,
-            broadcast_handler,
-            broadcast_msg,
-            rx,
-        );
-
-        let prefabricated_string = full_stdout_output_without_sync
-            .chars()
-            .filter(|char| *char == '*' || *char == ' ')
-            .collect::<String>();
-        let incomplete_row = prefabricated_string
-            .split(' ')
-            .find(|row| !row.contains(&"*".repeat(40)) && row.contains("*"));
-        assert!(
-            incomplete_row.is_some(),
-            "There mustn't be 40 asterisks together at one of these: {}",
-            full_stdout_output_without_sync
-        );
-        let asterisks_count = full_stdout_output_without_sync
-            .chars()
-            .filter(|char| *char == '*')
-            .count();
-        assert_eq!(
-            asterisks_count, 40,
-            "The count of asterisks isn't 40 but: {}",
-            asterisks_count
-        );
+        todo!()
+        // let (tx, rx) = unbounded();
+        // let mut stdout = StdoutBlender::new(tx);
+        // let stdout_clone = stdout.clone();
+        // let stdout_second_clone = stdout.clone();
+        // let synchronizer = TerminalWrapper::new(Arc::new(TerminalActiveMock::new()));
+        // let synchronizer_clone_idle = synchronizer.clone();
+        //
+        // //synchronized part proving that the broadcast print is synchronized
+        // let full_stdout_output_sync = background_thread_making_interferences(
+        //     true,
+        //     &mut stdout,
+        //     Box::new(stdout_clone),
+        //     synchronizer,
+        //     broadcast_handler,
+        //     broadcast_msg.clone(),
+        //     rx.clone(),
+        // );
+        //
+        // assert!(
+        //     full_stdout_output_sync.contains(broadcast_desired_output),
+        //     "The message from the broadcast handle isn't correct or entire: {}",
+        //     full_stdout_output_sync
+        // );
+        // assert!(
+        //     full_stdout_output_sync.contains(&format!("{}", "*".repeat(40))),
+        //     "Each group of 40 asterisks must keep together: {}",
+        //     full_stdout_output_sync
+        // );
+        //
+        // //unsynchronized part proving that the broadcast print would be messed without synchronization
+        // let full_stdout_output_without_sync = background_thread_making_interferences(
+        //     false,
+        //     &mut stdout,
+        //     Box::new(stdout_second_clone),
+        //     synchronizer_clone_idle,
+        //     broadcast_handler,
+        //     broadcast_msg,
+        //     rx,
+        // );
+        //
+        // let prefabricated_string = full_stdout_output_without_sync
+        //     .chars()
+        //     .filter(|char| *char == '*' || *char == ' ')
+        //     .collect::<String>();
+        // let incomplete_row = prefabricated_string
+        //     .split(' ')
+        //     .find(|row| !row.contains(&"*".repeat(40)) && row.contains("*"));
+        // assert!(
+        //     incomplete_row.is_some(),
+        //     "There mustn't be 40 asterisks together at one of these: {}",
+        //     full_stdout_output_without_sync
+        // );
+        // let asterisks_count = full_stdout_output_without_sync
+        //     .chars()
+        //     .filter(|char| *char == '*')
+        //     .count();
+        // assert_eq!(
+        //     asterisks_count, 40,
+        //     "The count of asterisks isn't 40 but: {}",
+        //     asterisks_count
+        // );
     }
 
-    fn background_thread_making_interferences<F, U>(
-        sync: bool,
-        stdout: &mut dyn Write,
-        mut stdout_clone: Box<dyn Write + Send>,
-        synchronizer: TerminalWrapper,
-        broadcast_handler: F,
-        broadcast_message_body: U,
-        mixed_stdout_receiver: Receiver<String>,
-    ) -> String
-    where
-        F: FnOnce(U, &mut dyn Write, &TerminalWrapper) + Copy,
-        U: Debug + PartialEq + Clone,
-    {
-        let synchronizer_clone = synchronizer.clone();
-        let (sync_tx, sync_rx) = bounded(1);
-        let interference_thread_handle = thread::spawn(move || {
-            let _lock = if sync {
-                Some(synchronizer.lock())
-            } else {
-                None
-            };
-            (0..40).into_iter().for_each(|i| {
-                stdout_clone.write(b"*").unwrap();
-                thread::sleep(Duration::from_millis(1));
-                if i == 5 {
-                    sync_tx.send(()).unwrap()
-                };
-            });
-            drop(_lock)
-        });
-        sync_rx.recv().unwrap();
-        broadcast_handler(broadcast_message_body.clone(), stdout, &synchronizer_clone);
-
-        interference_thread_handle.join().unwrap();
-
-        let mut buffer = String::new();
-        let full_stdout_output = loop {
-            match mixed_stdout_receiver.try_recv() {
-                Ok(string) => buffer.push_str(&string),
-                Err(_) => break buffer,
-            }
-        };
-        full_stdout_output
-    }
+    // fn background_thread_making_interferences<F, U>(
+    //     sync: bool,
+    //     stdout: &mut dyn Write,
+    //     mut stdout_clone: Box<dyn Write + Send>,
+    //     synchronizer: TerminalWrapper,
+    //     broadcast_handler: F,
+    //     broadcast_message_body: U,
+    //     mixed_stdout_receiver: Receiver<String>,
+    // ) -> String
+    // where
+    //     F: FnOnce(U, &mut dyn WTermInterface) + Copy,
+    //     U: Debug + PartialEq + Clone,
+    // {
+    //     let synchronizer_clone = synchronizer.clone();
+    //     let (sync_tx, sync_rx) = bounded(1);
+    //     let interference_thread_handle = thread::spawn(move || {
+    //         let _lock = if sync {
+    //             Some(synchronizer.lock())
+    //         } else {
+    //             None
+    //         };
+    //         (0..40).into_iter().for_each(|i| {
+    //             stdout_clone.write(b"*").unwrap();
+    //             thread::sleep(Duration::from_millis(1));
+    //             if i == 5 {
+    //                 sync_tx.send(()).unwrap()
+    //             };
+    //         });
+    //         drop(_lock)
+    //     });
+    //     sync_rx.recv().unwrap();
+    //     broadcast_handler(broadcast_message_body.clone(), stdout, &synchronizer_clone);
+    //
+    //     interference_thread_handle.join().unwrap();
+    //
+    //     let mut buffer = String::new();
+    //     let full_stdout_output = loop {
+    //         match mixed_stdout_receiver.try_recv() {
+    //             Ok(string) => buffer.push_str(&string),
+    //             Err(_) => break buffer,
+    //         }
+    //     };
+    //     full_stdout_output
+    // }
 }

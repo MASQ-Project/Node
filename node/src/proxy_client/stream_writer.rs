@@ -60,7 +60,7 @@ impl StreamWriter {
     }
 
     fn shutdown(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.stream.poll_close(cx) {
+        match self.stream.poll_shutdown(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),

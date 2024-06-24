@@ -14,7 +14,6 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Actor, Addr, AsyncContext, Context, Handler, Message, Recipient};
-use futures::{AsyncRead, AsyncWrite};
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::lookup_ip::LookupIp;
 use itertools::Itertools;
@@ -846,7 +845,6 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::AssertionsMessage;
     use actix::System;
-    use futures::lock::{Mutex, MutexGuard};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;

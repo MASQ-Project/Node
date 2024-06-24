@@ -2,11 +2,14 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::terminal::WTermInterface;
+use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::sync::Arc;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -34,19 +37,22 @@ pub fn scan_subcommand() -> ClapCommand {
     )
 }
 
+#[async_trait(?Send)]
 impl Command for ScanCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiScanRequest {
             scan_type: match ScanType::from_str(&self.name) {
                 Ok(st) => st,
                 Err(s) => panic!("clap schema does not restrict scan type properly: {}", s),
             },
         };
-        let result = transaction::<UiScanRequest, UiScanResponse>(
-            input,
-            context,
-            SCAN_COMMAND_TIMEOUT_MILLIS,
-        );
+        let result: Result<UiScanResponse, CommandError> =
+            transaction(input, context, &stderr, SCAN_COMMAND_TIMEOUT_MILLIS).await;
         match result {
             Ok(_response) => Ok(()),
             Err(e) => Err(e),
@@ -74,7 +80,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiScanRequest};
     use std::sync::{Arc, Mutex};
 
@@ -90,15 +96,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn testing_command_factory_here() {
+    #[tokio::test]
+    async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiScanResponse {}.tmb(0)));
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
+        let (mut term_interface, _) = TermInterfaceMock::new(None);
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
     }
@@ -110,23 +117,22 @@ mod tests {
         scan_command_for_name("pendingpayables", ScanType::PendingPayables);
     }
 
-    fn scan_command_for_name(name: &str, scan_type: ScanType) {
+    async fn scan_command_for_name(name: &str, scan_type: ScanType) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiScanResponse {}.tmb(0)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["scan".to_string(), name.to_string()])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout();
+        stream_handles.assert_empty_stderr();
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
@@ -137,13 +143,16 @@ mod tests {
         )
     }
 
-    #[test]
-    fn scan_command_handles_send_failure() {
+    #[tokio::test]
+    async fn scan_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("blah".to_string())));
         let subject = ScanCommand::new(&["scan".to_string(), "payables".to_string()]).unwrap();
+        let (mut term_interface, _) = TermInterfaceMock::new(None);
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,

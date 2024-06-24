@@ -1,11 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{send, Command, CommandError};
+use crate::commands::commands_common::{send_non_conversational_msg, Command, CommandError};
+use crate::terminal::WTermInterface;
+use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct CrashCommand {
@@ -52,13 +55,18 @@ pub fn crash_subcommand() -> ClapCommand {
         )
 }
 
+#[async_trait(?Send)]
 impl Command for CrashCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         let input = UiCrashRequest {
             actor: self.actor.clone(),
             panic_message: self.panic_message.clone(),
         };
-        let result = send(input, context);
+        let result = send_non_conversational_msg(input, context);
         match result {
             Ok(_) => Ok(()),
             Err(e) => Err(e),
@@ -90,7 +98,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
 
@@ -123,10 +131,11 @@ mod tests {
         assert_eq!(MESSAGE_ARG_DEFAULT_VALUE, "Intentional crash");
     }
 
-    #[test]
-    fn testing_command_factory_here() {
+    #[tokio::test]
+    async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new().send_result(Ok(()));
+        let mut context = CommandContextMock::new().send_one_way_result(Ok(()));
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new(None);
         let subject = factory
             .make(&[
                 "crash".to_string(),
@@ -135,19 +144,18 @@ mod tests {
             ])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
     }
 
-    #[test]
-    fn crash_command_with_a_message() {
+    #[tokio::test]
+    async fn crash_command_with_a_message() {
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
-            .send_params(&send_params_arc)
-            .send_result(Ok(()));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+            .send_one_way_params(&send_params_arc)
+            .send_one_way_result(Ok(()));
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -157,11 +165,11 @@ mod tests {
             ])
             .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout();
+        stream_handles.assert_empty_stderr();
         let send_params = send_params_arc.lock().unwrap();
         assert_eq!(
             *send_params,
@@ -173,22 +181,21 @@ mod tests {
         )
     }
 
-    #[test]
-    fn crash_command_without_actor_or_message() {
+    #[tokio::test]
+    async fn crash_command_without_actor_or_message() {
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
-            .send_params(&send_params_arc)
-            .send_result(Ok(()));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+            .send_one_way_params(&send_params_arc)
+            .send_one_way_result(Ok(()));
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["crash".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout();
+        stream_handles.assert_empty_stderr();
         let send_params = send_params_arc.lock().unwrap();
         assert_eq!(
             *send_params,
@@ -200,10 +207,11 @@ mod tests {
         )
     }
 
-    #[test]
-    fn crash_command_handles_send_failure() {
+    #[tokio::test]
+    async fn crash_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
-            .send_result(Err(ContextError::ConnectionDropped("blah".to_string())));
+            .send_one_way_result(Err(ContextError::ConnectionDropped("blah".to_string())));
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = CrashCommand::new(&[
             "crash".to_string(),
             "BlockchainBridge".to_string(),
@@ -211,7 +219,9 @@ mod tests {
         ])
         .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,

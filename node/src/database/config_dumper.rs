@@ -54,7 +54,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {
-    short_writeln!(streams.stdout, "{}", json);
+    writeln!(streams.stdout, "{}", json).expect("Couldn't write JSON to stdout");
     streams
         .stdout
         .flush()

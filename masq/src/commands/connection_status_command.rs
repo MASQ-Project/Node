@@ -5,6 +5,8 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::WTermInterface;
+use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
@@ -15,6 +17,8 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
+use std::pin::Pin;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ConnectionStatusCommand {}
@@ -31,11 +35,18 @@ pub fn connection_status_subcommand() -> ClapCommand {
     ClapCommand::new("connection-status").about(CONNECTION_STATUS_ABOUT)
 }
 
+#[async_trait(?Send)]
 impl Command for ConnectionStatusCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiConnectionStatusRequest {};
         let output: Result<UiConnectionStatusResponse, CommandError> =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
                 let stdout_msg = match response.stage {
@@ -43,22 +54,18 @@ impl Command for ConnectionStatusCommand {
                     UiConnectionStage::ConnectedToNeighbor => CONNECTED_TO_NEIGHBOR_MSG,
                     UiConnectionStage::RouteFound => ROUTE_FOUND_MSG,
                 };
-                short_writeln!(context.stdout(), "\n{}\n", stdout_msg);
+                short_writeln!(stdout, "\n{}\n", stdout_msg);
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
                 short_writeln!(
-                    context.stderr(),
+                    stderr,
                     "MASQNode is not running; therefore connection status cannot be displayed."
                 );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(
-                    context.stderr(),
-                    "Connection status retrieval failed: {:?}",
-                    e
-                );
+                short_writeln!(stderr, "Connection status retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -85,7 +92,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::commands::commands_common::CommandError::ConnectionProblem;
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
@@ -113,16 +120,17 @@ mod tests {
         )
     }
 
-    #[test]
-    fn doesnt_work_if_node_is_not_running() {
+    #[tokio::test]
+    async fn doesnt_work_if_node_is_not_running() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConnectionStatusCommand::new();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,
@@ -132,10 +140,10 @@ mod tests {
             ))
         );
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stderr_all_in_one(),
             "MASQNode is not running; therefore connection status cannot be displayed.\n"
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout();
     }
 
     #[test]
@@ -168,17 +176,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn connection_status_command_sad_path() {
+    #[tokio::test]
+    async fn connection_status_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConnectionStatusCommand::new();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -189,29 +198,33 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout();
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stderr_all_in_one(),
             "Connection status retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }
 
-    fn assert_on_connection_status_response(stage: UiConnectionStage, response: (&str, &str)) {
+    async fn assert_on_connection_status_response(
+        stage: UiConnectionStage,
+        response: (&str, &str),
+    ) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConnectionStatusResponse { stage };
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConnectionStatusCommand::new();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap().clone();
-        let stdout = stdout_arc.lock().unwrap().get_string();
-        let stderr = stderr_arc.lock().unwrap().get_string();
+        let stdout = stream_handles.stdout_flushed_strings();
+        let stderr = stream_handles.stderr_flushed_strings();
         let (stdout_expected, stderr_expected) = response;
         assert_eq!(
             transact_params,
@@ -220,7 +233,7 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS,
             )]
         );
-        assert_eq!(stdout, stdout_expected);
-        assert_eq!(stderr, stderr_expected);
+        assert_eq!(stdout, &[stdout_expected]);
+        assert_eq!(stderr, &[stderr_expected]);
     }
 }

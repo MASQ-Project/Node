@@ -764,6 +764,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::future::Future;
     use std::io;
     use std::io::ErrorKind;
     use std::marker::Sync;

@@ -6,6 +6,8 @@ pub(in crate::commands::financials_command) mod restricted {
     };
     use crate::commands::financials_command::parsing_and_value_dressing::restricted::convert_masq_from_gwei_and_dress_well;
     use crate::commands::financials_command::FinancialsCommand;
+    use crate::terminal::TerminalWriter;
+    use futures::future::join_all;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use masq_lib::short_writeln;
@@ -44,7 +46,7 @@ pub(in crate::commands::financials_command) mod restricted {
         }
     }
 
-    pub fn financial_status_totals_title(stdout: &mut dyn Write, is_gwei: bool) {
+    pub async fn financial_status_totals_title(stdout: &TerminalWriter, is_gwei: bool) {
         short_writeln!(
             stdout,
             "\nFinancial status totals in {}\n",
@@ -52,13 +54,13 @@ pub(in crate::commands::financials_command) mod restricted {
         );
     }
 
-    pub fn main_title_for_tops_opt(fin_com: &FinancialsCommand, stdout: &mut dyn Write) {
+    pub async fn main_title_for_tops_opt(fin_com: &FinancialsCommand, stdout: &TerminalWriter) {
         if let Some(tr_config) = fin_com.top_records_opt.as_ref() {
             short_writeln!(stdout, "Up to {} top accounts\n", tr_config.count)
         }
     }
 
-    pub fn subtitle_for_tops(stdout: &mut dyn Write, account_type: &str) {
+    pub async fn subtitle_for_tops(stdout: &TerminalWriter, account_type: &str) {
         fn capitalize(name: &str) -> String {
             let mut letter_iterator = name.chars();
             let first = letter_iterator
@@ -69,8 +71,8 @@ pub(in crate::commands::financials_command) mod restricted {
         short_writeln!(stdout, "{}\n", capitalize(account_type))
     }
 
-    pub fn render_accounts_generic<A: StringValuesFormattableAccount>(
-        stdout: &mut dyn Write,
+    pub async fn render_accounts_generic<A: StringValuesFormattableAccount>(
+        stdout: &TerminalWriter,
         accounts: Vec<A>,
         headings: &HeadingsHolder,
     ) {
@@ -103,7 +105,7 @@ pub(in crate::commands::financials_command) mod restricted {
         }
     }
 
-    pub fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
+    pub async fn triple_or_single_blank_line(stdout: &TerminalWriter, leading_dump: bool) {
         if leading_dump {
             short_writeln!(stdout)
         } else {
@@ -111,7 +113,7 @@ pub(in crate::commands::financials_command) mod restricted {
         }
     }
 
-    pub fn no_records_found(stdout: &mut dyn Write, headings: &[String]) {
+    pub async fn no_records_found(stdout: &TerminalWriter, headings: &[String]) {
         let mut headings_widths = widths_of_str_values(headings);
         headings_widths[1] = WALLET_ADDRESS_LENGTH;
         write_column_formatted(stdout, &zip_them(headings, &headings_widths));
@@ -184,25 +186,28 @@ pub(in crate::commands::financials_command) mod restricted {
         words.iter().zip(optimal_widths.iter()).collect()
     }
 
-    fn write_column_formatted(
-        stdout: &mut dyn Write,
+    async fn write_column_formatted(
+        stdout: &TerminalWriter,
         account_segments_values_as_strings_and_widths: &[(&String, &usize)],
     ) {
         let column_count = account_segments_values_as_strings_and_widths.len();
-        account_segments_values_as_strings_and_widths
-            .iter()
-            .enumerate()
-            .for_each(|(idx, (value, optimal_width))| {
-                write!(
-                    stdout,
-                    "{:<width$}{:gap$}",
-                    value,
-                    "",
-                    width = optimal_width,
-                    gap = if idx + 1 == column_count { 0 } else { 3 }
-                )
-                .expect("write failed")
-            });
+        join_all(
+            account_segments_values_as_strings_and_widths
+                .iter()
+                .enumerate()
+                .map(|(idx, (value, optimal_width))| async move {
+                    stdout
+                        .write(&format!(
+                            "{:<width$}{:gap$}",
+                            value,
+                            "",
+                            width = optimal_width,
+                            gap = if idx + 1 == column_count { 0 } else { 3 }
+                        ))
+                        .await
+                }),
+        )
+        .await;
         short_writeln!(stdout, "")
     }
 

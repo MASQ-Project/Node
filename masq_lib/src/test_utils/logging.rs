@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::logger::real_format_function;
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
+use crate::test_utils::fake_stream_holder::StringAssertionMethods;
 use crate::test_utils::utils::to_millis;
 use lazy_static::lazy_static;
 use log::set_logger;
@@ -225,7 +226,7 @@ impl Log for TestLogger {
     }
 
     fn log(&self, record: &Record<'_>) {
-        let mut buffer = ByteArrayWriter::new();
+        let mut buffer = ByteArrayWriter::default();
         let now = OffsetDateTime::now_utc();
         real_format_function(&mut buffer, now, record).unwrap();
         TestLogHandler::new().add_log(buffer.get_string());

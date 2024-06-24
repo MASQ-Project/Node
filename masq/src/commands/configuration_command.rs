@@ -5,6 +5,8 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::terminal::{TerminalWriter, WTermInterface};
+use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
@@ -15,6 +17,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
+use std::sync::Arc;
 use thousands::Separable;
 
 const COLUMN_WIDTH: usize = 33;
@@ -39,27 +42,34 @@ pub fn configuration_subcommand() -> ClapCommand {
         )
 }
 
+#[async_trait(?Send)]
 impl Command for ConfigurationCommand {
-    fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+    async fn execute(
+        self: Box<Self>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiConfigurationRequest {
             db_password_opt: self.db_password.clone(),
         };
         let output: Result<UiConfigurationResponse, CommandError> =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await;
         match output {
             Ok(response) => {
-                Self::dump_configuration(context.stdout(), response);
+                Self::dump_configuration(&stdout, response);
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
                 short_writeln!(
-                    context.stderr(),
+                    stderr,
                     "MASQNode is not running; therefore its configuration cannot be displayed."
                 );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(context.stderr(), "Configuration retrieval failed: {:?}", e);
+                short_writeln!(stderr, "Configuration retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -82,7 +92,7 @@ impl ConfigurationCommand {
         })
     }
 
-    fn dump_configuration(stream: &mut dyn Write, configuration: UiConfigurationResponse) {
+    fn dump_configuration(stream: &TerminalWriter, configuration: UiConfigurationResponse) {
         dump_parameter_line(stream, "NAME", "VALUE");
         dump_parameter_line(
             stream,
@@ -166,7 +176,7 @@ impl ConfigurationCommand {
         Self::dump_value_list(stream, "Scan intervals:", &scan_intervals);
     }
 
-    fn dump_value_list(stream: &mut dyn Write, name: &str, values: &[String]) {
+    fn dump_value_list(stream: &TerminalWriter, name: &str, values: &[String]) {
         if values.is_empty() {
             dump_parameter_line(stream, name, "[?]");
             return;
@@ -216,7 +226,7 @@ mod tests {
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
-    use crate::test_utils::mocks::CommandContextMock;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConfigurationResponse, UiPaymentThresholds, UiRatePack, UiScanIntervals,
@@ -273,16 +283,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn doesnt_work_if_node_is_not_running() {
+    #[tokio::test]
+    async fn doesnt_work_if_node_is_not_running() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(
             result,
@@ -292,14 +303,14 @@ mod tests {
             ))
         );
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stderr_all_in_one(),
             "MASQNode is not running; therefore its configuration cannot be displayed.\n"
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stderr();
     }
 
-    #[test]
-    fn configuration_command_happy_path_with_secrets() {
+    #[tokio::test]
+    async fn configuration_command_happy_path_with_secrets() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConfigurationResponse {
             blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
@@ -337,13 +348,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject =
             ConfigurationCommand::new(&["configuration".to_string(), "password".to_string()])
                 .unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -358,7 +370,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one(),
             format!(
                 "\
 |NAME                              VALUE\n\
@@ -393,11 +405,11 @@ mod tests {
             )
             .replace('|', "")
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
+        stream_handles.assert_empty_stderr();
     }
 
-    #[test]
-    fn configuration_command_happy_path_without_secrets() {
+    #[tokio::test]
+    async fn configuration_command_happy_path_without_secrets() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConfigurationResponse {
             blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
@@ -435,11 +447,12 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -454,7 +467,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one(),
             format!(
                 "\
 |NAME                              VALUE\n\
@@ -488,20 +501,21 @@ mod tests {
             )
             .replace('|', "")
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
+        stream_handles.assert_empty_stderr();
     }
 
-    #[test]
-    fn configuration_command_sad_path() {
+    #[tokio::test]
+    async fn configuration_command_sad_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context);
+        let result = Box::new(subject)
+            .execute(&mut context, &mut term_interface)
+            .await;
 
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -515,9 +529,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
+        stream_handles.assert_empty_stdout();
         assert_eq!(
-            stderr_arc.lock().unwrap().get_string(),
+            stream_handles.stdout_all_in_one(),
             "Configuration retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }

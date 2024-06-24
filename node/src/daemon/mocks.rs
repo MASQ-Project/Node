@@ -7,8 +7,6 @@ use crate::daemon::launch_verifier::{
 };
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use websocket::client::ParseError;
-use websocket::{OwnedMessage, WebSocketError, WebSocketResult};
 
 pub struct LaunchVerifierMock {
     verify_launch_params: Arc<Mutex<Vec<(u32, u16)>>>,

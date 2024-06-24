@@ -581,7 +581,6 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
-    use tokio::runtime::Runtime;
 
     #[derive(Message)]
     #[rtype(result = "()")]
