@@ -26,7 +26,7 @@ use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, FilterBuilder};
 use web3::Web3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
-use crate::blockchain::blockchain_interface_utils::{get_service_fee_balance, get_transaction_fee_balance, get_transaction_id, create_blockchain_agent_web3, BlockchainAgentFutureResult, get_gas_price, get_block_number};
+use crate::blockchain::blockchain_interface_utils::{create_blockchain_agent_web3, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -74,7 +74,7 @@ pub struct BlockchainInterfaceWeb3 {
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     transport: Http,
-    lower_interface: Box<dyn LowBlockchainInt>
+    // lower_interface: Box<dyn LowBlockchainInt>
 }
 
 pub const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -126,7 +126,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let contract_address = self.get_contract().address();
         let num_chain_id = self.chain.rec().num_chain_id.clone();
         return Box::new(
-            get_block_number(web3.clone()).then(move |response_block_number_result| {
+            self.lower_interface().get_block_number().then(move |response_block_number_result| {
                 let response_block_number = match response_block_number_result {
                     Ok(block_number) => {
                         debug!(logger, "Latest block number: {}", block_number.as_u64());
@@ -179,17 +179,21 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let web3 = self.get_web3();
-        let contract = self.get_contract();
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part.clone();
 
+        let get_gas_price = self.lower_interface().get_gas_price();
+        let get_transaction_fee_balance = self.lower_interface().get_transaction_fee_balance(wallet_address);
+        let get_service_fee_balance = self.lower_interface().get_service_fee_balance(wallet_address);
+        let get_transaction_id = self.lower_interface().get_transaction_id(wallet_address);
+
         Box::new(
-            get_gas_price(web3.clone())
+            get_gas_price
                 .map_err(|e| {
                     BlockchainAgentBuildError::GasPrice(e.clone())
                 })
                 .and_then(move |gas_price_wei| {
-                get_transaction_fee_balance(web3.clone(), wallet_address)
+                    get_transaction_fee_balance
                     .map_err(move |e| {
                         BlockchainAgentBuildError::TransactionFeeBalance(
                             wallet_address,
@@ -197,7 +201,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         )
                     })
                     .and_then(move |transaction_fee_balance| {
-                        get_service_fee_balance(contract, wallet_address)
+                        eprintln!("transaction_fee_balance: {}", transaction_fee_balance);
+                        get_service_fee_balance
                             .map_err(move |e| {
                                 BlockchainAgentBuildError::ServiceFeeBalance(
                                     wallet_address,
@@ -205,7 +210,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                 )
                             })
                             .and_then(move |masq_token_balance| {
-                                get_transaction_id(web3, wallet_address)
+                                get_transaction_id
                                     .map_err(move |e| {
                                         BlockchainAgentBuildError::TransactionID(
                                             wallet_address,
@@ -232,20 +237,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn get_service_fee_balance(
-        // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
-        &self,
-        _wallet_address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        // Box::new(
-        todo!("This is to be Deleted - code migrated to Blockchain_interface_utils")
-        // self.get_contract()
-        //     .query("balanceOf", wallet_address, None, Options::default(), None)
-        //     .map_err(move |e| {
-        //         BlockchainError::QueryFailed(format!("{:?} for wallet {}", e, wallet_address))
-        //     }),
-        // )
-    }
 
     fn get_token_balance(
         // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
@@ -287,8 +278,10 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             .wait()
     }
 
-    fn lower_interface(&self) -> &dyn LowBlockchainInt {
-        todo!("GH-744: Need to remove lower_interface");
+    fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
+        Box::new(
+            LowBlockchainIntWeb3::new(self.transport.clone(), self.contract_address())
+        )
     }
 }
 
@@ -315,6 +308,7 @@ impl BlockchainInterfaceWeb3 {
         //     contract,
         // ));
         let gas_limit_const_part = Self::web3_gas_limit_const_part(chain);
+        let contract_address = chain.rec().contract;
 
         Self {
             logger: Logger::new("BlockchainInterface"),
@@ -325,7 +319,7 @@ impl BlockchainInterfaceWeb3 {
             transport: transport.clone(), // GH-744: Move this to lower_interface
             // web3,
             // contract,
-            lower_interface: Box::new(LowBlockchainIntWeb3::new(transport, chain))
+            // lower_interface: Box::new(LowBlockchainIntWeb3::new(transport, contract_address))
         }
     }
 
@@ -430,6 +424,8 @@ mod tests {
     };
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::blockchain::blockchain_interface_utils::calculate_fallback_start_block_number;
+
+    // #[test]
 
     #[test]
     fn constants_are_correct() {
@@ -783,8 +779,8 @@ mod tests {
     fn blockchain_interface_web3_can_build_blockchain_agent() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
-            .response("0xFFF0".to_string(), 0)
+            .response("0x3B9ACA00".to_string(), 0)// 1000000000
+            .response("0xFFF0".to_string(), 0) // 65520
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
             .response("0x23".to_string(), 1)
             .start();

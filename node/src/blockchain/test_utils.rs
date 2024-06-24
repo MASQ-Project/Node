@@ -39,6 +39,7 @@ use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, SignedTransaction, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 
 lazy_static! {
@@ -74,6 +75,17 @@ pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterf
 
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }
+
+// pub fn make_lower_interface_web3(port_opt: Option<u16>) -> LowBlockchainIntWeb3 {
+//     let port = port_opt.unwrap_or_else(|| find_free_port());
+//     let chain = Chain::PolyMainnet;
+//     let (_event_loop_handle, transport) = Http::with_max_parallel(
+//         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+//         REQUESTS_IN_PARALLEL,
+//     ).unwrap();
+//
+//     LowBlockchainIntWeb3::new(transport, chain)
+// }
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
@@ -165,13 +177,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         // self.build_blockchain_agent_results.borrow_mut().remove(0)
     }
 
-    fn get_service_fee_balance(
-        &self,
-        _wallet_address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!()
-    }
-
     // fn send_batch_of_payables(
     //     &self,
     //     agent: Box<dyn BlockchainAgent>,
@@ -222,8 +227,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
-    fn lower_interface(&self) -> &dyn LowBlockchainInt {
-        self.lower_interface_result.as_ref().unwrap().as_ref()
+    fn lower_interface(&self) ->Box<dyn LowBlockchainInt> {
+        todo!("GH-744: Come back to this");
+
+        // self.lower_interface_result.as_ref().unwrap().as_ref()
     }
 }
 

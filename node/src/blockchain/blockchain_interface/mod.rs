@@ -35,6 +35,8 @@ pub trait BlockchainInterface {
     fn get_web3_batch(&self) -> Web3<Batch<Http>>;
     fn get_transport(&self) -> Http;
 
+    fn lower_interface(&self) -> Box<dyn LowBlockchainInt>;
+
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
@@ -47,10 +49,6 @@ pub trait BlockchainInterface {
         &self,
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>;
-    fn get_service_fee_balance(
-        &self,
-        wallet_address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_token_balance(
         &self,
@@ -63,8 +61,6 @@ pub trait BlockchainInterface {
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
-
-    fn lower_interface(&self) -> &dyn LowBlockchainInt;
 
     as_any_ref_in_trait!();
 }

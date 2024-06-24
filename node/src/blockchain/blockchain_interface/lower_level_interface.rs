@@ -9,13 +9,15 @@ use web3::types::{Address, U256};
 pub trait LowBlockchainInt {
     fn get_transaction_fee_balance(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_service_fee_balance(&self, wallet: &Wallet) -> ResultForBalance;
+    fn get_service_fee_balance(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_block_number(&self) -> LatestBlockNumber;
+    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_transaction_id(&self, wallet: &Wallet) -> ResultForNonce;
+    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>>;
 
-    fn dup(&self) -> Box<dyn LowBlockchainInt>;
+    fn get_transaction_id(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
+
+    // fn dup(&self) -> Box<dyn LowBlockchainInt>;
 }
 
 pub type ResultForBalance = BlockchainResult<web3::types::U256>;

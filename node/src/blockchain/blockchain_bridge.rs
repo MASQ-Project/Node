@@ -2314,7 +2314,7 @@ pub mod exportable_test_parts {
                     let _result = bb
                         .blockchain_interface
                         .lower_interface()
-                        .get_service_fee_balance(&wallet);
+                        .get_service_fee_balance(wallet.address());
 
                     // Asserting that we can look into the expected db from here, meaning the
                     // PersistentConfiguration was set up correctly

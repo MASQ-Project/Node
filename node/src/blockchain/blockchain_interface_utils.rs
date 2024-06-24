@@ -31,6 +31,7 @@ use web3::{Error as Web3Error};
 
 const GWEI_UNIT: u64 = 1_000_000_000; // 1 Gwei = 1e9 Wei
 
+#[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
     pub gas_price_wei: U256,
     pub transaction_fee_balance: U256,
@@ -324,62 +325,8 @@ pub fn calculate_fallback_start_block_number(
     }
 }
 
-pub fn get_transaction_fee_balance(
-    // TODO GH-744 -- Delete this -- move to lower_interface
-    web3: Web3<Http>,
-    address: Address,
-) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-    todo!("GH-744 -- Delete this -- move to lower_interface");
-    Box::new(
-        web3.eth()
-            .balance(address, None)
-            .map_err(|e| QueryFailed(e.to_string())),
-    )
-}
-
 pub fn convert_wei_to_gwei(wei: U256) -> u64 {
     (wei / U256::from(GWEI_UNIT)).as_u64()
-}
-
-pub fn get_gas_price(web3: Web3<Http>) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-    Box::new(
-        web3.eth().gas_price()
-            .map_err(|e|  BlockchainError::QueryFailed(e.to_string()) )
-    )
-}
-
-pub fn get_service_fee_balance(
-    contract: Contract<Http>,
-    address: Address,
-) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-    Box::new(
-        contract
-            .query("balanceOf", address, None, Options::default(), None)
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
-    )
-}
-
-pub fn get_block_number(
-    web3: Web3<Http>,
-) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
-    Box::new(
-    web3.eth()
-        .block_number()
-        .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
-    )
-}
-
-pub fn get_transaction_id(
-    web3: Web3<Http>,
-    address: Address,
-) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-    Box::new(
-        web3.eth()
-            .transaction_count(address, Some(BlockNumber::Pending))
-            .map_err(move |e| {
-                BlockchainError::QueryFailed(format!("{} for wallet {}", e, address))
-            }),
-    )
 }
 
 pub fn create_blockchain_agent_web3(
@@ -448,32 +395,6 @@ mod tests {
             calculate_fallback_start_block_number(5_000, 10_000),
             5_000 + 10_000
         );
-    }
-
-    #[test]
-    fn get_gas_price_works() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response( "0x01".to_string(),1)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let result = get_gas_price(web3).wait().unwrap();
-
-        assert_eq!(result, 1.into());
-    }
-
-    #[test]
-    fn get_gas_price_returns_error() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let error = get_gas_price(web3).wait().unwrap_err();
-
-        assert_eq!(error, QueryFailed("Transport error: Error(IncompleteMessage)".to_string()));
     }
 
     #[test]
@@ -1385,177 +1306,6 @@ mod tests {
     #[test]
     fn gas_limit_for_eth_mainnet_lies_within_limits_for_raw_transaction() {
         test_gas_limit_is_between_limits(Chain::EthMainnet)
-    }
-
-
-
-    #[test]
-    fn get_block_number_works() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let result = get_block_number(web3).wait();
-
-        assert_eq!(result, Ok(35.into()));
-    }
-
-    #[test]
-    fn get_block_number_works_returns_an_error() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash".to_string(), 1)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let error = get_block_number(web3).wait().unwrap_err();
-
-        assert_eq!(
-            error,
-            QueryFailed("Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string())
-        );
-    }
-
-    #[test]
-    fn get_transaction_id_works() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-        let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-
-        let result = get_transaction_id(web3, wallet.address()).wait();
-
-        assert_eq!(result, Ok(35.into()));
-    }
-
-    #[test]
-    fn get_transaction_id_returns_an_error_for_unintelligible_response() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let result = get_transaction_id(
-            web3,
-            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
-                .unwrap()
-                .address(),
-        )
-        .wait();
-
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
-                ()
-            }
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        };
-    }
-
-    #[test]
-    fn get_transaction_fee_balance_works() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-        let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-
-        let result = get_transaction_fee_balance(web3, wallet.address()).wait();
-
-        assert_eq!(result, Ok(35.into()));
-    }
-
-    #[test]
-    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
-    ) {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let web3 = blockchain_interface_web3.get_web3();
-
-        let result = get_transaction_fee_balance(
-            web3,
-            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
-                .unwrap()
-                .address(),
-        )
-        .wait();
-
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
-                ()
-            }
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        };
-    }
-
-    #[test]
-    fn get_token_balance_can_retrieve_token_balance_of_a_wallet() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response(
-                "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
-                0,
-            )
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let contract = blockchain_interface_web3.get_contract();
-
-        let result = get_service_fee_balance(
-            contract,
-            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
-                .unwrap()
-                .address(),
-        )
-        .wait()
-        .unwrap();
-
-        assert_eq!(result, U256::from(65_535));
-    }
-
-    #[test]
-    fn get_token_balance_returns_error_for_unintelligible_response_to_token_balance() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response(
-                "0x000000000000000000000000000000000000000000000000000000000000FFFQ".to_string(),
-                0,
-            )
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let contract = blockchain_interface_web3.get_contract();
-        let expected_err_msg = "Invalid hex";
-
-        let result = get_service_fee_balance(
-            contract,
-            Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
-                .unwrap()
-                .address(),
-        )
-        .wait();
-
-        let err_msg = match result {
-            Err(BlockchainError::QueryFailed(msg)) => msg,
-            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
-        };
-        assert!(
-            err_msg.contains(expected_err_msg),
-            "Expected this fragment {} in this err msg: {}",
-            expected_err_msg,
-            err_msg
-        )
     }
 
     fn assert_that_signed_transactions_agrees_with_template(
