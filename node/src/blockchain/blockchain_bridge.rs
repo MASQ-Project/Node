@@ -2247,18 +2247,8 @@ mod tests {
 #[cfg(test)]
 pub mod exportable_test_parts {
     use super::*;
-    use crate::bootstrapper::BootstrapperConfig;
-    use crate::test_utils::http_test_server::TestServer;
-    use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_blockchain_bridge_subs_from_recorder;
-    use crate::test_utils::unshared_test_utils::{AssertionsMessage, SubsFactoryTestAddrLeaker};
-    use actix::System;
-    use crossbeam_channel::{bounded, Receiver};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
-    use serde_json::Value::Object;
-    use serde_json::{Map, Value};
-    use std::net::Ipv4Addr;
+    use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
         for SubsFactoryTestAddrLeaker<BlockchainBridge>
@@ -2269,118 +2259,5 @@ pub mod exportable_test_parts {
                 make_blockchain_bridge_subs_from_recorder,
             )
         }
-    }
-
-    pub fn test_blockchain_bridge_is_constructed_with_correctly_functioning_connections<A>(
-        test_module: &str,
-        test_name: &str,
-        act: A,
-    ) where
-        A: FnOnce(
-            BootstrapperConfig,
-            SubsFactoryTestAddrLeaker<BlockchainBridge>,
-        ) -> BlockchainBridgeSubs,
-    {
-        fn prepare_db_with_unique_value(data_dir: &Path, gas_price: u64) {
-            let mut persistent_config = {
-                let conn = DbInitializerReal::default()
-                    .initialize(data_dir, DbInitializationConfig::test_default())
-                    .unwrap();
-                PersistentConfigurationReal::from(conn)
-            };
-            persistent_config.set_gas_price(gas_price).unwrap()
-        }
-        fn launch_prepared_test_server() -> (TestServer, String) {
-            let port = find_free_port();
-            let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port);
-            (
-                TestServer::start(
-                    port,
-                    vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
-                ),
-                server_url,
-            )
-        }
-        fn send_rpc_request_to_assert_on_later_and_assert_db_connection(
-            actor_addr_rx: Receiver<Addr<BlockchainBridge>>,
-            wallet: Wallet,
-            expected_gas_price: u64,
-        ) {
-            let blockchain_bridge_addr = actor_addr_rx.try_recv().unwrap();
-            let msg = AssertionsMessage {
-                assertions: Box::new(move |bb: &mut BlockchainBridge| {
-                    // We will assert on soundness of the connection by checking the receipt of
-                    // this request
-                    let _result = bb
-                        .blockchain_interface
-                        .lower_interface()
-                        .get_service_fee_balance(wallet.address());
-
-                    // Asserting that we can look into the expected db from here, meaning the
-                    // PersistentConfiguration was set up correctly
-                    assert_eq!(
-                        bb.persistent_config.gas_price().unwrap(),
-                        expected_gas_price
-                    );
-                    // I don't know why exactly but the standard position
-                    // of this call doesn't work
-                    System::current().stop();
-                }),
-            };
-            blockchain_bridge_addr.try_send(msg).unwrap();
-        }
-        fn assert_blockchain_interface_connection(test_server: &TestServer, wallet: Wallet) {
-            let requests = test_server.requests_so_far();
-            let bodies: Vec<Value> = requests
-                .into_iter()
-                .map(|request| serde_json::from_slice(&request.body()).unwrap())
-                .collect();
-            let params = &bodies[0]["params"];
-            let expected_params = {
-                let mut map = Map::new();
-                let hashed_data = format!(
-                    "0x70a08231000000000000000000000000{}",
-                    &wallet.to_string()[2..]
-                );
-                map.insert("data".to_string(), Value::String(hashed_data));
-                map.insert(
-                    "to".to_string(),
-                    Value::String(format!("{:?}", TEST_DEFAULT_CHAIN.rec().contract)),
-                );
-                map
-            };
-            assert_eq!(
-                params,
-                &Value::Array(vec![
-                    Object(expected_params),
-                    Value::String("latest".to_string())
-                ])
-            );
-        }
-
-        let data_dir = ensure_node_home_directory_exists(test_module, test_name);
-        let gas_price = 444;
-        prepare_db_with_unique_value(&data_dir, gas_price);
-        let (test_server, server_url) = launch_prepared_test_server();
-        let wallet = make_wallet("abc");
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        bootstrapper_config
-            .blockchain_bridge_config
-            .blockchain_service_url_opt = Some(server_url);
-        bootstrapper_config.blockchain_bridge_config.chain = TEST_DEFAULT_CHAIN;
-        bootstrapper_config.data_directory = data_dir;
-        let (tx, blockchain_bridge_addr_rx) = bounded(1);
-        let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
-        let system = System::new(test_name);
-
-        act(bootstrapper_config, address_leaker);
-
-        send_rpc_request_to_assert_on_later_and_assert_db_connection(
-            blockchain_bridge_addr_rx,
-            wallet.clone(),
-            gas_price,
-        );
-        assert_eq!(system.run(), 0);
-        assert_blockchain_interface_connection(&test_server, wallet)
     }
 }
