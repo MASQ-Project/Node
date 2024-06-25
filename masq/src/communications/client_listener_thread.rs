@@ -44,8 +44,8 @@ impl ClientListener {
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     ) -> ClientListenerHandle {
         let listener_half = self.websocket.receiver_rx().clone();
-        let loop_starter = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
-        let task_handle = loop_starter.spawn();
+        let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
+        let task_handle = event_loop.spawn();
         ClientListenerHandle::new(self.websocket, task_handle)
     }
 }

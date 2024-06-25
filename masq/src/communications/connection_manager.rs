@@ -156,7 +156,7 @@ impl ConnectionManagerBootstrapper {
                 let broadcast_handles =
                     BroadcastHandles::new(standard_broadcast_handle, redirect_broadcast_handle);
 
-                let inner = CmsInner {
+                let inner = CmsManagerInner {
                     active_port: Some(port),
                     daemon_port: port,
                     node_port: None,
@@ -176,7 +176,7 @@ impl ConnectionManagerBootstrapper {
                     closing_stage,
                 };
 
-                let _join_handle = ConnectionManagerEventLoop::spawn(inner);
+                let _join_handle = ConnectionsEventLoop::spawn(inner);
             },
         );
 
@@ -372,7 +372,7 @@ impl Handshake for WSClientHandshakeHandler {
     }
 }
 
-struct CmsInner {
+struct CmsManagerInner {
     active_port: Option<u16>,
     daemon_port: u16,
     node_port: Option<u16>,
@@ -393,10 +393,10 @@ struct CmsInner {
     closing_stage: Arc<AtomicBool>,
 }
 
-pub struct ConnectionManagerEventLoop {}
+pub struct ConnectionsEventLoop {}
 
-impl ConnectionManagerEventLoop {
-    fn spawn(mut inner: CmsInner) -> JoinHandle<()> {
+impl ConnectionsEventLoop {
+    fn spawn(mut inner: CmsManagerInner) -> JoinHandle<()> {
         tokio::task::spawn(async move {
             loop {
                 match (
@@ -414,7 +414,7 @@ impl ConnectionManagerEventLoop {
         })
     }
 
-    async fn loop_guts(mut inner: CmsInner) -> CmsInner {
+    async fn loop_guts(mut inner: CmsManagerInner) -> CmsManagerInner {
         tokio::select! {
             demand_result = inner.demand_rx.recv() => Self::handle_demand (inner, demand_result).await,
             message_body_result_result = inner.conversations_to_manager_rx.recv() => Self::handle_outgoing_message_body (inner, message_body_result_result).await,
@@ -423,7 +423,7 @@ impl ConnectionManagerEventLoop {
         }
     }
 
-    async fn handle_demand(mut inner: CmsInner, demand_opt: Option<Demand>) -> CmsInner {
+    async fn handle_demand(mut inner: CmsManagerInner, demand_opt: Option<Demand>) -> CmsManagerInner {
         match demand_opt {
             Some(Demand::Conversation) => Self::handle_conversation_trigger(inner),
             Some(Demand::ActivePort) => Self::handle_active_port_request(inner),
@@ -435,7 +435,7 @@ impl ConnectionManagerEventLoop {
         }
     }
 
-    fn handle_conversation_trigger(mut inner: CmsInner) -> CmsInner {
+    fn handle_conversation_trigger(mut inner: CmsManagerInner) -> CmsManagerInner {
         let (manager_to_conversation_tx, manager_to_conversation_rx) = async_channel::unbounded();
         let context_id = inner.next_context_id;
         inner.next_context_id += 1;
@@ -457,9 +457,9 @@ impl ConnectionManagerEventLoop {
     }
 
     async fn handle_incoming_message_body(
-        mut inner: CmsInner,
+        mut inner: CmsManagerInner,
         msg_result_opt: Option<Result<MessageBody, ClientListenerError>>,
-    ) -> CmsInner {
+    ) -> CmsManagerInner {
         match msg_result_opt {
             Some(msg_result) => match msg_result {
                 Ok(message_body) => match message_body.path {
@@ -495,7 +495,6 @@ impl ConnectionManagerEventLoop {
                 }
             },
             None => {
-                todo!("what here?");
                 return Self::fallback(inner, NodeConversationTermination::Fatal).await;
             }
         };
@@ -503,9 +502,9 @@ impl ConnectionManagerEventLoop {
     }
 
     async fn handle_outgoing_message_body(
-        mut inner: CmsInner,
+        mut inner: CmsManagerInner,
         msg_opt: Result<OutgoingMessageType, RecvError>,
-    ) -> CmsInner {
+    ) -> CmsManagerInner {
         match msg_opt {
             Err(e) => todo!(),
             Ok(OutgoingMessageType::ConversationMessage (message_body)) => match message_body.path {
@@ -553,9 +552,9 @@ impl ConnectionManagerEventLoop {
     }
 
     async fn handle_redirect_order(
-        mut inner: CmsInner,
+        mut inner: CmsManagerInner,
         redirect_order_opt: Option<RedirectOrder>,
-    ) -> CmsInner {
+    ) -> CmsManagerInner {
         let redirect_order = match redirect_order_opt {
             Some(ro) => ro,
             None => return inner, // Sender died; ignore
@@ -602,7 +601,7 @@ impl ConnectionManagerEventLoop {
         inner
     }
 
-    fn handle_active_port_request(inner: CmsInner) -> CmsInner {
+    fn handle_active_port_request(inner: CmsManagerInner) -> CmsManagerInner {
         inner
             .active_port_response_tx
             .send(inner.active_port)
@@ -610,7 +609,7 @@ impl ConnectionManagerEventLoop {
         inner
     }
 
-    async fn handle_close(mut inner: CmsInner) -> CmsInner {
+    async fn handle_close(mut inner: CmsManagerInner) -> CmsManagerInner {
         inner.closing_stage.store(true, Ordering::Relaxed);
         let _ = inner.client_listener_handle.send(Message::Close);
         let _ = inner.client_listener_handle.close_talker_half();
@@ -618,7 +617,7 @@ impl ConnectionManagerEventLoop {
         inner
     }
 
-    async fn fallback(mut inner: CmsInner, termination: NodeConversationTermination) -> CmsInner {
+    async fn fallback(mut inner: CmsManagerInner, termination: NodeConversationTermination) -> CmsManagerInner {
         inner.node_port = None;
         match &inner.active_port {
             None => {
@@ -650,9 +649,9 @@ impl ConnectionManagerEventLoop {
     }
 
     fn disappoint_waiting_conversations(
-        mut inner: CmsInner,
+        mut inner: CmsManagerInner,
         error: NodeConversationTermination,
-    ) -> CmsInner {
+    ) -> CmsManagerInner {
         inner.conversations_waiting.iter().for_each(|context_id| {
             let _ = inner
                 .conversations
@@ -665,9 +664,9 @@ impl ConnectionManagerEventLoop {
     }
 
     fn disappoint_all_conversations(
-        mut inner: CmsInner,
+        mut inner: CmsManagerInner,
         error: NodeConversationTermination,
-    ) -> CmsInner {
+    ) -> CmsManagerInner {
         inner.conversations.iter().for_each(|(_, sender)| {
             let _ = sender.send(Err(error));
         });
@@ -676,7 +675,7 @@ impl ConnectionManagerEventLoop {
         inner
     }
 
-    fn send_daemon_crashed(inner: &CmsInner) {
+    fn send_daemon_crashed(inner: &CmsManagerInner) {
         let crash_msg = UiNodeCrashedBroadcast {
             process_id: 0,
             crash_reason: CrashReason::DaemonCrashed,
@@ -767,7 +766,7 @@ mod tests {
     async fn handle_demand_brings_the_party_to_a_close_if_the_channel_fails() {
         let inner = make_inner().await;
 
-        let inner = ConnectionManagerEventLoop::handle_demand(inner, None).await;
+        let inner = ConnectionsEventLoop::handle_demand(inner, None).await;
 
         assert_eq!(inner.active_port, None);
     }
@@ -871,11 +870,11 @@ mod tests {
         // tokio::time::sleep(Duration::from_millis(1000));
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
-            UiUnmarshalError::fmb(outgoing_messages.remove(0).unwrap()).unwrap(),
+            UiUnmarshalError::fmb(outgoing_messages.remove(0).expect_masq_node_uiv2().unwrap()).unwrap(),
             (message1, 0)
         );
         assert_eq!(
-            UiUnmarshalError::fmb(outgoing_messages.remove(0).unwrap()).unwrap(),
+            UiUnmarshalError::fmb(outgoing_messages.remove(0).expect_masq_node_uiv2().unwrap()).unwrap(),
             (message2, 0)
         );
         assert_eq!(outgoing_messages.is_empty(), true);
@@ -905,14 +904,14 @@ mod tests {
         inner.redirect_order_rx = redirect_order_rx;
         inner.demand_rx = demand_rx;
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
         let conversation1 = conversation_return_rx.try_recv().unwrap();
         let (conversation1_tx, mut conversation1_rx) = conversation1.tx_rx();
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
         let conversation2 = conversation_return_rx.try_recv().unwrap();
         let (conversation2_tx, mut conversation2_rx) = conversation2.tx_rx();
-        let get_existing_keys = |inner: &CmsInner| {
+        let get_existing_keys = |inner: &CmsManagerInner| {
             inner
                 .conversations
                 .iter()
@@ -931,7 +930,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await; // send request 1
+        inner = ConnectionsEventLoop::loop_guts(inner).await; // send request 1
 
         // Conversations 1 and 2, 1 waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
@@ -944,7 +943,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
 
         // Conversations 1 and 2, 1 and 2 waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
@@ -954,7 +953,7 @@ mod tests {
         let response2 = UiShutdownResponse {}.tmb(2);
         assert_eq!(response2.path, MessagePath::Conversation(2));
         listener_to_manager_tx.send(Ok(response2)).unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
         let result2 = conversation2_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, 1 still waiting
@@ -966,7 +965,7 @@ mod tests {
         let response1 = UiShutdownResponse {}.tmb(1);
         assert_eq!(response1.path, MessagePath::Conversation(1));
         listener_to_manager_tx.send(Ok(response1)).unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
         let result1 = conversation1_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, nobody waiting
@@ -980,7 +979,7 @@ mod tests {
             .send(OutgoingMessageType::SignOff(1))
             .await
             .unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
 
         // Only Conversation 2, nobody waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![2]));
@@ -991,7 +990,7 @@ mod tests {
             .send(OutgoingMessageType::SignOff(2))
             .await
             .unwrap();
-        inner = ConnectionManagerEventLoop::loop_guts(inner).await;
+        inner = ConnectionsEventLoop::loop_guts(inner).await;
 
         // No more conversations, nobody waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![]));
@@ -1009,7 +1008,7 @@ mod tests {
         inner.active_port = None;
         inner.broadcast_handles.standard = Box::new(broadcast_handle);
 
-        ConnectionManagerEventLoop::spawn(inner).await.unwrap();
+        ConnectionsEventLoop::spawn(inner).await.unwrap();
 
         let mut broadcast_handle_send_params = broadcast_handle_send_params_arc.lock().unwrap();
         let message_body: MessageBody = (*broadcast_handle_send_params).remove(0);
@@ -1040,7 +1039,7 @@ mod tests {
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(inner, None).await;
+        let inner = ConnectionsEventLoop::handle_incoming_message_body(inner, None).await;
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1052,7 +1051,7 @@ mod tests {
         assert_eq!(inner.daemon_port, daemon_port);
         assert_eq!(inner.node_port, None);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
-        let _ = ConnectionManagerEventLoop::handle_outgoing_message_body(
+        let _ = ConnectionsEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
@@ -1061,7 +1060,7 @@ mod tests {
         .await;
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
-            outgoing_messages.remove(0),
+            outgoing_messages.remove(0).expect_masq_node_uiv2(),
             Ok(UiSetupRequest { values: vec![] }.tmb(4))
         );
     }
@@ -1080,7 +1079,7 @@ mod tests {
         inner.conversations_waiting.insert(4);
 
         let inner =
-            ConnectionManagerEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
+            ConnectionsEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1111,7 +1110,7 @@ mod tests {
         inner.conversations_waiting.insert(4);
 
         let inner =
-            ConnectionManagerEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
+            ConnectionsEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1135,7 +1134,7 @@ mod tests {
         let mut inner = make_inner().await;
         inner.redirect_response_tx = redirect_response_tx;
 
-        ConnectionManagerEventLoop::handle_redirect_order(
+        ConnectionsEventLoop::handle_redirect_order(
             inner,
             Some(RedirectOrder::new(node_port, 0, 1000)),
         )
@@ -1168,13 +1167,13 @@ mod tests {
         inner.conversations = conversations;
         inner.conversations_waiting = conversations_waiting;
 
-        inner = ConnectionManagerEventLoop::handle_redirect_order(
+        inner = ConnectionsEventLoop::handle_redirect_order(
             inner,
             Some(RedirectOrder::new(node_port, 1, 1000)),
         )
         .await;
 
-        let get_existing_keys = |inner: &CmsInner| {
+        let get_existing_keys = |inner: &CmsManagerInner| {
             inner
                 .conversations
                 .iter()
@@ -1208,7 +1207,7 @@ mod tests {
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let _ = ConnectionManagerEventLoop::handle_incoming_message_body(inner, None).await;
+        let _ = ConnectionsEventLoop::handle_incoming_message_body(inner, None).await;
 
         let disappointment = conversation_rx.try_recv().unwrap();
         assert_eq!(disappointment, Err(NodeConversationTermination::Fatal));
@@ -1239,7 +1238,7 @@ mod tests {
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionsEventLoop::handle_incoming_message_body(
             inner,
             Some(Err(ClientListenerError::Broken("Booga".to_string()))),
         )
@@ -1255,7 +1254,7 @@ mod tests {
         assert_eq!(inner.daemon_port, daemon_port);
         assert_eq!(inner.node_port, None);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
-        let _ = ConnectionManagerEventLoop::handle_outgoing_message_body(
+        let _ = ConnectionsEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
@@ -1264,7 +1263,7 @@ mod tests {
         .await;
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
-            outgoing_messages.remove(0),
+            outgoing_messages.remove(0).expect_masq_node_uiv2(),
             Ok(UiSetupRequest { values: vec![] }.tmb(4))
         );
     }
@@ -1281,7 +1280,7 @@ mod tests {
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionsEventLoop::handle_incoming_message_body(
             inner,
             Some(Err(ClientListenerError::UnexpectedPacket)),
         )
@@ -1310,7 +1309,7 @@ mod tests {
         inner.conversations_waiting.insert(4);
         inner.broadcast_handles.standard = Box::new(broadcast_handler);
 
-        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionsEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
         )
@@ -1375,7 +1374,7 @@ mod tests {
 
         let result = conversation.transact(request, 1000).await.unwrap();
 
-        let request_body = node_stop_handle.stop()[0].clone().unwrap();
+        let request_body = node_stop_handle.stop()[0].clone().expect_masq_node_uiv2().unwrap();
         UiFinancialsRequest::fmb(request_body).unwrap();
         let (response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         assert_eq!(
@@ -1409,7 +1408,7 @@ mod tests {
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionsEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
         )
@@ -1432,7 +1431,7 @@ mod tests {
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionManagerEventLoop::handle_incoming_message_body(
+        let inner = ConnectionsEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
         )
@@ -1449,7 +1448,7 @@ mod tests {
         inner.next_context_id = 42;
         inner.conversation_return_tx = conversation_return_tx;
 
-        let inner = ConnectionManagerEventLoop::handle_conversation_trigger(inner);
+        let inner = ConnectionsEventLoop::handle_conversation_trigger(inner);
 
         assert_eq!(inner.next_context_id, 43);
         assert_eq!(inner.conversations.is_empty(), true);
@@ -1478,7 +1477,7 @@ mod tests {
         }
         .tmb(0);
 
-        let _ = ConnectionManagerEventLoop::handle_outgoing_message_body(
+        let _ = ConnectionsEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 outgoing_message.clone(),
@@ -1489,7 +1488,7 @@ mod tests {
 
         let mut outgoing_messages = stop_handle.stop();
         assert_eq!(
-            UiUnmarshalError::fmb(outgoing_messages.remove(0).unwrap()),
+            UiUnmarshalError::fmb(outgoing_messages.remove(0).expect_masq_node_uiv2().unwrap()),
             UiUnmarshalError::fmb(outgoing_message)
         );
     }
@@ -1523,7 +1522,7 @@ mod tests {
         //     thread::sleep(Duration::from_millis(500));
         // }
 
-        inner = ConnectionManagerEventLoop::handle_outgoing_message_body(
+        inner = ConnectionsEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(2),
@@ -1556,7 +1555,7 @@ mod tests {
         inner.conversations = conversations;
         inner.conversations_waiting = vec_to_set(vec![1]);
 
-        inner = ConnectionManagerEventLoop::handle_outgoing_message_body(
+        inner = ConnectionsEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(42),
@@ -1597,7 +1596,7 @@ mod tests {
         //     thread::sleep(Duration::from_millis(500));
         // }
 
-        inner = ConnectionManagerEventLoop::handle_outgoing_message_body(
+        inner = ConnectionsEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 UiUnmarshalError {
@@ -1654,16 +1653,18 @@ mod tests {
             )
             .await;
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        stop_handle.stop();
-        assert_eq!(received, vec![Err("Close(None)".to_string())]);
+        todo!("get the stamp of calling disconnect");
+        while stop_handle.is_terminated() == false {
+            tokio::time::sleep(Duration::from_millis(50)).await
+        }
     }
 
-    async fn make_inner() -> CmsInner {
+    async fn make_inner() -> CmsManagerInner {
         let broadcast_handles = BroadcastHandles::new(
             Box::new(BroadcastHandleMock::default()),
             Box::new(BroadcastHandleMock::default()),
         );
-        CmsInner {
+        CmsManagerInner {
             active_port: Some(0),
             daemon_port: 0,
             node_port: None,
