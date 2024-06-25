@@ -105,6 +105,7 @@ impl Display for StreamWriterKey {
     }
 }
 
+// TODO: GH-800 - To avoid confusion with ProxyClient's StreamHandlerPool, rename this one or the other for easy identification.
 // It is used to store streams for both neighbors and browser.
 pub struct StreamHandlerPool {
     stream_writers: HashMap<StreamWriterKey, Option<Box<dyn SenderWrapper<SequencedPacket>>>>,
