@@ -254,7 +254,7 @@ impl BlockchainBridge {
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
 
-            None => todo!("GH-744: Replace with BlockchainInterfaceNull"),
+            None => panic!("Blockchain service can not start with out a blockchain service url"), //todo!("GH-744: Replace with BlockchainInterfaceNull")
             // None => Box::new(BlockchainInterfaceNull::default()),
         }
     }
@@ -739,15 +739,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Blockchain service can not start with out a blockchain service url")]
     fn blockchain_interface_null_as_result_of_missing_blockchain_service_url() {
         let result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
-
-        todo!("GH-744 - What is this? ")
-
-        // result
-        //     .as_any()
-        //     .downcast_ref::<BlockchainInterfaceNull>()
-        //     .unwrap();
     }
 
     #[test]
