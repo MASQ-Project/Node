@@ -1339,7 +1339,7 @@ mod tests {
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::EthRopsten,
                 main_cryptde_ref(),
-                "ZZ".to_string()
+                "AU".to_string()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");

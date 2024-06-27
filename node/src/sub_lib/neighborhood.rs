@@ -260,14 +260,13 @@ impl NodeDescriptor {
         };
         let chain_identifier = self.blockchain.rec().literal_identifier;
         format!(
-            "{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}",
             MASQ_URL_PREFIX,
             chain_identifier,
             CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
             node_addr_string,
-            self.country_code
         )
     }
 
@@ -949,7 +948,7 @@ mod tests {
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &[1234, 2345, 3456],
                 )),
-                country_code: "ZZ".to_string(),
+                country_code: "AU".to_string(),
             },
         )
     }
