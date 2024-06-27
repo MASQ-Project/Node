@@ -13,6 +13,7 @@ use crate::proxy_server::client_request_payload_factory::{
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
+use crate::stream_handler_pool::StreamHandlerPool;
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::accountant::RoutingServiceConsumed;
@@ -29,22 +30,22 @@ use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use crate::sub_lib::proxy_server::AddReturnRouteMessage;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
+use crate::sub_lib::proxy_server::{AddReturnRouteMessage, StreamKeyPurge};
 use crate::sub_lib::proxy_server::{
     AddRouteResultMessage, ClientRequestPayload_0v1, ProxyProtocol,
 };
 use crate::sub_lib::route::Route;
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, TransmitDataMsg};
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, MailboxError};
+use actix::{Addr, AsyncContext};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
@@ -67,6 +68,7 @@ struct ProxyServerOutSubs {
     add_return_route: Recipient<AddReturnRouteMessage>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     route_result_sub: Recipient<AddRouteResultMessage>,
+    schedule_stream_key_purge: Recipient<MessageScheduler<StreamKeyPurge>>,
 }
 
 pub struct ProxyServer {
@@ -106,6 +108,7 @@ impl Handler<BindMessage> for ProxyServer {
             add_return_route: msg.peer_actors.proxy_server.add_return_route,
             stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
             route_result_sub: msg.peer_actors.proxy_server.route_result_sub,
+            schedule_stream_key_purge: msg.peer_actors.proxy_server.schedule_stream_key_purge,
         };
         self.subs = Some(subs);
     }
@@ -220,6 +223,25 @@ impl Handler<NodeFromUiMessage> for ProxyServer {
     }
 }
 
+impl Handler<StreamKeyPurge> for ProxyServer {
+    type Result = ();
+
+    fn handle(&mut self, msg: StreamKeyPurge, ctx: &mut Self::Context) -> Self::Result {
+        todo!()
+    }
+}
+
+impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for ProxyServer
+where
+    ProxyServer: Handler<M>,
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: MessageScheduler<M>, ctx: &mut Self::Context) -> Self::Result {
+        ctx.notify_later(msg.scheduled_msg, msg.delay);
+    }
+}
+
 impl ProxyServer {
     pub fn new(
         main_cryptde: &'static dyn CryptDE,
@@ -258,6 +280,7 @@ impl ProxyServer {
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             node_from_ui: recipient!(addr, NodeFromUiMessage),
             route_result_sub: recipient!(addr, AddRouteResultMessage),
+            schedule_stream_key_purge: recipient!(addr, MessageScheduler<StreamKeyPurge>),
         }
     }
 
@@ -468,7 +491,18 @@ impl ProxyServer {
                         data: response.sequenced_packet.data,
                     })
                     .expect("Dispatcher is dead");
+                // TODO: GH-800 - Instead send a message to retire it after 5 seconds
                 if last_data {
+                    // todo!("stop");
+                    self.subs
+                        .as_ref()
+                        .expect("ProxyServer Subs Unbound")
+                        .schedule_stream_key_purge
+                        .try_send(MessageScheduler {
+                            scheduled_msg: StreamKeyPurge { stream_key },
+                            delay: Duration::from_secs(5),
+                        })
+                        .expect("ProxyServer is dead");
                     debug!(
                         self.logger,
                         "Retiring stream key {}: no more data", &stream_key
@@ -1379,6 +1413,7 @@ mod tests {
             add_return_route: recipient!(addr, AddReturnRouteMessage),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             route_result_sub: recipient!(addr, AddRouteResultMessage),
+            schedule_stream_key_purge: recipient!(addr, MessageScheduler<StreamKeyPurge>),
         }
     }
 
@@ -3633,8 +3668,14 @@ mod tests {
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
         };
         let (dispatcher_mock, _, _) = make_recorder();
-        let peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher_mock)
+            .proxy_server(proxy_server)
+            .build();
         subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
+        subject.subs.as_mut().unwrap().schedule_stream_key_purge =
+            peer_actors.proxy_server.schedule_stream_key_purge;
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -3643,9 +3684,27 @@ mod tests {
                 client_response_payload.into(),
                 0,
             );
+        let system =
+            System::new("handle_client_response_payload_purges_stream_keys_for_terminal_response");
 
         subject.handle_client_response_payload(expired_cores_package);
 
+        System::current().stop();
+        system.run();
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        eprintln!(
+            "ProxyServer Recording Length: {:?}",
+            proxy_server_recording.len()
+        );
+        let schedule_stream_key_purge_msg =
+            proxy_server_recording.get_record::<MessageScheduler<StreamKeyPurge>>(0);
+        assert_eq!(
+            schedule_stream_key_purge_msg,
+            &MessageScheduler {
+                scheduled_msg: StreamKeyPurge { stream_key },
+                delay: Duration::from_secs(5),
+            }
+        );
         assert!(subject.keys_and_addrs.is_empty());
         assert!(subject.stream_key_routes.is_empty());
         assert!(subject.tunneled_hosts.is_empty());
