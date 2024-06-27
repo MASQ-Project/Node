@@ -28,7 +28,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ci/download_dbip.sh
-          cargo run --release --bin generate_dbip_country_rs
+          ci/generate_dbip_country.sh
           rm node/src/dbip.mmdb
           if [[ `git status --porcelain` ]]; then
             git checkout -b dbip-update
