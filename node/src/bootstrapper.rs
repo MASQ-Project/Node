@@ -15,6 +15,7 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
+use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
@@ -60,7 +61,6 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use crate::neighborhood::node_location::get_node_location;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -509,11 +509,11 @@ impl ConfiguredByPrivilege for Bootstrapper {
         );
         let node_ip = match self.config.neighborhood_config.mode.node_addr_opt() {
             Some(node_addr) => Some(node_addr.ip_addr),
-            None => None
+            None => None,
         };
         let country_code = match get_node_location(node_ip) {
             Some(country) => country.country_code,
-            None => "ZZ".to_string()
+            None => "ZZ".to_string(),
         };
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
@@ -1581,7 +1581,7 @@ mod tests {
                 cryptdes.main,
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
-                "ZZ".to_string()
+                "ZZ".to_string(),
             );
             Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
@@ -1621,8 +1621,12 @@ mod tests {
         init_test_logging();
         let cryptdes = {
             let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            let descriptor =
-                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN, "ZZ".to_string());
+            let descriptor = Bootstrapper::make_local_descriptor(
+                cryptdes.main,
+                None,
+                TEST_DEFAULT_CHAIN,
+                "ZZ".to_string(),
+            );
             Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
             cryptdes
@@ -1869,7 +1873,7 @@ mod tests {
                     ),
                     Chain::EthMainnet,
                     cryptde,
-                    "ZZ".to_string()
+                    "ZZ".to_string(),
                 ))],
                 rate_pack(100),
             ),
@@ -1941,7 +1945,7 @@ mod tests {
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     Chain::EthRopsten,
                     cryptde,
-                    "ZZ".to_string()
+                    "ZZ".to_string(),
                 ))],
                 rate_pack(100),
             ),
@@ -1992,7 +1996,7 @@ mod tests {
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     Chain::EthRopsten,
                     cryptde,
-                    "ZZ".to_string()
+                    "ZZ".to_string(),
                 ))],
                 rate_pack(100),
             ),
@@ -2033,7 +2037,7 @@ mod tests {
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                 Chain::EthRopsten,
                 cryptde,
-                "ZZ".to_string()
+                "ZZ".to_string(),
             ))]),
             min_hops: MIN_HOPS_FOR_TEST,
             country: "ZZ".to_string(),

@@ -2411,7 +2411,7 @@ mod tests {
             &node_addr,
             Chain::EthRopsten,
             main_cryptde() as &dyn CryptDE,
-            "ZZ".to_string()
+            "ZZ".to_string(),
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
@@ -2541,7 +2541,7 @@ mod tests {
             &node_addr,
             Chain::EthRopsten,
             main_cryptde() as &dyn CryptDE,
-            "ZZ".to_string()
+            "ZZ".to_string(),
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))

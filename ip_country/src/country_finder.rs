@@ -263,8 +263,10 @@ mod tests {
         let mut result_ipv4: Vec<CountryBlock> = vec![];
         let mut result_ipv6: Vec<CountryBlock> = vec![];
         let timestart = SystemTime::now();
-        let mut deserializer_ipv4 = CountryBlockDeserializerIpv4::new(crate::dbip_country::ipv4_country_data());
-        let mut deserializer_ipv6 = CountryBlockDeserializerIpv6::new(crate::dbip_country::ipv6_country_data());
+        let mut deserializer_ipv4 =
+            CountryBlockDeserializerIpv4::new(crate::dbip_country::ipv4_country_data());
+        let mut deserializer_ipv6 =
+            CountryBlockDeserializerIpv6::new(crate::dbip_country::ipv6_country_data());
         let timeend = SystemTime::now();
 
         let timestart_fill = SystemTime::now();
@@ -287,7 +289,10 @@ mod tests {
         let timeend_fill = SystemTime::now();
 
         let duration = timeend.duration_since(timestart).unwrap().as_secs();
-        let duration_fill = timeend_fill.duration_since(timestart_fill).unwrap().as_secs();
+        let duration_fill = timeend_fill
+            .duration_since(timestart_fill)
+            .unwrap()
+            .as_secs();
         println!("duration deserialize: {}", duration);
         assert!(duration < 8);
         println!("duration fill_vec: {}", duration_fill);

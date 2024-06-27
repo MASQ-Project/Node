@@ -1756,7 +1756,11 @@ mod tests {
             rate_pack(100),
         );
         let country = "ZZ".to_string();
-        let neighborhood_config = NeighborhoodConfig { mode, min_hops, country };
+        let neighborhood_config = NeighborhoodConfig {
+            mode,
+            min_hops,
+            country,
+        };
 
         let subject = Neighborhood::new(
             main_cryptde(),
@@ -1788,7 +1792,7 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string()
+                country: "ZZ".to_string(),
             },
             earning_wallet.clone(),
             None,
@@ -1814,7 +1818,7 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string()
+                country: "ZZ".to_string(),
             },
             earning_wallet.clone(),
             None,
@@ -1836,7 +1840,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 earning_wallet.clone(),
                 None,
@@ -1866,7 +1870,7 @@ mod tests {
                         DEFAULT_RATE_PACK.clone(),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 earning_wallet.clone(),
                 None,
@@ -1906,7 +1910,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1959,7 +1963,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2040,7 +2044,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string()
+            country: "ZZ".to_string(),
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2510,7 +2514,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string()
+            country: "ZZ".to_string(),
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2588,7 +2592,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 earning_wallet.clone(),
                 None,
@@ -3571,7 +3575,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        country: "ZZ".to_string(),
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -3976,7 +3980,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string()
+            country: "ZZ".to_string(),
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -4719,7 +4723,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        country: "ZZ".to_string(),
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -4783,7 +4787,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -4845,7 +4849,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 make_wallet("earning"),
                 None,
@@ -4889,7 +4893,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 make_wallet("earning"),
                 None,
@@ -5791,7 +5795,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    country: "ZZ".to_string(),
                 },
                 make_wallet("earning"),
                 None,
