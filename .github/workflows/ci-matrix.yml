@@ -72,9 +72,8 @@ jobs:
         - name: Display structure of downloaded files
           run: ls -R
 
-        - name: Sync to S3
+        - name: Configure AWS CLI
           env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
@@ -82,6 +81,11 @@ jobs:
             aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
             aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
             aws configure set region $AWS_REGION
+
+        - name: Sync to S3 if branch starts with GH or v
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+          run: |
             if [[ "${{ github.head_ref }}" == GH* ]]; then
               DEST_DIR="Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}"
             elif [[ "${{ github.head_ref }}" == v* ]]; then
@@ -93,12 +97,6 @@ jobs:
         - name: Invalidate Binaries CloudFront
           env:
             DISTRIBUTION_ID: ${{ secrets.DISTRIBUTION }}
-            AWS_REGION: "us-west-2"
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           run: |
-            aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
-            aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-            aws configure set region $AWS_REGION
             INVALIDATION_ID=$(aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*" | jq -r '.Invalidation.Id')
             echo "Invalidation ID: $INVALIDATION_ID"
