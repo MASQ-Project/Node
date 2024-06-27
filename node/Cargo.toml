@@ -93,10 +93,6 @@ name = "MASQNode"
 path = "src/main.rs"
 
 [[bin]]
-name = "generate_dbip_country_rs"
-path = "ci/generate_dbip_country_rs.rs"
-
-[[bin]]
 name = "MASQNodeW"
 path = "src/main_win.rs"
 
