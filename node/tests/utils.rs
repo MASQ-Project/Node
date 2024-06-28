@@ -3,7 +3,7 @@
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
+use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory, recreate_data_dir};
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
@@ -359,10 +359,11 @@ impl MASQNode {
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
-        let data_dir = if sterile_database {
-            ensure_node_home_directory_exists("integration", test_name)
-        } else {
-            node_home_directory("integration", test_name)
+        let data_dir = match (sterile_database, Self::data_directory_from_config_opt(&config_opt)) {
+            (true, None) => ensure_node_home_directory_exists("integration", test_name),
+            (false, None) => node_home_directory("integration", test_name),
+            (false, Some(conf_data_dir)) => conf_data_dir.into(),
+            (true, Some(data_dir)) => recreate_data_dir(data_dir.into()),
         };
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
@@ -636,6 +637,13 @@ impl MASQNode {
                 None => DEFAULT_UI_PORT,
                 Some(ui_port_string) => ui_port_string.parse::<u16>().unwrap(),
             },
+        }
+    }
+
+    fn data_directory_from_config_opt(config_opt: &Option<CommandConfig>) -> Option<String> {
+        match config_opt {
+            None => None,
+            Some(config) => config.value_of("--data-directory")
         }
     }
 }
