@@ -58,6 +58,8 @@ use tokio::prelude::Future;
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
+pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(5);
+
 struct ProxyServerOutSubs {
     dispatcher: Recipient<TransmitDataMsg>,
     hopper: Recipient<IncipientCoresPackage>,
@@ -87,6 +89,7 @@ pub struct ProxyServer {
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
     inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
+    stream_key_purge_delay: Duration,
 }
 
 impl Actor for ProxyServer {
@@ -266,6 +269,7 @@ impl ProxyServer {
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
             inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal::new())),
+            stream_key_purge_delay: STREAM_KEY_PURGE_DELAY,
         }
     }
 
@@ -490,16 +494,14 @@ impl ProxyServer {
                         data: response.sequenced_packet.data,
                     })
                     .expect("Dispatcher is dead");
-                // TODO: GH-800 - Instead send a message to retire it after 5 seconds
                 if last_data {
-                    // todo!("stop");
                     self.subs
                         .as_ref()
                         .expect("ProxyServer Subs Unbound")
                         .schedule_stream_key_purge
                         .try_send(MessageScheduler {
                             scheduled_msg: StreamKeyPurge { stream_key },
-                            delay: Duration::from_secs(5),
+                            delay: self.stream_key_purge_delay,
                         })
                         .expect("ProxyServer is dead");
                 }
@@ -3630,7 +3632,8 @@ mod tests {
         init_test_logging();
         let test_name = "handle_client_response_payload_purges_stream_keys_for_terminal_response";
         let cryptde = main_cryptde();
-        let waiting_duration_in_secs = 5;
+        let stream_key_purge_delay_in_millis = 500;
+        let offset_in_millis = 100;
         let mut subject = ProxyServer::new(
             cryptde,
             alias_cryptde(),
@@ -3638,6 +3641,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
+        subject.stream_key_purge_delay = Duration::from_millis(stream_key_purge_delay_in_millis);
         subject.logger = Logger::new(test_name);
         subject.subs = Some(make_proxy_server_out_subs());
 
@@ -3688,7 +3692,20 @@ mod tests {
 
         proxy_server_addr.try_send(expired_cores_package).unwrap();
 
-        let assertions_msg = AssertionsMessage {
+        let pre_assertions_msg = AssertionsMessage {
+            assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+                assert!(!proxy_server.keys_and_addrs.is_empty());
+                assert!(!proxy_server.stream_key_routes.is_empty());
+                assert!(!proxy_server.tunneled_hosts.is_empty());
+            }),
+        };
+        proxy_server_addr
+            .try_send(MessageScheduler {
+                scheduled_msg: pre_assertions_msg,
+                delay: Duration::from_millis(stream_key_purge_delay_in_millis - offset_in_millis),
+            })
+            .unwrap();
+        let post_assertions_msg = AssertionsMessage {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                 TestLogHandler::new()
                     .exists_log_containing(&format!(
@@ -3702,8 +3719,8 @@ mod tests {
         };
         proxy_server_addr
             .try_send(MessageScheduler {
-                scheduled_msg: assertions_msg,
-                delay: Duration::from_secs(waiting_duration_in_secs + 1),
+                scheduled_msg: post_assertions_msg,
+                delay: Duration::from_millis(stream_key_purge_delay_in_millis + offset_in_millis),
             })
             .unwrap();
         system.run();
