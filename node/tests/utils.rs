@@ -367,8 +367,8 @@ impl MASQNode {
         ) {
             (true, None) => ensure_node_home_directory_exists("integration", test_name),
             (false, None) => node_home_directory("integration", test_name),
-            (false, Some(conf_data_dir)) => conf_data_dir.into(),
-            (true, Some(data_dir)) => recreate_data_dir(data_dir.into()),
+            (false, Some(conf_data_dir)) => PathBuf::from(conf_data_dir),
+            (true, Some(data_dir)) => recreate_data_dir(&PathBuf::from(data_dir)),
         };
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
