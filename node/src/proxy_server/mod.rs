@@ -13,7 +13,6 @@ use crate::proxy_server::client_request_payload_factory::{
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
-use crate::stream_handler_pool::StreamHandlerPool;
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::accountant::RoutingServiceConsumed;
@@ -36,7 +35,7 @@ use crate::sub_lib::proxy_server::{
     AddRouteResultMessage, ClientRequestPayload_0v1, ProxyProtocol,
 };
 use crate::sub_lib::route::Route;
-use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, TransmitDataMsg};
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
@@ -226,8 +225,8 @@ impl Handler<NodeFromUiMessage> for ProxyServer {
 impl Handler<StreamKeyPurge> for ProxyServer {
     type Result = ();
 
-    fn handle(&mut self, msg: StreamKeyPurge, ctx: &mut Self::Context) -> Self::Result {
-        todo!()
+    fn handle(&mut self, msg: StreamKeyPurge, _ctx: &mut Self::Context) -> Self::Result {
+        self.purge_stream_key(&msg.stream_key);
     }
 }
 
@@ -503,11 +502,6 @@ impl ProxyServer {
                             delay: Duration::from_secs(5),
                         })
                         .expect("ProxyServer is dead");
-                    debug!(
-                        self.logger,
-                        "Retiring stream key {}: no more data", &stream_key
-                    );
-                    self.purge_stream_key(&stream_key);
                 }
             }
             None => {
@@ -637,6 +631,10 @@ impl ProxyServer {
     }
 
     fn purge_stream_key(&mut self, stream_key: &StreamKey) {
+        debug!(
+            self.logger,
+            "Retiring stream key {}: no more data", &stream_key
+        );
         let _ = self.keys_and_addrs.remove_a(stream_key);
         let _ = self.stream_key_routes.remove(stream_key);
         let _ = self.tunneled_hosts.remove(stream_key);
@@ -3629,7 +3627,10 @@ mod tests {
 
     #[test]
     fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
+        init_test_logging();
+        let test_name = "handle_client_response_payload_purges_stream_keys_for_terminal_response";
         let cryptde = main_cryptde();
+        let waiting_duration_in_secs = 5;
         let mut subject = ProxyServer::new(
             cryptde,
             alias_cryptde(),
@@ -3637,6 +3638,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
+        subject.logger = Logger::new(test_name);
         subject.subs = Some(make_proxy_server_out_subs());
 
         let stream_key = StreamKey::make_meaningless_stream_key();
@@ -3667,15 +3669,10 @@ mod tests {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
         };
-        let (dispatcher_mock, _, _) = make_recorder();
-        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder()
-            .dispatcher(dispatcher_mock)
-            .proxy_server(proxy_server)
-            .build();
-        subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
-        subject.subs.as_mut().unwrap().schedule_stream_key_purge =
-            peer_actors.proxy_server.schedule_stream_key_purge;
+        let proxy_server_addr = subject.start();
+        let schedule_stream_key_sub = proxy_server_addr.clone().recipient();
+        let mut peer_actors = peer_actors_builder().build();
+        peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_sub;
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -3686,28 +3683,30 @@ mod tests {
             );
         let system =
             System::new("handle_client_response_payload_purges_stream_keys_for_terminal_response");
+        let bind_msg = BindMessage { peer_actors };
+        proxy_server_addr.try_send(bind_msg).unwrap();
 
-        subject.handle_client_response_payload(expired_cores_package);
+        proxy_server_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop();
+        let assertions_msg = AssertionsMessage {
+            assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+                TestLogHandler::new()
+                    .exists_log_containing(&format!(
+                        "DEBUG: {test_name}: Retiring stream key AAAAAAAAAAAAAAAAAAAAAAAAAAA: no more data"
+                    ));
+                assert!(proxy_server.keys_and_addrs.is_empty());
+                assert!(proxy_server.stream_key_routes.is_empty());
+                assert!(proxy_server.tunneled_hosts.is_empty());
+                System::current().stop();
+            }),
+        };
+        proxy_server_addr
+            .try_send(MessageScheduler {
+                scheduled_msg: assertions_msg,
+                delay: Duration::from_secs(waiting_duration_in_secs + 1),
+            })
+            .unwrap();
         system.run();
-        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        eprintln!(
-            "ProxyServer Recording Length: {:?}",
-            proxy_server_recording.len()
-        );
-        let schedule_stream_key_purge_msg =
-            proxy_server_recording.get_record::<MessageScheduler<StreamKeyPurge>>(0);
-        assert_eq!(
-            schedule_stream_key_purge_msg,
-            &MessageScheduler {
-                scheduled_msg: StreamKeyPurge { stream_key },
-                delay: Duration::from_secs(5),
-            }
-        );
-        assert!(subject.keys_and_addrs.is_empty());
-        assert!(subject.stream_key_routes.is_empty());
-        assert!(subject.tunneled_hosts.is_empty());
     }
 
     #[test]
