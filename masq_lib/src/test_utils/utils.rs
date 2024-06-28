@@ -25,12 +25,12 @@ pub fn ensure_node_home_directory_does_not_exist(module: &str, name: &str) -> Pa
 pub fn recreate_data_dir(home_dir: &Path) -> PathBuf {
     let _ = fs::remove_dir_all(home_dir);
     let _ = fs::create_dir_all(home_dir);
-    home_dir
+    home_dir.to_path_buf()
 }
 
 pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
     let home_dir = node_home_directory(module, name);
-    recreate_data_dir(&home_dir);
+    let _ = recreate_data_dir(&home_dir);
     home_dir
 }
 
