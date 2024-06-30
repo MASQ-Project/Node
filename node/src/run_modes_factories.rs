@@ -15,8 +15,6 @@ use crate::server_initializer::{
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
@@ -68,23 +66,23 @@ pub trait DaemonInitializerFactory {
 
 pub trait DumpConfigRunner {
     fn go(&self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 pub trait ServerInitializer: futures::Future {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 pub trait DaemonInitializer {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
         Box::new(DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         })
     }
 }
@@ -113,7 +111,7 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
 impl Default for DIClusteredParams {
     fn default() -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal),
             channel_factory: Box::new(ChannelFactoryReal::new()),
             recipients_factory: Box::new(RecipientsFactoryReal::new()),

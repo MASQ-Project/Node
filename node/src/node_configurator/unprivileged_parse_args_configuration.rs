@@ -20,7 +20,7 @@ use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::{AutomapProtocol, ExpectValue};
+use masq_lib::utils::{to_string, AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -343,10 +343,8 @@ fn convert_ci_configs(
     match value_m!(multi_config, "neighbors", String) {
         None => Ok(None),
         Some(joined_configs) => {
-            let separate_configs: Vec<String> = joined_configs
-                .split(',')
-                .map(|s| s.to_string())
-                .collect_vec();
+            let separate_configs: Vec<String> =
+                joined_configs.split(',').map(to_string).collect_vec();
             if separate_configs.is_empty() {
                 Ok(None)
             } else {
@@ -623,7 +621,7 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;
@@ -2634,8 +2632,7 @@ mod tests {
         rate_pack_opt: Option<RatePack>,
         min_hops_opt: Option<Hops>,
     ) -> PersistentConfigurationMock {
-        let consuming_wallet_private_key_opt =
-            consuming_wallet_private_key_opt.map(|x| x.to_string());
+        let consuming_wallet_private_key_opt = consuming_wallet_private_key_opt.map(to_string);
         let earning_wallet_opt = match earning_wallet_address_opt {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
@@ -2654,9 +2651,7 @@ mod tests {
         let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
-            .earning_wallet_address_result(
-                Ok(earning_wallet_address_opt.map(|ewa| ewa.to_string())),
-            )
+            .earning_wallet_address_result(Ok(earning_wallet_address_opt.map(to_string)))
             .earning_wallet_result(Ok(earning_wallet_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)

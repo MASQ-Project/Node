@@ -1,10 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
@@ -15,12 +14,10 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
-#[cfg(test)]
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::utils::{to_string, AutomapProtocol};
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -136,6 +133,13 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
+    fn set_start_block_from_txn(
+        &mut self,
+        value: u64,
+        transaction: &mut TransactionSafeWrapper,
+    ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -149,7 +153,6 @@ pub trait PersistentConfiguration {
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
 
-    #[cfg(test)]
     arbitrary_id_stamp_in_trait!();
 }
 
@@ -334,9 +337,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set("mapping_protocol", value.map(|v| v.to_string()))?)
+        Ok(self.dao.set("mapping_protocol", value.map(to_string))?)
     }
 
     fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
@@ -411,6 +412,22 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("start_block", value)
+    }
+
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
+        Ok(decode_u64(self.get("max_block_count")?)?)
+    }
+
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("max_block_count", encode_u64(value)?)?)
+    }
+
+    fn set_start_block_from_txn(
+        &mut self,
+        value: u64,
+        transaction: &mut TransactionSafeWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        self.simple_set_method_from_provided_txn("start_block", value, transaction)
     }
 
     fn set_wallet_info(
@@ -548,6 +565,17 @@ impl PersistentConfigurationReal {
         Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
     }
 
+    fn simple_set_method_from_provided_txn<T: Display>(
+        &mut self,
+        parameter_name: &str,
+        value: T,
+        txn: &mut TransactionSafeWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        Ok(self
+            .dao
+            .set_by_guest_transaction(txn, parameter_name, Some(value.to_string()))?)
+    }
+
     fn simple_get_method<T>(
         &self,
         decoder: fn(Option<String>) -> Result<Option<T>, TypedConfigLayerError>,
@@ -588,10 +616,12 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal,
     };
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use crate::test_utils::main_cryptde;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use bip39::{Language, MnemonicType};
     use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -1494,7 +1524,6 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("start_block", Some("1234"), false)))
                 .set_params(&set_params_arc)
                 .set_result(Ok(())),
         );
@@ -1507,6 +1536,30 @@ mod tests {
         assert_eq!(
             *set_params,
             vec![("start_block".to_string(), Some("1234".to_string()))]
+        )
+    }
+
+    #[test]
+    fn set_start_block_from_txn_success() {
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
+                .set_by_guest_transaction_params(&set_params_arc)
+                .set_by_guest_transaction_result(Ok(())),
+        );
+        let txn_id = ArbitraryIdStamp::new();
+        let txn_inner_builder =
+            TransactionInnerWrapperMockBuilder::default().set_arbitrary_id_stamp(txn_id);
+        let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let mut subject = PersistentConfigurationReal::new(config_dao);
+
+        let result = subject.set_start_block_from_txn(1234, &mut txn);
+
+        assert_eq!(result, Ok(()));
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![(txn_id, "start_block".to_string(), Some("1234".to_string()))]
         )
     }
 
@@ -1542,7 +1595,6 @@ mod tests {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = Box::new(
             ConfigDaoMock::new()
-                .get_result(Ok(ConfigDaoRecord::new("gas_price", Some("1234"), false)))
                 .set_params(&set_params_arc)
                 .set_result(Ok(())),
         );
@@ -1933,6 +1985,39 @@ mod tests {
             "payment_thresholds",
             "1050|100050|1050|1050|20040|20040".to_string()
         );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_some() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(Some(100_000u64));
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(
+            *set_params,
+            vec![("max_block_count".to_string(), Some(100_000u64.to_string()))]
+        );
+    }
+
+    #[test]
+    fn max_block_count_set_method_works_with_none() {
+        let set_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.set_max_block_count(None);
+
+        assert!(result.is_ok());
+        let set_params = set_params_arc.lock().unwrap();
+        assert_eq!(*set_params, vec![("max_block_count".to_string(), None)]);
     }
 
     #[test]

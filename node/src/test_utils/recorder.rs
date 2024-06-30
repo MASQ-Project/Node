@@ -1,6 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
-use crate::accountant::{ConsumingWalletBalancesAndQualifiedPayables, ReportTransactionReceipts};
+
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
+use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
@@ -15,37 +18,36 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
-use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
+use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
+use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
+use crate::sub_lib::neighborhood::{ConfigChangeMsg, ConnectionProgressMessage};
 
+use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
-use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
-use crate::sub_lib::proxy_server::ProxyServerSubs;
-use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
-};
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
+use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload_0v1};
+use crate::sub_lib::proxy_server::{AddRouteResultMessage, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::sub_lib::utils::MessageScheduler;
-use crate::test_utils::recorder_stop_conditions::StopConditions;
+use crate::test_utils::recorder_stop_conditions::{
+    ForcedMatchable, PretendedMatchableWrapper, StopCondition, StopConditions,
+};
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
@@ -55,7 +57,7 @@ use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -82,66 +84,90 @@ impl Actor for Recorder {
     type Context = Context<Self>;
 }
 
-macro_rules! recorder_message_handler {
-    ($message_type: ty) => {
+macro_rules! message_handler_common {
+    ($message_type: ty, $handling_fn: ident) => {
         impl Handler<$message_type> for Recorder {
             type Result = ();
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
-                self.handle_msg(msg)
+                self.$handling_fn(msg)
             }
         }
     };
 }
 
-recorder_message_handler!(AddReturnRouteMessage);
-recorder_message_handler!(AddRouteMessage);
-recorder_message_handler!(AddStreamMsg);
-recorder_message_handler!(BindMessage);
-recorder_message_handler!(CrashNotification);
-recorder_message_handler!(DaemonBindMessage);
-recorder_message_handler!(DispatcherNodeQueryMessage);
-recorder_message_handler!(DispatcherNodeQueryResponse);
-recorder_message_handler!(DnsResolveFailure_0v1);
-recorder_message_handler!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<Gossip_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<GossipFailure_0v1>);
-recorder_message_handler!(ExpiredCoresPackage<MessageType>);
-recorder_message_handler!(InboundClientData);
-recorder_message_handler!(InboundServerData);
-recorder_message_handler!(IncipientCoresPackage);
-recorder_message_handler!(NewPasswordMessage);
-recorder_message_handler!(NewPublicIp);
-recorder_message_handler!(NodeFromUiMessage);
-recorder_message_handler!(NodeToUiMessage);
-recorder_message_handler!(NodeRecordMetadataMessage);
-recorder_message_handler!(NoLookupIncipientCoresPackage);
-recorder_message_handler!(PoolBindMessage);
-recorder_message_handler!(ReceivedPayments);
-recorder_message_handler!(RemoveNeighborMessage);
-recorder_message_handler!(RemoveStreamMsg);
-recorder_message_handler!(ReportServicesConsumedMessage);
-recorder_message_handler!(ReportExitServiceProvidedMessage);
-recorder_message_handler!(ReportRoutingServiceProvidedMessage);
-recorder_message_handler!(ScanError);
-recorder_message_handler!(ConsumingWalletBalancesAndQualifiedPayables);
-recorder_message_handler!(SentPayables);
-recorder_message_handler!(SetConsumingWalletMessage);
-recorder_message_handler!(RequestBalancesToPayPayables);
-recorder_message_handler!(StartMessage);
-recorder_message_handler!(StreamShutdownMsg);
-recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(PendingPayableFingerprintSeeds);
-recorder_message_handler!(RetrieveTransactions);
-recorder_message_handler!(RequestTransactionReceipts);
-recorder_message_handler!(ReportTransactionReceipts);
-recorder_message_handler!(ReportAccountsPayable);
-recorder_message_handler!(ScanForReceivables);
-recorder_message_handler!(ScanForPayables);
-recorder_message_handler!(ConnectionProgressMessage);
-recorder_message_handler!(ScanForPendingPayables);
+macro_rules! matchable {
+    ($message_type: ty) => {
+        impl ForcedMatchable<$message_type> for $message_type {
+            fn correct_msg_type_id(&self) -> TypeId {
+                TypeId::of::<$message_type>()
+            }
+        }
+    };
+}
+
+// t, m, p (type, match, predicate) represents a list of the possible system stop conditions
+
+macro_rules! recorder_message_handler_t_m_p {
+    ($message_type: ty) => {
+        message_handler_common!($message_type, handle_msg_t_m_p);
+        matchable!($message_type);
+    };
+}
+
+macro_rules! recorder_message_handler_t_p {
+    ($message_type: ty) => {
+        message_handler_common!($message_type, handle_msg_t_p);
+    };
+}
+
+recorder_message_handler_t_m_p!(AddReturnRouteMessage);
+recorder_message_handler_t_m_p!(AddRouteResultMessage);
+recorder_message_handler_t_p!(AddStreamMsg);
+recorder_message_handler_t_m_p!(BindMessage);
+recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
+recorder_message_handler_t_m_p!(ConfigChangeMsg);
+recorder_message_handler_t_m_p!(ConnectionProgressMessage);
+recorder_message_handler_t_m_p!(CrashNotification);
+recorder_message_handler_t_m_p!(DaemonBindMessage);
+recorder_message_handler_t_m_p!(DispatcherNodeQueryMessage);
+recorder_message_handler_t_m_p!(DispatcherNodeQueryResponse);
+recorder_message_handler_t_m_p!(DnsResolveFailure_0v1);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<ClientRequestPayload_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<ClientResponsePayload_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<DnsResolveFailure_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<Gossip_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<GossipFailure_0v1>);
+recorder_message_handler_t_m_p!(ExpiredCoresPackage<MessageType>);
+recorder_message_handler_t_m_p!(InboundClientData);
+recorder_message_handler_t_m_p!(InboundServerData);
+recorder_message_handler_t_m_p!(IncipientCoresPackage);
+recorder_message_handler_t_m_p!(NewPublicIp);
+recorder_message_handler_t_m_p!(NodeFromUiMessage);
+recorder_message_handler_t_m_p!(NodeToUiMessage);
+recorder_message_handler_t_m_p!(NoLookupIncipientCoresPackage);
+recorder_message_handler_t_p!(OutboundPaymentsInstructions);
+recorder_message_handler_t_m_p!(PendingPayableFingerprintSeeds);
+recorder_message_handler_t_m_p!(PoolBindMessage);
+recorder_message_handler_t_m_p!(QualifiedPayablesMessage);
+recorder_message_handler_t_m_p!(ReceivedPayments);
+recorder_message_handler_t_m_p!(RemoveNeighborMessage);
+recorder_message_handler_t_m_p!(RemoveStreamMsg);
+recorder_message_handler_t_m_p!(ReportExitServiceProvidedMessage);
+recorder_message_handler_t_m_p!(ReportRoutingServiceProvidedMessage);
+recorder_message_handler_t_m_p!(ReportServicesConsumedMessage);
+recorder_message_handler_t_m_p!(ReportTransactionReceipts);
+recorder_message_handler_t_m_p!(RequestTransactionReceipts);
+recorder_message_handler_t_m_p!(RetrieveTransactions);
+recorder_message_handler_t_m_p!(ScanError);
+recorder_message_handler_t_m_p!(ScanForPayables);
+recorder_message_handler_t_m_p!(ScanForPendingPayables);
+recorder_message_handler_t_m_p!(ScanForReceivables);
+recorder_message_handler_t_m_p!(SentPayables);
+recorder_message_handler_t_m_p!(StartMessage);
+recorder_message_handler_t_m_p!(StreamShutdownMsg);
+recorder_message_handler_t_m_p!(TransmitDataMsg);
+recorder_message_handler_t_m_p!(UpdateNodeRecordMetadataMessage);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
 where
@@ -150,7 +176,17 @@ where
     type Result = ();
 
     fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
-        self.handle_msg(msg)
+        self.handle_msg_t_m_p(msg)
+    }
+}
+
+impl<OuterM, InnerM> ForcedMatchable<OuterM> for MessageScheduler<InnerM>
+where
+    OuterM: PartialEq + 'static,
+    InnerM: PartialEq + Send + Message,
+{
+    fn correct_msg_type_id(&self) -> TypeId {
+        TypeId::of::<OuterM>()
     }
 }
 
@@ -231,9 +267,12 @@ impl Recorder {
         system_killer.start();
     }
 
-    fn handle_msg<T: 'static + PartialEq + Send>(&mut self, msg: T) {
+    fn handle_msg_t_m_p<M>(&mut self, msg: M)
+    where
+        M: 'static + ForcedMatchable<M> + Send,
+    {
         let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
-            stop_conditions.resolve_stop_conditions::<T>(&msg)
+            stop_conditions.resolve_stop_conditions::<M>(&msg)
         } else {
             false
         };
@@ -243,6 +282,14 @@ impl Recorder {
         if kill_system {
             System::current().stop()
         }
+    }
+
+    //for messages that cannot implement PartialEq
+    fn handle_msg_t_p<M>(&mut self, msg: M)
+    where
+        M: 'static + Send,
+    {
+        self.handle_msg_t_m_p(PretendedMatchableWrapper(msg))
     }
 }
 
@@ -279,7 +326,7 @@ impl Recording {
         self.get_record_inner_body(index).ok()
     }
 
-    fn get_record_inner_body<T: 'static>(&self, index: usize) -> Result<&T, String> {
+    fn get_record_inner_body<T: 'static + Send>(&self, index: usize) -> Result<&T, String> {
         let item_box = match self.messages.get(index) {
             Some(item_box) => item_box,
             None => {
@@ -290,14 +337,20 @@ impl Recording {
                 ))
             }
         };
-        let item_opt = item_box.downcast_ref::<T>();
-
-        match item_opt {
+        match item_box.downcast_ref::<T>() {
             Some(item) => Ok(item),
-            None => Err(format!(
-                "Message {:?} could not be downcast to the expected type",
-                item_box
-            )),
+            None => {
+                // double-checking for an uncommon, yet possible other type of an actor message, which doesn't implement PartialEq
+                let item_opt = item_box.downcast_ref::<PretendedMatchableWrapper<T>>();
+
+                match item_opt {
+                    Some(item) => Ok(&item.0),
+                    None => Err(format!(
+                        "Message {:?} could not be downcast to the expected type",
+                        item_box
+                    )),
+                }
+            }
         }
     }
 }
@@ -335,21 +388,20 @@ pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {
     (recorder, awaiter, recording)
 }
 
-pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {
+pub fn make_proxy_server_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyServerSubs {
     ProxyServerSubs {
         bind: recipient!(addr, BindMessage),
         from_dispatcher: recipient!(addr, InboundClientData),
         from_hopper: recipient!(addr, ExpiredCoresPackage<ClientResponsePayload_0v1>),
         dns_failure_from_hopper: recipient!(addr, ExpiredCoresPackage<DnsResolveFailure_0v1>),
         add_return_route: recipient!(addr, AddReturnRouteMessage),
-        add_route: recipient!(addr, AddRouteMessage),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
+        route_result_sub: recipient!(addr, AddRouteResultMessage),
     }
 }
 
-pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
+pub fn make_dispatcher_subs_from_recorder(addr: &Addr<Recorder>) -> DispatcherSubs {
     DispatcherSubs {
         ibcd_sub: recipient!(addr, InboundClientData),
         bind: recipient!(addr, BindMessage),
@@ -360,7 +412,7 @@ pub fn make_dispatcher_subs_from(addr: &Addr<Recorder>) -> DispatcherSubs {
     }
 }
 
-pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
+pub fn make_hopper_subs_from_recorder(addr: &Addr<Recorder>) -> HopperSubs {
     HopperSubs {
         bind: recipient!(addr, BindMessage),
         from_hopper_client: recipient!(addr, IncipientCoresPackage),
@@ -370,7 +422,7 @@ pub fn make_hopper_subs_from(addr: &Addr<Recorder>) -> HopperSubs {
     }
 }
 
-pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
+pub fn make_proxy_client_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyClientSubs {
     ProxyClientSubs {
         bind: recipient!(addr, BindMessage),
         from_hopper: recipient!(addr, ExpiredCoresPackage<ClientRequestPayload_0v1>),
@@ -380,21 +432,20 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
     }
 }
 
-pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
+pub fn make_neighborhood_subs_from_recorder(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: recipient!(addr, BindMessage),
         start: recipient!(addr, StartMessage),
         new_public_ip: recipient!(addr, NewPublicIp),
         route_query: recipient!(addr, RouteQueryMessage),
-        update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+        update_node_record_metadata: recipient!(addr, UpdateNodeRecordMetadataMessage),
         from_hopper: recipient!(addr, ExpiredCoresPackage<Gossip_0v1>),
         gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
+        config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-        set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-        new_password_sub: recipient!(addr, NewPasswordMessage),
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }
@@ -402,14 +453,12 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
 pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: recipient!(addr, BindMessage),
+        config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
         start: recipient!(addr, StartMessage),
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_consuming_wallet_balances_and_qualified_payables: recipient!(
-            addr,
-            ConsumingWalletBalancesAndQualifiedPayables
-        ),
+        report_payable_payments_setup: recipient!(addr, BlockchainAgentWithContextMessage),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -427,18 +476,18 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
     }
 }
 
-pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
+pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
-        report_accounts_payable: recipient!(addr, ReportAccountsPayable),
-        request_balances_to_pay_payables: recipient!(addr, RequestBalancesToPayPayables),
+        outbound_payments_instructions: recipient!(addr, OutboundPaymentsInstructions),
+        qualified_payables: recipient!(addr, QualifiedPayablesMessage),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
     }
 }
 
-pub fn make_configurator_subs_from(addr: &Addr<Recorder>) -> ConfiguratorSubs {
+pub fn make_configurator_subs_from_recorder(addr: &Addr<Recorder>) -> ConfiguratorSubs {
     ConfiguratorSubs {
         bind: recipient!(addr, BindMessage),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -535,15 +584,15 @@ impl PeerActorsBuilder {
         let configurator_addr = self.configurator.start();
 
         PeerActors {
-            proxy_server: make_proxy_server_subs_from(&proxy_server_addr),
-            dispatcher: make_dispatcher_subs_from(&dispatcher_addr),
-            hopper: make_hopper_subs_from(&hopper_addr),
-            proxy_client_opt: Some(make_proxy_client_subs_from(&proxy_client_addr)),
-            neighborhood: make_neighborhood_subs_from(&neighborhood_addr),
+            proxy_server: make_proxy_server_subs_from_recorder(&proxy_server_addr),
+            dispatcher: make_dispatcher_subs_from_recorder(&dispatcher_addr),
+            hopper: make_hopper_subs_from_recorder(&hopper_addr),
+            proxy_client_opt: Some(make_proxy_client_subs_from_recorder(&proxy_client_addr)),
+            neighborhood: make_neighborhood_subs_from_recorder(&neighborhood_addr),
             accountant: make_accountant_subs_from_recorder(&accountant_addr),
             ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
-            blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
-            configurator: make_configurator_subs_from(&configurator_addr),
+            blockchain_bridge: make_blockchain_bridge_subs_from_recorder(&blockchain_bridge_addr),
+            configurator: make_configurator_subs_from_recorder(&configurator_addr),
         }
     }
 }
@@ -551,15 +600,17 @@ impl PeerActorsBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use actix::Message;
     use actix::System;
+    use std::any::TypeId;
 
     #[derive(Debug, PartialEq, Eq, Message)]
     struct FirstMessageType {
         string: String,
     }
 
-    recorder_message_handler!(FirstMessageType);
+    recorder_message_handler_t_m_p!(FirstMessageType);
 
     #[derive(Debug, PartialEq, Eq, Message)]
     struct SecondMessageType {
@@ -567,7 +618,7 @@ mod tests {
         flag: bool,
     }
 
-    recorder_message_handler!(SecondMessageType);
+    recorder_message_handler_t_m_p!(SecondMessageType);
 
     #[test]
     fn recorder_records_different_messages() {
@@ -607,5 +658,46 @@ mod tests {
             }
         );
         assert_eq!(recording.len(), 2);
+    }
+
+    #[test]
+    fn recorder_can_be_stopped_on_a_particular_message() {
+        let system = System::new("recorder_can_be_stopped_on_a_particular_message");
+        let recorder =
+            Recorder::new().system_stop_conditions(match_every_type_id!(FirstMessageType));
+        let recording_arc = recorder.get_recording();
+        let rec_addr: Addr<Recorder> = recorder.start();
+
+        rec_addr
+            .try_send(FirstMessageType {
+                string: String::from("String"),
+            })
+            .unwrap();
+
+        system.run();
+        let recording = recording_arc.lock().unwrap();
+        assert_eq!(
+            recording.get_record::<FirstMessageType>(0),
+            &FirstMessageType {
+                string: String::from("String")
+            }
+        );
+        assert_eq!(recording.len(), 1);
+    }
+
+    struct ExampleMsgA;
+
+    struct ExampleMsgB;
+
+    #[test]
+    fn different_messages_in_pretending_matchable_have_different_type_ids() {
+        assert_eq!(
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgA>>(),
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgA>>()
+        );
+        assert_ne!(
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgA>>(),
+            TypeId::of::<PretendedMatchableWrapper<ExampleMsgB>>()
+        )
     }
 }

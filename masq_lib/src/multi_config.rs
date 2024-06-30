@@ -63,9 +63,10 @@ impl<'a> MultiConfig<'a> {
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged: Box<dyn VirtualCommandLine> = vcls
+        let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
+
         let arg_matches = match schema
             .clone()
             .get_matches_from_safe(merged.args().into_iter())
@@ -78,6 +79,7 @@ impl<'a> MultiConfig<'a> {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
+
         Ok(MultiConfig { arg_matches })
     }
 
@@ -224,6 +226,9 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
+    fn is_computed(&self) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn VirtualCommandLine {
@@ -347,8 +352,17 @@ impl EnvironmentVcl {
     }
 }
 
+#[derive(Debug)]
 pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
+}
+
+impl Clone for ConfigFileVcl {
+    fn clone(&self) -> Self {
+        ConfigFileVcl {
+            vcl_args: self.vcl_args.iter().map(|arg| arg.dup()).collect(),
+        }
+    }
 }
 
 impl VirtualCommandLine for ConfigFileVcl {
@@ -375,8 +389,8 @@ impl Display for ConfigFileVclError {
         match self {
             ConfigFileVclError::OpenError(path, _) => write!(
                 fmt,
-                "Couldn't open configuration file {:?}. Are you sure it exists?",
-                path
+                "Couldn't open configuration file \"{}\". Are you sure it exists?",
+                path.to_string_lossy()
             ),
             ConfigFileVclError::CorruptUtf8(path) => write!(
                 fmt,
@@ -501,6 +515,7 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::utils::to_string;
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
@@ -929,7 +944,7 @@ pub mod tests {
             "--other_takes_no_value",
         ]
         .into_iter()
-        .map(|s| s.to_string())
+        .map(to_string)
         .collect();
 
         let subject = CommandLineVcl::new(command_line.clone());
@@ -952,10 +967,7 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "Expected option beginning with '--', not value")]
     fn command_line_vcl_panics_when_given_value_without_name() {
-        let command_line: Vec<String> = vec!["", "value"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        let command_line: Vec<String> = vec!["", "value"].into_iter().map(to_string).collect();
 
         CommandLineVcl::new(command_line.clone());
     }

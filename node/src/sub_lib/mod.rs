@@ -34,7 +34,6 @@ pub mod proxy_server;
 pub mod route;
 pub mod sequence_buffer;
 pub mod sequencer;
-pub mod set_consuming_wallet_message;
 pub mod socket_server;
 pub mod stream_connector;
 pub mod stream_handler_pool;

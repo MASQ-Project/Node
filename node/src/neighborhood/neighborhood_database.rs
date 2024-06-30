@@ -161,7 +161,10 @@ impl NeighborhoodDatabase {
                 Err(NodeRecordError::SelfNeighborAttempt(key)) => {
                     Err(NeighborhoodDatabaseError::SelfNeighborAttempt(key))
                 }
-                Ok(_) => Ok(true),
+                Ok(_) => {
+                    node.metadata.last_update = time_t_timestamp();
+                    Ok(true)
+                }
             },
             None => Err(NodeKeyNotFound(node_key.clone())),
         }
@@ -662,10 +665,15 @@ mod tests {
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(other_node.clone()).unwrap();
+        subject.root_mut().metadata.last_update = time_t_timestamp() - 2;
+        let before = time_t_timestamp();
 
         let result = subject.add_half_neighbor(other_node.public_key());
 
+        let after = time_t_timestamp();
         assert_eq!(Ok(true), result, "add_arbitrary_neighbor done goofed");
+        assert!(before <= subject.root().metadata.last_update);
+        assert!(subject.root().metadata.last_update <= after);
     }
 
     #[test]

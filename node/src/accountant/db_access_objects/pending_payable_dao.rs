@@ -1,16 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::dao_utils::{
+use crate::accountant::db_access_objects::utils::{
     from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::database::connection_wrapper::ConnectionWrapper;
-use itertools::Itertools;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
+use crate::sub_lib::wallet::Wallet;
 use masq_lib::utils::ExpectValue;
 use rusqlite::Row;
-use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -25,8 +26,15 @@ pub enum PendingPayableDaoError {
     ErrorMarkFailed(String),
 }
 
+#[derive(Debug)]
+pub struct TransactionHashes {
+    pub rowid_results: Vec<(u64, H256)>,
+    pub no_rowid_results: Vec<H256>,
+}
+
 pub trait PendingPayableDao {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)>;
+    // Note that the order of the returned results is not guaranteed
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes;
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint>;
     fn insert_new_fingerprints(
         &self,
@@ -39,19 +47,21 @@ pub trait PendingPayableDao {
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
-        fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(H256, u64)> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
+        //Vec<(Option<u64>, H256)> {
+        fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(u64, H256)> {
             let hash_str: String = row.get(0).expectv("hash");
             let hash = H256::from_str(&hash_str[2..]).expect("hash inserted right turned wrong");
             let sqlite_signed_rowid: i64 = row.get(1).expectv("rowid");
             let rowid = u64::try_from(sqlite_signed_rowid).expect("SQlite goes from 1 to i64:MAX");
-            Ok((hash, rowid))
+            Ok((rowid, hash))
         }
 
         let sql = format!(
             "select transaction_hash, rowid from pending_payable where transaction_hash in ({})",
             comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
         );
+
         let all_found_records = self
             .conn
             .prepare(&sql)
@@ -59,17 +69,21 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .query_map([], hash_and_rowid_in_single_row)
             .expect("map query failed")
             .vigilant_flatten()
-            .collect::<HashMap<H256, u64>>();
+            .collect::<Vec<(u64, H256)>>();
+        let hashes_of_found_records = all_found_records
+            .iter()
+            .map(|(_, hash)| *hash)
+            .collect::<HashSet<H256>>();
         let hashes_of_missing_rowids = hashes
             .iter()
-            .filter(|hash| !all_found_records.keys().contains(hash));
-        all_found_records
-            .iter()
-            .sorted()
-            .map(|(hash, rowid)| (Some(*rowid), *hash))
-            .rev()
-            .chain(hashes_of_missing_rowids.map(|hash| (None, *hash)))
-            .collect()
+            .filter(|hash| !hashes_of_found_records.contains(hash))
+            .cloned()
+            .collect();
+
+        TransactionHashes {
+            rowid_results: all_found_records,
+            no_rowid_results: hashes_of_missing_rowids,
+        }
     }
 
     fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
@@ -210,13 +224,18 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 }
 
-pub trait PendingPayableDaoFactory {
-    fn make(&self) -> Box<dyn PendingPayableDao>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingPayable {
+    pub recipient_wallet: Wallet,
+    pub hash: H256,
 }
 
-impl PendingPayableDaoFactory for DaoFactoryReal {
-    fn make(&self) -> Box<dyn PendingPayableDao> {
-        Box::new(PendingPayableDaoReal::new(self.make_connection()))
+impl PendingPayable {
+    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
+        Self {
+            recipient_wallet,
+            hash,
+        }
     }
 }
 
@@ -239,21 +258,31 @@ impl<'a> PendingPayableDaoReal<'a> {
     }
 }
 
+pub trait PendingPayableDaoFactory {
+    fn make(&self) -> Box<dyn PendingPayableDao>;
+}
+
+impl PendingPayableDaoFactory for DaoFactoryReal {
+    fn make(&self) -> Box<dyn PendingPayableDao> {
+        Box::new(PendingPayableDaoReal::new(self.make_connection()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::checked_conversion;
-    use crate::accountant::db_access_objects::dao_utils::from_time_t;
     use crate::accountant::db_access_objects::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
+    use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
+    use crate::database::test_utils::ConnectionWrapperMock;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
@@ -388,14 +417,28 @@ mod tests {
 
         let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
 
-        assert_eq!(result, vec![(Some(1), hash_1), (Some(2), hash_2)])
+        let first_expected_pair = &(1, hash_1);
+        assert!(
+            result.rowid_results.contains(first_expected_pair),
+            "Returned rowid pairs should have contained {:?} but all it did is {:?}",
+            first_expected_pair,
+            result.rowid_results
+        );
+        let second_expected_pair = &(2, hash_2);
+        assert!(
+            result.rowid_results.contains(second_expected_pair),
+            "Returned rowid pairs should have contained {:?} but all it did is {:?}",
+            second_expected_pair,
+            result.rowid_results
+        );
+        assert_eq!(result.rowid_results.len(), 2);
     }
 
     #[test]
-    fn fingerprints_rowids_when_nonexistent_record() {
+    fn fingerprints_rowids_when_nonexistent_records() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "fingerprints_rowids_when_nonexistent_record",
+            "fingerprints_rowids_when_nonexistent_records",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -403,10 +446,23 @@ mod tests {
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash_1 = make_tx_hash(11119);
         let hash_2 = make_tx_hash(22229);
+        let hash_3 = make_tx_hash(33339);
+        let hash_4 = make_tx_hash(44449);
+        // For more illustrative results, I use the official tooling but also generate one extra record before the chief one for
+        // this test, and in the end, I delete the first one. It leaves a single record still in but with the rowid 2 instead of
+        // just an ambiguous 1
+        subject
+            .insert_new_fingerprints(&[(hash_2, 8901234)], SystemTime::now())
+            .unwrap();
+        subject
+            .insert_new_fingerprints(&[(hash_3, 1234567)], SystemTime::now())
+            .unwrap();
+        subject.delete_fingerprints(&[1]).unwrap();
 
-        let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
+        let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
-        assert_eq!(result, vec![(None, hash_1), (None, hash_2)])
+        assert_eq!(result.rowid_results, vec![(2, hash_3),]);
+        assert_eq!(result.no_rowid_results, vec![hash_1, hash_2, hash_4]);
     }
 
     #[test]

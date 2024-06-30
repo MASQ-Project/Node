@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
@@ -12,6 +13,7 @@ use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use std::u64;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -59,6 +61,12 @@ pub struct PersistentConfigurationMock {
     start_block_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_start_block_params: Arc<Mutex<Vec<u64>>>,
     set_start_block_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    max_block_count_params: Arc<Mutex<Vec<()>>>,
+    max_block_count_results: RefCell<Vec<Result<Option<u64>, PersistentConfigError>>>,
+    set_max_block_count_params: Arc<Mutex<Vec<Option<u64>>>>,
+    set_max_block_count_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    set_start_block_from_txn_params: Arc<Mutex<Vec<(u64, ArbitraryIdStamp)>>>,
+    set_start_block_from_txn_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     payment_thresholds_results: RefCell<Vec<Result<PaymentThresholds, PersistentConfigError>>>,
     set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
     set_payment_thresholds_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -232,6 +240,27 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.set_start_block_results)
     }
 
+    fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
+        self.max_block_count_params.lock().unwrap().push(());
+        Self::result_from(&self.max_block_count_results)
+    }
+
+    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
+        self.set_max_block_count_params.lock().unwrap().push(value);
+        Self::result_from(&self.set_max_block_count_results)
+    }
+
+    fn set_start_block_from_txn(
+        &mut self,
+        value: u64,
+        transaction: &mut TransactionSafeWrapper,
+    ) -> Result<(), PersistentConfigError> {
+        self.set_start_block_from_txn_params
+            .lock()
+            .unwrap()
+            .push((value, transaction.arbitrary_id_stamp()));
+        Self::result_from(&self.set_start_block_from_txn_results)
+    }
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -312,7 +341,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn current_schema_version_result(self, result: &str) -> PersistentConfigurationMock {
+    pub fn current_schema_version_result(self, result: &str) -> Self {
         self.current_schema_version_results
             .borrow_mut()
             .push(result.to_string());
@@ -333,55 +362,37 @@ impl PersistentConfigurationMock {
     pub fn change_password_params(
         mut self,
         params: &Arc<Mutex<Vec<(Option<String>, String)>>>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.change_password_params = params.clone();
         self
     }
 
-    pub fn change_password_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    pub fn change_password_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.change_password_results.borrow_mut().push(result);
         self
     }
 
-    pub fn check_password_params(
-        mut self,
-        params: &Arc<Mutex<Vec<Option<String>>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn check_password_params(mut self, params: &Arc<Mutex<Vec<Option<String>>>>) -> Self {
         self.check_password_params = params.clone();
         self
     }
 
-    pub fn check_password_result(
-        self,
-        result: Result<bool, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    pub fn check_password_result(self, result: Result<bool, PersistentConfigError>) -> Self {
         self.check_password_results.borrow_mut().push(result);
         self
     }
 
-    pub fn clandestine_port_result(
-        self,
-        result: Result<u16, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    pub fn clandestine_port_result(self, result: Result<u16, PersistentConfigError>) -> Self {
         self.clandestine_port_results.borrow_mut().push(result);
         self
     }
 
-    pub fn set_clandestine_port_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u16>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn set_clandestine_port_params(mut self, params: &Arc<Mutex<Vec<u16>>>) -> Self {
         self.set_clandestine_port_params = params.clone();
         self
     }
 
-    pub fn set_clandestine_port_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    pub fn set_clandestine_port_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_clandestine_port_results.borrow_mut().push(result);
         self
     }
@@ -410,7 +421,7 @@ impl PersistentConfigurationMock {
     pub fn neighborhood_mode_result(
         self,
         result: Result<NeighborhoodModeLight, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.neighborhood_mode_results.borrow_mut().push(result);
         self
     }
@@ -418,23 +429,17 @@ impl PersistentConfigurationMock {
     pub fn set_neighborhood_mode_params(
         mut self,
         params: &Arc<Mutex<Vec<NeighborhoodModeLight>>>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.set_neighborhood_mode_params = params.clone();
         self
     }
 
-    pub fn set_neighborhood_mode_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    pub fn set_neighborhood_mode_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_neighborhood_mode_results.borrow_mut().push(result);
         self
     }
 
-    pub fn consuming_wallet_params(
-        mut self,
-        params: &Arc<Mutex<Vec<String>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn consuming_wallet_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
         self.consuming_wallet_params = params.clone();
         self
     }
@@ -442,15 +447,12 @@ impl PersistentConfigurationMock {
     pub fn consuming_wallet_result(
         self,
         result: Result<Option<Wallet>, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.consuming_wallet_results.borrow_mut().push(result);
         self
     }
 
-    pub fn consuming_wallet_private_key_params(
-        mut self,
-        params: &Arc<Mutex<Vec<String>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn consuming_wallet_private_key_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
         self.consuming_wallet_private_key_params = params.clone();
         self
     }
@@ -458,7 +460,7 @@ impl PersistentConfigurationMock {
     pub fn consuming_wallet_private_key_result(
         self,
         result: Result<Option<String>, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.consuming_wallet_private_key_results
             .borrow_mut()
             .push(result);
@@ -469,7 +471,7 @@ impl PersistentConfigurationMock {
     pub fn set_wallet_info_params(
         mut self,
         params: &Arc<Mutex<Vec<(String, String, String)>>>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.set_wallet_info_params = params.clone();
         self
     }
@@ -484,10 +486,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_gas_price_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u64>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn set_gas_price_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
         self.set_gas_price_params = params.clone();
         self
     }
@@ -497,10 +496,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn past_neighbors_params(
-        mut self,
-        params: &Arc<Mutex<Vec<String>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn past_neighbors_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
         self.past_neighbors_params = params.clone();
         self
     }
@@ -508,7 +504,7 @@ impl PersistentConfigurationMock {
     pub fn past_neighbors_result(
         self,
         result: Result<Option<Vec<NodeDescriptor>>, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.past_neighbors_results.borrow_mut().push(result);
         self
     }
@@ -517,15 +513,12 @@ impl PersistentConfigurationMock {
     pub fn set_past_neighbors_params(
         mut self,
         params: &Arc<Mutex<Vec<(Option<Vec<NodeDescriptor>>, String)>>>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.set_past_neighbors_params = params.clone();
         self
     }
 
-    pub fn set_past_neighbors_result(
-        self,
-        result: Result<(), PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    pub fn set_past_neighbors_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_past_neighbors_results.borrow_mut().push(result);
         self
     }
@@ -533,7 +526,7 @@ impl PersistentConfigurationMock {
     pub fn earning_wallet_result(
         self,
         result: Result<Option<Wallet>, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.earning_wallet_results.borrow_mut().push(result);
         self
     }
@@ -541,7 +534,7 @@ impl PersistentConfigurationMock {
     pub fn earning_wallet_address_result(
         self,
         result: Result<Option<String>, PersistentConfigError>,
-    ) -> PersistentConfigurationMock {
+    ) -> Self {
         self.earning_wallet_address_results
             .borrow_mut()
             .push(result);
@@ -558,16 +551,54 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_start_block_params(
-        mut self,
-        params: &Arc<Mutex<Vec<u64>>>,
-    ) -> PersistentConfigurationMock {
+    pub fn set_start_block_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
         self.set_start_block_params = params.clone();
         self
     }
 
     pub fn set_start_block_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_start_block_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn max_block_count_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.max_block_count_params = params.clone();
+        self
+    }
+
+    pub fn max_block_count_result(
+        self,
+        result: Result<Option<u64>, PersistentConfigError>,
+    ) -> Self {
+        self.max_block_count_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_max_block_count_params(mut self, params: &Arc<Mutex<Vec<Option<u64>>>>) -> Self {
+        self.set_max_block_count_params = params.clone();
+        self
+    }
+
+    pub fn set_max_block_count_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_max_block_count_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_start_block_from_txn_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(u64, ArbitraryIdStamp)>>>,
+    ) -> Self {
+        self.set_start_block_from_txn_params = params.clone();
+        self
+    }
+
+    pub fn set_start_block_from_txn_result(
+        self,
+        result: Result<(), PersistentConfigError>,
+    ) -> Self {
+        self.set_start_block_from_txn_results
+            .borrow_mut()
+            .push(result);
         self
     }
 

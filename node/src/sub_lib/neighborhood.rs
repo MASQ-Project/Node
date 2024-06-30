@@ -4,7 +4,6 @@ use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::Neighborhood;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -12,7 +11,6 @@ use crate::sub_lib::hopper::ExpiredCoresPackage;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
@@ -370,7 +368,7 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
 pub enum Hops {
     OneHop = 1,
     TwoHops = 2,
@@ -418,15 +416,14 @@ pub struct NeighborhoodSubs {
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
     pub route_query: Recipient<RouteQueryMessage>,
-    pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    pub update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    pub new_password_sub: Recipient<NewPasswordMessage>,
     pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
@@ -545,7 +542,7 @@ pub struct AskAboutDebutGossipMessage {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub struct NodeRecordMetadataMessage {
+pub struct UpdateNodeRecordMetadataMessage {
     pub public_key: PublicKey,
     pub metadata_change: NRMetadataChange,
 }
@@ -553,6 +550,24 @@ pub struct NodeRecordMetadataMessage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NRMetadataChange {
     AddUnreachableHost { hostname: String },
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct ConfigChangeMsg {
+    pub change: ConfigChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalletPair {
+    pub consuming_wallet: Wallet,
+    pub earning_wallet: Wallet,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConfigChange {
+    UpdateMinHops(Hops),
+    UpdatePassword(String),
+    UpdateWallets(WalletPair),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -582,7 +597,7 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub min_hops: Hops,
+    pub db_patch_size: u8,
 }
 
 pub struct NeighborhoodTools {
@@ -654,15 +669,14 @@ mod tests {
             start: recipient!(recorder, StartMessage),
             new_public_ip: recipient!(recorder, NewPublicIp),
             route_query: recipient!(recorder, RouteQueryMessage),
-            update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(recorder, UpdateNodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
+            config_change_msg_sub: recipient!(recorder, ConfigChangeMsg),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-            new_password_sub: recipient!(recorder, NewPasswordMessage),
             connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 
@@ -706,12 +720,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_mumbai() {
-        let descriptor = "masq://polygon-mumbai:as45cs5c5@1.2.3.4:4444";
+    fn parse_works_for_amoy() {
+        let descriptor = "masq://polygon-amoy:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
-        assert_eq!(result, (Chain::PolyMumbai, "as45cs5c5", "1.2.3.4:4444"))
+        assert_eq!(result, (Chain::PolyAmoy, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
@@ -738,7 +752,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -837,7 +851,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]

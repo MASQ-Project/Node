@@ -19,6 +19,7 @@ use std::net::IpAddr;
 use std::net::Ipv4Addr;
 
 pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
+pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(

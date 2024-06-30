@@ -20,8 +20,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -85,7 +83,7 @@ impl DaemonInitializer for DaemonInitializerReal {
         self.split(system, receiver);
         Ok(())
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub trait Rerunner {

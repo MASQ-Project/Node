@@ -20,7 +20,7 @@ use futures::future::Future;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::io;
-use std::net::{AddrParseError, IpAddr, SocketAddr};
+use std::net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -311,12 +311,6 @@ impl StreamHandlerPoolReal {
                 .expect("Stream handler pool is poisoned")
                 .resolver
                 .lookup_ip(&fqdn)
-                .map_err(move |err| {
-                    dns_resolve_failed_sub
-                        .try_send(DnsResolveFailure_0v1::new(stream_key))
-                        .expect("ProxyClient is poisoned");
-                    err
-                })
                 .then(move |lookup_result| {
                     Self::handle_lookup_ip(
                         target_hostname.to_string(),
@@ -326,8 +320,24 @@ impl StreamHandlerPoolReal {
                         &mut establisher,
                     )
                 })
-                .map_err(|io_error| format!("Could not establish stream: {:?}", io_error)),
+                .map_err(move |io_error| {
+                    // We are sending this message;
+                    // 1. DNS fails to resolve an IP
+                    // 2. DNS resolves a wildcard IP E.G. [0.0.0.0]
+                    // 3. An exit nodes fails to establish a stream
+                    dns_resolve_failed_sub
+                        .try_send(DnsResolveFailure_0v1::new(stream_key))
+                        .expect("ProxyClient is poisoned");
+                    format!("Could not establish stream: {:?}", io_error)
+                }),
         )
+    }
+
+    fn filter_wildcard_ips(ip_addrs: Vec<IpAddr>) -> Vec<IpAddr> {
+        ip_addrs
+            .into_iter()
+            .filter(|&ip_addr| ip_addr != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))
+            .collect()
     }
 
     fn handle_lookup_ip(
@@ -347,11 +357,22 @@ impl StreamHandlerPoolReal {
             }
             Ok(lookup_ip) => lookup_ip.iter().collect(),
         };
+
+        let filtered_ip_addrs = StreamHandlerPoolReal::filter_wildcard_ips(ip_addrs.clone());
+
+        if filtered_ip_addrs.is_empty() {
+            info!(
+                logger,
+                "Unable to find valid IP addresses for host {}: {:?}", target_hostname, &ip_addrs
+            );
+            return Err(io::Error::from(io::ErrorKind::NotFound));
+        }
+
         debug!(
             logger,
-            "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
+            "Found IP addresses for {}: {:?}", target_hostname, &filtered_ip_addrs
         );
-        establisher.establish_stream(payload, ip_addrs, target_hostname)
+        establisher.establish_stream(payload, filtered_ip_addrs, target_hostname)
     }
 
     fn make_fqdn(target_hostname: &str) -> String {
@@ -509,7 +530,6 @@ mod tests {
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -563,7 +583,7 @@ mod tests {
     #[test]
     fn dns_resolution_failure_sends_a_message_to_proxy_client() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording) = make_recorder();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         thread::spawn(move || {
             let system = System::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -624,7 +644,7 @@ mod tests {
     #[test]
     fn non_terminal_payload_can_be_sent_over_existing_connection() {
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let client_request_payload = ClientRequestPayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket {
@@ -688,7 +708,7 @@ mod tests {
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -737,7 +757,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: true,
                 sequence_number: 0,
                 source: SocketAddr::from_str("2.3.4.5:80").unwrap(),
@@ -757,7 +777,7 @@ mod tests {
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -846,7 +866,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -866,7 +886,7 @@ mod tests {
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -955,7 +975,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -967,13 +987,16 @@ mod tests {
     #[test]
     fn missing_hostname_for_nonexistent_stream_generates_log_and_termination_message() {
         init_test_logging();
+        let test_name =
+            "missing_hostname_for_nonexistent_stream_generates_log_and_termination_message";
         let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -1010,7 +1033,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 last_data: true,
                 sequence_number: 0,
                 source: error_socket_addr(),
@@ -1020,7 +1043,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             format!(
                 "ERROR: ProxyClient: Cannot open new stream with key {:?}: no hostname supplied",
-                make_meaningless_stream_key()
+                stream_key
             )
             .as_str(),
         );
@@ -1042,7 +1065,7 @@ mod tests {
                 .accountant(accountant)
                 .build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
                     data: b"These are the times".to_vec(),
                     sequence_number: 0,
@@ -1133,7 +1156,7 @@ mod tests {
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
@@ -1148,7 +1171,7 @@ mod tests {
     #[test]
     fn failing_to_make_a_connection_sends_an_error_response() {
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
@@ -1216,10 +1239,14 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
 
-        proxy_client_awaiter.await_message_count(1);
+        proxy_client_awaiter.await_message_count(2);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
+            proxy_client_recording.get_record::<DnsResolveFailure_0v1>(0),
+            &DnsResolveFailure_0v1 { stream_key }
+        );
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(1),
             &InboundServerData {
                 stream_key,
                 last_data: true,
@@ -1231,9 +1258,134 @@ mod tests {
     }
 
     #[test]
+    fn wildcard_ips_are_filtered_out() {
+        let ip_list_1 = vec![
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)),
+        ];
+        let ip_list_2 = vec![IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))];
+        let ip_list_3 = vec![
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        ];
+
+        let remaining_ips_1 = StreamHandlerPoolReal::filter_wildcard_ips(ip_list_1);
+        let remaining_ips_2 = StreamHandlerPoolReal::filter_wildcard_ips(ip_list_2);
+        let remaining_ips_3 = StreamHandlerPoolReal::filter_wildcard_ips(ip_list_3);
+
+        assert_eq!(
+            remaining_ips_1,
+            vec![
+                IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
+                IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2))
+            ]
+        );
+        assert!(remaining_ips_2.is_empty());
+        assert!(remaining_ips_3.is_empty());
+    }
+
+    #[test]
+    fn wildcard_ip_resolves_in_dns_failure() {
+        init_test_logging();
+        let test_name = "wildcard_ip_resolves_in_dns_failure";
+        let cryptde = main_cryptde();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let originator_key = PublicKey::new(&b"men's souls"[..]);
+        thread::spawn(move || {
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let client_request_payload = ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: b"These are the times".to_vec(),
+                    sequence_number: 0,
+                    last_data: false,
+                },
+                target_hostname: Some(String::from("blockedwebsite.com")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: originator_key,
+            };
+            let package = ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            let resolver = ResolverWrapperMock::new()
+                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_success(vec![IpAddr::from_str("0.0.0.0").unwrap()]);
+            let proxy_client_sub = peer_actors
+                .proxy_client_opt
+                .clone()
+                .unwrap()
+                .inbound_server_data;
+            let mut subject = StreamHandlerPoolReal::new(
+                Box::new(resolver),
+                cryptde,
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client_opt.clone().unwrap(),
+                100,
+                200,
+            );
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            subject.stream_killer_rx = stream_killer_rx;
+            {
+                subject.inner.lock().unwrap().logger = Logger::new(test_name);
+            }
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let establisher = StreamEstablisher {
+                cryptde,
+                stream_adder_tx,
+                stream_killer_tx,
+                stream_connector: Box::new(
+                    StreamConnectorMock::new()
+                        .connect_pair_result(Err(Error::from(ErrorKind::Other))),
+                ),
+                proxy_client_sub,
+                logger: subject.inner.lock().unwrap().logger.clone(),
+                channel_factory: Box::new(FuturesChannelFactoryReal {}),
+            };
+
+            subject.inner.lock().unwrap().establisher_factory =
+                Box::new(StreamEstablisherFactoryMock {
+                    make_results: RefCell::new(vec![establisher]),
+                });
+
+            run_process_package_in_actix(subject, package);
+        });
+
+        proxy_client_awaiter.await_message_count(2);
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<DnsResolveFailure_0v1>(0),
+            &DnsResolveFailure_0v1 { stream_key }
+        );
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(1),
+            &InboundServerData {
+                stream_key,
+                last_data: true,
+                sequence_number: 0,
+                source: error_socket_addr(),
+                data: vec![],
+            }
+        );
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.await_log_containing(&format!("INFO: {test_name}: Unable to find valid IP addresses for host blockedwebsite.com: [0.0.0.0]"), 10_000);
+        test_log_handler.await_log_containing(&format!("ERROR: {test_name}: Couldn't process request from CORES package: Could not establish stream: Kind(NotFound)"), 10_000);
+    }
+
+    #[test]
     fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -1353,7 +1505,7 @@ mod tests {
     fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
         thread::spawn(move || {
@@ -1414,7 +1566,7 @@ mod tests {
     fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
         let cryptde = main_cryptde();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let (proxy_client, _, _) = make_recorder();
         let (hopper, _, _) = make_recorder();
         let (accountant, _, _) = make_recorder();
@@ -1479,16 +1631,18 @@ mod tests {
     fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
     ) {
         init_test_logging();
+        let test_name = "process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key";
         let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         thread::spawn(move || {
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
                 .build();
             let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key.clone(),
                 sequenced_packet: SequencedPacket {
                     data: vec![],
                     sequence_number: 0,
@@ -1528,7 +1682,7 @@ mod tests {
         tlh.await_log_containing(
             &format!(
                 "Empty request payload received for nonexistent stream {:?} - ignoring",
-                make_meaningless_stream_key()
+                stream_key
             )[..],
             2000,
         );
@@ -1553,7 +1707,7 @@ mod tests {
         );
         let (stream_killer_tx, stream_killer_rx) = unbounded();
         subject.stream_killer_rx = stream_killer_rx;
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         {
             let mut inner = subject.inner.lock().unwrap();
@@ -1596,7 +1750,7 @@ mod tests {
         );
         let (stream_killer_tx, stream_killer_rx) = unbounded();
         subject.stream_killer_rx = stream_killer_rx;
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         stream_killer_tx.send((stream_key, 47)).unwrap();
 
         subject.clean_up_dead_streams();

@@ -1,7 +1,9 @@
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -62,7 +64,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+     masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
      masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
@@ -219,11 +221,20 @@ lazy_static! {
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
+pub fn chain_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("chain")
+        .long("chain")
+        .value_name("CHAIN")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(official_chain_names())
+        .help(CHAIN_HELP)
+}
+
 pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("config-file")
         .long("config-file")
         .value_name("FILE-PATH")
-        .default_value("config.toml")
         .min_values(0)
         .max_values(1)
         .required(false)
@@ -241,21 +252,11 @@ pub fn data_directory_arg(help: &str) -> Arg {
         .help(help)
 }
 
-pub fn chain_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("chain")
-        .long("chain")
-        .value_name("CHAIN")
-        .min_values(0)
-        .max_values(1)
-        .possible_values(official_chain_names())
-        .help(CHAIN_HELP)
-}
-
 pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
-        POLYGON_MUMBAI_FULL_IDENTIFIER,
+        POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
@@ -284,6 +285,26 @@ where
         .max_values(1)
         .validator(validator)
         .help(help)
+}
+
+pub fn gas_price_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("gas-price")
+        .long("gas-price")
+        .value_name("GAS-PRICE")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_gas_price)
+        .help(&GAS_PRICE_HELP)
+}
+
+pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("min-hops")
+        .long("min-hops")
+        .value_name("MIN-HOPS")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(&["1", "2", "3", "4", "5", "6"])
+        .help(MIN_HOPS_HELP)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -390,15 +411,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .max_values(1)
             .hidden(true),
     )
-    .arg(
-        Arg::with_name("gas-price")
-            .long("gas-price")
-            .value_name("GAS-PRICE")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_gas_price)
-            .help(&GAS_PRICE_HELP),
-    )
+    .arg(gas_price_arg())
     .arg(
         Arg::with_name("ip")
             .long("ip")
@@ -428,16 +441,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
     )
-    .arg(
-        Arg::with_name("min-hops")
-            .long("min-hops")
-            .value_name("MIN_HOPS")
-            .required(false)
-            .min_values(0)
-            .max_values(1)
-            .possible_values(&["1", "2", "3", "4", "5", "6"])
-            .help(MIN_HOPS_HELP),
-    )
+    .arg(min_hops_arg())
     .arg(
         Arg::with_name("neighborhood-mode")
             .long("neighborhood-mode")
@@ -753,7 +757,7 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
                   masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
@@ -1140,7 +1144,7 @@ mod tests {
         let mut iterator = official_chain_names().iter();
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyAmoy);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
         assert_eq!(iterator.next(), None)

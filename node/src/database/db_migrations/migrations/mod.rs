@@ -8,3 +8,4 @@ pub mod migration_4_to_5;
 pub mod migration_5_to_6;
 pub mod migration_6_to_7;
 pub mod migration_7_to_8;
+pub mod migration_8_to_9;

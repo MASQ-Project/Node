@@ -1,6 +1,6 @@
 [package]
 name = "node"
-version = "0.7.3"
+version = "0.8.0"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 description = "MASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
@@ -64,6 +64,7 @@ variant_count = "1.1.0"
 web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
 secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
+uuid = "0.7.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.4.0"

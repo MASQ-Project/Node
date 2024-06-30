@@ -11,6 +11,7 @@ pub(in crate::commands::financials_command) mod restricted {
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use masq_lib::short_writeln;
+    use masq_lib::utils::to_string;
     use std::fmt::{Debug, Display};
     use std::io::Write;
     use thousands::Separable;
@@ -163,7 +164,7 @@ pub(in crate::commands::financials_command) mod restricted {
 
     fn prepare_headings_of_records(is_gwei: bool) -> (HeadingsHolder, HeadingsHolder) {
         fn to_owned_strings(words: Vec<&str>) -> Vec<String> {
-            words.iter().map(|str| str.to_string()).collect()
+            words.iter().map(to_string).collect()
         }
         let balance = gwei_or_masq_balance(is_gwei);
         (

@@ -176,6 +176,7 @@ mod tests {
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
+    use masq_lib::utils::to_string;
     use std::any::Any;
     use std::sync::{Arc, Mutex};
 
@@ -217,7 +218,7 @@ mod tests {
                 "--param3",
             ]
             .iter()
-            .map(|str| str.to_string())
+            .map(to_string)
             .collect::<Vec<String>>(),
         );
 
@@ -228,7 +229,7 @@ mod tests {
             vec![
                 vec!["subcommand", "--param1", "value1", "--param2", "--param3"]
                     .iter()
-                    .map(|str| str.to_string())
+                    .map(to_string)
                     .collect::<Vec<String>>(),
             ]
         );
@@ -478,7 +479,7 @@ mod tests {
     fn extract_subcommands_can_process_normal_non_interactive_request() {
         let args = vec!["masq", "setup", "--log-level", "off"]
             .iter()
-            .map(|str| str.to_string())
+            .map(to_string)
             .collect::<Vec<String>>();
 
         let result = Main::extract_subcommand(&args);
@@ -497,7 +498,7 @@ mod tests {
     fn extract_subcommands_can_process_non_interactive_request_including_special_port() {
         let args = vec!["masq", "--ui-port", "10000", "setup", "--log-level", "off"]
             .iter()
-            .map(|str| str.to_string())
+            .map(to_string)
             .collect::<Vec<String>>();
 
         let result = Main::extract_subcommand(&args);

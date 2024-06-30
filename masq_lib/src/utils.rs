@@ -49,14 +49,14 @@ fn compute_data_directory_help() -> String {
     let polygon_mainnet_dir = Path::new(&data_dir.to_str().unwrap())
         .join("MASQ")
         .join("polygon-mainnet");
-    let polygon_mumbai_dir = Path::new(&data_dir.to_str().unwrap())
+    let polygon_amoy_dir = Path::new(&data_dir.to_str().unwrap())
         .join("MASQ")
-        .join("polygon-mumbai");
+        .join("polygon-amoy");
     format!("Directory in which the Node will store its persistent state, including at least its database \
         and by default its configuration file as well. By default, your data-directory is located in \
         your application directory, under your home directory e.g.: '{}'.\n\n\
         In case you change your chain to a different one, the data-directory path is automatically changed \
-        to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
+        to end with the name of your chain: e.g.: if you choose polygon-amoy, then data-directory is \
         automatically changed to: '{}'.\n\n\
         You can specify your own data-directory to the Daemon in two different ways: \n\n\
         1. If you provide a path without the chain name on the end, the Daemon will automatically change \
@@ -65,7 +65,7 @@ fn compute_data_directory_help() -> String {
         2. If you provide your data directory with the corresponding chain name on the end, eg: {}/masq_home/polygon-mainnet, \
         there will be no change until you set the chain parameter to a different value.",
             polygon_mainnet_dir.to_string_lossy().to_string().as_str(),
-            polygon_mumbai_dir.to_string_lossy().to_string().as_str(),
+            polygon_amoy_dir.to_string_lossy().to_string().as_str(),
             &home_dir.to_string_lossy().to_string().as_str(),
             &home_dir.to_string_lossy().to_string().as_str(),
             home_dir.to_string_lossy().to_string().as_str()
@@ -321,10 +321,7 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
-    slice
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<String>>()
+    slice.iter().map(to_string).collect::<Vec<String>>()
 }
 
 pub trait ExpectValue<T> {
@@ -389,6 +386,14 @@ where
     fn helper_access(&mut self) -> &mut Option<T>;
 }
 
+// A handy function for closures
+pub fn to_string<D>(displayable: D) -> String
+where
+    D: Display,
+{
+    displayable.to_string()
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -407,10 +412,10 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! declare_as_any {
+macro_rules! as_any_ref_in_trait {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             use masq_lib::intentionally_blank;
             intentionally_blank!()
         }
@@ -418,13 +423,44 @@ macro_rules! declare_as_any {
 }
 
 #[macro_export]
-macro_rules! implement_as_any {
+macro_rules! as_any_ref_in_trait_impl {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             self
         }
     };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            use masq_lib::intentionally_blank;
+            intentionally_blank!()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait_impl {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! test_only_use {
+    ($($use_clause: item),+) => {
+      $(
+        #[cfg(test)]
+        $use_clause
+      )+
+    }
 }
 
 #[macro_export(local_inner_macros)]

@@ -6,11 +6,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-#[derive(Debug, actix::Message, Clone, PartialEq, Eq)]
-pub struct NewPasswordMessage {
-    pub new_password: String,
-}
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct ConfiguratorSubs {
     pub bind: Recipient<BindMessage>,

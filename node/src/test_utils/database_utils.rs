@@ -2,14 +2,14 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::dao_utils::VigilantRusqliteFlatten;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
 use crate::database::db_initializer::ExternalData;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::utils::{to_string, NeighborhoodModeLight};
 use rusqlite::{Connection, Error};
 use std::cell::RefCell;
 use std::env::current_dir;
@@ -207,7 +207,7 @@ fn prepare_expected_vectors_of_words_including_sorting(
         .map(|slice_of_strs| {
             let mut one_line = slice_of_strs
                 .into_iter()
-                .map(|word| word.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>();
             one_line.sort();
             one_line
@@ -233,7 +233,7 @@ fn parse_sql_to_pieces(sql: &str) -> SQLLinesChoppedIntoWords {
             let mut vec_of_words = sql_line
                 .split(|char: char| char.is_whitespace())
                 .filter(|chunk| !chunk.is_empty())
-                .map(|chunk| chunk.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>();
             vec_of_words.sort();
             vec_of_words

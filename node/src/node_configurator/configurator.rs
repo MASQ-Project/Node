@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use actix::{Actor, Context, Handler, Recipient};
 
@@ -25,8 +26,8 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::configurator::NewPasswordMessage;
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::neighborhood::{ConfigChange, ConfigChangeMsg, Hops, WalletPair};
+use crate::sub_lib::peer_actors::{BindMessage, ConfigChangeSubs};
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::main_cryptde;
@@ -37,7 +38,7 @@ use masq_lib::constants::{
     UNKNOWN_ERROR, UNRECOGNIZED_MNEMONIC_LANGUAGE_ERROR, UNRECOGNIZED_PARAMETER,
 };
 use masq_lib::logger::Logger;
-use masq_lib::utils::derivation_path;
+use masq_lib::utils::{derivation_path, to_string};
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -45,8 +46,8 @@ pub const CRASH_KEY: &str = "CONFIGURATOR";
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
-    node_to_ui_sub: Option<Recipient<NodeToUiMessage>>,
-    new_password_subs: Option<Vec<Recipient<NewPasswordMessage>>>,
+    node_to_ui_sub_opt: Option<Recipient<NodeToUiMessage>>,
+    config_change_subs_opt: Option<ConfigChangeSubs>,
     crashable: bool,
     logger: Logger,
 }
@@ -59,8 +60,8 @@ impl Handler<BindMessage> for Configurator {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.node_to_ui_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
-        self.new_password_subs = Some(vec![msg.peer_actors.neighborhood.new_password_sub])
+        self.node_to_ui_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub.clone());
+        self.config_change_subs_opt = Some(msg.peer_actors.config_change_subs());
     }
 }
 
@@ -107,8 +108,8 @@ impl Configurator {
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
         Configurator {
             persistent_config,
-            node_to_ui_sub: None,
-            new_password_subs: None,
+            node_to_ui_sub_opt: None,
+            config_change_subs_opt: None,
             crashable,
             logger: Logger::new("Configurator"),
         }
@@ -147,7 +148,7 @@ impl Configurator {
         {
             Ok(_) => {
                 let broadcast = UiNewPasswordBroadcast {}.tmb(0);
-                self.send_password_changes(msg.new_password.clone());
+                self.send_new_password_to_subs(msg.new_password);
                 self.send_to_ui_gateway(MessageTarget::AllExcept(client_id), broadcast);
                 UiChangePasswordResponse {}.tmb(context_id)
             }
@@ -235,9 +236,13 @@ impl Configurator {
         msg: UiGenerateWalletsRequest,
         context_id: u64,
     ) -> MessageBody {
+        let db_password = msg.db_password.clone();
         match Self::unfriendly_handle_generate_wallets(msg, context_id, &mut self.persistent_config)
         {
-            Ok(message_body) => message_body,
+            Ok(message_body) => {
+                self.send_updated_wallets_to_subs(&db_password);
+                message_body
+            }
             Err((code, msg)) => MessageBody {
                 opcode: "generateWallets".to_string(),
                 path: MessagePath::Conversation(context_id),
@@ -251,9 +256,13 @@ impl Configurator {
         msg: UiRecoverWalletsRequest,
         context_id: u64,
     ) -> MessageBody {
+        let db_password = msg.db_password.clone();
         match Self::unfriendly_handle_recover_wallets(msg, context_id, &mut self.persistent_config)
         {
-            Ok(message_body) => message_body,
+            Ok(message_body) => {
+                self.send_updated_wallets_to_subs(&db_password);
+                message_body
+            }
             Err((code, msg)) => MessageBody {
                 opcode: "recoverWallets".to_string(),
                 path: MessagePath::Conversation(context_id),
@@ -431,11 +440,7 @@ impl Configurator {
         let mnemonic = Bip39::mnemonic(mnemonic_type, language);
         let mnemonic_passphrase = Self::make_passphrase(passphrase_opt);
         let seed = Bip39::seed(&mnemonic, &mnemonic_passphrase);
-        let phrase_words: Vec<String> = mnemonic
-            .into_phrase()
-            .split(' ')
-            .map(|w| w.to_string())
-            .collect();
+        let phrase_words: Vec<String> = mnemonic.into_phrase().split(' ').map(to_string).collect();
         Ok((seed, phrase_words))
     }
 
@@ -547,12 +552,19 @@ impl Configurator {
             "earningWalletAddressOpt",
         )?;
         let start_block = Self::value_required(persistent_config.start_block(), "startBlock")?;
+        let max_block_count_opt = match persistent_config.max_block_count() {
+            Ok(value) => value,
+            Err(e) => panic!(
+                "Database corruption: Could not read max block count: {:?}",
+                e
+            ),
+        };
         let neighborhood_mode =
             Self::value_required(persistent_config.neighborhood_mode(), "neighborhoodMode")?
                 .to_string();
         let port_mapping_protocol_opt =
             Self::value_not_required(persistent_config.mapping_protocol(), "portMappingProtocol")?
-                .map(|p| p.to_string());
+                .map(to_string);
         let (consuming_wallet_private_key_opt, consuming_wallet_address_opt, past_neighbors) =
             match good_password_opt {
                 Some(password) => {
@@ -616,6 +628,7 @@ impl Configurator {
             clandestine_port,
             chain_name,
             gas_price,
+            max_block_count_opt,
             neighborhood_mode,
             consuming_wallet_private_key_opt,
             consuming_wallet_address_opt,
@@ -690,40 +703,46 @@ impl Configurator {
         msg: UiSetConfigurationRequest,
         context_id: u64,
     ) -> MessageBody {
-        match Self::unfriendly_handle_set_configuration(
-            msg,
-            context_id,
-            &mut self.persistent_config,
-        ) {
-            Ok(message_body) => message_body,
-            Err((code, msg)) => MessageBody {
-                opcode: "setConfiguration".to_string(),
-                path: MessagePath::Conversation(context_id),
-                payload: Err((code, msg)),
-            },
+        debug!(
+            self.logger,
+            "A request from UI received: {:?} from context id: {}", msg, context_id
+        );
+        match self.unfriendly_handle_set_configuration(msg, context_id) {
+            Ok(response) => response,
+            Err((code, msg)) => {
+                error!(
+                    self.logger,
+                    "{}",
+                    format!("The UiSetConfigurationRequest failed with an error {code}: {msg}")
+                );
+                MessageBody {
+                    opcode: "setConfiguration".to_string(),
+                    path: MessagePath::Conversation(context_id),
+                    payload: Err((code, msg)),
+                }
+            }
         }
     }
 
     fn unfriendly_handle_set_configuration(
+        &mut self,
         msg: UiSetConfigurationRequest,
         context_id: u64,
-        persist_config: &mut Box<dyn PersistentConfiguration>,
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
         match password {
-            None => {
-                if "gas-price" == &msg.name {
-                    Self::set_gas_price(msg.value, persist_config)?;
-                } else if "start-block" == &msg.name {
-                    Self::set_start_block(msg.value, persist_config)?;
-                } else {
+            None => match msg.name.as_str() {
+                "gas-price" => self.set_gas_price(msg.value)?,
+                "min-hops" => self.set_min_hops(msg.value)?,
+                "start-block" => self.set_start_block(msg.value)?,
+                _ => {
                     return Err((
                         UNRECOGNIZED_PARAMETER,
                         format!("This parameter name is not known: {}", &msg.name),
-                    ));
+                    ))
                 }
-            }
+            },
             Some(_password) => {
                 unimplemented!();
             }
@@ -732,29 +751,46 @@ impl Configurator {
         Ok(UiSetConfigurationResponse {}.tmb(context_id))
     }
 
-    fn set_gas_price(
-        string_price: String,
-        config: &mut Box<dyn PersistentConfiguration>,
-    ) -> Result<(), (u64, String)> {
+    fn set_gas_price(&mut self, string_price: String) -> Result<(), (u64, String)> {
         let price_number = match string_price.parse::<u64>() {
             Ok(num) => num,
             Err(e) => return Err((NON_PARSABLE_VALUE, format!("gas price: {:?}", e))),
         };
-        match config.set_gas_price(price_number) {
+        match self.persistent_config.set_gas_price(price_number) {
             Ok(_) => Ok(()),
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("gas price: {:?}", e))),
         }
     }
 
-    fn set_start_block(
-        string_number: String,
-        config: &mut Box<dyn PersistentConfiguration>,
-    ) -> Result<(), (u64, String)> {
+    fn set_min_hops(&mut self, min_hops_value: String) -> Result<(), (u64, String)> {
+        let min_hops = match Hops::from_str(&min_hops_value) {
+            Ok(min_hops) => min_hops,
+            Err(e) => {
+                return Err((NON_PARSABLE_VALUE, format!("min hops: {:?}", e)));
+            }
+        };
+        match self.persistent_config.set_min_hops(min_hops) {
+            Ok(_) => {
+                debug!(
+                    self.logger,
+                    "The value of min-hops has been changed to {}-hop inside the database",
+                    min_hops
+                );
+                self.send_config_change_msg(ConfigChangeMsg {
+                    change: ConfigChange::UpdateMinHops(min_hops),
+                });
+                Ok(())
+            }
+            Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("min hops: {:?}", e))),
+        }
+    }
+
+    fn set_start_block(&mut self, string_number: String) -> Result<(), (u64, String)> {
         let block_number = match string_number.parse::<u64>() {
             Ok(num) => num,
             Err(e) => return Err((NON_PARSABLE_VALUE, format!("start block: {:?}", e))),
         };
-        match config.set_start_block(block_number) {
+        match self.persistent_config.set_start_block(block_number) {
             Ok(_) => Ok(()),
             Err(e) => Err((CONFIGURATOR_WRITE_ERROR, format!("start block: {:?}", e))),
         }
@@ -762,23 +798,50 @@ impl Configurator {
 
     fn send_to_ui_gateway(&self, target: MessageTarget, body: MessageBody) {
         let msg = NodeToUiMessage { target, body };
-        self.node_to_ui_sub
+        self.node_to_ui_sub_opt
             .as_ref()
             .expect("Configurator is unbound")
             .try_send(msg)
             .expect("UiGateway is dead");
     }
 
-    fn send_password_changes(&self, new_password: String) {
-        let msg = NewPasswordMessage { new_password };
-        self.new_password_subs
+    fn send_config_change_msg(&self, msg: ConfigChangeMsg) {
+        self.config_change_subs_opt
             .as_ref()
-            .expect("Configurator is unbound")
+            .expect("ConfigChangeSubs are uninitialized")
             .iter()
-            .for_each(|sub| {
-                sub.try_send(msg.clone())
-                    .expect("New password recipient is dead")
+            .for_each(|recipient| {
+                recipient
+                    .try_send(msg.clone())
+                    .expect("ConfigChangeMsg recipient is dead")
+            })
+    }
+
+    fn send_new_password_to_subs(&self, new_password: String) {
+        let msg = ConfigChangeMsg {
+            change: ConfigChange::UpdatePassword(new_password),
+        };
+        self.send_config_change_msg(msg);
+    }
+
+    fn send_updated_wallets_to_subs(&self, db_password: &str) {
+        let consuming_wallet_result_opt = self
+            .persistent_config
+            .as_ref()
+            .consuming_wallet(db_password);
+        let earning_wallet_result_opt = self.persistent_config.as_ref().earning_wallet();
+        if let (Ok(Some(new_consuming_wallet)), Ok(Some(new_earning_wallet))) =
+            (consuming_wallet_result_opt, earning_wallet_result_opt)
+        {
+            self.send_config_change_msg(ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
+                    consuming_wallet: new_consuming_wallet,
+                    earning_wallet: new_earning_wallet,
+                }),
             });
+        } else {
+            panic!("Unable to retrieve wallets from persistent configuration")
+        };
     }
 
     fn call_handler<F: FnOnce(&mut Configurator) -> MessageBody>(
@@ -808,10 +871,9 @@ impl Configurator {
 mod tests {
     use actix::System;
     use masq_lib::messages::{
-        ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiGenerateSeedSpec, UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiPaymentThresholds,
-        UiRatePack, UiRecoverSeedSpec, UiScanIntervals, UiStartOrder, UiWalletAddressesRequest,
-        UiWalletAddressesResponse,
+        ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, UiGenerateSeedSpec,
+        UiGenerateWalletsResponse, UiPaymentThresholds, UiRatePack, UiRecoverSeedSpec,
+        UiScanIntervals, UiStartOrder, UiWalletAddressesRequest, UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::path::Path;
@@ -834,13 +896,14 @@ mod tests {
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
-    use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
+    use crate::sub_lib::neighborhood::{ConfigChange, NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
         prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
@@ -863,13 +926,11 @@ mod tests {
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         )));
-        let (recorder, _, _) = make_recorder();
-        let recorder_addr = recorder.start();
-
+        let peer_actors = peer_actors_builder().build();
         let mut subject = Configurator::new(data_dir, false);
+        subject.config_change_subs_opt = Some(peer_actors.config_change_subs());
+        subject.node_to_ui_sub_opt = Some(peer_actors.ui_gateway.node_to_ui_message_sub);
 
-        subject.node_to_ui_sub = Some(recorder_addr.recipient());
-        subject.new_password_subs = Some(vec![]);
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -878,6 +939,7 @@ mod tests {
             0,
             0,
         );
+
         assert_eq!(
             verifier.check_password(Some("password".to_string())),
             Ok(true)
@@ -983,19 +1045,19 @@ mod tests {
     }
 
     #[test]
-    fn change_password_works() {
-        let system = System::new("test");
-        let change_password_params_arc = Arc::new(Mutex::new(vec![]));
+    fn the_password_is_synchronised_among_other_actors_when_modified() {
+        let system = System::new("the_password_is_synchronised_among_other_actors_when_modified");
+        let new_password = "omae wa mou shindeiru";
         let persistent_config = PersistentConfigurationMock::new()
-            .change_password_params(&change_password_params_arc)
+            .check_password_result(Ok(true))
             .change_password_result(Ok(()));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder()
-            .ui_gateway(ui_gateway)
             .neighborhood(neighborhood)
+            .ui_gateway(ui_gateway)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
@@ -1003,8 +1065,8 @@ mod tests {
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
                 body: UiChangePasswordRequest {
-                    old_password_opt: Some("old_password".to_string()),
-                    new_password: "new_password".to_string(),
+                    old_password_opt: None,
+                    new_password: new_password.to_string(),
                 }
                 .tmb(4321),
             })
@@ -1012,10 +1074,13 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let change_password_params = change_password_params_arc.lock().unwrap();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let expected_configuration_msg = ConfigChangeMsg {
+            change: ConfigChange::UpdatePassword(new_password.to_string()),
+        };
         assert_eq!(
-            *change_password_params,
-            vec![(Some("old_password".to_string()), "new_password".to_string())]
+            neighborhood_recording.get_record::<ConfigChangeMsg>(0),
+            &expected_configuration_msg
         );
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1032,14 +1097,84 @@ mod tests {
                 body: UiChangePasswordResponse {}.tmb(4321)
             }
         );
+    }
+
+    #[test]
+    fn the_wallets_are_synchronised_among_other_actors_when_modified() {
+        assert_wallets_synchronisation_among_other_actors(NodeFromUiMessage {
+            client_id: 1234,
+            body: make_example_generate_wallets_request().tmb(4321),
+        });
+        assert_wallets_synchronisation_among_other_actors(NodeFromUiMessage {
+            client_id: 1234,
+            body: make_example_recover_wallets_request_with_paths().tmb(4321),
+        });
+    }
+
+    fn assert_wallets_synchronisation_among_other_actors(msg: NodeFromUiMessage) {
+        let system = System::new("assert_wallets_synchronisation_among_other_actors");
+        let consuming_wallet = make_paying_wallet(b"consuming");
+        let earning_wallet = make_wallet("earning");
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(consuming_wallet.clone())))
+            .earning_wallet_result(Ok(Some(earning_wallet.clone())));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood)
+            .accountant(accountant)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(msg).unwrap();
+
+        System::current().stop();
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
         let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let expected_configuration_msg = ConfigChangeMsg {
+            change: ConfigChange::UpdateWallets(WalletPair {
+                consuming_wallet,
+                earning_wallet,
+            }),
+        };
         assert_eq!(
-            neighborhood_recording.get_record::<NewPasswordMessage>(0),
-            &NewPasswordMessage {
-                new_password: "new_password".to_string()
-            }
+            accountant_recording.get_record::<ConfigChangeMsg>(0),
+            &expected_configuration_msg
         );
-        assert_eq!(neighborhood_recording.len(), 1);
+        assert_eq!(
+            neighborhood_recording.get_record::<ConfigChangeMsg>(0),
+            &expected_configuration_msg
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to retrieve wallets from persistent configuration")]
+    fn panics_if_consuming_wallet_can_not_be_retrieved_before_sending_to_subs() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(None))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
+        let subject = make_subject(Some(persistent_config));
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: make_example_generate_wallets_request().tmb(4321),
+            })
+            .unwrap();
+
+        let system = System::new("test");
+        System::current().stop();
+        system.run();
     }
 
     #[test]
@@ -1265,11 +1400,15 @@ mod tests {
         let check_password_params_arc = Arc::new(Mutex::new(vec![]));
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let consuming_wallet_for_mock = make_paying_wallet(b"consuming");
+        let earning_wallet_for_mock = make_wallet("earning");
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(consuming_wallet_for_mock)))
+            .earning_wallet_result(Ok(Some(earning_wallet_for_mock)));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -1332,7 +1471,6 @@ mod tests {
         );
         let check_password_params = check_password_params_arc.lock().unwrap();
         assert_eq!(*check_password_params, vec![Some("password".to_string())]);
-
         let set_wallet_info_params = set_wallet_info_params_arc.lock().unwrap();
         assert_eq!(
             *set_wallet_info_params,
@@ -1531,7 +1669,9 @@ mod tests {
             .check_password_params(&check_password_params_arc)
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let subject = make_subject(Some(persistent_config));
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -1598,14 +1738,22 @@ mod tests {
         );
     }
 
+    fn make_config_change_subs() -> ConfigChangeSubs {
+        let peer_actors = peer_actors_builder().build();
+        peer_actors.config_change_subs()
+    }
+
     #[test]
     fn handle_recover_wallets_works_with_earning_wallet_derivation_path() {
         let set_wallet_info_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
+        subject.config_change_subs_opt = Some(make_config_change_subs());
         let mut request = make_example_recover_wallets_request_with_paths();
         request.earning_derivation_path_opt = Some(derivation_path(0, 5));
 
@@ -1657,8 +1805,11 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(true))
             .set_wallet_info_params(&set_wallet_info_params_arc)
-            .set_wallet_info_result(Ok(()));
+            .set_wallet_info_result(Ok(()))
+            .consuming_wallet_result(Ok(Some(make_paying_wallet(b"consuming"))))
+            .earning_wallet_result(Ok(Some(make_wallet("earning"))));
         let mut subject = make_subject(Some(persistent_config));
+        subject.config_change_subs_opt = Some(make_config_change_subs());
         let mut request = make_example_recover_wallets_request_with_paths();
         request
             .seed_spec_opt
@@ -1934,24 +2085,28 @@ mod tests {
 
     #[test]
     fn handle_set_configuration_works() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_works";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
-        let subject = make_subject(Some(persistent_config));
+        let mut subject = make_subject(Some(persistent_config));
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let msg = UiSetConfigurationRequest {
+            name: "start-block".to_string(),
+            value: "166666".to_string(),
+        };
+        let context_id = 4444;
 
         subject_addr
             .try_send(NodeFromUiMessage {
                 client_id: 1234,
-                body: UiSetConfigurationRequest {
-                    name: "start-block".to_string(),
-                    value: "166666".to_string(),
-                }
-                .tmb(4444),
+                body: msg.clone().tmb(context_id),
             })
             .unwrap();
 
@@ -1964,6 +2119,10 @@ mod tests {
         assert_eq!(context_id, 4444);
         let check_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*check_start_block_params, vec![166666]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {}: A request from UI received: {:?} from context id: {}",
+            test_name, msg, context_id
+        ));
     }
 
     #[test]
@@ -2102,6 +2261,130 @@ mod tests {
     }
 
     #[test]
+    fn handle_set_configuration_works_for_min_hops() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_works_for_min_hops";
+        let new_min_hops = Hops::SixHops;
+        let set_min_hops_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_min_hops_params(&set_min_hops_params_arc)
+            .set_min_hops_result(Ok(()));
+        let system = System::new("handle_set_configuration_works_for_min_hops");
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        let mut subject = make_subject(Some(persistent_config));
+        subject.logger = Logger::new(test_name);
+        subject.config_change_subs_opt = Some(peer_actors.config_change_subs());
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "min-hops".to_string(),
+                value: new_min_hops.to_string(),
+            },
+            4000,
+        );
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let message_to_neighborhood = neighborhood_recording.get_record::<ConfigChangeMsg>(0);
+        let set_min_hops_params = set_min_hops_params_arc.lock().unwrap();
+        let min_hops_in_db = set_min_hops_params.get(0).unwrap();
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Ok(r#"{}"#.to_string())
+            }
+        );
+        assert_eq!(
+            message_to_neighborhood,
+            &ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(new_min_hops)
+            }
+        );
+        assert_eq!(*min_hops_in_db, new_min_hops);
+        TestLogHandler::new().exists_log_containing(&format!(
+           "DEBUG: {test_name}: The value of min-hops has been changed to {new_min_hops}-hop inside the database"
+        ));
+    }
+
+    #[test]
+    fn handle_set_configuration_throws_err_for_invalid_min_hops() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_throws_err_for_invalid_min_hops";
+        let mut subject = make_subject(None);
+        subject.logger = Logger::new(test_name);
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "min-hops".to_string(),
+                value: "600".to_string(),
+            },
+            4000,
+        );
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    NON_PARSABLE_VALUE,
+                    "min hops: \"Invalid value for min hops provided\"".to_string()
+                ))
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: The UiSetConfigurationRequest failed with an error \
+             281474976710668: min hops: \"Invalid value for min hops provided\""
+        ));
+    }
+
+    #[test]
+    fn handle_set_configuration_handles_failure_on_min_hops_database_issue() {
+        init_test_logging();
+        let test_name = "handle_set_configuration_handles_failure_on_min_hops_database_issue";
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_min_hops_result(Err(PersistentConfigError::TransactionError));
+        let system = System::new(test_name);
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        let mut subject = make_subject(Some(persistent_config));
+        subject.logger = Logger::new(test_name);
+        subject.config_change_subs_opt = Some(peer_actors.config_change_subs());
+
+        let result = subject.handle_set_configuration(
+            UiSetConfigurationRequest {
+                name: "min-hops".to_string(),
+                value: "4".to_string(),
+            },
+            4000,
+        );
+
+        System::current().stop();
+        system.run();
+        let recording = neighborhood_recording_arc.lock().unwrap();
+        assert!(recording.is_empty());
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "setConfiguration".to_string(),
+                path: MessagePath::Conversation(4000),
+                payload: Err((
+                    CONFIGURATOR_WRITE_ERROR,
+                    "min hops: TransactionError".to_string()
+                ))
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: The UiSetConfigurationRequest failed with an error \
+                281474976710658: min hops: TransactionError"
+        ));
+    }
+
+    #[test]
     fn handle_set_configuration_complains_about_unexpected_parameter() {
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = make_subject(Some(persistent_config));
@@ -2211,6 +2494,7 @@ mod tests {
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key)))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .max_block_count_result(Ok(Some(100000)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
@@ -2236,6 +2520,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
+                max_block_count_opt: Some(100000),
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
                 consuming_wallet_address_opt: None,
@@ -2339,6 +2624,7 @@ mod tests {
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
+            .max_block_count_result(Ok(None))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
@@ -2366,6 +2652,7 @@ mod tests {
                 clandestine_port: 1234,
                 chain_name: "ropsten".to_string(),
                 gas_price: 2345,
+                max_block_count_opt: None,
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
                 consuming_wallet_address_opt: Some(consuming_wallet_address),
@@ -2405,6 +2692,118 @@ mod tests {
     }
 
     #[test]
+    fn configuration_handles_retrieving_all_possible_none_values() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .blockchain_service_url_result(Ok(None))
+            .current_schema_version_result("3")
+            .clandestine_port_result(Ok(1234))
+            .chain_name_result("ropsten".to_string())
+            .gas_price_result(Ok(2345))
+            .earning_wallet_address_result(Ok(None))
+            .start_block_result(Ok(3456))
+            .max_block_count_result(Ok(None))
+            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ZeroHop))
+            .mapping_protocol_result(Ok(None))
+            .consuming_wallet_private_key_result(Ok(None))
+            .past_neighbors_result(Ok(None))
+            .rate_pack_result(Ok(RatePack {
+                routing_byte_rate: 0,
+                routing_service_rate: 0,
+                exit_byte_rate: 0,
+                exit_service_rate: 0,
+            }))
+            .scan_intervals_result(Ok(ScanIntervals {
+                pending_payable_scan_interval: Default::default(),
+                payable_scan_interval: Default::default(),
+                receivable_scan_interval: Default::default(),
+            }))
+            .payment_thresholds_result(Ok(PaymentThresholds {
+                debt_threshold_gwei: 0,
+                maturity_threshold_sec: 0,
+                payment_grace_period_sec: 0,
+                permanent_debt_allowed_gwei: 0,
+                threshold_interval_sec: 0,
+                unban_below_gwei: 0,
+            }));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let (configuration, context_id) =
+            UiConfigurationResponse::fmb(subject.handle_configuration(
+                UiConfigurationRequest {
+                    db_password_opt: None,
+                },
+                4321,
+            ))
+            .unwrap();
+
+        assert_eq!(context_id, 4321);
+        assert_eq!(
+            configuration,
+            UiConfigurationResponse {
+                blockchain_service_url_opt: None,
+                current_schema_version: "3".to_string(),
+                clandestine_port: 1234,
+                chain_name: "ropsten".to_string(),
+                gas_price: 2345,
+                max_block_count_opt: None,
+                neighborhood_mode: String::from("zero-hop"),
+                consuming_wallet_private_key_opt: None,
+                consuming_wallet_address_opt: None,
+                earning_wallet_address_opt: None,
+                port_mapping_protocol_opt: None,
+                past_neighbors: vec![],
+                payment_thresholds: UiPaymentThresholds {
+                    threshold_interval_sec: 0,
+                    debt_threshold_gwei: 0,
+                    maturity_threshold_sec: 0,
+                    payment_grace_period_sec: 0,
+                    permanent_debt_allowed_gwei: 0,
+                    unban_below_gwei: 0
+                },
+                rate_pack: UiRatePack {
+                    routing_byte_rate: 0,
+                    routing_service_rate: 0,
+                    exit_byte_rate: 0,
+                    exit_service_rate: 0
+                },
+                start_block: 3456,
+                scan_intervals: UiScanIntervals {
+                    pending_payable_sec: 0,
+                    payable_sec: 0,
+                    receivable_sec: 0
+                }
+            }
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database corruption: Could not read max block count: DatabaseError(\"Corruption\")"
+    )]
+    fn configuration_panic_on_error_retrieving_max_block_count() {
+        let persistent_config = PersistentConfigurationMock::new()
+            .check_password_result(Ok(true))
+            .blockchain_service_url_result(Ok(None))
+            .current_schema_version_result("3")
+            .clandestine_port_result(Ok(1234))
+            .chain_name_result("ropsten".to_string())
+            .gas_price_result(Ok(2345))
+            .earning_wallet_address_result(Ok(Some("4a5e43b54c6C56Ebf7".to_string())))
+            .start_block_result(Ok(3456))
+            .max_block_count_result(Err(PersistentConfigError::DatabaseError(
+                "Corruption".to_string(),
+            )));
+        let mut subject = make_subject(Some(persistent_config));
+
+        let _result = subject.handle_configuration(
+            UiConfigurationRequest {
+                db_password_opt: Some("password".to_string()),
+            },
+            4321,
+        );
+    }
+
+    #[test]
     fn configuration_handles_check_password_error() {
         let persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Err(PersistentConfigError::NotPresent));
@@ -2441,6 +2840,7 @@ mod tests {
                 "0x0123456789012345678901234567890123456789".to_string(),
             )))
             .start_block_result(Ok(3456))
+            .max_block_count_result(Ok(Some(100000)))
             .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .consuming_wallet_private_key_result(cwpk);
@@ -2547,8 +2947,8 @@ mod tests {
         fn from(persistent_config: Box<dyn PersistentConfiguration>) -> Self {
             Configurator {
                 persistent_config,
-                node_to_ui_sub: None,
-                new_password_subs: None,
+                node_to_ui_sub_opt: None,
+                config_change_subs_opt: None,
                 crashable: false,
                 logger: Logger::new("Configurator"),
             }

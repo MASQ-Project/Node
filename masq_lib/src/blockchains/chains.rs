@@ -3,7 +3,7 @@
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
     DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
 
@@ -12,14 +12,7 @@ pub enum Chain {
     EthMainnet,
     EthRopsten,
     PolyMainnet,
-    PolyMumbai,
-    Dev,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum ChainFamily {
-    Eth,
-    Polygon,
+    PolyAmoy,
     Dev,
 }
 
@@ -35,8 +28,8 @@ impl From<&str> for Chain {
             Chain::PolyMainnet
         } else if str == ETH_MAINNET_FULL_IDENTIFIER {
             Chain::EthMainnet
-        } else if str == POLYGON_MUMBAI_FULL_IDENTIFIER {
-            Chain::PolyMumbai
+        } else if str == POLYGON_AMOY_FULL_IDENTIFIER {
+            Chain::PolyAmoy
         } else if str == ETH_ROPSTEN_FULL_IDENTIFIER {
             Chain::EthRopsten
         } else if str == DEV_CHAIN_FULL_IDENTIFIER {
@@ -143,7 +136,6 @@ mod tests {
             literal_identifier: "",
             contract: Default::default(),
             contract_creation_block: 0,
-            chain_family: ChainFamily::Polygon,
         }
     }
 
