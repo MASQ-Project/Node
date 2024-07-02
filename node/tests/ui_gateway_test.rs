@@ -2,8 +2,6 @@
 
 pub mod utils;
 
-use std::thread;
-use std::time::Duration;
 use crate::utils::MASQNode;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::SerializableLogLevel::Warn;
@@ -15,6 +13,8 @@ use masq_lib::messages::{
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::{add_chain_specific_directory, find_free_port};
+use std::thread;
+use std::time::Duration;
 use utils::CommandConfig;
 
 #[test]
