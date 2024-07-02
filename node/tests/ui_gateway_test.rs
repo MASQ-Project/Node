@@ -13,6 +13,8 @@ use masq_lib::messages::{
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::{add_chain_specific_directory, find_free_port};
+use std::thread;
+use std::time::Duration;
 use utils::CommandConfig;
 
 #[test]
@@ -54,6 +56,7 @@ fn ui_requests_something_and_gets_corresponding_response() {
 
 #[test]
 fn log_broadcasts_are_correctly_received_integration() {
+    thread::sleep(Duration::from_secs(5));
     fdlimit::raise_fd_limit();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(

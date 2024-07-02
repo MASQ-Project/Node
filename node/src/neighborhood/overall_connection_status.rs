@@ -337,13 +337,14 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Unable to receive node addr for the descriptor NodeDescriptor { blockchain: EthRopsten, encryption_public_key: 0x000000, node_addr_opt: None }"
+        expected = "Unable to receive node addr for the descriptor NodeDescriptor { blockchain: EthRopsten, encryption_public_key: 0x000000, node_addr_opt: None, country_code: \"ZZ\" }"
     )]
     fn can_not_create_a_new_connection_without_node_addr() {
         let descriptor_with_no_ip_address = NodeDescriptor {
             blockchain: Chain::EthRopsten,
             encryption_public_key: PublicKey::from(vec![0, 0, 0]),
             node_addr_opt: None,
+            country_code: "ZZ".to_string(),
         };
         let _connection_progress = ConnectionProgress::new(descriptor_with_no_ip_address);
     }
