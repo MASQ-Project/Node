@@ -730,58 +730,6 @@ mod tests {
     }
 
     #[test]
-    fn request_block_number_works() {
-        //TODO: GH-744: Change this to use retrieve_transactions as the act
-
-        // let port = find_free_port();
-        // let _test_server = TestServer::start(
-        //     port,
-        //     vec![br#"{"jsonrpc":"2.0","id":7,"result":"0x2c7b8e7"}"#.to_vec()], // 0x400 == 1024
-        // );
-        // let (event_loop_handle, transport) = Http::with_max_parallel(
-        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-        //     REQUESTS_IN_PARALLEL,
-        // )
-        // .unwrap();
-        // let start_block_nbr = BlockNumber::Number(100u64.into());
-        // let end_block_nbr = BlockNumber::Number(2024u64.into());
-        // let subject =
-        //     BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        // let logger = Logger::new("request_block_number_works");
-        //
-        // let result =
-        //     request_block_number(subject.get_web3(), end_block_nbr, logger).wait();
-        //
-        // assert_eq!(result, Ok(46643431u64));
-    }
-
-    #[test]
-    fn request_block_number_fallback_works() {
-        //TODO: GH-744: Change this to use retrieve_transactions as the act
-        //
-        // let port = find_free_port();
-        // let _test_server = TestServer::start(
-        //     port,
-        //     vec![br#"{"jsonrpc":"2.0","id":7,"result":""}"#.to_vec()], // 0x400 == 1024
-        // );
-        // let (event_loop_handle, transport) = Http::with_max_parallel(
-        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-        //     REQUESTS_IN_PARALLEL,
-        // )
-        // .unwrap();
-        // let start_block_nbr = BlockNumber::Number(100u64.into());
-        // let end_block_nbr = BlockNumber::Number(2024u64.into());
-        // let subject =
-        //     BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        // let logger = Logger::new("request_block_number_works");
-        //
-        // let result =
-        //     request_block_number(subject.get_web3(), start_block_nbr, end_block_nbr, logger).wait();
-        //
-        // assert_eq!(result, Ok(2024u64));
-    }
-
-    #[test]
     #[should_panic(
         expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x000000000000000000006261645f77616c6c6574).\")"
     )]

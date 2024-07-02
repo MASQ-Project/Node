@@ -8,9 +8,10 @@ use crate::blockchain::blockchain_interface::lower_level_interface::{
 use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use ethereum_types::{U256, U64};
+use ethereum_types::{H256, U256, U64};
 use futures::Future;
-use web3::types::Address;
+use web3::types::{Address, TransactionReceipt};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 
 #[derive(Default)]
@@ -63,6 +64,21 @@ impl LowBlockchainInt for LowBlockchainIntMock {
         //     .unwrap()
         //     .push(address.clone());
         // self.get_transaction_id_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>> {
+        todo!("GH-744: Come back to this - get_transaction_receipt - Mock");
+
+        // self.get_transaction_receipt_params
+        //     .lock()
+        //     .unwrap()
+        //     .push(hash);
+        // self.get_transaction_receipt_results.borrow_mut().remove(0)
+    }
+
+
+    fn get_transaction_receipt_batch(&self, hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
+        todo!("GH-744: Come back to this - get_transaction_receiptget_transaction_receipt_batch - Mock");
     }
 
     // fn dup(&self) -> Box<dyn LowBlockchainInt> {

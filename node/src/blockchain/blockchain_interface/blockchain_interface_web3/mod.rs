@@ -237,40 +237,9 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-
-    fn get_token_balance(
-        // TODO: GH-744 - This has been migrated to Blockchain_interface_utils
-        &self,
-        _wallet: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("Code migrated to Blockchain_interface_utils");
-        // Box::new(
-        //     self.get_contract()
-        //         .query(
-        //             "balanceOf",
-        //             wallet.address(),
-        //             None,
-        //             Options::default(),
-        //             None,
-        //         )
-        //         .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
-        // )
-    }
-
-    fn get_transaction_count(
-        &self,
-        wallet: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        Box::new(
-            self.get_web3()
-                .eth()
-                .transaction_count(wallet.address(), Some(BlockNumber::Pending))
-                .map_err(|e| BlockchainError::QueryFailed(e.to_string())),
-        )
-    }
-
-    // TODO: GH-744: Remove this wait
+    // TODO: GH-744: Remove this wait -- Put this in lower_level_interface 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
+        todo!("Where is get_transaction_receipt");
         self.get_web3()
             .eth()
             .transaction_receipt(hash)
@@ -555,39 +524,6 @@ mod tests {
                 ]
             }
         )
-    }
-
-    #[test]
-    fn get_transaction_count_works() {
-        let port = find_free_port();
-        let wallet = make_paying_wallet(b"test_wallet");
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x1".to_string(), 2)
-            .start();
-
-        let subject = make_blockchain_interface_web3(Some(port));
-
-        let result = subject.get_transaction_count(&wallet).wait();
-        assert_eq!(result, Ok(1.into()));
-    }
-
-    #[test]
-    fn get_transaction_count_gets_error() {
-        let port = find_free_port();
-        let wallet = make_paying_wallet(b"test_wallet");
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash".to_string(), 2)
-            .start();
-
-        let subject = make_blockchain_interface_web3(Some(port));
-
-        let result = subject.get_transaction_count(&wallet).wait();
-        assert_eq!(
-            result,
-            Err(QueryFailed(
-                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()
-            ))
-        );
     }
 
     #[test]
@@ -1143,69 +1079,7 @@ mod tests {
     //     assert_eq!(*send_params, vec![(1, expected_request)])
     // }
 
-    #[test]
-    fn blockchain_interface_web3_can_fetch_transaction_receipt() {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#
-                .to_vec()
-        ]);
-        // let (event_loop_handle, transport) = Http::with_max_parallel(
-        //     &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-        //     REQUESTS_IN_PARALLEL,
-        // )
-        // .unwrap();
-        // let chain = TEST_DEFAULT_CHAIN;
-        let subject = make_blockchain_interface_web3(Some(port));
-        let tx_hash =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
 
-        let result = subject.get_transaction_receipt(tx_hash);
-
-        let expected_receipt = TransactionReceipt{
-            transaction_hash: tx_hash,
-            transaction_index: Default::default(),
-            block_hash: Some(H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18").unwrap()),
-            block_number:Some(U64::from_str("b0328d").unwrap()),
-            cumulative_gas_used: U256::from_str("60ef").unwrap(),
-            gas_used: Some(U256::from_str("60ef").unwrap()),
-            contract_address: None,
-            logs: vec![],
-            status: Some(U64::from(0)),
-            root: None,
-            logs_bloom: H2048::from_str("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000").unwrap()
-        };
-        assert_eq!(result, Ok(Some(expected_receipt)));
-    }
-
-    #[test]
-    fn get_transaction_receipt_handles_errors() {
-        let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = TEST_DEFAULT_CHAIN;
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
-        let tx_hash = make_tx_hash(4564546);
-
-        let actual_error = subject.get_transaction_receipt(tx_hash).unwrap_err();
-        let error_message = if let BlockchainError::QueryFailed(em) = actual_error {
-            em
-        } else {
-            panic!("Expected BlockchainError::QueryFailed(msg)");
-        };
-        assert_string_contains(
-            error_message.as_str(),
-            "Transport error: Error(Connect, Os { code: ",
-        );
-        assert_string_contains(
-            error_message.as_str(),
-            ", kind: ConnectionRefused, message: ",
-        );
-    }
 
     #[test]
     fn hash_the_smart_contract_transfer_function_signature() {

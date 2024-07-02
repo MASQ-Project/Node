@@ -134,7 +134,7 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: RequestTransactionReceipts, _ctx: &mut Self::Context) {
-        self.handle_scan(
+        self.handle_scan_future(
             Self::handle_request_transaction_receipts,
             ScanType::PendingPayables,
             msg,
@@ -409,51 +409,57 @@ impl BlockchainBridge {
         )
     }
 
+    // Result<(), String>
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
-    ) -> Result<(), String> {
-        let init: (
-            Vec<Option<TransactionReceipt>>,
-            Option<(BlockchainError, H256)>,
-        ) = (vec![], None);
-        let (vector_of_results, error_opt) = msg.pending_payable.iter().fold(
-            init,
-            |(mut ok_receipts, err_opt), current_fingerprint| match err_opt {
-                None => match self
-                    .blockchain_interface
-                    .get_transaction_receipt(current_fingerprint.hash) // TODO: GH-744: Wait
-                {
-                    Ok(receipt_opt) => {
-                        ok_receipts.push(receipt_opt);
-                        (ok_receipts, None)
-                    }
-                    Err(e) => (ok_receipts, Some((e, current_fingerprint.hash))),
-                },
-                _ => (ok_receipts, err_opt),
-            },
-        );
-        let pairs = vector_of_results
-            .into_iter()
-            .zip(msg.pending_payable.into_iter())
-            .collect_vec();
-        self.pending_payable_confirmation
-            .report_transaction_receipts_sub_opt
-            .as_ref()
-            .expect("Accountant is unbound")
-            .try_send(ReportTransactionReceipts {
-                fingerprints_with_receipts: pairs,
-                response_skeleton_opt: msg.response_skeleton_opt,
-            })
-            .expect("Accountant is dead");
-        if let Some((e, hash)) = error_opt {
-            return Err (format! (
-                "Aborting scanning; request of a transaction receipt for '{:?}' failed due to '{:?}'",
-                hash,
-                e
-            ));
-        }
-        Ok(())
+    ) -> Box<dyn Future<Item = (), Error = String>> {
+
+        todo!("Please wait");
+
+        // let init: (
+        //     Vec<Option<TransactionReceipt>>,
+        //     Option<(BlockchainError, H256)>,
+        // ) = (vec![], None);
+        // let (vector_of_results, error_opt) = msg.pending_payable.iter().fold(
+        //     init,
+        //     |(mut ok_receipts, err_opt), current_fingerprint| match err_opt {
+        //         None => match self.blockchain_interface.lower_interface().get_transaction_receipt(current_fingerprint.hash) // Is a future now
+        //         {
+        //             Ok(receipt_opt) => {
+        //                 ok_receipts.push(receipt_opt);
+        //                 (ok_receipts, None)
+        //             }
+        //             Err(e) => (ok_receipts, Some((e, current_fingerprint.hash))),
+        //         },
+        //         _ => (ok_receipts, err_opt),
+        //     },
+        // );
+        //
+        //
+        //
+        //
+        // let pairs = vector_of_results
+        //     .into_iter()
+        //     .zip(msg.pending_payable.into_iter())
+        //     .collect_vec();
+        // self.pending_payable_confirmation
+        //     .report_transaction_receipts_sub_opt
+        //     .as_ref()
+        //     .expect("Accountant is unbound")
+        //     .try_send(ReportTransactionReceipts {
+        //         fingerprints_with_receipts: pairs,
+        //         response_skeleton_opt: msg.response_skeleton_opt,
+        //     })
+        //     .expect("Accountant is dead");
+        // if let Some((e, hash)) = error_opt {
+        //     return Err (format! (
+        //         "Aborting scanning; request of a transaction receipt for '{:?}' failed due to '{:?}'",
+        //         hash,
+        //         e
+        //     ));
+        // }
+        // Ok(())
     }
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
@@ -528,10 +534,10 @@ impl BlockchainBridge {
         let chain = self.blockchain_interface.get_chain();
         let web3_batch = self.blockchain_interface.get_web3_batch();
         let consuming_wallet_clone = consuming_wallet.clone();
+        let consuming_wallet_address = consuming_wallet.address();
 
         return Box::new(
-            self.blockchain_interface
-                .get_transaction_count(consuming_wallet)
+            self.blockchain_interface.lower_interface().get_transaction_id(consuming_wallet_address)
                 .map_err(|e| PayableTransactionError::TransactionID(e))
                 .and_then(move |pending_nonce| {
                     send_payables_within_batch(
@@ -1224,7 +1230,7 @@ mod tests {
         assert_eq!(
             error_result,
             TransactionID(BlockchainError::QueryFailed(
-                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()
+                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0) for wallet 0x2581…7849".to_string()
             ))
         );
         let recording = accountant_recording.lock().unwrap();
@@ -1635,7 +1641,7 @@ mod tests {
         };
         let system = System::new("test");
 
-        let _ = subject.handle_scan(
+        let _ = subject.handle_scan_future(
             BlockchainBridge::handle_request_transaction_receipts,
             ScanType::PendingPayables,
             msg,

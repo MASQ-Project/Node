@@ -177,49 +177,9 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         // self.build_blockchain_agent_results.borrow_mut().remove(0)
     }
 
-    // fn send_batch_of_payables(
-    //     &self,
-    //     agent: Box<dyn BlockchainAgent>,
-    //     new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-    //     accounts: &[PayableAccount],
-    // ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-    //     self.send_batch_of_payables_params.lock().unwrap().push((
-    //         agent.arbitrary_id_stamp(),
-    //         new_fingerprints_recipient.clone(),
-    //         accounts.to_vec(),
-    //     ));
-    //     self.send_batch_of_payables_results.borrow_mut().remove(0)
-    // }
-
-     fn get_token_balance(
-        &self,
-        _address: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - This function has moved to lower interface")
-        // self.get_token_balance_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(address.clone());
-        // Box::new(result(
-        //     self.get_token_balance_results.borrow_mut().remove(0),
-        // ))
-    }
-
-    fn get_transaction_count(
-        &self,
-        _wallet: &Wallet,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - This function has moved to lower interface")
-        // self.get_transaction_count_parameters
-        //     .lock()
-        //     .unwrap()
-        //     .push(wallet.clone());
-        // Box::new(result(
-        //     self.get_transaction_count_results.borrow_mut().remove(0),
-        // ))
-    }
-
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
+        todo!("GH-744 - Migrating to lower_level_interface");
+
         self.get_transaction_receipt_params
             .lock()
             .unwrap()
@@ -229,7 +189,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn lower_interface(&self) ->Box<dyn LowBlockchainInt> {
         todo!("GH-744: Come back to this");
-
         // self.lower_interface_result.as_ref().unwrap().as_ref()
     }
 }
