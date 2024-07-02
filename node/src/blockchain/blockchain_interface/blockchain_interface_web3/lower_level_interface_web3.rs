@@ -449,8 +449,6 @@ mod tests {
         );
     }
 
-    //     get_transaction_receipt_batch
-
     #[test]
     fn transaction_receipt_batch_works() {
         let port = find_free_port();
@@ -470,7 +468,10 @@ mod tests {
         let subject = make_blockchain_interface_web3(Some(port));
         let tx_hash_1 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e").unwrap();
         let tx_hash_2 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f").unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
+        let tx_hash_3 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0a").unwrap();
+        let tx_hash_4 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0b").unwrap();
+        let tx_hash_vec = vec![tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4];
+
         let result = subject.lower_interface().get_transaction_receipt_batch(tx_hash_vec).wait().unwrap();
 
         assert_eq!(result[0], TransactionReceiptResult::Error("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
@@ -489,6 +490,21 @@ mod tests {
             logs_bloom: H2048::from_str("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000").unwrap()
         }));
         assert_eq!(result[3], TransactionReceiptResult::Error("invalid type: string \"trash\", expected struct Receipt".to_string()));
+    }
+
+    #[test]
+    fn transaction_receipt_batch_fails_on_submit_batch() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+             .start();
+        let subject = make_blockchain_interface_web3(Some(port));
+        let tx_hash_1 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e").unwrap();
+        let tx_hash_2 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f").unwrap();
+        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
+
+        let result = subject.lower_interface().get_transaction_receipt_batch(tx_hash_vec).wait().unwrap_err();
+
+        assert_eq!(result, BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string()));
     }
 
 }
