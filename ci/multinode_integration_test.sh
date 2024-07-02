@@ -21,7 +21,7 @@ case "$OSTYPE" in
     export RUSTFLAGS="-D warnings -Anon-snake-case"
 
     pushd "$CI_DIR/../multinode_integration_tests"
-    ci/all.sh "$PARENT_DIR" || pwd
+    ci/all.sh "$PARENT_DIR"
     popd
     ;;
   *)
