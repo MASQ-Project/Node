@@ -7,5 +7,5 @@ TOOLCHAIN_HOME="$1"
 pushd "$CI_DIR/.."
 ci/lint.sh
 ci/unit_tests.sh
-ci/integration_tests.sh "$TOOLCHAIN_HOME"
+ci/integration_tests.sh "$TOOLCHAIN_HOME" || pwd
 popd

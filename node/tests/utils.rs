@@ -6,7 +6,7 @@ use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::{
     ensure_node_home_directory_exists, node_home_directory, recreate_data_dir,
 };
-use masq_lib::utils::{add_masq_and_chain_directories, localhost};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost, running_test};
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
@@ -361,6 +361,7 @@ impl MASQNode {
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
+        running_test();
         let data_dir = match (
             sterile_database,
             Self::data_directory_from_config_opt(&config_opt),
