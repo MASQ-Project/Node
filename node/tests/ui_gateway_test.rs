@@ -2,6 +2,8 @@
 
 pub mod utils;
 
+use std::thread;
+use std::time::Duration;
 use crate::utils::MASQNode;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::SerializableLogLevel::Warn;
@@ -54,6 +56,7 @@ fn ui_requests_something_and_gets_corresponding_response() {
 
 #[test]
 fn log_broadcasts_are_correctly_received_integration() {
+    thread::sleep(Duration::from_secs(5));
     fdlimit::raise_fd_limit();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
