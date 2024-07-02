@@ -13,7 +13,7 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
+use actix::{Message, Recipient};
 use crossbeam_channel::{unbounded, Receiver};
 use futures::future;
 use futures::future::Future;
@@ -41,6 +41,11 @@ pub struct StreamHandlerPoolReal {
     stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
 
+pub struct StreamSenders {
+    pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
+    pub reader_shutdown: Box<dyn SenderWrapper<()>>,
+}
+
 struct StreamHandlerPoolRealInner {
     // TODO: GH-800 - Hashmap with two senders in it
     // stream_channels: HashMap<StreamKey, SomeStructureThatContainsTheTwoSenders>
@@ -53,7 +58,7 @@ struct StreamHandlerPoolRealInner {
     //
     accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
     proxy_client_subs: ProxyClientSubs,
-    stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
+    stream_writer_channels: HashMap<StreamKey, StreamSenders>,
     resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
     establisher_factory: Box<dyn StreamEstablisherFactory>,
@@ -174,7 +179,7 @@ impl StreamHandlerPoolReal {
             debug!(
                 inner.logger,
                 "Removing stream writer for {}",
-                sender_wrapper.peer_addr()
+                sender_wrapper.writer_data.peer_addr()
             );
         }
         Self::send_terminating_package(
@@ -184,7 +189,6 @@ impl StreamHandlerPoolReal {
         );
     }
 
-    // TODO: GH-800 - ProxyServer - after sending the last_data = true, wait for few seconds (maybe 5) before we delete the StreamKey
     fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload_0v1,
@@ -205,8 +209,9 @@ impl StreamHandlerPoolReal {
                             inner.logger,
                             "Removing StreamWriter {:?} to {}",
                             stream_key,
-                            channel.peer_addr()
-                        )
+                            channel.writer_data.peer_addr()
+                        );
+                        todo!("")
                         // TODO: GH-800 - We want the StreamReader to shutdown here
                     }
                     None => debug!(
@@ -401,7 +406,8 @@ impl StreamHandlerPoolReal {
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
         let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
-        sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
+        sender_wrapper_opt
+            .map(|sender_wrapper_box_ref| sender_wrapper_box_ref.writer_data.as_ref().clone())
     }
 
     fn make_logger_copy(inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>) -> Logger {
@@ -454,14 +460,14 @@ impl StreamHandlerPoolReal {
                             stream_key,
                             last_data: true,
                             sequence_number,
-                            source: writer_channel.peer_addr(),
+                            source: writer_channel.writer_data.peer_addr(),
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
                     debug!(
                         inner.logger,
                         "Killed StreamWriter to {} and sent server-drop report",
-                        writer_channel.peer_addr()
+                        writer_channel.writer_data.peer_addr()
                     )
                 }
                 None => debug!(
@@ -478,15 +484,16 @@ impl StreamHandlerPoolReal {
             match self.stream_adder_rx.try_recv() {
                 Err(_) => break,
                 Ok((stream_key, stream_writer_channel)) => {
-                    debug!(
-                        inner.logger,
-                        "Persisting StreamWriter to {} under key {:?}",
-                        stream_writer_channel.peer_addr(),
-                        stream_key
-                    );
-                    inner
-                        .stream_writer_channels
-                        .insert(stream_key, stream_writer_channel)
+                    todo!("GH-800: Fix it such that the stream_adder_rx holds StreamSenders");
+                    // debug!(
+                    //     inner.logger,
+                    //     "Persisting StreamWriter to {} under key {:?}",
+                    //     stream_writer_channel.peer_addr(),
+                    //     stream_key
+                    // );
+                    // inner
+                    //     .stream_writer_channels
+                    //     .insert(stream_key, stream_writer_channel)
                 }
             };
         }
@@ -535,7 +542,7 @@ mod tests {
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
-    use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
+    use crate::sub_lib::channel_wrappers::{FuturesChannelFactoryReal, SenderWrapperReal};
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
@@ -674,8 +681,9 @@ mod tests {
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let write_parameters = Arc::new(Mutex::new(vec![]));
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let tx_to_write = Box::new(
-            SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap())
+            SenderWrapperMock::new(peer_addr)
                 .unbounded_send_result(Ok(()))
                 .unbounded_send_params(&write_parameters),
         );
@@ -698,12 +706,13 @@ mod tests {
                 100,
                 200,
             );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(stream_key, tx_to_write);
+            subject.inner.lock().unwrap().stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: tx_to_write,
+                    reader_shutdown: Box::new(SenderWrapperMock::new(peer_addr)),
+                },
+            );
 
             run_process_package_in_actix(subject, package);
         });
@@ -745,11 +754,10 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
-
-            let tx_to_write = SenderWrapperMock::new(SocketAddr::from_str("2.3.4.5:80").unwrap())
-                .unbounded_send_result(make_send_error(
-                    client_request_payload.sequenced_packet.clone(),
-                ));
+            let peer_addr = SocketAddr::from_str("2.3.4.5:80").unwrap();
+            let tx_to_write = SenderWrapperMock::new(peer_addr).unbounded_send_result(
+                make_send_error(client_request_payload.sequenced_packet.clone()),
+            );
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -759,12 +767,13 @@ mod tests {
                 100,
                 200,
             );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(client_request_payload.stream_key, Box::new(tx_to_write));
+            subject.inner.lock().unwrap().stream_writer_channels.insert(
+                client_request_payload.stream_key,
+                StreamSenders {
+                    writer_data: Box::new(tx_to_write),
+                    reader_shutdown: Box::new(SenderWrapperMock::new(peer_addr)),
+                },
+            );
 
             run_process_package_in_actix(subject, package);
         });
@@ -1626,12 +1635,15 @@ mod tests {
                 100,
                 200,
             );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(stream_key, Box::new(sender_wrapper));
+            subject.inner.lock().unwrap().stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(sender_wrapper),
+                    reader_shutdown: Box::new(SenderWrapperMock::new(
+                        SocketAddr::from_str("2.3.4.5:6789").unwrap(),
+                    )), // irrelevant
+                },
+            );
 
             run_process_package_in_actix(subject, package);
         });
@@ -1727,9 +1739,13 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         {
             let mut inner = subject.inner.lock().unwrap();
-            inner
-                .stream_writer_channels
-                .insert(stream_key, Box::new(SenderWrapperMock::new(peer_addr)));
+            inner.stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown: Box::new(SenderWrapperMock::new(peer_addr)), // irrelevant
+                },
+            );
         }
         stream_killer_tx.send((stream_key, 47)).unwrap();
 
