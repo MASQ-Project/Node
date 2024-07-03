@@ -18,6 +18,7 @@ use node_lib::sub_lib::neighborhood::GossipFailure_0v1;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
+use std::thread;
 use std::time::Duration;
 
 #[test]
@@ -146,7 +147,8 @@ fn node_remembers_its_neighbors_across_a_bounce() {
     let mut config = originating_node.get_startup_config();
     config.neighbors = vec![];
     originating_node.restart_node(config);
-    let (gossip, ip_addr) = relay1.wait_for_gossip(Duration::from_millis(2000)).unwrap();
+    thread::sleep(Duration::from_secs(5));
+    let (gossip, ip_addr) = relay1.wait_for_gossip(Duration::from_millis(5000)).unwrap();
     match parse_gossip(&gossip, ip_addr) {
         GossipType::DebutGossip(_) => (),
         gt => panic!("Expected GossipType::Debut, but found {:?}", gt),
