@@ -6,7 +6,7 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
@@ -17,6 +17,7 @@ pub struct StreamReader {
     proxy_client_sub: Recipient<InboundServerData>,
     stream: Box<dyn ReadHalfWrapper>,
     stream_killer: Sender<(StreamKey, u64)>,
+    shutdown_signal: Receiver<()>,
     peer_addr: SocketAddr,
     logger: Logger,
     sequencer: Sequencer,
@@ -29,7 +30,8 @@ impl Future for StreamReader {
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
-            // TODO: We should check for a message, try_receive()
+            // TODO: GH-800: If there is a message waiting log the message with the info!() and break out of the loop
+            // TODO: We should check for self.shutdown_signal.try_recv()
             // If the check is successful we want to close the Stream and complete the future.
             // Async::Ready(()) can be used
             match self.stream.poll_read(&mut buf) {
@@ -85,6 +87,7 @@ impl StreamReader {
         proxy_client_sub: Recipient<InboundServerData>,
         stream: Box<dyn ReadHalfWrapper>,
         stream_killer: Sender<(StreamKey, u64)>,
+        shutdown_signal: Receiver<()>,
         peer_addr: SocketAddr,
     ) -> StreamReader {
         StreamReader {
@@ -92,6 +95,7 @@ impl StreamReader {
             proxy_client_sub,
             stream,
             stream_killer,
+            shutdown_signal,
             peer_addr,
             logger: Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]),
             sequencer: Sequencer::new(),
@@ -178,6 +182,7 @@ mod tests {
             proxy_client_sub,
             stream,
             stream_killer,
+            shutdown_signal: unbounded().1,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
@@ -261,6 +266,7 @@ mod tests {
             proxy_client_sub,
             stream: Box::new(stream),
             stream_killer,
+            shutdown_signal: unbounded().1,
             peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
@@ -331,6 +337,7 @@ mod tests {
             proxy_client_sub: peer_actors.proxy_client_opt.unwrap().inbound_server_data,
             stream: Box::new(stream),
             stream_killer,
+            shutdown_signal: unbounded().1,
             peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
             logger: Logger::new("test"),
             sequencer,
@@ -379,6 +386,7 @@ mod tests {
             proxy_client_sub,
             stream: Box::new(stream),
             stream_killer,
+            shutdown_signal: unbounded().1,
             peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),

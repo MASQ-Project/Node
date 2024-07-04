@@ -1,10 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::proxy_client::stream_handler_pool::StreamSenders;
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
-use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
+use crate::sub_lib::channel_wrappers::{FuturesChannelFactory, SenderWrapperReal};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -14,7 +15,7 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
-use crossbeam_channel::Sender;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
@@ -22,8 +23,9 @@ use std::net::SocketAddr;
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
-    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
+    pub shutdown_signal_rx: Receiver<()>,
     pub stream_connector: Box<dyn StreamConnector>,
     pub proxy_client_sub: Recipient<InboundServerData>,
     pub logger: Logger,
@@ -36,6 +38,7 @@ impl Clone for StreamEstablisher {
             cryptde: self.cryptde,
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
+            shutdown_signal_rx: unbounded().1,
             stream_connector: Box::new(StreamConnectorReal {}),
             proxy_client_sub: self.proxy_client_sub.clone(),
             logger: self.logger.clone(),
@@ -58,10 +61,14 @@ impl StreamEstablisher {
             &self.logger,
         )?;
 
+        // TODO: GH-800: Test Drive Me
+        let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
+
         self.spawn_stream_reader(
             &payload.clone(),
             connection_info.reader,
             connection_info.peer_addr,
+            shutdown_signal_rx,
         );
 
         let (tx_to_write, rx_to_write) = self.channel_factory.make(connection_info.peer_addr);
@@ -73,8 +80,14 @@ impl StreamEstablisher {
         );
         tokio::spawn(stream_writer);
 
+        // TODO: GH-800: Test Drive Me
+        let stream_senders = StreamSenders {
+            writer_data: tx_to_write.clone(),
+            reader_shutdown: shutdown_signal_tx,
+        };
+
         self.stream_adder_tx
-            .send((payload.stream_key, tx_to_write.clone()))
+            .send((payload.stream_key, stream_senders))
             .expect("StreamHandlerPool died");
         Ok(tx_to_write)
     }
@@ -84,12 +97,14 @@ impl StreamEstablisher {
         payload: &ClientRequestPayload_0v1,
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
+        shutdown_signal: Receiver<()>,
     ) {
         let stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
             read_stream,
             self.stream_killer_tx.clone(),
+            shutdown_signal,
             peer_addr,
         );
         debug!(self.logger, "Spawning StreamReader for {}", peer_addr);
@@ -103,7 +118,7 @@ pub trait StreamEstablisherFactory: Send {
 
 pub struct StreamEstablisherFactoryReal {
     pub cryptde: &'static dyn CryptDE,
-    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub proxy_client_subs: ProxyClientSubs,
     pub logger: Logger,
@@ -115,6 +130,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
             cryptde: self.cryptde,
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
+            shutdown_signal_rx: unbounded().1,
             stream_connector: Box::new(StreamConnectorReal {}),
             proxy_client_sub: self.proxy_client_subs.inbound_server_data.clone(),
             logger: self.logger.clone(),
@@ -171,6 +187,7 @@ mod tests {
                 cryptde: main_cryptde(),
                 stream_adder_tx,
                 stream_killer_tx,
+                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
                 proxy_client_sub,
                 logger: Logger::new("ProxyClient"),
@@ -191,6 +208,7 @@ mod tests {
                 },
                 read_stream,
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                unbounded().1,
             );
 
             proxy_client_awaiter.await_message_count(1);

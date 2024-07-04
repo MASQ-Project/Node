@@ -14,7 +14,7 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use futures::future;
 use futures::future::Future;
 use masq_lib::logger::Logger;
@@ -37,21 +37,17 @@ pub trait StreamHandlerPool {
 
 pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    stream_adder_rx: Receiver<(StreamKey, StreamSenders)>,
     stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
 
 pub struct StreamSenders {
     pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
-    pub reader_shutdown: Box<dyn SenderWrapper<()>>,
+    pub reader_shutdown: Sender<()>,
 }
 
 struct StreamHandlerPoolRealInner {
     // TODO: GH-800 - Hashmap with two senders in it
-    // stream_channels: HashMap<StreamKey, SomeStructureThatContainsTheTwoSenders>
-    // The two senders:
-    // 1. writer: Box<dyn SenderWrapper<SequencedPacket>>
-    // 2. signal: Box<dyn SenderWrapper<()>>
     // KillStreamSignal
     // Steps to follow:
     // An Actor A sends a message containing the StreamKey signaling that it wants to Kill the stream
@@ -204,14 +200,16 @@ impl StreamHandlerPoolReal {
             // TODO: GH-800 - We want to process the payload before we perform what we're supposed to do if last_data is true.
             if last_data {
                 match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(channel) => {
+                    Some(stream_senders) => {
                         debug!(
                             inner.logger,
                             "Removing StreamWriter {:?} to {}",
                             stream_key,
-                            channel.writer_data.peer_addr()
+                            stream_senders.writer_data.peer_addr()
                         );
-                        todo!("")
+                        // You need not to use expect(), _ is sufficient, you may use match in case you want to log it because it might be already gone
+                        todo!("Try stream_senders.reader_shutdown.unbounded_send(()) ")
+
                         // TODO: GH-800 - We want the StreamReader to shutdown here
                     }
                     None => debug!(
@@ -483,17 +481,17 @@ impl StreamHandlerPoolReal {
         loop {
             match self.stream_adder_rx.try_recv() {
                 Err(_) => break,
-                Ok((stream_key, stream_writer_channel)) => {
-                    todo!("GH-800: Fix it such that the stream_adder_rx holds StreamSenders");
+                Ok((stream_key, stream_senders)) => {
+                    // todo!("GH-800: Fix it such that the stream_adder_rx holds StreamSenders");
                     // debug!(
                     //     inner.logger,
                     //     "Persisting StreamWriter to {} under key {:?}",
-                    //     stream_writer_channel.peer_addr(),
+                    //     stream_senders.writer_data.peer_addr(),
                     //     stream_key
                     // );
                     // inner
                     //     .stream_writer_channels
-                    //     .insert(stream_key, stream_writer_channel)
+                    //     .insert(stream_key, stream_senders)
                 }
             };
         }
@@ -618,6 +616,7 @@ mod tests {
                 cryptde,
                 stream_adder_tx: unbounded().0,
                 stream_killer_tx: unbounded().0,
+                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(StreamConnectorMock::new()),
                 proxy_client_sub: peer_actors
                     .proxy_client_opt
@@ -710,7 +709,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: tx_to_write,
-                    reader_shutdown: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown: unbounded().0,
                 },
             );
 
@@ -771,7 +770,7 @@ mod tests {
                 client_request_payload.stream_key,
                 StreamSenders {
                     writer_data: Box::new(tx_to_write),
-                    reader_shutdown: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown: unbounded().0,
                 },
             );
 
@@ -859,6 +858,7 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
+                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -968,6 +968,7 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
+                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -1147,6 +1148,7 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
+                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -1247,6 +1249,7 @@ mod tests {
                 cryptde,
                 stream_adder_tx,
                 stream_killer_tx,
+                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(
                     StreamConnectorMock::new()
                         .connect_pair_result(Err(Error::from(ErrorKind::Other))),
@@ -1369,6 +1372,7 @@ mod tests {
                 cryptde,
                 stream_adder_tx,
                 stream_killer_tx,
+                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(
                     StreamConnectorMock::new()
                         .connect_pair_result(Err(Error::from(ErrorKind::Other))),
@@ -1485,6 +1489,7 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
+                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(
                         StreamConnectorMock::new()
                             .with_connection(peer_addr, peer_addr, reader, writer),
@@ -1639,9 +1644,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(sender_wrapper),
-                    reader_shutdown: Box::new(SenderWrapperMock::new(
-                        SocketAddr::from_str("2.3.4.5:6789").unwrap(),
-                    )), // irrelevant
+                    reader_shutdown: unbounded().0,
                 },
             );
 
@@ -1743,7 +1746,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                    reader_shutdown: Box::new(SenderWrapperMock::new(peer_addr)), // irrelevant
+                    reader_shutdown: unbounded().0,
                 },
             );
         }
