@@ -82,21 +82,37 @@ jobs:
             aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
             aws configure set region $AWS_REGION
 
-        - name: Sync to S3 if branch starts with GH or v
+        - if: startsWith(github.head_ref, 'GH')
+          name: Versioned S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
           env:
             AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          run: |
-            if [[ "${{ github.head_ref }}" == GH* ]]; then
-              DEST_DIR="Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}"
-            elif [[ "${{ github.head_ref }}" == v* ]]; then
-              DEST_DIR="Node/latest/Node-${{ matrix.os }}"
-            fi
-            SOURCE_DIR="Node-${{ matrix.os }}/generated/bin/"
-            aws s3 sync $SOURCE_DIR s3://$AWS_S3_BUCKET/$DEST_DIR --acl private --follow-symlinks --delete
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}'
+            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
+
+        - if: startsWith(github.head_ref, 'v')
+          name: Latest S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/latest/Node-${{ matrix.os }}'
+            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
 
         - name: Invalidate Binaries CloudFront
+          uses: chetan/invalidate-cloudfront-action@v2.4
           env:
-            DISTRIBUTION_ID: ${{ secrets.DISTRIBUTION }}
-          run: |
-            INVALIDATION_ID=$(aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*" | jq -r '.Invalidation.Id')
-            echo "Invalidation ID: $INVALIDATION_ID"
+            DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
+            PATHS: "/Node*"
+            AWS_REGION: "us-west-2"
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
