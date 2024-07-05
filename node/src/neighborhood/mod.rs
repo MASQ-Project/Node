@@ -1024,6 +1024,7 @@ impl Neighborhood {
             request_msg.payload_size,
             RouteDirection::Over,
             hostname_opt,
+            request_msg.target_country_opt.clone()
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         // Estimate for routing-undesirability calculations.
@@ -1041,6 +1042,7 @@ impl Neighborhood {
             anticipated_response_payload_len,
             RouteDirection::Back,
             hostname_opt,
+            request_msg.target_country_opt
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1101,6 +1103,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
+        exit_location_opt: Option<String>,
     ) -> Result<RouteSegment, String> {
         let route_opt = self.find_best_route_segment(
             origin,
@@ -1109,6 +1112,7 @@ impl Neighborhood {
             payload_size,
             direction,
             hostname_opt,
+            exit_location_opt
         );
         match route_opt {
             None => {
@@ -1211,6 +1215,7 @@ impl Neighborhood {
         payload_size: u64,
         undesirability_type: UndesirabilityType,
         logger: &Logger,
+        exit_location_opt: Option<String>,
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
@@ -1275,10 +1280,11 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
+        exit_location_opt: Option<String>
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
-            self.compute_initial_undesirability(source, payload_size as u64, direction);
+            self.compute_initial_undesirability(source, payload_size as u64, direction, exit_location_opt, );
         let result = self
             .routing_engine(
                 vec![source],
@@ -1405,6 +1411,7 @@ impl Neighborhood {
         public_key: &PublicKey,
         payload_size: u64,
         direction: RouteDirection,
+        exit_location_opt: Option<String>,
     ) -> i64 {
         if direction == RouteDirection::Over {
             return 0;
@@ -3239,34 +3246,34 @@ mod tests {
 
         // At least two hops from p to anywhere standard
         let route_opt =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
         let route_opt =
-            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
         let route_opt =
-            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None, None);
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
         let route_opt =
-            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None);
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None, None);
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
         let route_opt =
-            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None, None);
 
         assert_eq!(route_opt, None);
     }
@@ -3339,7 +3346,7 @@ mod tests {
 
         // All the target-designated routes from L to N
         let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
+            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None, None)
             .unwrap();
 
         let after = Instant::now();
@@ -3373,7 +3380,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(b, c);
         let cdb = db.clone();
 
-        let route = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+        let route = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
 
         let exit_node = cdb.node_by_key(&route.as_ref().unwrap().get(2).unwrap());
         assert_eq!(exit_node.unwrap().inner.country_code, "CZ");
@@ -3393,7 +3400,7 @@ mod tests {
 
         // At least two hops from P to anywhere standard
         let route_opt =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
 
         assert_eq!(route_opt, None);
     }
@@ -3492,6 +3499,7 @@ mod tests {
             node_record.public_key(),
             1_000,
             RouteDirection::Over,
+            None,
         );
 
         assert_eq!(
@@ -3513,6 +3521,7 @@ mod tests {
             node_record.public_key(),
             1_000,
             RouteDirection::Back,
+            None
         );
 
         let rate_pack = node_record.rate_pack();
