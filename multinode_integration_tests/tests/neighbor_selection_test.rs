@@ -18,7 +18,6 @@ use node_lib::sub_lib::neighborhood::GossipFailure_0v1;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use node_lib::test_utils::vec_to_set;
 use std::convert::TryInto;
-use std::thread;
 use std::time::Duration;
 
 #[test]
