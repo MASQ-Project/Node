@@ -13,6 +13,7 @@ use masq_lib::messages::{
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::{add_chain_specific_directory, find_free_port};
+use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 use utils::CommandConfig;
@@ -165,6 +166,13 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let assertion_lookup_pattern_2 =
         |_port_spec_ui: &str| "Received shutdown order from client 1".to_string();
     let second_port = connected_and_disconnected_assertion(2, assertion_lookup_pattern_2);
+    //TODO Create card to Change infrastructure and add node_client.send here and it should return result - we send the suhtdown request in loop until it not returns
+    loop {
+        if let Ok(_stream) = TcpStream::connect(format!("127.0.0.1:{}", ui_redirect.port)) {
+        } else {
+            break;
+        }
+    }
     let _ = daemon.kill();
     daemon.wait_for_exit();
     //only an additional assertion checking the involved clients to have different port numbers
