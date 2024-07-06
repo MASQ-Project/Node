@@ -462,6 +462,8 @@ impl StreamHandlerPoolReal {
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
+                    // TODO: GH-800: Send a signal to the reader_shutdown
+                    // Test should have a fake server, and the (read and write should be different) server
                     debug!(
                         inner.logger,
                         "Killed StreamWriter to {} and sent server-drop report",
@@ -819,6 +821,7 @@ mod tests {
                 client_request_payload.into(),
                 0,
             );
+            // TODO: GH-800: Apparently, we can remove both lookup_ip mock functions
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_parameters(&lookup_ip_parameters)
                 .lookup_ip_success(vec![

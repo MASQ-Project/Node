@@ -62,7 +62,10 @@ impl StreamEstablisher {
         )?;
 
         // TODO: GH-800: Test Drive Me
-        let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
+        // let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
+
+        let shutdown_signal_tx = unbounded().0;
+        let shutdown_signal_rx = unbounded().1;
 
         self.spawn_stream_reader(
             &payload.clone(),
@@ -80,7 +83,6 @@ impl StreamEstablisher {
         );
         tokio::spawn(stream_writer);
 
-        // TODO: GH-800: Test Drive Me
         let stream_senders = StreamSenders {
             writer_data: tx_to_write.clone(),
             reader_shutdown: shutdown_signal_tx,

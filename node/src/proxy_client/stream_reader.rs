@@ -27,6 +27,8 @@ impl Future for StreamReader {
     type Item = ();
     type Error = ();
 
+    // Unit test: Create StreamReader and call poll(), it should check return value - return Ok(Async::Ready(()));
+    // stream.poll_read_results = vec![]
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
