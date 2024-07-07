@@ -37,22 +37,20 @@ impl BroadcastHandles {
     }
 
     pub fn handle_broadcast(&self, message_body: MessageBody) {
-        todo!()
-        // match UiRedirect::fmb(message_body.clone()) {
-        //     Ok((redirect, _)) => {
-        //         let context_id = redirect.context_id.unwrap_or(0);
-        //         self.redirect_order_tx
-        //             .send(RedirectOrder::new(
-        //                 redirect.port,
-        //                 context_id,
-        //                 REDIRECT_TIMEOUT_MILLIS,
-        //             ))
-        //             .expect("ConnectionManagerThread is dead");
-        //     }
-        //     Err(_) => {
-        //         self.next_handle.send(message_body);
-        //     }
-        // };
+        match UiRedirect::fmb(message_body.clone()) {
+            Ok((redirect, _)) => {
+                let context_id = redirect.context_id.unwrap_or(0);
+                self.redirect
+                    .send(RedirectOrder::new(
+                        redirect.port,
+                        context_id,
+                        REDIRECT_TIMEOUT_MILLIS,
+                    ))
+            }
+            Err(_) => {
+                self.standard.send(message_body);
+            }
+        };
     }
 
     pub fn notify<Broadcast>(&self, notification: Broadcast)

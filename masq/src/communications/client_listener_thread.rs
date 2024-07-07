@@ -42,30 +42,30 @@ impl ClientListener {
         self,
         is_closing: Arc<AtomicBool>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-    ) -> ClientListenerHandle {
+    ) -> WSClientHandle {
         let listener_half = self.websocket.receiver_rx().clone();
         let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
         let task_handle = event_loop.spawn();
-        ClientListenerHandle::new(self.websocket, task_handle)
+        WSClientHandle::new(self.websocket, task_handle)
     }
 }
 
-pub struct ClientListenerHandle {
+pub struct WSClientHandle {
     websocket: WebSocket,
-    event_loop_join_handle: JoinHandle<()>,
+    listening_event_loop_join_handle: JoinHandle<()>,
 }
 
-impl Drop for ClientListenerHandle {
+impl Drop for WSClientHandle {
     fn drop(&mut self) {
         self.dismiss_event_loop()
     }
 }
 
-impl ClientListenerHandle {
+impl WSClientHandle {
     pub fn new(websocket: WebSocket, event_loop_join_handle: JoinHandle<()>) -> Self {
         Self {
             websocket,
-            event_loop_join_handle,
+            listening_event_loop_join_handle: event_loop_join_handle,
         }
     }
 
@@ -78,7 +78,7 @@ impl ClientListenerHandle {
     }
 
     pub fn dismiss_event_loop(&self) {
-        self.event_loop_join_handle.abort()
+        self.listening_event_loop_join_handle.abort()
     }
 }
 
@@ -159,7 +159,7 @@ impl ClientListenerEventLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{make_websocket, websocket_utils};
+    use crate::test_utils::mocks::{make_and_connect_websocket, websocket_utils};
     use async_channel::{unbounded, Sender};
     use futures::{FutureExt, TryFutureExt};
     use masq_lib::messages::{
@@ -175,9 +175,13 @@ mod tests {
     use workflow_websocket::client::{Ack, Message as ClientMessage};
     use workflow_websocket::server::Message as ServerMessage;
 
-    impl ClientListenerHandle {
+    impl WSClientHandle {
+        pub fn is_connection_open(&self) -> bool {
+            self.websocket.is_open()
+        }
+
         fn is_event_loop_spinning(&self) -> bool {
-            !self.event_loop_join_handle.is_finished()
+            !self.listening_event_loop_join_handle.is_finished()
         }
     }
 
@@ -195,7 +199,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let stop_handle = server.start().await;
-        let websocket = make_websocket(port);
+        let websocket = make_and_connect_websocket(port);
         let (websocket, talker_half, _) = websocket_utils(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
@@ -209,7 +213,7 @@ mod tests {
         assert_eq!(message_body, expected_message.tmb(1));
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, true);
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None,None).await;
         wait_for_stop(&client_listener_handle).await;
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
@@ -238,7 +242,7 @@ mod tests {
         wait_for_stop(&client_listener_handle).await;
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None, None).await;
     }
 
     #[tokio::test]
@@ -269,7 +273,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_owned_message(ServerMessage::Binary(vec![]));
         let stop_handle = server.start().await;
-        let websocket = make_websocket(port).await;
+        let websocket = make_and_connect_websocket(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
@@ -282,7 +286,7 @@ mod tests {
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, true);
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None,None).await;
         wait_for_stop(&client_listener_handle).await;
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
@@ -293,7 +297,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("booga");
         let stop_handle = server.start().await;
-        let websocket = make_websocket(port).await;
+        let websocket = make_and_connect_websocket(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
@@ -306,7 +310,7 @@ mod tests {
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
         let is_running = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_running, true);
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None, None).await;
         wait_for_stop(&client_listener_handle).await;
         let is_running = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_running, false);
@@ -326,7 +330,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let client_handle = ClientListenerHandle::new(websocket, join_handle);
+        let client_handle = WSClientHandle::new(websocket, join_handle);
         let count_before = Arc::strong_count(&ref_counting_object);
 
         drop(client_handle);
@@ -335,7 +339,7 @@ mod tests {
         while Arc::strong_count(&ref_counting_object) > 1 {
             tokio::time::sleep(Duration::from_millis(10)).await
         }
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None, None).await;
     }
 
     #[tokio::test]
@@ -380,21 +384,21 @@ mod tests {
         join_handle
             .await
             .expect("We expected peacefully completed task");
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None, None).await;
     }
 
     #[tokio::test]
-    async fn close_talker_half_works(){
+    async fn close_talker_half_works() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let websocket = make_websocket(port).await;
+        let websocket = make_and_connect_websocket(port).await;
         let meaningless_event_loop_join_handle = tokio::task::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let subject = ClientListenerHandle::new(websocket, meaningless_event_loop_join_handle);
+        let subject = WSClientHandle::new(websocket, meaningless_event_loop_join_handle);
         let is_closed_before = subject.websocket.sender_tx().is_closed();
 
         let closed_successfully = subject.close_talker_half();
@@ -403,7 +407,7 @@ mod tests {
         assert_eq!(is_closed_before, false);
         assert_eq!(closed_successfully, true);
         assert_eq!(is_closed_after, true);
-        let _ = stop_handle.stop();
+        let _ = stop_handle.stop(None, None).await;
     }
 
     #[test]
@@ -414,8 +418,8 @@ mod tests {
         assert_eq!(ClientListenerError::UnexpectedPacket.is_fatal(), false);
     }
 
-    async fn wait_for_stop(listener_handle: &ClientListenerHandle) {
-        listener_handle.event_loop_join_handle.abort();
+    async fn wait_for_stop(listener_handle: &WSClientHandle) {
+        listener_handle.listening_event_loop_join_handle.abort();
         let mut retries = 100;
         while retries > 0 {
             retries -= 1;

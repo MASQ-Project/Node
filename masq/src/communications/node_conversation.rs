@@ -4,6 +4,8 @@ use crate::communications::connection_manager::OutgoingMessageType;
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -30,6 +32,7 @@ pub struct NodeConversation {
     context_id: u64,
     conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
     manager_to_conversation_rx: ManagerToConversationReceiver,
+    closing_stage: Arc<AtomicBool>
 }
 
 impl Drop for NodeConversation {
@@ -57,11 +60,13 @@ impl NodeConversation {
         context_id: u64,
         conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
         manager_to_conversation_rx: ManagerToConversationReceiver,
+        closing_stage: Arc<AtomicBool>
     ) -> Self {
         Self {
             context_id,
             conversations_to_manager_tx,
             manager_to_conversation_rx,
+            closing_stage
         }
     }
 
@@ -73,6 +78,11 @@ impl NodeConversation {
         if let MessagePath::Conversation(_) = outgoing_msg.path {
             panic! ("Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead.")
         }
+
+        if self.closing_stage.load(Ordering::Relaxed){
+            return Err(ClientError::ConnectionDropped)
+        }
+
         match self
             .conversations_to_manager_tx
             .send(OutgoingMessageType::FireAndForgetMessage(
@@ -103,6 +113,11 @@ impl NodeConversation {
         if outgoing_msg.path == MessagePath::FireAndForget {
             panic! ("Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeConversation::send() instead.")
         }
+
+        if self.closing_stage.load(Ordering::Relaxed){
+            return Err(ClientError::ConnectionDropped)
+        }
+
         outgoing_msg.path = MessagePath::Conversation(self.context_id());
         match self
             .conversations_to_manager_tx
@@ -117,11 +132,12 @@ impl NodeConversation {
                 let time_out = Instant::now() + Duration::from_millis(timeout_millis);
                 let recv_result = match tokio::time::timeout_at(time_out, fut).await {
                     Ok(result) => result,
-                    Err(err) => todo!(), // Err(RecvTimeoutError::Timeout) => Err(ClientError::Timeout(timeout_millis)),
+                    Err(_) => return Err(ClientError::Timeout(timeout_millis)),
                 };
                 // let recv_result = self
                 //     .manager_to_conversation_rx
                 //     .recv_timeout(Duration::from_millis(timeout_millis));
+                //TODO go through all the cases and see if each fails on a panic as there is always a test relating to them
                 match recv_result {
                     Ok(Ok(body)) => Ok(body),
                     Ok(Err(NodeConversationTermination::Graceful)) => {
@@ -175,7 +191,7 @@ mod tests {
     ) {
         let (message_body_send_tx, message_body_send_rx) = async_channel::unbounded();
         let (message_body_receive_tx, message_body_receive_rx) = async_channel::unbounded();
-        let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx);
+        let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx, Arc::new(AtomicBool::new(false)));
         (subject, message_body_receive_tx, message_body_send_rx)
     }
 
@@ -301,7 +317,7 @@ mod tests {
     async fn transact_handles_receive_error() {
         let (message_body_send_tx, _) = async_channel::unbounded();
         let (_, message_body_receive_rx) = async_channel::unbounded();
-        let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx);
+        let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx, Arc::new(AtomicBool::new(false)));
 
         let result = subject
             .transact(UiShutdownRequest {}.tmb(24), 1000)

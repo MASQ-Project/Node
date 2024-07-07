@@ -351,7 +351,7 @@ impl MockCommand {
     }
 }
 
-pub async fn make_websocket(port: u16) -> WebSocket {
+pub async fn make_and_connect_websocket(port: u16) -> WebSocket {
     let url = format!("ws://{}:{}", localhost(), port);
     let mut config = WebSocketConfig::default();
     // config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
@@ -373,7 +373,7 @@ pub async fn connect(websocket: &WebSocket) {
 }
 
 pub async fn websocket_utils(port: u16) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
-    let websocket = make_websocket(port).await;
+    let websocket = make_and_connect_websocket(port).await;
     let talker_half = websocket.sender_tx().clone();
     let listener_half = websocket.receiver_rx().clone();
     (websocket, talker_half, listener_half)

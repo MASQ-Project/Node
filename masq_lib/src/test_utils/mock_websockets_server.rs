@@ -1,39 +1,47 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::fmt::format;
 use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
-use crate::ui_traffic_converter::UiTrafficConverter;
+use crate::ui_traffic_converter::{UiTrafficConverter, UnmarshalError};
 use crate::utils::localhost;
+use async_trait::async_trait;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use itertools::Either;
 use lazy_static::lazy_static;
+use std::fmt::{format, Debug};
 use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
 use std::ops::Not;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
-use tokio::task;
-use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::{mem, thread};
+use std::time::{Duration, Instant, SystemTime};
+use nix::sys::socket::AddressFamily::System;
+use tokio::{select, task};
+use std::str::FromStr;
+use clap::ArgAction;
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::task::{JoinHandle, spawn_blocking};
 use workflow_websocket::server::error::Error as WebsocketServerError;
 use workflow_websocket::server::{
     Error, Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer,
     WebSocketSink,
 };
-use async_trait::async_trait;
-use tokio::task::JoinHandle;
+use crate::test_utils::utils::make_rt;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
 }
 
 struct NodeUiProtocolWebSocketHandler {
-    requests_arc: Arc<Mutex<Vec<ReceivedWebsocketMessage>>>,
+    requests_arc: Arc<Mutex<Vec<WSMsgMockServerReceived>>>,
     responses_arc: Arc<Mutex<Vec<Message>>>,
-    looping_tx: Sender<()>,
     termination_style_rx: Receiver<TerminationStyle>,
     websocket_sink_tx: Sender<WebSocketSink>,
     websocket_sink_rx: Receiver<WebSocketSink>,
-    first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
+    connections_status: Arc<tokio::sync::Mutex<ConnectionStatus>>,
+    opening_broadcasts_signal_rx_opt: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     do_log: bool,
     index: u64,
 }
@@ -45,15 +53,35 @@ impl Drop for NodeUiProtocolWebSocketHandler {
             Ok(TerminationStyle::Kill) => true,
             _ => false,
         };
+        let latest_connection_status = self.connections_status.clone();
+        let do_log = self.do_log;
+        let index = self.index;
+
+        tokio::task::spawn( async move {
+            if kill_flag {
+                log(
+                    do_log,
+                    index,
+                    "Setting the connection status that server is killed from an outer directive",
+                );
+                MockWebSocketsServer::announce_killed_status(latest_connection_status).await
+            } else if matches!(*latest_connection_status.lock().await, ConnectionStatus::Connected(..)) {
+                log(
+                    do_log,
+                    index,
+                    "Server's disconnect function hasn't been called, fixing status during drop",
+                );
+                MockWebSocketsServer::switch_connection_status(&latest_connection_status).await;
+            }
+        });
+
         if !kill_flag {
             if let Ok(websocket_sink) = self.websocket_sink_rx.try_recv() {
-                websocket_sink.send(Message::Close(None)).unwrap();
-            }
-            else {
+                let _ = websocket_sink.send(Message::Close(None));
+            } else {
                 eprintln!(
-                    "Tried to gracefully close the WebSocket connection, but it seems no WebSocket \
-                    has been initialized in the server's session, therefore the Clone cannot be and \
-                    even does't need to be sihnalized."
+                    "No WebSocket connection has been initialized in the server's session, \
+                    Close cannot be, and what more, does't need to be signalized."
                 )
             }
         }
@@ -85,16 +113,14 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             self.index,
             "Checking for initial fire-and-forget messages",
         );
-        match self.looping_tx.send(()) {
-            Ok(_) => (),
-            Err(e) => {
-                let msg = format!("MockWebSocketsServerStopHandle died before loop could start: {:?}", e);
-                log(self.do_log, self.index, &msg);
-                return Err(Error::Other(msg));
-            }
-        }
-        self.handle_all_f_f_messages_introducing_the_queue(sink);
+        self.handle_opening_broadcasts(sink);
+        MockWebSocketsServer::switch_connection_status(&self.connections_status).await;
+        eprintln!("After change: {:?}", self.connections_status.lock().await);
         Ok(())
+    }
+
+    async fn disconnect(self: &Arc<Self>, _ctx: Self::Context, _result: workflow_websocket::server::Result<()>) {
+        MockWebSocketsServer::switch_connection_status(&self.connections_status).await;
     }
 
     async fn message(
@@ -108,27 +134,21 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             self.index,
             "Checking for fire-and-forget messages",
         );
-        self.handle_all_f_f_messages_introducing_the_queue(sink);
+        self.release_fire_and_forget_messages_introducing_the_queue(sink);
         log(self.do_log, self.index, "Checking for message from client");
-        let incoming = self.handle_incoming_including_close(msg)?;
-            log(
-                self.do_log,
-                self.index,
-                &format!("Recording incoming message: {:?}", incoming),
-            );
-            {
-                self.requests_arc.lock().unwrap().push(ReceivedWebsocketMessage::MASQNodeUIProtocol {
-                    unmarshal_result: incoming.clone()
-                });
-            }
-            if let Ok(message_body) = incoming {
+        let incoming = self.handle_incoming_msg(msg);
+
+        let cash_for_panic_opt = self.record_incomming_msg(
+            incoming.received_wrong_data_is_fatal(),
+            incoming.request_to_be_recorded,
+        );
+
+        match incoming.incoming_message_resolution {
+            Either::Left(Ok(message_body)) => {
                 match message_body.path {
                     MessagePath::Conversation(_) => {
-                        if self.handle_conversational_incoming_message(sink).not() {
-                            return Err(Error::ServerClose); // "disconnect" received
-                        }
+                        self.handle_conversational_incoming_message(sink)
                     }
-
                     MessagePath::FireAndForget => {
                         log(
                             self.do_log,
@@ -137,24 +157,30 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
                         );
                     }
                 }
-            } else {
+                Ok(())
+            }
+            Either::Left(Err(unexpected_impulse_from_test)) => {
                 log(
                     self.do_log,
                     self.index,
                     "Going to panic: Unrecognizable form of a text message",
                 );
-                panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
+                panic!(
+                    "Unrecognizable incoming message received; you should refrain from sending some \
+                    meaningless garbage to the server: {:?}",
+                    cash_for_panic_opt
+                        .expect("panic expected but the cached data to be print can not be found")
+                )
             }
-        Ok(())
+            Either::Right(polite_instruction_to_server) => Err(polite_instruction_to_server),
+        }
     }
 }
 
 impl NodeUiProtocolWebSocketHandler {
-    fn handle_all_f_f_messages_introducing_the_queue(&self, sink: &WebSocketSink) {
+    fn release_fire_and_forget_messages_introducing_the_queue(&self, sink: &WebSocketSink) {
         let mut counter = 0usize;
         loop {
-            let should_signal_first_f_f_msg =
-                self.first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
             if self.responses_arc.lock().unwrap().is_empty() {
                 break;
             }
@@ -165,10 +191,6 @@ impl NodeUiProtocolWebSocketHandler {
                     {
                         Ok(msg) => match msg.body.path {
                             MessagePath::FireAndForget => {
-                                if should_signal_first_f_f_msg {
-                                    log(self.do_log, self.index,"Sending a signal between the first two fire-and-forget messages");
-                                    self.first_f_f_msg_sent_tx_opt.as_ref().unwrap().send(()).unwrap()
-                                }
                                 let f_f_message = temporarily_owned_possible_f_f.clone();
                                 sink.send(f_f_message).unwrap();
                                 log(self.do_log, self.index, "Sending a fire-and-forget message to the UI");
@@ -190,79 +212,108 @@ impl NodeUiProtocolWebSocketHandler {
         }
     }
 
-    fn handle_incoming_including_close(&self, incoming: Message)->Result<Result<MessageBody, String>, WebsocketServerError>{
-        if matches!(incoming, Message::Close(..)) {
-            self.requests_arc.lock().unwrap().push(ReceivedWebsocketMessage::Close);
-            return Err(WebsocketServerError::ServerClose)
-        }
+    fn record_incomming_msg(
+        &self,
+        processing_is_going_wrong: bool,
+        request_to_be_recorded: WSMsgMockServerReceived,
+    ) -> Option<WSMsgMockServerReceived> {
+        log(
+            self.do_log,
+            self.index,
+            &format!("Recording incoming message: {:?}", request_to_be_recorded),
+        );
 
-        Ok(self.handle_incoming_msg_raw(incoming))
+        let cash_for_panic_opt = if processing_is_going_wrong {
+            Some(request_to_be_recorded.clone())
+        } else {
+            None
+        };
+
+        self.requests_arc
+            .lock()
+            .unwrap()
+            .push(request_to_be_recorded);
+
+        cash_for_panic_opt
     }
 
-    fn handle_incoming_msg_raw(&self, incoming: Message) -> Result<MessageBody, String> {
-        match incoming {
-            Message::Text(json) => {
-                log(self.do_log, self.index, &format!("Received '{}'", json));
-                match UiTrafficConverter::new_unmarshal_from_ui(&json, 0) {
-                    Ok(msg) => Ok(msg.body),
-                    Err(_) => Err(json),
-                }
-            }
-            x => {
+    fn handle_incoming_msg(&self, incoming: Message) -> ProcessedIncomingMessage {
+        let text_msg = match self.handle_non_textual_messages(incoming) {
+            Err(already_fully_processed) => return already_fully_processed,
+            Ok(message_body_json) => message_body_json,
+        };
+
+        self.handle_incoming_msg_raw(text_msg)
+    }
+
+    fn handle_non_textual_messages(
+        &self,
+        incoming: Message,
+    ) -> Result<String, ProcessedIncomingMessage> {
+        match &incoming {
+            Message::Text(string) => Ok(string.to_string()),
+            Message::Close(..) => Err(ProcessedIncomingMessage::new(
+                Either::Right(WebsocketServerError::ServerClose),
+                WSMsgMockServerReceived::WSNontextual(incoming.clone()),
+            )),
+            msg => {
                 log(
                     self.do_log,
                     self.index,
-                    &format!("Received unexpected message {:?} - discarding", x),
+                    &format!("Received unexpected message {:?} - discarding", msg),
                 );
-                Err(format!("{:?}", x))
+                let result = Err(UnrecognizedMessageErr::new(format!("{:?}", msg)));
+                Err(ProcessedIncomingMessage::new(
+                    Either::Left(result),
+                    WSMsgMockServerReceived::WSNontextual(incoming.clone()),
+                ))
             }
         }
     }
 
-    fn handle_conversational_incoming_message(&self, sink: &WebSocketSink) -> bool {
-        let mut temporary_access_to_responses = self.responses_arc.lock().unwrap();
-        if temporary_access_to_responses.len() != 0 {
-            match temporary_access_to_responses.remove(0) {
-                Message::Text(outgoing) => {
-                    if outgoing == "disconnect" {
-                        log(self.do_log, self.index, "Executing 'disconnect' directive");
-                        return false;
-                    }
-                    if outgoing == "close" {
-                        log(self.do_log, self.index, "Sending Close message");
-                        sink.send(Message::Close(None)).unwrap();
-                    } else {
-                        log(
-                            self.do_log,
-                            self.index,
-                            &format!("Responding with preset message: '{}'", &outgoing),
-                        );
-                        sink.send(Message::Text(outgoing)).unwrap();
-                    }
-                }
-                om => {
-                    log(
-                        self.do_log,
-                        self.index,
-                        &format!("Responding with preset Message: {:?}", om),
-                    );
-                    sink.send(om).unwrap()
-                }
-            }
-        } else {
-            log(self.do_log, self.index, "Sending Close message");
-            sink.send(Message::Binary(b"EMPTY QUEUE".to_vec())).unwrap()
-        };
-        true
+    fn handle_incoming_msg_raw(&self, msg_text: String) -> ProcessedIncomingMessage {
+        log(self.do_log, self.index, &format!("Received '{}'", msg_text));
+        match UiTrafficConverter::new_unmarshal_from_ui(&msg_text, 0) {
+            Ok(msg) => ProcessedIncomingMessage::new(
+                Either::Left(Ok(msg.body.clone())),
+                WSMsgMockServerReceived::MASQNodeUIv2Protocol(msg.body.clone()),
+            ),
+            Err(e) => ProcessedIncomingMessage::new(
+                Either::Left(Err(UnrecognizedMessageErr::new(e.to_string()))),
+                WSMsgMockServerReceived::WSTextual {
+                    unexpected_string: msg_text,
+                },
+            ),
+        }
     }
 
-    async fn message(
-        self: &Arc<Self>,
-        ctx: &(),
-        msg: Message,
-        sink: &WebSocketSink,
-    ) -> workflow_websocket::server::Result<()> {
-        todo!()
+    fn handle_conversational_incoming_message(&self, sink: &WebSocketSink) {
+        let mut temporary_access_to_responses = self.responses_arc.lock().unwrap();
+        if temporary_access_to_responses.len() != 0 {
+            let owned_msg = temporary_access_to_responses.remove(0);
+            log(
+                self.do_log,
+                self.index,
+                &format!("Responding with preset Message: {:?}", owned_msg),
+            );
+            sink.send(owned_msg).unwrap()
+        } else {
+            log(self.do_log, self.index, "No more messages to send back");
+            sink.send(Message::Binary(b"EMPTY QUEUE".to_vec())).unwrap()
+        }
+    }
+
+    fn handle_opening_broadcasts(self: &Arc<Self>, sink: &WebSocketSink){
+        if let Some(receiver) = self.opening_broadcasts_signal_rx_opt.lock().unwrap().take() {
+            let detached_server_clone = self.clone();
+            let sink_clone = sink.clone();
+            let _ = tokio::spawn(async move {
+                receiver.await.expect("Failed to release broadcasts on signal");
+                detached_server_clone.release_fire_and_forget_messages_introducing_the_queue(&sink_clone)
+            });
+        } else {
+            self.release_fire_and_forget_messages_introducing_the_queue(sink)
+        }
     }
 }
 
@@ -271,8 +322,7 @@ pub struct MockWebSocketsServer {
     port: u16,
     protocol: String,
     responses: Vec<Message>,
-    // TODO I can tear this out... The better version of masq cannot need to be tested this way
-    first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
+    opening_broadcast_signal_rx_opt: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
 impl MockWebSocketsServer {
@@ -282,7 +332,7 @@ impl MockWebSocketsServer {
             port,
             protocol: NODE_UI_PROTOCOL.to_string(),
             responses: vec![],
-            first_f_f_msg_sent_tx_opt: None,
+            opening_broadcast_signal_rx_opt: None,
         }
     }
 
@@ -303,8 +353,8 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub fn inject_signal_sender(mut self, sender: Sender<()>) -> Self {
-        self.first_f_f_msg_sent_tx_opt = Some(sender);
+    pub fn inject_opening_broadcasts_signal_receiver(mut self, receiver: tokio::sync::oneshot::Receiver<()>) -> Self {
+        self.opening_broadcast_signal_rx_opt = Some(receiver);
         self
     }
 
@@ -321,61 +371,63 @@ impl MockWebSocketsServer {
             index
         };
         let requests_arc = Arc::new(Mutex::new(vec![]));
-        let (looping_tx, looping_rx) = unbounded();
         let (termination_style_tx, termination_style_rx) = unbounded();
+        let (server_shutdown_tx, mut server_shutdown_rx) = unbounded_channel();
         let (websocket_sink_tx, websocket_sink_rx) = unbounded();
+        let connection_status = Arc::new(tokio::sync::Mutex::new(ConnectionStatus::Disconnected(0)));
 
         let handler = NodeUiProtocolWebSocketHandler {
             requests_arc: requests_arc.clone(),
             responses_arc: Arc::new(Mutex::new(self.responses)),
-            looping_tx,
             termination_style_rx,
             websocket_sink_tx,
             websocket_sink_rx,
-            first_f_f_msg_sent_tx_opt: None, // TODO Probably shouldn't be None. Bert?
+            connections_status: connection_status.clone(),
+            opening_broadcasts_signal_rx_opt: Mutex::new(self.opening_broadcast_signal_rx_opt),
             do_log: self.do_log,
             index,
         };
-        let server = WebSocketServer::new(Arc::new(handler), None);
+
+        let ws_server = WebSocketServer::new(Arc::new(handler), None);
         let socket_addr = SocketAddr::new(localhost(), self.port);
         log(
             self.do_log,
             index,
             format!("Listening on: {}", socket_addr).as_str(),
         );
-        let static_socket_addr_str: &'static str =
-            Box::leak(socket_addr.to_string().into_boxed_str());
-        let future = server.listen(static_socket_addr_str, None);
-        let join_handle = task::spawn(future);
+        let static_socket_addr_str: &'static str = Box::leak(socket_addr.to_string().into_boxed_str());
+        let server_task = ws_server.listen(static_socket_addr_str, None);
+        let join_handle = task::spawn(async move {
+                select! {
+                    res = server_task => {
+                        log(
+                            self.do_log,
+                            index,
+                            "Server's task completed unexpectedly",
+                        );
+                        res
+                    },
+                    _ = server_shutdown_rx.recv() => {
+                        log(
+                            self.do_log,
+                            index,
+                            "Received a shutdown order. Dumping the server's task",
+                        );
+                        Ok(())
+                    }
+                }
+            }
+        );
 
         MockWebSocketsServerStopHandle {
             index,
             log: self.do_log,
             requests_arc,
-            looping_rx,
+            connection_status,
             termination_style_tx,
-            join_handle,
+            server_shutdown_tx,
+            // join_handle_opt: Some(join_handle),
         }
-        // let future = async move {
-        //     let socket_addr = SocketAddr::new(localhost(), self.port);
-        //     let listener = TcpListener::bind(socket_addr).await
-        //         .expect(format!("MockWebsocketsServer could not bind to {:?}", socket_addr).as_str());
-        //     log(self.do_log, index, format!("Listening on: {}", socket_addr).as_str());
-        //     let (stream, peer_addr) = listener.accept().await.unwrap();
-        //     log(self.do_log, index, format!("Accepted TCP connection from {}", peer_addr).as_str());
-        //
-        //     Self::process_connection(
-        //         stream,
-        //         peer_addr,
-        //         requests_arc_inner,
-        //         self.responses_arc.clone(),
-        //         looping_tx,
-        //         stop_rx,
-        //         self.first_f_f_msg_sent_tx_opt.clone(),
-        //         self.do_log,
-        //         index
-        //     ).await
-        // };
     }
 
     // async fn process_connection(
@@ -570,22 +622,69 @@ impl MockWebSocketsServer {
     //         };
     //         true
     //     }
-}
+    async fn switch_connection_status(storage: &Arc<tokio::sync::Mutex<ConnectionStatus>>){
+         let mut current = storage.lock().await;
+         let new = current.switched();
+        let _ = mem::replace(current.deref_mut(), new);
+    }
 
-#[derive(Clone, Debug)]
-pub enum ReceivedWebsocketMessage{
-    Close,
-    MASQNodeUIProtocol {
-        unmarshal_result: Result<MessageBody, String>
+    async fn announce_killed_status(local_storage_to_drop_after: Arc<tokio::sync::Mutex<ConnectionStatus>>){
+        let mut current = local_storage_to_drop_after.lock().await;
+        let _ = mem::replace(current.deref_mut(), ConnectionStatus::ServerKilledFromOuterDirective);
     }
 }
 
-impl ReceivedWebsocketMessage{
-    pub fn expect_masq_node_uiv2(self)-> Result<MessageBody, String>{
-        if let Self::MASQNodeUIProtocol {unmarshal_result} = self {
+type IncomingMsgResolution = Either<Result<MessageBody, UnrecognizedMessageErr>, WebsocketServerError>;
+
+#[derive(Debug)]
+struct ProcessedIncomingMessage {
+    incoming_message_resolution: IncomingMsgResolution,
+    request_to_be_recorded: WSMsgMockServerReceived,
+}
+
+impl ProcessedIncomingMessage {
+    fn new(
+        processing_resolution: IncomingMsgResolution,
+        request_to_be_recorded: WSMsgMockServerReceived,
+    ) -> Self {
+        Self {
+            incoming_message_resolution: processing_resolution,
+            request_to_be_recorded,
+        }
+    }
+
+    fn received_wrong_data_is_fatal(&self) -> bool {
+        matches!(self.incoming_message_resolution, Either::Left(Err(..)))
+    }
+}
+
+#[derive(Debug)]
+struct UnrecognizedMessageErr {
+    err_msg: String,
+}
+
+impl UnrecognizedMessageErr {
+    fn new(err_msg: String) -> Self {
+        Self { err_msg }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum WSMsgMockServerReceived {
+    WSNontextual(Message),
+    WSTextual { unexpected_string: String },
+    MASQNodeUIv2Protocol(MessageBody),
+}
+
+impl WSMsgMockServerReceived {
+    pub fn expect_masq_ws_protocol_msg(self) -> MessageBody {
+        if let Self::MASQNodeUIv2Protocol(unmarshal_result) = self {
             unmarshal_result
         } else {
-            panic!("We expected a websocket message of our MASQNode-UIv2 but found {:?}", self)
+            panic!(
+                "We expected a websocket message of our MASQNode-UIv2 but found {:?}",
+                self
+            )
         }
     }
 }
@@ -593,65 +692,155 @@ impl ReceivedWebsocketMessage{
 pub struct MockWebSocketsServerStopHandle {
     index: u64,
     log: bool,
-    requests_arc: Arc<Mutex<Vec<ReceivedWebsocketMessage>>>,
-    looping_rx: Receiver<()>,
+    requests_arc: Arc<Mutex<Vec<WSMsgMockServerReceived>>>,
     termination_style_tx: Sender<TerminationStyle>,
-    join_handle: JoinHandle<Result<(), workflow_websocket::server::Error>>,
+    server_shutdown_tx: UnboundedSender<()>,
+    connection_status: Arc<tokio::sync::Mutex<ConnectionStatus>>,
+    // join_handle_opt: Option<JoinHandle<Result<(), workflow_websocket::server::Error>>>,
 }
 
 impl MockWebSocketsServerStopHandle {
-    pub fn stop(self) -> Vec<ReceivedWebsocketMessage> {
-        self.send_terminate_order(false)
+    pub async fn stop(self, time_granted_for_conn_establishment_opt: Option<Duration>, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<WSMsgMockServerReceived> {
+        self.send_terminate_order(false, time_granted_for_conn_establishment_opt, min_count_of_awaited_requests_opt.unwrap_or(0)).await
     }
 
-    pub fn kill(self) -> Vec<ReceivedWebsocketMessage> {
-        let result = self.send_terminate_order(true);
-        thread::sleep(Duration::from_millis(150));
+    pub async fn kill(self, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<WSMsgMockServerReceived> {
+        let result = self.send_terminate_order(true, None, min_count_of_awaited_requests_opt.unwrap_or(0)).await;
         result
     }
 
-    fn send_terminate_order(self, kill: bool) -> Vec<ReceivedWebsocketMessage> {
-        match self.looping_rx.try_recv() {
-            Ok(_) => {
-                log(
-                    self.log,
-                    self.index,
-                    &format!(
-                        "Sending terminate order with kill = {} to running background thread",
-                        kill
-                    ),
-                );
-                self.termination_style_tx.send(if kill {
-                    TerminationStyle::Kill
-                } else {
-                    TerminationStyle::Stop
-                }).unwrap();
-                log(self.log, self.index, "Joining background thread");
-                self.join_handle.abort();
-                log(
-                    self.log,
-                    self.index,
-                    "Background thread joined; retrieving recording",
-                );
-                let guard = match self.requests_arc.lock() {
-                    Ok(guard) => guard,
-                    Err(poison_error) => poison_error.into_inner(),
-                };
-                (*guard).clone()
+    async fn send_terminate_order(
+        mut self,
+        kill: bool,
+        time_granted_for_conn_establishment_opt: Option<Duration>,
+        awaited_count_of_handled_msgs: usize
+    ) -> Vec<WSMsgMockServerReceived> {
+        // Unfortunately, the used library and the tokio frimewark don't allow much about controlling
+        // the spawned server to such a level that we could politely shut down the server and still
+        // not to close the connection with waving a farwell to the distant client, and ideally to
+        // join the finished task. If We want to be able to kill it from here, this is a problem.
+        // (The future with the server refused to complite immediately even when we tried calling
+        // 'abort()' on its handle. The 'stop_and_join()' method belonging to the server disappointed
+        // by its effectiveness constrained only to running a server with all connections already
+        // disconnected - an active one would keep it from reaching the directive)
+        let start = Instant::now();
+        let hard_limit = time_granted_for_conn_establishment_opt.unwrap_or(Duration::from_millis(0));
+        let requests = loop {
+            let connection_status = {
+                *self.connection_status.lock().await
+            };
+            match connection_status {
+                ConnectionStatus::Connected(..) => {
+                    log(
+                        self.log,
+                        self.index,
+                        &format!(
+                            "Sending terminate order with kill = {} to running background thread",
+                            kill
+                        ),
+                    );
+                    let terminataion_msg = if kill {
+                        TerminationStyle::Kill
+                    } else {
+                        TerminationStyle::Stop
+                    };
+                    self.termination_style_tx
+                        .send(terminataion_msg)
+                        .unwrap();
+                    log(self.log, self.index, "Joining background thread");
+
+                    break self.await_all_msgs_to_be_handled(awaited_count_of_handled_msgs).await
+                },
+                ConnectionStatus::Disconnected(..) => {
+                    if start.elapsed() < hard_limit {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    } else {
+                        log(
+                            self.log,
+                            self.index,
+                            "Processing termination order, but Websockects already \
+                            disconnected. Proceeding to shut down the server wholly",
+                        );
+                        self.server_shutdown_tx.send(()).expect("Failed to send a shutdown order to the server");
+                        break vec![]
+                    }
+                }
+                ConnectionStatus::ServerKilledFromOuterDirective => {
+                    log(
+                        self.log,
+                        self.index,
+                        "Server already killed, no need to kick the horse's dead body",
+                    );
+                }
             }
-            Err(_) => {
-                log(
-                    self.log,
-                    self.index,
-                    "Background thread is stuck and can't be terminated; leaking it",
-                );
-                vec![]
-            }
-        }
+        };
+
+        self.await_disconnection().await;
+
+        requests
     }
 
-    pub fn is_terminated(&self)-> bool {
-        self.join_handle.is_finished()
+    async fn await_all_msgs_to_be_handled(&mut self, awaited_msg_count: usize)-> Vec<WSMsgMockServerReceived>{
+        let obtain_guard = ||match self.requests_arc.lock() {
+            Ok(guard) => guard,
+            Err(poison_error) => poison_error.into_inner(),
+        };
+
+        log(
+            self.log,
+            self.index,
+            "Waiting for expected number of received requests",
+        );
+        let recorded_requests_waiting_start = SystemTime::now();
+        let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
+        while obtain_guard().len() < awaited_msg_count {
+            if recorded_requests_waiting_start.elapsed().expect("travelling in time") >= recorded_requests_waiting_hard_limit {
+                panic!("We waited for all expected requests but they weren't receieved even after {} ms", recorded_requests_waiting_hard_limit.as_millis())
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await
+        }
+        let waiting_for_joining_the_server_task_hard_limit = Duration::from_millis(2500);
+        self.server_shutdown_tx.send(()).expect("sending server shutdown order failed");
+        // self.join_handle_opt.take().expect("join handle should be present").await;
+        // tokio::time::timeout(waiting_for_joining_the_server_task_hard_limit, self.join_handle).await
+        //     .unwrap_or_else(|_|panic!("Timed out after {} waiting for joining the stopped server", waiting_for_joining_the_server_task_hard_limit.as_millis()));
+            log(
+                self.log,
+                self.index,
+                "Background thread joined; retrieving recording",
+            );
+
+        (*obtain_guard()).clone()
+    }
+
+    pub async fn await_conn_established(&self){
+        self.await_loop(|read_conn_status|matches!(read_conn_status, ConnectionStatus::Connected(..))).await
+    }
+
+    pub async fn await_disconnection(&self){
+        self.await_loop(|read_conn_status|matches!(read_conn_status, ConnectionStatus::Disconnected(..))).await
+    }
+
+    async fn await_loop<F>(&self, test_desired_condition: F) where F: Fn(ConnectionStatus)->bool{
+        let status_clone = self.connection_status.clone();
+        let fut = async {
+            loop {
+                let status = *status_clone.lock().await;
+                eprintln!("trying again: {:?}", status);
+                tokio::time::sleep(Duration::from_millis(100)).await
+            }
+        };
+        tokio::time::timeout(Duration::from_millis(5_000), fut).await.expect("Timed out waiting for server connection's status change")
+    }
+
+    // pub fn is_terminated(&self) -> bool {
+    //     self.join_handle_opt.is_finished()
+    // }
+
+    async fn connection_status(&self)->ConnectionStatus{
+        let status = *self.connection_status.lock().await;
+        eprintln!("status: {:?}", status);
+        status
     }
 }
 
@@ -664,7 +853,31 @@ fn log(do_log: bool, index: u64, msg: &str) {
 
 enum TerminationStyle {
     Stop,
-    Kill
+    Kill,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ConnectionStatus{
+    // The additional number always signifies the number of prior connections that have been
+    // established
+    Disconnected(usize),
+    Connected(usize),
+    ServerKilledFromOuterDirective
+}
+
+impl ConnectionStatus{
+    fn switched(&self)->Self{
+        match self {
+            ConnectionStatus::Disconnected(connections_already_established) => {
+                ConnectionStatus::Connected(*connections_already_established + 1)
+            },
+            ConnectionStatus::Connected(connections_already_established) => {
+                ConnectionStatus::Disconnected(*connections_already_established)
+            },
+            x => panic!("Switched doesn't suite {:?}", x)
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -733,7 +946,7 @@ mod tests {
 
         //A) All messages "sent from UI to D/N", an exact order
         ////////////////////////////////////////////////////////////////////////////////////////////
-eprintln! ("One");
+        eprintln!("One");
         let conversation_number_one_request = UiCheckPasswordRequest {
             db_password_opt: None,
         };
@@ -760,7 +973,7 @@ eprintln! ("One");
         let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
-eprintln! ("Two");
+        eprintln!("Two");
         let server = MockWebSocketsServer::new(port)
             .queue_response(conversation_number_one_response.clone().tmb(1))
             .queue_response(conversation_number_two_response.clone().tmb(2))
@@ -768,17 +981,17 @@ eprintln! ("Two");
             .queue_response(broadcast_number_two)
             .queue_response(conversation_number_three_response)
             .queue_response(broadcast_number_three);
-eprintln! ("Three");
+        eprintln!("Three");
         let stop_handle = server.start().await;
-eprintln! ("Four");
+        eprintln!("Four");
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
-eprintln! ("Five");
+        eprintln!("Five");
 
         let received_message_number_one: UiCheckPasswordResponse = connection
             .transact_with_context_id(conversation_number_one_request.clone(), 1)
             .await
             .unwrap();
-eprintln! ("Six");
+        eprintln!("Six");
         assert_eq!(
             received_message_number_one.matches,
             conversation_number_one_response.matches
@@ -788,17 +1001,17 @@ eprintln! ("Six");
             .transact_with_context_id(conversation_number_two_request.clone(), 2)
             .await
             .unwrap();
-eprintln! ("Seven");
+        eprintln!("Seven");
         assert_eq!(
             received_message_number_two.matches,
             conversation_number_two_response.matches
         );
-eprintln!("Before freeze");
+        eprintln!("Before freeze");
 
         let _received_message_number_three: UiConfigurationChangedBroadcast = // TODO: Freezes here
             connection.skip_until_received().await.unwrap();
 
-eprintln!("After freeze");
+        eprintln!("After freeze");
         let _received_message_number_four: UiNodeCrashedBroadcast =
             connection.skip_until_received().await.unwrap();
 
@@ -841,19 +1054,32 @@ eprintln!("After freeze");
         };
 
         //catch_unwind so that we have a chance to shut down the server manually, not letting its thread leak away
-        let encapsulated_panic =
-            std::panic::AssertUnwindSafe(async {
-                connection
-                    .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
-                    .await
-                    .unwrap();
-            }).catch_unwind().await;
+        let encapsulated_panic = std::panic::AssertUnwindSafe(async {
+            connection
+                .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
+                .await
+                .unwrap();
+        })
+        .catch_unwind()
+        .await;
 
         stop_handle.stop();
-        let panic_err = encapsulated_panic
-            .unwrap_err();
-        let panic_message = panic_err.downcast_ref::<&str>()
-            .unwrap();
+        let panic_err = encapsulated_panic.unwrap_err();
+        let panic_message = panic_err.downcast_ref::<&str>().unwrap();
         assert_eq!(*panic_message, "The queue is empty; all messages are gone.")
+    }
+
+    #[test]
+    fn switch_status_works(){
+        let first = ConnectionStatus::Connected(3);
+        let storage_handle = Arc::new(Mutex::new(first));
+
+        MockWebSocketsServer::switch_connection_status(&storage_handle);
+        let second = *storage_handle.lock().unwrap();
+        MockWebSocketsServer::switch_connection_status(&second);
+        let third = *storage_handle.lock().unwrap();
+
+        assert_eq!(second, ConnectionStatus::Disconnected(3));
+        assert_eq!(third, ConnectionStatus::Connected(4))
     }
 }

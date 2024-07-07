@@ -206,7 +206,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(subject.active_port().await, Some(port));
-        handle.stop();
+        handle.stop(None, None).await;
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
             .await;
 
         assert_eq!(response, Err(PayloadError(101, "booga".to_string())));
-        stop_handle.stop();
+        stop_handle.stop(None, None).await;
     }
 
     #[tokio::test]
@@ -306,7 +306,7 @@ mod tests {
             Err(ConnectionDropped(_)) => (),
             x => panic!("Expected ConnectionDropped; got {:?} instead", x),
         }
-        stop_handle.stop();
+        stop_handle.stop(None, None).await;
     }
 
     #[test]
