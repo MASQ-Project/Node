@@ -77,6 +77,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -370,7 +371,7 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
 
 #[derive(Debug, PartialEq, Message, Clone)]
 pub struct ReportTransactionReceipts {
-    pub fingerprints_with_receipts: Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
+    pub fingerprints_with_receipts: Vec<(TransactionReceiptResult, PendingPayableFingerprint)>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -3535,8 +3536,8 @@ mod tests {
         };
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
-                (Some(transaction_receipt_1), fingerprint_1.clone()),
-                (Some(transaction_receipt_2), fingerprint_2.clone()),
+                (TransactionReceiptResult::Found(transaction_receipt_1), fingerprint_1.clone()),
+                (TransactionReceiptResult::Found(transaction_receipt_2), fingerprint_2.clone()),
             ],
             response_skeleton_opt: None,
         };

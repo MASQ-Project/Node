@@ -22,7 +22,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
-use ethereum_types::{BigEndianHash, H256};
+use ethereum_types::{BigEndianHash, H160, H256, U64};
 use futures::future::result;
 use futures::Future;
 use jsonrpc_core as rpc;
@@ -33,14 +33,21 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
+use std::process::id;
 use std::sync::{Arc, Mutex};
+use ethabi::Hash;
+use serde::Serialize;
+use serde_derive::Deserialize;
+use serde_json::json;
 use web3::contract::Contract;
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{Address, BlockNumber, SignedTransaction, U256};
+use web3::types::{Address, BlockNumber, H2048, Index, Log, SignedTransaction, TransactionReceipt, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
+use crate::sub_lib::peer_actors::PeerActors;
+use crate::test_utils::recorder::{make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder, make_configurator_subs_from_recorder, make_dispatcher_subs_from_recorder, make_hopper_subs_from_recorder, make_neighborhood_subs_from_recorder, make_proxy_client_subs_from_recorder, make_proxy_server_subs_from_recorder, make_ui_gateway_subs_from_recorder, Recorder};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -76,16 +83,134 @@ pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterf
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }
 
-// pub fn make_lower_interface_web3(port_opt: Option<u16>) -> LowBlockchainIntWeb3 {
-//     let port = port_opt.unwrap_or_else(|| find_free_port());
-//     let chain = Chain::PolyMainnet;
-//     let (_event_loop_handle, transport) = Http::with_max_parallel(
-//         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-//         REQUESTS_IN_PARALLEL,
-//     ).unwrap();
-//
-//     LowBlockchainIntWeb3::new(transport, chain)
-// }
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct RpcResponse<S:Serialize> {
+    #[serde(rename = "jsonrpc")]
+    json_rpc: String,
+    id: u8,
+    result: S
+}
+
+#[derive(Default)]
+pub struct ReceiptResponseBuilder {
+    transaction_hash_opt: Option<Hash>,
+    transaction_index_opt: Option<Index>,
+    block_hash_opt: Option<Hash>,
+    block_number_opt: Option<U64>,
+    cumulative_gas_used_opt: Option<U256>,
+    gas_used_opt: Option<U256>,
+    contract_address_opt: Option<H160>,
+    logs_opt: Option<Vec<Log>>,
+    status_opt: Option<U64>,
+    root_opt: Option<Hash>,
+    logs_bloom_opt: Option<H2048>,
+}
+
+impl ReceiptResponseBuilder {
+    pub fn transaction_hash(mut self, hash: Hash) -> ReceiptResponseBuilder {
+        self.transaction_hash_opt = Some(hash);
+        self
+    }
+
+    pub fn transaction_index(mut self, index: Index) -> ReceiptResponseBuilder {
+        self.transaction_index_opt = Some(index);
+        self
+    }
+
+    pub fn block_hash(mut self, hash: Hash) -> ReceiptResponseBuilder {
+        self.block_hash_opt = Some(hash);
+        self
+    }
+
+    pub fn block_number(mut self, number: U64) -> ReceiptResponseBuilder {
+        self.block_number_opt = Some(number);
+        self
+    }
+
+    pub fn cumulative_gas_used(mut self, number: U256) -> ReceiptResponseBuilder {
+        self.cumulative_gas_used_opt = Some(number);
+        self
+    }
+
+    pub fn gas_used(mut self, number: U256) -> ReceiptResponseBuilder {
+        self.gas_used_opt = Some(number);
+        self
+    }
+
+    pub fn contract_address(mut self, hash: H160) -> ReceiptResponseBuilder {
+        self.contract_address_opt = Some(hash);
+        self
+    }
+
+    pub fn logs(mut self, logs: Vec<Log>) -> ReceiptResponseBuilder {
+        self.logs_opt = Some(logs);
+        self
+    }
+
+    pub fn status(mut self, number: U64) -> ReceiptResponseBuilder {
+        self.status_opt = Some(number);
+        self
+    }
+
+    pub fn root(mut self, hash: Hash) -> ReceiptResponseBuilder {
+        self.root_opt = Some(hash);
+        self
+    }
+
+    pub fn logs_bloom(mut self, bloom: H2048) -> ReceiptResponseBuilder {
+        self.logs_bloom_opt = Some(bloom);
+        self
+    }
+
+    pub fn build(self) -> String {
+        let mut transaction_receipt = TransactionReceipt::default();
+
+        if let Some(transaction_hash) = self.transaction_hash_opt {
+            transaction_receipt.transaction_hash = transaction_hash;
+        }
+
+        if let Some(index) = self.transaction_index_opt {
+            transaction_receipt.transaction_index = index;
+        }
+
+        if let Some(cumulative_gas_used) = self.cumulative_gas_used_opt {
+            transaction_receipt.cumulative_gas_used = cumulative_gas_used;
+        }
+
+        if let Some(logs) = self.logs_opt {
+            transaction_receipt.logs = logs;
+        }
+
+        if let Some(bloom) = self.logs_bloom_opt {
+            transaction_receipt.logs_bloom = bloom;
+        }
+
+        transaction_receipt.block_hash = self.block_hash_opt;
+        transaction_receipt.block_number = self.block_number_opt;
+        transaction_receipt.gas_used = self.gas_used_opt;
+        transaction_receipt.contract_address = self.contract_address_opt;
+        transaction_receipt.status = self.status_opt;
+        transaction_receipt.root = self.root_opt;
+
+        let rpc_response = RpcResponse{
+            json_rpc: "2.0".to_string(),
+            id: 0,
+            result: transaction_receipt,
+        };
+        serde_json::to_string(&rpc_response).unwrap()
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {

@@ -165,8 +165,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-    use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash};
-    use crate::test_utils::http_test_server::TestServer;
+    use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
     use crate::test_utils::{assert_string_contains, make_wallet};
 
     fn tmp_nested_get_transaction_fee_balance_future(subject: Box<dyn LowBlockchainInt>, address: Address) -> Box<dyn Future<Item = (), Error = String>> {
@@ -395,28 +394,39 @@ mod tests {
     #[test]
     fn transaction_receipt_works() {
         let port = find_free_port();
+        let tx_hash = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e").unwrap();
+        let block_hash = H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18").unwrap();
+        let block_number = U64::from_str("b0328d").unwrap();
+        let cumulative_gas_used = U256::from_str("60ef").unwrap();
+        let gas_used = U256::from_str("60ef").unwrap();
+        let status = U64::from(0);
+        let tx_receipt_response = ReceiptResponseBuilder::default()
+            .transaction_hash(tx_hash)
+            .block_hash(block_hash)
+            .block_number(block_number)
+            .cumulative_gas_used(cumulative_gas_used)
+            .gas_used(gas_used)
+            .status(status)
+            .build();
         let blockchain_client_server = MBCSBuilder::new(port)
-            .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#.to_string())
+            .raw_response(tx_receipt_response)
             .start();
         let subject = make_blockchain_interface_web3(Some(port));
-        let tx_hash =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
 
         let result = subject.lower_interface().get_transaction_receipt(tx_hash).wait();
 
         let expected_receipt = TransactionReceipt{
             transaction_hash: tx_hash,
             transaction_index: Default::default(),
-            block_hash: Some(H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18").unwrap()),
-            block_number:Some(U64::from_str("b0328d").unwrap()),
-            cumulative_gas_used: U256::from_str("60ef").unwrap(),
-            gas_used: Some(U256::from_str("60ef").unwrap()),
+            block_hash: Some(block_hash),
+            block_number:Some(block_number),
+            cumulative_gas_used,
+            gas_used: Some(gas_used),
             contract_address: None,
             logs: vec![],
-            status: Some(U64::from(0)),
+            status: Some(status),
             root: None,
-            logs_bloom: H2048::from_str("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000").unwrap()
+            logs_bloom: Default::default(),
         };
         assert_eq!(result, Ok(Some(expected_receipt)));
     }
@@ -452,6 +462,26 @@ mod tests {
     #[test]
     fn transaction_receipt_batch_works() {
         let port = find_free_port();
+        let tx_hash_1 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e").unwrap();
+        let tx_hash_2 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f").unwrap();
+        let tx_hash_3 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0a").unwrap();
+        let tx_hash_4 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0b").unwrap();
+        let tx_hash_vec = vec![tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4];
+        let block_hash = H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18").unwrap();
+        let block_number = U64::from_str("b0328d").unwrap();
+        let cumulative_gas_used = U256::from_str("60ef").unwrap();
+        let gas_used = U256::from_str("60ef").unwrap();
+        let status = U64::from(0);
+        let logs_bloom = H2048::from_str("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000").unwrap();
+        let tx_receipt_response = ReceiptResponseBuilder::default()
+            .transaction_hash(tx_hash_1)
+            .block_hash(block_hash)
+            .block_number(block_number)
+            .cumulative_gas_used(cumulative_gas_used)
+            .gas_used(gas_used)
+            .status(status)
+            .logs_bloom(logs_bloom)
+            .build();
         let blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .err_response(
@@ -461,16 +491,11 @@ mod tests {
                 7,
             )
             .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
-            .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#.to_string())
+            .raw_response(tx_receipt_response)
             .response("trash".to_string(), 0)
             .end_batch()
             .start();
         let subject = make_blockchain_interface_web3(Some(port));
-        let tx_hash_1 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e").unwrap();
-        let tx_hash_2 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f").unwrap();
-        let tx_hash_3 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0a").unwrap();
-        let tx_hash_4 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0b").unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4];
 
         let result = subject.lower_interface().get_transaction_receipt_batch(tx_hash_vec).wait().unwrap();
 
@@ -479,15 +504,15 @@ mod tests {
         assert_eq!(result[2], TransactionReceiptResult::Found(TransactionReceipt{
             transaction_hash: tx_hash_1,
             transaction_index: Default::default(),
-            block_hash: Some(H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18").unwrap()),
-            block_number:Some(U64::from_str("b0328d").unwrap()),
-            cumulative_gas_used: U256::from_str("60ef").unwrap(),
-            gas_used: Some(U256::from_str("60ef").unwrap()),
+            block_hash: Some(block_hash),
+            block_number:Some(block_number),
+            cumulative_gas_used,
+            gas_used: Some(gas_used),
             contract_address: None,
             logs: vec![],
-            status: Some(U64::from(0)),
+            status: Some(status),
             root: None,
-            logs_bloom: H2048::from_str("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000").unwrap()
+            logs_bloom
         }));
         assert_eq!(result[3], TransactionReceiptResult::Error("invalid type: string \"trash\", expected struct Receipt".to_string()));
     }
