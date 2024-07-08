@@ -746,11 +746,13 @@ mod tests {
     use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
     use masq_lib::utils::{find_free_port, running_test};
     use std::hash::Hash;
+    use std::process::Termination;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::thread::spawn;
     use std::time::{Duration, SystemTime};
     use tokio::runtime::Runtime;
+    use tokio::select;
     use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
 
     #[test]
@@ -1537,6 +1539,59 @@ mod tests {
         let ws = make_and_connect_websocket(daemon_port).await;
 
         daemon_stop_handle.kill(None).await;
+    }
+
+    struct KilledByConsequences{
+        sender: UnboundedSender<()>
+    }
+
+    impl KilledByConsequences {
+        fn funny_method(&self){
+            let now = SystemTime::now();
+            eprintln!("Useless {:?}", now)
+        }
+    }
+
+    impl Drop for KilledByConsequences{
+        fn drop(&mut self) {
+            self.sender.send(()).unwrap()
+        }
+    }
+
+    //#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
+    async fn experiment2(){
+
+        let (drop_signaler_tx, mut drop_signaler_rx) =unbounded_channel();
+        let (tx, mut rx) = unbounded_channel();
+
+        let long_task = async move {
+            let subject = KilledByConsequences{
+                sender: drop_signaler_tx
+            };
+
+            tokio::time::sleep(Duration::from_millis(10_000)).await;
+
+            subject.funny_method()
+        };
+
+        let main_future_handle = tokio::task::spawn(async move {
+            select! {
+                _ = tokio::time::sleep(Duration::from_millis(10_000)) => {
+                    eprintln!("Just finished long task")
+                    },
+
+                _ = rx.recv() => {
+                        panic!("Just finished short task")
+                    }
+            }
+        });
+
+        tx.send(()).unwrap();
+      //  main_future_handle.await.unwrap();
+        drop_signaler_rx.recv().await.unwrap();
+
+
     }
 
     #[tokio::test]
