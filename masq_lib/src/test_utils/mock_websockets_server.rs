@@ -16,7 +16,6 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, thread};
 use std::time::{Duration, Instant, SystemTime};
-use nix::sys::socket::AddressFamily::System;
 use tokio::{select, task};
 use std::str::FromStr;
 use clap::ArgAction;
@@ -24,10 +23,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::{JoinHandle, spawn_blocking};
 use workflow_websocket::server::error::Error as WebsocketServerError;
-use workflow_websocket::server::{
-    Error, Message, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer,
-    WebSocketSink,
-};
+use workflow_websocket::server::{Error, Message, WebSocketConfig, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketServerTrait, WebSocketSink};
 use crate::test_utils::utils::make_rt;
 
 lazy_static! {
@@ -35,7 +31,7 @@ lazy_static! {
 }
 
 struct NodeUiProtocolWebSocketHandler {
-    requests_arc: Arc<Mutex<Vec<WSMsgMockServerReceived>>>,
+    requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
     responses_arc: Arc<Mutex<Vec<Message>>>,
     termination_style_rx: Receiver<TerminationStyle>,
     websocket_sink_tx: Sender<WebSocketSink>,
@@ -215,8 +211,8 @@ impl NodeUiProtocolWebSocketHandler {
     fn record_incomming_msg(
         &self,
         processing_is_going_wrong: bool,
-        request_to_be_recorded: WSMsgMockServerReceived,
-    ) -> Option<WSMsgMockServerReceived> {
+        request_to_be_recorded: MockWSServerRecordedRequest,
+    ) -> Option<MockWSServerRecordedRequest> {
         log(
             self.do_log,
             self.index,
@@ -254,7 +250,7 @@ impl NodeUiProtocolWebSocketHandler {
             Message::Text(string) => Ok(string.to_string()),
             Message::Close(..) => Err(ProcessedIncomingMessage::new(
                 Either::Right(WebsocketServerError::ServerClose),
-                WSMsgMockServerReceived::WSNontextual(incoming.clone()),
+                MockWSServerRecordedRequest::WSNonTextual(incoming.clone()),
             )),
             msg => {
                 log(
@@ -265,7 +261,7 @@ impl NodeUiProtocolWebSocketHandler {
                 let result = Err(UnrecognizedMessageErr::new(format!("{:?}", msg)));
                 Err(ProcessedIncomingMessage::new(
                     Either::Left(result),
-                    WSMsgMockServerReceived::WSNontextual(incoming.clone()),
+                    MockWSServerRecordedRequest::WSNonTextual(incoming.clone()),
                 ))
             }
         }
@@ -276,11 +272,11 @@ impl NodeUiProtocolWebSocketHandler {
         match UiTrafficConverter::new_unmarshal_from_ui(&msg_text, 0) {
             Ok(msg) => ProcessedIncomingMessage::new(
                 Either::Left(Ok(msg.body.clone())),
-                WSMsgMockServerReceived::MASQNodeUIv2Protocol(msg.body.clone()),
+                MockWSServerRecordedRequest::MASQNodeUIv2Protocol(msg.body.clone()),
             ),
             Err(e) => ProcessedIncomingMessage::new(
                 Either::Left(Err(UnrecognizedMessageErr::new(e.to_string()))),
-                WSMsgMockServerReceived::WSTextual {
+                MockWSServerRecordedRequest::WSTextual {
                     unexpected_string: msg_text,
                 },
             ),
@@ -623,8 +619,8 @@ impl MockWebSocketsServer {
     //         true
     //     }
     async fn switch_connection_status(storage: &Arc<tokio::sync::Mutex<ConnectionStatus>>){
-         let mut current = storage.lock().await;
-         let new = current.switched();
+        let mut current = storage.lock().await;
+        let new = current.switched();
         let _ = mem::replace(current.deref_mut(), new);
     }
 
@@ -639,13 +635,13 @@ type IncomingMsgResolution = Either<Result<MessageBody, UnrecognizedMessageErr>,
 #[derive(Debug)]
 struct ProcessedIncomingMessage {
     incoming_message_resolution: IncomingMsgResolution,
-    request_to_be_recorded: WSMsgMockServerReceived,
+    request_to_be_recorded: MockWSServerRecordedRequest,
 }
 
 impl ProcessedIncomingMessage {
     fn new(
         processing_resolution: IncomingMsgResolution,
-        request_to_be_recorded: WSMsgMockServerReceived,
+        request_to_be_recorded: MockWSServerRecordedRequest,
     ) -> Self {
         Self {
             incoming_message_resolution: processing_resolution,
@@ -670,13 +666,13 @@ impl UnrecognizedMessageErr {
 }
 
 #[derive(Clone, Debug)]
-pub enum WSMsgMockServerReceived {
-    WSNontextual(Message),
+pub enum MockWSServerRecordedRequest {
+    WSNonTextual(Message),
     WSTextual { unexpected_string: String },
     MASQNodeUIv2Protocol(MessageBody),
 }
 
-impl WSMsgMockServerReceived {
+impl MockWSServerRecordedRequest {
     pub fn expect_masq_ws_protocol_msg(self) -> MessageBody {
         if let Self::MASQNodeUIv2Protocol(unmarshal_result) = self {
             unmarshal_result
@@ -692,7 +688,7 @@ impl WSMsgMockServerReceived {
 pub struct MockWebSocketsServerStopHandle {
     index: u64,
     log: bool,
-    requests_arc: Arc<Mutex<Vec<WSMsgMockServerReceived>>>,
+    requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
     termination_style_tx: Sender<TerminationStyle>,
     server_shutdown_tx: UnboundedSender<()>,
     connection_status: Arc<tokio::sync::Mutex<ConnectionStatus>>,
@@ -700,11 +696,11 @@ pub struct MockWebSocketsServerStopHandle {
 }
 
 impl MockWebSocketsServerStopHandle {
-    pub async fn stop(self, time_granted_for_conn_establishment_opt: Option<Duration>, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<WSMsgMockServerReceived> {
+    pub async fn stop(self, time_granted_for_conn_establishment_opt: Option<Duration>, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<MockWSServerRecordedRequest> {
         self.send_terminate_order(false, time_granted_for_conn_establishment_opt, min_count_of_awaited_requests_opt.unwrap_or(0)).await
     }
 
-    pub async fn kill(self, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<WSMsgMockServerReceived> {
+    pub async fn kill(self, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<MockWSServerRecordedRequest> {
         let result = self.send_terminate_order(true, None, min_count_of_awaited_requests_opt.unwrap_or(0)).await;
         result
     }
@@ -714,7 +710,7 @@ impl MockWebSocketsServerStopHandle {
         kill: bool,
         time_granted_for_conn_establishment_opt: Option<Duration>,
         awaited_count_of_handled_msgs: usize
-    ) -> Vec<WSMsgMockServerReceived> {
+    ) -> Vec<MockWSServerRecordedRequest> {
         // Unfortunately, the used library and the tokio frimewark don't allow much about controlling
         // the spawned server to such a level that we could politely shut down the server and still
         // not to close the connection with waving a farwell to the distant client, and ideally to
@@ -780,7 +776,7 @@ impl MockWebSocketsServerStopHandle {
         requests
     }
 
-    async fn await_all_msgs_to_be_handled(&mut self, awaited_msg_count: usize)-> Vec<WSMsgMockServerReceived>{
+    async fn await_all_msgs_to_be_handled(&mut self, awaited_msg_count: usize)-> Vec<MockWSServerRecordedRequest>{
         let obtain_guard = ||match self.requests_arc.lock() {
             Ok(guard) => guard,
             Err(poison_error) => poison_error.into_inner(),

@@ -1530,11 +1530,11 @@ mod tests {
         );
     }
 
-    //#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[tokio::test]
     async fn experiment(){
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new(daemon_port);
+
         let daemon_stop_handle = daemon_server.start().await;
         let ws = make_and_connect_websocket(daemon_port).await;
 
