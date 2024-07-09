@@ -4,17 +4,14 @@ use ethereum_types::{H256, U256, U64};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{CONTRACT_ABI, ResultForReceipt};
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use futures::Future;
+use futures::{Future};
 use itertools::Itertools;
-use rlp::Prototype::Null;
 use serde::Deserializer;
-use serde_json::Error;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber, TransactionReceipt};
+use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Web3};
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-use crate::blockchain::blockchain_interface_utils::merged_output_data;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TransactionReceiptResult {
@@ -31,6 +28,7 @@ pub struct LowBlockchainIntWeb3 {
 }
 
 impl LowBlockchainInt for LowBlockchainIntWeb3 {
+
     fn get_transaction_fee_balance(
         &self,
         address: Address,
@@ -127,6 +125,13 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                 }),
         )
     }
+
+    fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
+        Box::new(
+        self.web3.eth().logs(filter)
+            .map_err(|e| QueryFailed(e.to_string()))
+        )
+    }
 }
 
 impl LowBlockchainIntWeb3 {
@@ -159,10 +164,11 @@ mod tests {
     use ethereum_types::{H256, U64};
     use futures::Future;
     use web3::transports::Http;
-    use web3::types::{H2048, TransactionReceipt, U256};
+    use web3::types::{BlockNumber, Bytes, FilterBuilder, H2048, Log, TransactionReceipt, U256};
+    use websocket::header::RelationType::Index;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
     use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
@@ -532,4 +538,121 @@ mod tests {
         assert_eq!(result, BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string()));
     }
 
+    #[test]
+    fn get_transaction_logs_works() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .raw_response(r#"{
+              "jsonrpc": "2.0",
+              "id": 1,
+              "result": [
+                {
+                  "address": "0x0000000000000000000000000070617965655f31",
+                  "blockHash": "0x7c5a35e9cb3e8ae0e221ab470abae9d446c3a5626ce6689fc777dcffcab52c70",
+                  "blockNumber": "0x5c29fb",
+                  "data": "0x0000000000000000000000003e3310720058c51f0de456e273c626cdd3",
+                  "logIndex": "0x1d",
+                  "removed": false,
+                  "topics": [
+                    "0x241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80"
+                  ],
+                  "transactionHash": "0x3dc91b98249fa9f2c5c37486a2427a3a7825be240c1c84961dfb3063d9c04d50",
+                  "transactionIndex": "0x1d"
+                },
+                {
+                  "address": "0x06012c8cf97bead5deae237070f9587f8e7a266d",
+                  "blockHash": "0x7c5a35e9cb3e8ae0e221ab470abae9d446c3a5626ce6689fc777dcffcab52c70",
+                  "blockNumber": "0x5c29fb",
+                  "data": "0x0000000000000000000000003e3310720058c51f0de456e273c626cdd3",
+                  "logIndex": "0x57",
+                  "removed": false,
+                  "topics": [
+                    "0x241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80"
+                  ],
+                  "transactionHash": "0x788b1442414cb9c9a36dba2abe250763161a6f6395788a2e808f1b34e92beec1",
+                  "transactionIndex": "0x54"
+                }
+              ]
+            }"#.to_string())
+            .start();
+        let subject = make_blockchain_interface_web3(Some(port));
+        let contract_address = subject.chain.rec().contract;
+        let start_block = BlockNumber::Number(U64::from(100));
+        let response_block_number = BlockNumber::Number(U64::from(200));
+        let recipient = make_wallet("test_wallet").address();
+        let filter = FilterBuilder::default()
+            .address(vec![contract_address])
+            .from_block(start_block)
+            .to_block(response_block_number)
+            .topics(
+                Some(vec![TRANSACTION_LITERAL]),
+                None,
+                Some(vec![recipient.into()]),
+                None,
+            )
+            .build();
+
+        let result = subject.lower_interface().get_transaction_logs(filter).wait().unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], Log{
+            address: make_wallet("payee_1").address(),
+            topics: vec![H256::from_str("241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80").unwrap()],
+            data: Bytes(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 51, 16, 114, 0, 88, 197, 31, 13, 228, 86, 226, 115, 198, 38, 205, 211]),
+            block_hash: Some(H256::from_str("7c5a35e9cb3e8ae0e221ab470abae9d446c3a5626ce6689fc777dcffcab52c70").unwrap()),
+            block_number: Some(U64::from(6040059)),
+            transaction_hash: Some(H256::from_str("3dc91b98249fa9f2c5c37486a2427a3a7825be240c1c84961dfb3063d9c04d50").unwrap()),
+            transaction_index: Some(U64::from(29)),
+            log_index: Some(U256::from(29)),
+            transaction_log_index: None,
+            log_type: None,
+            removed: Some(false),
+        });
+    }
+
+    #[test]
+    fn get_transaction_logs_fails() {
+        let port = find_free_port();
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .raw_response(r#"{
+              "jsonrpc": "2.0",
+              "id": 1,
+              "result": [
+                {
+                  "address": "0x0000000000000000000000000070617965655f31",
+                  "blockHash": "0x7c5a35e9cb3e8ae0e221ab470abae9d446c3a5626ce6689fc777dcffcab52c70",
+                  "blockNumber": "0x5c29fb",
+                  "data": "0x0000000000000000000000003e331",
+                  "logIndex": "0x1d",
+                  "removed": false,
+                  "topics": [
+                    "0x241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80"
+                  ],
+                  "transactionHash": "0x3dc91b98249fa9f2c5c37486a2427a3a7825be240c1c84961dfb3063d9c04d50",
+                  "transactionIndex": "0x1d"
+                }
+              ]
+            }"#.to_string())
+            .start();
+        let subject = make_blockchain_interface_web3(Some(port));
+        let contract_address = subject.chain.rec().contract;
+        let start_block = BlockNumber::Number(U64::from(100));
+        let response_block_number = BlockNumber::Number(U64::from(200));
+        let recipient = make_wallet("test_wallet").address();
+        let filter = FilterBuilder::default()
+            .address(vec![contract_address])
+            .from_block(start_block)
+            .to_block(response_block_number)
+            .topics(
+                Some(vec![TRANSACTION_LITERAL]),
+                None,
+                Some(vec![recipient.into()]),
+                None,
+            )
+            .build();
+
+        let result = subject.lower_interface().get_transaction_logs(filter).wait().unwrap_err();
+
+        assert_eq!(result, QueryFailed("Decoder error: Error(\"Invalid hex: Invalid input length\", line: 0, column: 0)".to_string()));
+    }
 }

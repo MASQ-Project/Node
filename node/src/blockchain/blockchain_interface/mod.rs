@@ -26,10 +26,15 @@ use web3::{Web3};
 // Example Web3 tools for Web3 based blockchains.
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
+
     fn get_chain(&self) -> Chain;
+
     fn get_contract(&self) -> Contract<Http>;
+
     fn get_web3(&self) -> Web3<Http>;
+
     fn get_web3_batch(&self) -> Web3<Batch<Http>>;
+
     fn get_transport(&self) -> Http;
 
     fn lower_interface(&self) -> Box<dyn LowBlockchainInt>;
@@ -38,7 +43,6 @@ pub trait BlockchainInterface {
         &self,
         start_block: BlockNumber,
         fallback_start_block_number: u64,
-        // end_block: BlockNumber,
         recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
 
@@ -46,7 +50,6 @@ pub trait BlockchainInterface {
         &self,
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>;
-
 
     fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 

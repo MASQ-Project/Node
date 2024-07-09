@@ -74,7 +74,6 @@ pub struct BlockchainInterfaceWeb3 {
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     transport: Http,
-    // lower_interface: Box<dyn LowBlockchainInt>
 }
 
 pub const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -121,12 +120,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         fallback_start_block_number: u64,
         recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
-        let web3 = self.get_web3();
+        let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
         let contract_address = self.get_contract().address();
         let num_chain_id = self.chain.rec().num_chain_id.clone();
         return Box::new(
-            self.lower_interface().get_block_number().then(move |response_block_number_result| {
+            lower_level_interface.get_block_number().then(move |response_block_number_result| {
                 let response_block_number = match response_block_number_result {
                     Ok(block_number) => {
                         debug!(logger, "Latest block number: {}", block_number.as_u64());
@@ -157,7 +156,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         None,
                     )
                     .build();
-                web3.eth().logs(filter)
+                lower_level_interface.get_transaction_logs(filter)
                     .then(move |logs| {
                         debug!(logger, "Transaction retrieval completed: {:?}", logs);
                         future::result::<RetrievedBlockchainTransactions, BlockchainError>(
@@ -165,7 +164,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                 Ok(logs) => {
                                     Self::handle_transaction_logs(logger, logs, response_block_number)
                                 }
-                                Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
+                                Err(e) => Err(e),
                             },
                         )
                     })
@@ -178,10 +177,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
-        let web3 = self.get_web3();
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part.clone();
-
         let get_gas_price = self.lower_interface().get_gas_price();
         let get_transaction_fee_balance = self.lower_interface().get_transaction_fee_balance(wallet_address);
         let get_service_fee_balance = self.lower_interface().get_service_fee_balance(wallet_address);
