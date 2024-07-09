@@ -258,7 +258,7 @@ pub fn sign_and_append_multiple_payments(
 pub fn send_payables_within_batch(
     logger: Logger,
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: Web3<Batch<Http>>, // TODO: Replaced with lower_level_interface
     consuming_wallet: Wallet,
     gas_price: u64,
     pending_nonce: U256,
@@ -302,7 +302,7 @@ pub fn send_payables_within_batch(
     return Box::new(
         web3_batch
             .transport()
-            .submit_batch()
+            .submit_batch() // TODO: GH-744 Migrate submit_batch fn to lower_level_interface
             .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
             .and_then(move |batch_response| {
                 Ok(merged_output_data(

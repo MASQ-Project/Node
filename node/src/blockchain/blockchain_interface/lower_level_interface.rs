@@ -1,11 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, BlockchainResult};
+use actix::Recipient;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, BlockchainResult, PayableTransactionError};
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::{H256, U64};
 use futures::Future;
 use web3::types::{Address, Filter, Log, TransactionReceipt, U256};
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 
 pub trait LowBlockchainInt {
     // TODO: GH- The data structures in this trait are not generic, will need associated_type_defaults to implement it.
@@ -26,6 +32,15 @@ pub trait LowBlockchainInt {
     fn get_transaction_receipt_batch(&self, hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
 
     fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>>;
+
+    fn submit_payables_in_batch(
+        &self,
+        logger: Logger,
+        chain: Chain,
+        consuming_wallet: Wallet,
+        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        affordable_accounts: Vec<PayableAccount>
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
 
     // fn dup(&self) -> Box<dyn LowBlockchainInt>;
 }

@@ -1,8 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{CONTRACT_ABI, ResultForReceipt};
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use futures::{Future};
 use itertools::Itertools;
@@ -11,7 +12,14 @@ use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Web3};
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
+use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
+use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
+use crate::sub_lib::wallet::Wallet;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TransactionReceiptResult {
@@ -131,6 +139,40 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         self.web3.eth().logs(filter)
             .map_err(|e| QueryFailed(e.to_string()))
         )
+    }
+
+    fn submit_payables_in_batch(
+        &self,
+        logger: Logger,
+        chain: Chain,
+        consuming_wallet: Wallet,
+        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        affordable_accounts: Vec<PayableAccount>
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>> {
+        let web3_batch = self.web3_batch.clone();
+        let get_transaction_id = self.get_transaction_id(consuming_wallet.address());
+        let get_gas_price = self.get_gas_price();
+
+        return Box::new(
+            get_transaction_id
+                .map_err(|e| PayableTransactionError::TransactionID(e))
+                .and_then(move |pending_nonce| {
+                    get_gas_price
+                        .map_err(|e| PayableTransactionError::GasPriceQueryFailed(e.to_string()))
+                        .and_then(move |gas_price| {
+                            send_payables_within_batch(
+                                logger,
+                                chain,
+                                web3_batch,
+                                consuming_wallet,
+                                gas_price.as_u64(),
+                                pending_nonce,
+                                fingerprints_recipient,
+                                affordable_accounts,
+                            )
+                    })
+                }),
+        );
     }
 }
 

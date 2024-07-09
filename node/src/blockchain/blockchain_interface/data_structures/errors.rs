@@ -40,7 +40,7 @@ pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum PayableTransactionError {
     MissingConsumingWallet,
-    GasPriceQueryFailed(String),
+    GasPriceQueryFailed(String), // TODO: GH-744: Change this to BlockchainError
     TransactionID(BlockchainError),
     UnusableWallet(String),
     Signing(String),

@@ -45,8 +45,9 @@ use regex::Regex;
 use std::path::Path;
 use std::time::SystemTime;
 use ethabi::Hash;
-use web3::transports::Http;
+use web3::transports::{Batch, Http};
 use web3::types::{BlockNumber, TransactionReceipt, H256};
+use web3::Web3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -510,42 +511,21 @@ impl BlockchainBridge {
         msg: OutboundPaymentsInstructions,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
-        let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
-            Some(consuming_wallet) => match self.persistent_config.gas_price() {
-                Ok(gas_price) => (consuming_wallet, gas_price),
-                Err(e) => {
-                    return Box::new(err(PayableTransactionError::GasPriceQueryFailed(format!(
-                        "{:?}",
-                        e
-                    ))))
-                }
-            },
+        let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
+            Some(consuming_wallet) => consuming_wallet,
             None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
         };
-
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
-        let web3_batch = self.blockchain_interface.get_web3_batch();
         let consuming_wallet_clone = consuming_wallet.clone();
-        let consuming_wallet_address = consuming_wallet.address();
-
-        return Box::new(
-            self.blockchain_interface.lower_interface().get_transaction_id(consuming_wallet_address)
-                .map_err(|e| PayableTransactionError::TransactionID(e))
-                .and_then(move |pending_nonce| {
-                    send_payables_within_batch(
-                        logger,
-                        chain,
-                        web3_batch,
-                        consuming_wallet_clone,
-                        gas_price,
-                        pending_nonce,
-                        new_fingerprints_recipient,
-                        msg.affordable_accounts,
-                    )
-                }),
-        );
+        self.blockchain_interface.lower_interface().submit_payables_in_batch(
+            logger,
+            chain,
+            consuming_wallet_clone,
+            new_fingerprints_recipient,
+            msg.affordable_accounts
+        )
     }
 
     fn new_fingerprints_recipient(&self) -> Recipient<PendingPayableFingerprintSeeds> {
@@ -945,6 +925,7 @@ mod tests {
         .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x20".to_string(), 1)
+            .response("0x7B".to_string(), 1)
             .begin_batch()
             .response("rpc result".to_string(), 1)
             .end_batch()
@@ -956,8 +937,7 @@ mod tests {
         let wallet_account = make_wallet("blah");
         let blockchain_interface =
             BlockchainInterfaceWeb3::new(http, event_loop_handle, DEFAULT_CHAIN);
-        let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(123));
+        let persistent_configuration_mock = PersistentConfigurationMock::default();
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1039,6 +1019,7 @@ mod tests {
         // To make submit_batch failed we didn't provide any responses for batch calls
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x20".to_string(), 1)
+            .response("0x7B".to_string(), 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
@@ -1048,7 +1029,7 @@ mod tests {
         let blockchain_interface =
             BlockchainInterfaceWeb3::new(http, event_loop_handle, DEFAULT_CHAIN);
         let persistent_configuration_mock =
-            PersistentConfigurationMock::default().gas_price_result(Ok(123));
+            PersistentConfigurationMock::default();
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1121,28 +1102,22 @@ mod tests {
     fn process_payments_works() {
         let test_name = "process_payments_works";
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x01".to_string(), 1)
             .response("0x01".to_string(), 1)
             .begin_batch()
             .response("rpc_result".to_string(), 7)
             .response("rpc_result_2".to_string(), 7)
             .end_batch()
             .start();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1u64;
         let accounts_1 = make_payable_account(1);
         let accounts_2 = make_payable_account(2);
         let accounts = vec![accounts_1.clone(), accounts_2.clone()];
         let system = System::new(test_name);
         let msg = OutboundPaymentsInstructions::new(accounts, None);
-        let persistent_config = PersistentConfigurationMock::new().gas_price_result(Ok(gas_price));
+        let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
@@ -1161,20 +1136,20 @@ mod tests {
         let processed_payments = result.unwrap();
         assert_eq!(
             processed_payments[0],
-            ProcessedPayableFallible::Correct(PendingPayable {
+            Correct(PendingPayable {
                 recipient_wallet: accounts_1.wallet,
                 hash: H256::from_str(
-                    "24685f7c502c49e56ea572378f719aa88f8b5a521e21a9842a91607152ba8ff1"
+                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                 )
                 .unwrap()
             })
         );
         assert_eq!(
             processed_payments[1],
-            ProcessedPayableFallible::Correct(PendingPayable {
+            Correct(PendingPayable {
                 recipient_wallet: accounts_2.wallet,
                 hash: H256::from_str(
-                    "914a946a9876b2d6e1f114e260b062d5e3d9821433f2118a17bb81a4d7946831"
+                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                 )
                 .unwrap()
             })
@@ -1233,18 +1208,15 @@ mod tests {
     fn process_payments_fails_on_missing_gas_price() {
         let test_name = "process_payments_fails_on_missing_gas_price";
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x20".to_string(), 0)
+            .response("Trash Gas Price".to_string(), 0)
+            .start();
+        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let system = System::new(test_name);
         let msg = OutboundPaymentsInstructions::new(vec![], None);
-        let persistent_config = PersistentConfigurationMock::new()
-            .gas_price_result(Err(PersistentConfigError::NotPresent));
+        let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
@@ -1261,7 +1233,7 @@ mod tests {
         System::current().stop();
         system.run();
         let error_result = result.unwrap_err();
-        assert_eq!(error_result, GasPriceQueryFailed("NotPresent".to_string()));
+        assert_eq!(error_result, GasPriceQueryFailed("Blockchain error: Query failed: Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()));
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }

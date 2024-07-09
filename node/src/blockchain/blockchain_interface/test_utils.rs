@@ -8,11 +8,17 @@ use crate::blockchain::blockchain_interface::lower_level_interface::{
 use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use web3::types::{Address, Filter, Log, TransactionReceipt};
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::logger::Logger;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 
 #[derive(Default)]
 pub struct LowBlockchainIntMock {
@@ -82,6 +88,10 @@ impl LowBlockchainInt for LowBlockchainIntMock {
     }
 
     fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
+        todo!()
+    }
+
+    fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
         todo!()
     }
 
