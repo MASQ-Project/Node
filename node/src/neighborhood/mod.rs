@@ -82,6 +82,8 @@ use node_record::NodeRecord;
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
 pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
+
+pub const WRONG_COUNTRY_PENALTY: i64 = 100_000_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 
 pub struct Neighborhood {
@@ -1215,11 +1217,10 @@ impl Neighborhood {
         payload_size: u64,
         undesirability_type: UndesirabilityType,
         logger: &Logger,
-        exit_location_opt: Option<String>,
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
-            UndesirabilityType::ExitRequest(_) => {
+            UndesirabilityType::ExitRequest(_, _) => {
                 node_record.inner.rate_pack.exit_charge(payload_size)
             }
             UndesirabilityType::ExitAndRouteResponse => {
@@ -1227,7 +1228,7 @@ impl Neighborhood {
                     + node_record.inner.rate_pack.routing_charge(payload_size)
             }
         } as i64;
-        if let UndesirabilityType::ExitRequest(Some(hostname)) = undesirability_type {
+        if let UndesirabilityType::ExitRequest(Some(hostname), Some(exit_location_opt)) = undesirability_type {
             if node_record.metadata.unreachable_hosts.contains(hostname) {
                 trace!(
                     logger,
@@ -1239,6 +1240,18 @@ impl Neighborhood {
                     rate_undesirability + UNREACHABLE_HOST_PENALTY
                 );
                 rate_undesirability += UNREACHABLE_HOST_PENALTY;
+            }
+            if node_record.inner.country_code.to_owned() != exit_location_opt.to_owned() {
+                trace!(
+                    logger,
+                    "Node with PubKey {:?} is not from requested Country {:?} during ExitRequest; Undesirability: {} + {} = {}",
+                    node_record.public_key(),
+                    hostname,
+                    rate_undesirability,
+                    WRONG_COUNTRY_PENALTY,
+                    rate_undesirability + WRONG_COUNTRY_PENALTY
+                );
+                rate_undesirability += WRONG_COUNTRY_PENALTY;
             }
         }
 
@@ -1283,8 +1296,12 @@ impl Neighborhood {
         exit_location_opt: Option<String>
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
+        let exit_country_opt = match exit_location_opt.as_ref() {
+            Some(country) => Some(country),
+            None => None
+        };
         let initial_undesirability =
-            self.compute_initial_undesirability(source, payload_size as u64, direction, exit_location_opt, );
+            self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
             .routing_engine(
                 vec![source],
@@ -1295,6 +1312,7 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
+                exit_country_opt
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1317,6 +1335,7 @@ impl Neighborhood {
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
+        exit_country_opt: Option<&String>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1370,6 +1389,7 @@ impl Neighborhood {
                         payload_size as u64,
                         direction,
                         hostname_opt,
+                        exit_country_opt
                     );
 
                     self.routing_engine(
@@ -1381,6 +1401,7 @@ impl Neighborhood {
                         direction,
                         minimum_undesirability,
                         hostname_opt,
+                        exit_country_opt,
                     )
                 })
                 .collect()
@@ -1411,7 +1432,6 @@ impl Neighborhood {
         public_key: &PublicKey,
         payload_size: u64,
         direction: RouteDirection,
-        exit_location_opt: Option<String>,
     ) -> i64 {
         if direction == RouteDirection::Over {
             return 0;
@@ -1438,10 +1458,11 @@ impl Neighborhood {
         payload_size: u64,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
+        exit_country_opt: Option<&String>,
     ) -> i64 {
         let undesirability_type = match (direction, target_opt) {
             (RouteDirection::Over, None) if hops_remaining == 0 => {
-                UndesirabilityType::ExitRequest(hostname_opt)
+                UndesirabilityType::ExitRequest(hostname_opt, exit_country_opt)
             }
             (RouteDirection::Over, _) => UndesirabilityType::Relay,
             // The exit-and-relay undesirability is initial_undesirability
@@ -1638,9 +1659,9 @@ pub fn regenerate_signed_gossip(
 }
 
 #[derive(PartialEq, Eq, Debug)]
-enum UndesirabilityType<'hostname> {
+enum UndesirabilityType<'hostname, 'country_code> {
     Relay,
-    ExitRequest(Option<&'hostname str>),
+    ExitRequest(Option<&'hostname str>, Option<&'country_code String>),
     ExitAndRouteResponse,
 }
 
@@ -3372,18 +3393,25 @@ mod tests {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
         let p = &db.root_mut().public_key().clone();
-        let a = &db.add_node(make_node_record(1234, true)).unwrap();
-        let b = &db.add_node(make_node_record(2345, true)).unwrap();
-        let c = &db.add_node(make_node_record(3456, true)).unwrap();
-        db.add_arbitrary_full_neighbor(p, a);
-        db.add_arbitrary_full_neighbor(a, b);
-        db.add_arbitrary_full_neighbor(b, c);
+        let a = &db.add_node(make_node_record(2345, true)).unwrap();
+        let b = &db.add_node(make_node_record(5678, true)).unwrap();
+        let c = &db.add_node(make_node_record(1234, true)).unwrap();
+        db.add_arbitrary_full_neighbor(p, c);
+        db.add_arbitrary_full_neighbor(c, b);
+        db.add_arbitrary_full_neighbor(c, a);
+        println!("node p: {}", db.node_by_key(p).unwrap().inner.country_code);
+        println!("node c: {}", db.node_by_key(c).unwrap().inner.country_code);
+        println!("node b: {}", db.node_by_key(b).unwrap().inner.country_code);
+        println!("node a: {}", db.node_by_key(a).unwrap().inner.country_code);
         let cdb = db.clone();
 
-        let route = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
+        let route_fr = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("FR".to_string()));
+        let route_au = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("AU".to_string()));
 
-        let exit_node = cdb.node_by_key(&route.as_ref().unwrap().get(2).unwrap());
-        assert_eq!(exit_node.unwrap().inner.country_code, "CZ");
+        let exit_node = cdb.node_by_key(&route_fr.as_ref().unwrap().get(2).unwrap());
+        assert_eq!(exit_node.unwrap().inner.country_code, "AU");
+        let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(2).unwrap());
+        assert_eq!(exit_node.unwrap().inner.country_code, "AU");
     }
 
     #[test]
@@ -3418,6 +3446,7 @@ mod tests {
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
+            None,
         );
 
         let rate_pack = node_record.rate_pack();
@@ -3442,6 +3471,7 @@ mod tests {
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
+            None,
         );
 
         let rate_pack = node_record.rate_pack();
@@ -3470,6 +3500,7 @@ mod tests {
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
+            None,
         );
 
         let rate_pack = node_record.rate_pack();
@@ -3499,7 +3530,6 @@ mod tests {
             node_record.public_key(),
             1_000,
             RouteDirection::Over,
-            None,
         );
 
         assert_eq!(
@@ -3521,7 +3551,6 @@ mod tests {
             node_record.public_key(),
             1_000,
             RouteDirection::Back,
-            None
         );
 
         let rate_pack = node_record.rate_pack();
@@ -3544,6 +3573,7 @@ mod tests {
             5, // Plenty of hops remaining: not there yet
             1_000,
             RouteDirection::Back,
+            None,
             None,
         );
 
