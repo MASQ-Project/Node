@@ -1220,7 +1220,10 @@ impl Neighborhood {
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
-            UndesirabilityType::ExitRequest(_, _) => {
+            UndesirabilityType::ExitRequest(_, Some(exit_location_opt)) => {
+                node_record.inner.rate_pack.exit_charge(payload_size) + node_record.country_code_exeption(exit_location_opt)
+            }
+            UndesirabilityType::ExitRequest(_, None) => {
                 node_record.inner.rate_pack.exit_charge(payload_size)
             }
             UndesirabilityType::ExitAndRouteResponse => {
@@ -3399,19 +3402,15 @@ mod tests {
         db.add_arbitrary_full_neighbor(p, c);
         db.add_arbitrary_full_neighbor(c, b);
         db.add_arbitrary_full_neighbor(c, a);
-        println!("node p: {}", db.node_by_key(p).unwrap().inner.country_code);
-        println!("node c: {}", db.node_by_key(c).unwrap().inner.country_code);
-        println!("node b: {}", db.node_by_key(b).unwrap().inner.country_code);
-        println!("node a: {}", db.node_by_key(a).unwrap().inner.country_code);
         let cdb = db.clone();
 
-        let route_fr = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("FR".to_string()));
         let route_au = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("AU".to_string()));
+        let route_fr = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("FR".to_string()));
 
-        let exit_node = cdb.node_by_key(&route_fr.as_ref().unwrap().get(2).unwrap());
-        assert_eq!(exit_node.unwrap().inner.country_code, "AU");
         let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(2).unwrap());
         assert_eq!(exit_node.unwrap().inner.country_code, "AU");
+        let exit_node = cdb.node_by_key(&route_fr.as_ref().unwrap().get(2).unwrap());
+        assert_eq!(exit_node.unwrap().inner.country_code, "FR");
     }
 
     #[test]
