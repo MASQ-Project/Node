@@ -107,7 +107,7 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use tokio;
+    use masq_lib::test_utils::utils::make_rt;
 
     #[test]
     fn constants_have_correct_values() {

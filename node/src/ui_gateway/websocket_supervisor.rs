@@ -1,25 +1,24 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use actix::Recipient;
-use futures_util::{Sink, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt};
 use masq_lib::constants::UNMARSHAL_ERROR;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
+use masq_lib::messages::{ToMessageBody, UiUnmarshalError};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::MessageTarget::{AllClients, AllExcept, ClientId};
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
 use masq_lib::utils::{localhost, ExpectValue};
-use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::Debug;
-use std::future::Future;
 use std::io;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
+use futures_util::future::join_all;
+use itertools::Itertools;
 use tokio::net::{TcpStream};
 use tokio::task;
 use tungstenite::protocol::frame::coding::CloseCode;
@@ -101,7 +100,7 @@ impl WebSocketSupervisorReal {
     fn filter_clients<'a, P>(
         locked_inner: &'a mut MutexGuard<WebSocketSupervisorInner>,
         predicate: P,
-    ) -> Vec<(u64, &mut MessageWriter)>
+    ) -> Vec<(u64, &'a mut MessageWriter)>
     where
         P: FnMut(&(&u64, &mut MessageWriter)) -> bool,
     {
@@ -114,7 +113,7 @@ impl WebSocketSupervisorReal {
     }
 
     async fn send_msg(
-        mut locked_inner: MutexGuard<WebSocketSupervisorInner>,
+        mut locked_inner: MutexGuard<'_, WebSocketSupervisorInner>,
         msg: NodeToUiMessage,
     ) {
         let clients = match msg.target {
@@ -155,16 +154,21 @@ impl WebSocketSupervisorReal {
         clients: Vec<(u64, &mut MessageWriter)>,
         json: String,
     ) -> Option<Vec<SendToClientWebsocketError>> {
-        let errors: Vec<SendToClientWebsocketError> = clients
-            .into_iter()
-            .flat_map(async move |(client_id, client)| {
-                match client.send(Message::Text(json.clone())).await {
+        let errors = join_all(clients.into_iter()
+            .map(move |(client_id, client)| {
+                async {
+                    let result = client.send(Message::Text(json.clone())).await;
+                    (client_id, result)
+                }
+            })
+        ).await.into_iter()
+            .flat_map(|(client_id, result)| {
+                match result {
                     Ok(_) => None,
                     Err(e) => Some(SendToClientWebsocketError::SendError((client_id, e))),
                 }
-                .await
             })
-            .collect();
+            .collect_vec();
         if errors.is_empty() {
             None
         } else {
@@ -524,7 +528,7 @@ impl MasqNodeUiv2Handler {
     }
 
     async fn close_connection(
-        locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
+        locked_inner: &mut MutexGuard<'_, WebSocketSupervisorInner>,
         client_id: u64,
         logger: &Logger,
         reason: Error,

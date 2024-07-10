@@ -11,6 +11,8 @@ use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::io::AsyncWriteExt;
+use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 
 pub struct StreamWriter {
     stream: Box<dyn WriteHalfWrapper>,
@@ -59,14 +61,15 @@ impl StreamWriter {
         }
     }
 
-    fn shutdown(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match self.stream.poll_shutdown(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-        }
+    async fn shutdown(&mut self, _: &mut Context<'_>) -> io::Result<()> {
+        self.stream.shutdown().await
     }
 
+    // TODO: This isn't the right way to do this. We're saving up all incoming data until we
+    // have all of it, and then passing it on down the TCP stream in one big rush. We should be
+    // holding data only until the first part of our buffer has no holes in it, and then passing
+    // that first part on. In other words, whenever the first slot in the buffer is not blank,
+    // we should send it.
     fn read_data_from_channel(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
         loop {
             match self.rx_to_write.poll(cx) {
@@ -83,7 +86,7 @@ impl StreamWriter {
         }
     }
 
-    fn write_from_buffer_to_stream(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    async fn write_from_buffer_to_stream(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         loop {
             let packet_opt = self.sequence_buffer.poll();
 
@@ -94,7 +97,7 @@ impl StreamWriter {
                         "Writing {} bytes over existing stream",
                         packet.data.len()
                     );
-                    match self.stream.poll_write(cx, &packet.data) {
+                    match self.stream.write(&packet.data).await {
                         Poll::Ready(Err(e)) => {
                             if indicates_dead_stream(e.kind()) {
                                 error!(
@@ -269,14 +272,7 @@ mod tests {
     fn stream_writer_returns_not_ready_when_the_stream_is_not_ready() {
         let stream_key = make_meaningless_stream_key();
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
-                data: b"These are the times".to_vec(),
-                sequence_number: 0,
-                last_data: false,
-            }))),
-            Poll::Ready(Ok(None)),
-        ];
+        set_up_standard_results(&mut rx_to_write, &b"These are the times".to_vec());
         let writer = WriteHalfWrapperMock::new().poll_write_result(Poll::Pending);
 
         let write_params = writer.poll_write_params.clone();
@@ -394,14 +390,7 @@ mod tests {
     fn stream_writer_exits_if_channel_is_closed() {
         let stream_key = make_meaningless_stream_key();
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
-                data: b"These are the times".to_vec(),
-                sequence_number: 0,
-                last_data: false,
-            }))),
-            Poll::Ready(Ok(None)),
-        ];
+        set_up_standard_results(&mut rx_to_write, &b"These are the times".to_vec());
         let writer = WriteHalfWrapperMock::new().poll_write_result(Poll::Ready(Ok(19)));
 
         let peer_addr = SocketAddr::from_str("1.2.3.4:999").unwrap();
@@ -542,14 +531,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
-                data: packet_a.to_vec(),
-                sequence_number: 0,
-                last_data: true,
-            }))),
-            Poll::Ready(Ok(None)),
-        ];
+        set_up_standard_results(&mut rx_to_write, &packet_a);
 
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec![])),
@@ -594,14 +576,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
-                data: packet_a.to_vec(),
-                sequence_number: 0,
-                last_data: true,
-            }))),
-            Poll::Ready(Ok(None)),
-        ];
+        set_up_standard_results(&mut rx_to_write, &packet_a);
 
         let writer = WriteHalfWrapperMock {
             poll_write_params: Arc::new(Mutex::new(vec![])),
@@ -651,14 +626,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
-                data: packet_a.to_vec(),
-                sequence_number: 0,
-                last_data: true,
-            }))),
-            Poll::Ready(Ok(None)),
-        ];
+        set_up_standard_results(&mut rx_to_write, &packet_a);
 
         let writer = WriteHalfWrapperMock::new()
             .poll_write_result(Poll::Ready(Ok(packet_a.len())))
@@ -690,5 +658,16 @@ mod tests {
         ]);
 
         assert_eq!(res, Err(()));
+    }
+
+    fn set_up_standard_results(rx_to_write: &mut Box<ReceiverWrapperMock<SequencedPacket>>, packet_a: &Vec<u8>) {
+        rx_to_write.poll_results = vec![
+            Poll::Ready(Ok(Some(SequencedPacket {
+                data: packet_a.to_vec(),
+                sequence_number: 0,
+                last_data: true,
+            }))),
+            Poll::Ready(Ok(None)),
+        ];
     }
 }

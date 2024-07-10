@@ -150,7 +150,7 @@ impl Wallet {
 
     pub fn prepare_secp256k1_secret(
         &self,
-    ) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
+    ) -> Result<secp256k1secrets::SecretKey, WalletError> {
         match self.kind {
             WalletKind::SecretKey(ref key_provider) => Ok(key_provider.into()),
             _ => Err(WalletError::Signature(format!(

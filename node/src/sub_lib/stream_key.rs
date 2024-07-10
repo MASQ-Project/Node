@@ -12,6 +12,8 @@ use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
+const SHA1_DIGEST_LENGTH: usize = 20;
+
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
     hash: HashType,
@@ -62,14 +64,14 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() != sha1::DIGEST_LENGTH {
+        if v.len() != SHA1_DIGEST_LENGTH {
             return Err(serde::de::Error::custom(format!(
                 "can't deserialize bytes from {:?}",
                 v
             )));
         }
 
-        let mut x: HashType = [0; sha1::DIGEST_LENGTH];
+        let mut x: HashType = [0; SHA1_DIGEST_LENGTH];
         x.copy_from_slice(v); // :(
 
         Ok(StreamKey { hash: x })
@@ -94,7 +96,7 @@ impl StreamKey {
     }
 }
 
-type HashType = [u8; sha1::DIGEST_LENGTH];
+type HashType = [u8; SHA1_DIGEST_LENGTH];
 
 #[cfg(test)]
 mod tests {

@@ -25,6 +25,7 @@ use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
+use url::Url;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {
@@ -166,7 +167,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
-        Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
+        Url::parse(url)
+            .map_err(|e|
+                PersistentConfigError::InvalidUrl(e.to_string())
+            )?;
         Ok(self
             .dao
             .set("blockchain_service_url", Some(url.to_string()))?)

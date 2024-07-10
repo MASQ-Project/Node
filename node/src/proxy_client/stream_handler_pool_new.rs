@@ -23,6 +23,7 @@ use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 
 #[derive(Message, Debug, Clone)]
@@ -34,7 +35,7 @@ pub struct ProcessPackageMessage {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-struct DataWriteSuccess {
+pub struct DataWriteSuccess {
     stream_key: StreamKey,
     last_data: bool,
     writer: Box<dyn AsyncWrite>,
@@ -42,7 +43,7 @@ struct DataWriteSuccess {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-struct DataReadSuccess {
+pub struct DataReadSuccess {
     stream_key: StreamKey,
     reader: Box<dyn AsyncRead>,
     data: Vec<u8>,
@@ -50,7 +51,7 @@ struct DataReadSuccess {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-struct DataWriteError {
+pub struct DataWriteError {
     stream_key: StreamKey,
     last_data: bool,
     writer: Box<dyn AsyncWrite>,
@@ -59,7 +60,7 @@ struct DataWriteError {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-struct DataReadError {
+pub struct DataReadError {
     stream_key: StreamKey,
     reader: Box<dyn AsyncRead>,
     error: io::Error,
@@ -67,7 +68,7 @@ struct DataReadError {
 
 #[derive(Message)]
 #[rtype(result = "()")]
-struct AddStreamPair {
+pub struct AddStreamPair {
     stream_key: StreamKey,
     peer_addr: SocketAddr,
     writer: Box<dyn AsyncWrite>,
@@ -76,14 +77,14 @@ struct AddStreamPair {
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-struct StreamCreationError {
+pub struct StreamCreationError {
     stream_key: StreamKey,
     error: io::Error,
 }
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
-struct KillStream {
+pub struct KillStream {
     stream_key: StreamKey,
 }
 
@@ -782,12 +783,12 @@ impl StreamHandlerPool {
 
     fn set_private_subs_opt(&mut self, addr: Addr<StreamHandlerPool>) {
         self.private_subs_opt = Some(PrivateStreamHandlerPoolSubs {
-            data_write_success_sub: addr.recipient(),
-            data_read_success_sub: addr.recipient(),
-            data_write_error_sub: addr.recipient(),
-            data_read_error_sub: addr.recipient(),
-            add_stream_pair_sub: addr.recipient(),
-            stream_creation_error_sub: addr.recipient(),
+            data_write_success_sub: addr.clone().recipient(),
+            data_read_success_sub: addr.clone().recipient(),
+            data_write_error_sub: addr.clone().recipient(),
+            data_read_error_sub: addr.clone().recipient(),
+            add_stream_pair_sub: addr.clone().recipient(),
+            stream_creation_error_sub: addr.clone().recipient(),
             kill_stream_sub: addr.recipient(),
         })
     }
@@ -853,7 +854,9 @@ mod tests {
     use std::net::SocketAddr;
     use std::pin::Pin;
     use std::str::FromStr;
+    use std::sync::{Mutex, MutexGuard};
     use std::task::Poll;
+    use tokio::io::{AsyncRead, AsyncWrite};
 
     impl Handler<AssertionsMessage<StreamHandlerPool>> for StreamHandlerPool {
         type Result = ();
@@ -878,12 +881,12 @@ mod tests {
         fn handle(&mut self, msg: SetPrivateSubsMessage, ctx: &mut Self::Context) -> Self::Result {
             let addr = msg.recorder.start();
             self.private_subs_opt = Some(PrivateStreamHandlerPoolSubs {
-                data_write_success_sub: addr.recipient::<DataWriteSuccess>(),
-                data_read_success_sub: addr.recipient::<DataReadSuccess>(),
-                data_write_error_sub: addr.recipient::<DataWriteError>(),
-                data_read_error_sub: addr.recipient::<DataReadError>(),
-                add_stream_pair_sub: addr.recipient::<AddStreamPair>(),
-                stream_creation_error_sub: addr.recipient::<StreamCreationError>(),
+                data_write_success_sub: addr.clone().recipient::<DataWriteSuccess>(),
+                data_read_success_sub: addr.clone().recipient::<DataReadSuccess>(),
+                data_write_error_sub: addr.clone().recipient::<DataWriteError>(),
+                data_read_error_sub: addr.clone().recipient::<DataReadError>(),
+                add_stream_pair_sub: addr.clone().recipient::<AddStreamPair>(),
+                stream_creation_error_sub: addr.clone().recipient::<StreamCreationError>(),
                 kill_stream_sub: addr.recipient::<KillStream>(),
             })
         }
@@ -908,11 +911,11 @@ mod tests {
             self.data().poll_flush(cx)
         }
 
-        fn poll_close(
+        fn poll_shutdown(
             self: Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
         ) -> Poll<io::Result<()>> {
-            self.data().poll_close(cx)
+            self.data().poll_shutdown(cx)
         }
     }
     impl TestAsyncWrite {
@@ -937,7 +940,8 @@ mod tests {
         ) -> Poll<io::Result<usize>> {
             let mut buffers = self.data_arc.lock().unwrap();
             let data = buffers.remove(0);
-            data.poll_read(cx, buf)
+            buf.write_all(data.as_slice());
+            Poll::Ready(Ok(buf.len()))
         }
     }
     impl TestAsyncRead {

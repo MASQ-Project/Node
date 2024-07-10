@@ -5,7 +5,7 @@ mod local_test_utils;
 mod resolver_wrapper;
 mod stream_establisher;
 mod stream_handler_pool;
-mod stream_handler_pool_new;
+pub mod stream_handler_pool_new;
 mod stream_reader;
 mod stream_writer;
 

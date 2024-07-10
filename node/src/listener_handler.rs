@@ -161,6 +161,7 @@ mod tests {
     use tokio;
     use tokio::net::TcpStream;
     use tokio::task;
+    use masq_lib::test_utils::utils::make_rt;
 
     struct TokioListenerWrapperMock {
         logger_arc: Arc<TestLog>,

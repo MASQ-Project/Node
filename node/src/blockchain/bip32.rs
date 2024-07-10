@@ -2,7 +2,7 @@
 use ethereum_types::{Address, H160};
 use ethsign::keyfile::Crypto;
 use ethsign::{Protected, PublicKey, SecretKey as EthsignSecretKey, Signature};
-use secp256k1secrets::key::SecretKey as Secp256k1SecretKey;
+use secp256k1secrets::SecretKey as Secp256k1SecretKey;
 use serde::de;
 use serde::ser;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -20,7 +20,7 @@ pub struct Bip32EncryptionKeyProvider {
 #[allow(clippy::from_over_into)]
 impl Into<Secp256k1SecretKey> for &Bip32EncryptionKeyProvider {
     fn into(self) -> Secp256k1SecretKey {
-        secp256k1secrets::key::SecretKey::from_slice(&self.secret_raw).expect("internal error")
+        secp256k1secrets::SecretKey::from_slice(&self.secret_raw).expect("internal error")
     }
 }
 

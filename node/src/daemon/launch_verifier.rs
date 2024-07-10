@@ -5,15 +5,12 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use masq_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
-use masq_lib::utils::ExpectValue;
 use std::cell::RefCell;
-use std::net::TcpStream;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
-use websocket::client::ParseError;
-use websocket::sync::Client;
-use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
+use sysinfo::{Pid, ProcessStatus, Signal};
+use workflow_websocket::client::{ConnectOptions, Error, Message, WebSocket};
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -43,7 +40,7 @@ impl VerifierTools for VerifierToolsReal {
         }
         client_builder_ref.add_protocol(NODE_UI_PROTOCOL);
         match client_builder_ref.connect_insecure() {
-            Ok(mut client) => client.send_message(OwnedMessage::Close(None)).is_ok(),
+            Ok(mut client) => client.send_message(Message::Close).is_ok(),
             Err(_) => false,
         }
     }
@@ -62,7 +59,7 @@ impl VerifierTools for VerifierToolsReal {
 
     fn kill_process(&self, process_id: u32) {
         if let Some(process) = Self::system().process(Self::convert_pid(process_id)) {
-            if !process.kill(Signal::Term) && !process.kill(Signal::Kill) {
+            if !process.kill_with(Signal::Term) && !process.kill_with(Signal::Kill) {
                 error!(
                     self.logger,
                     "Process {} could be neither terminated nor killed", process_id
@@ -96,15 +93,16 @@ impl VerifierToolsReal {
         system
     }
 
-    #[cfg(not(target_os = "windows"))]
-    fn convert_pid(process_id: u32) -> i32 {
-        process_id as i32
+    // TODO: Can we get rid of these OS-specific versions now?
+    // #[cfg(not(target_os = "windows"))]
+    fn convert_pid(process_id: u32) -> Pid {
+        Pid::from_u32(process_id)
     }
 
-    #[cfg(target_os = "windows")]
-    fn convert_pid(process_id: u32) -> usize {
-        process_id as usize
-    }
+    // #[cfg(target_os = "windows")]
+    // fn convert_pid(process_id: u32) -> Pid {
+    //     Pid::from_u32(process_id)
+    // }
 
     #[cfg(target_os = "linux")]
     fn is_alive(process_status: ProcessStatus) -> bool {
@@ -201,53 +199,51 @@ impl LaunchVerifierReal {
 }
 
 pub trait ClientWrapper {
-    fn send_message(&mut self, message: OwnedMessage) -> WebSocketResult<()>;
+    fn send_message(&mut self, message: Message) -> Result<(), Arc<Error>>;
 }
 
-struct ClientWrapperReal {
-    client: Client<TcpStream>,
+pub struct ClientWrapperReal {
+    client: WebSocket,
 }
 
 impl ClientWrapper for ClientWrapperReal {
-    fn send_message(&mut self, message: OwnedMessage) -> WebSocketResult<()> {
-        self.client.send_message(&message)
+    fn send_message(&mut self, message: Message) -> Result<&Self, Arc<Error>> {
+        self.client.send(message)
+    }
+}
+
+impl ClientWrapperReal {
+    fn new(url: &str) -> Result<Self, workflow_websocket::client::error::Error> {
+        let client = WebSocket::new(Some (url), None)?;
+        client.connect(ConnectOptions::default())?;
+        return Ok(ClientWrapperReal {client})
     }
 }
 
 pub trait ClientBuilderWrapper {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), ParseError>;
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::error::Error>;
     fn add_protocol(&self, protocol: &str);
-    fn connect_insecure(&mut self) -> WebSocketResult<Box<dyn ClientWrapper>>;
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error>;
 }
 
 #[derive(Default)]
 struct ClientBuilderWrapperReal<'a> {
-    builder_opt: RefCell<Option<ClientBuilder<'a>>>,
+    address: String,
 }
 
 impl ClientBuilderWrapper for ClientBuilderWrapperReal<'_> {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), ParseError> {
-        self.builder_opt.replace(Some(ClientBuilder::new(address)?));
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::error::Error> {
+        self.address = address.toString();
         Ok(())
     }
 
     fn add_protocol(&self, protocol: &str) {
-        let updated_builder = self
-            .builder_opt
-            .borrow_mut()
-            .take()
-            .expectv("client builder")
-            .add_protocol(protocol);
-        self.builder_opt.replace(Some(updated_builder));
+        todo!("Figure out how to do protocols with workflow-websockets")
     }
 
-    fn connect_insecure(&mut self) -> WebSocketResult<Box<dyn ClientWrapper>> {
-        self.builder_opt
-            .borrow_mut()
-            .as_mut()
-            .expectv("client builder")
-            .connect_insecure()
-            .map(|client| Box::new(ClientWrapperReal { client }) as Box<dyn ClientWrapper>)
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error> {
+        let client = ClientWrapperReal::new(self.address.as_str())?;
+        return Ok(Box::new(client));
     }
 }
 
@@ -262,8 +258,6 @@ mod tests {
     use std::process::{Child, Command};
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
-    use websocket::url::ParseError::RelativeUrlWithoutBase;
-    use websocket::{OwnedMessage, WebSocketError};
 
     #[test]
     fn constants_have_correct_values() {
@@ -430,7 +424,7 @@ mod tests {
         let add_protocol_params = add_protocol_params_arc.lock().unwrap();
         assert_eq!(*add_protocol_params, vec![NODE_UI_PROTOCOL.to_string()]);
         let send_message_params = send_message_params_arc.lock().unwrap();
-        assert_eq!(*send_message_params, vec![OwnedMessage::Close(None)])
+        assert_eq!(*send_message_params, vec![Message::Close])
     }
 
     #[test]
@@ -444,12 +438,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "client builder: InvalidDomainCharacter")]
+    #[should_panic(expected = "client builder: InvalidMessageType")]
     fn can_connect_to_ui_gateway_panics_on_initiate_client_builder() {
         let port = 7889;
         let subject = VerifierToolsReal::new();
         let client_builder = ClientBuilderWrapperMock::default()
-            .initiate_client_builder_result(Err(ParseError::InvalidDomainCharacter));
+            .initiate_client_builder_result(Err(workflow_websocket::client::error::Error::InvalidMessageType));
         subject.client_builder.replace(Box::new(client_builder));
 
         subject.can_connect_to_ui_gateway(port);
@@ -460,7 +454,7 @@ mod tests {
         let port = 6578;
         let subject = VerifierToolsReal::new();
         let client = ClientWrapperMock::default()
-            .send_message_result(Err(WebSocketError::ProtocolError("Oh, my bad")));
+            .send_message_result(Err(Arc::new(workflow_websocket::client::error::Error::InvalidConnectStrategyArg("Bad protocol".to_string()))));
         let client_builder = ClientBuilderWrapperMock::default()
             .initiate_client_builder_result(Ok(()))
             .connect_insecure_result(Ok(Box::new(client)));
@@ -478,7 +472,7 @@ mod tests {
 
         let result = subject.initiate_client_builder(url_address);
 
-        assert_eq!(result, Err(RelativeUrlWithoutBase))
+        assert_eq!(result, Err(workflow_websocket::client::error::Error::MissingUrl));
     }
 
     fn make_long_running_child() -> Child {

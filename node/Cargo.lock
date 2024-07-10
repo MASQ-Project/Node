@@ -2966,6 +2966,7 @@ dependencies = [
  "toml 0.8.14",
  "tungstenite 0.23.0",
  "unindent",
+ "url 2.5.0",
  "variant_count",
  "web3",
  "winreg 0.52.0",

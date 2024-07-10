@@ -5,6 +5,27 @@
 // use futures::sync::mpsc::UnboundedSender;
 // use std::net::SocketAddr;
 // use futures::channel::mpsc::{SendError, TrySendError, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver};
+use tokio::sync::mpsc::error::TryRecvError;
+
+pub trait ReceiverWrapper<T: Send>: Send {
+    async fn recv(&mut self) -> Option<T>;
+    fn try_recv(&mut self) -> Result<T, TryRecvError>;
+}
+
+pub struct ReceiverWrapperReal<T> {
+    delegate: UnboundedReceiver<T>,
+}
+
+impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperReal<T> {
+    async fn recv(&mut self) -> Option<T> {
+        self.delegate.recv().await
+    }
+
+    fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        self.delegate.try_recv()
+    }
+}
 
 // #[allow(clippy::result_unit_err)]
 // pub trait ReceiverWrapper<T: Send>: Send {

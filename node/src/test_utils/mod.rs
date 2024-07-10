@@ -37,7 +37,6 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
-use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -60,6 +59,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::unbounded_channel;
 use web3::types::{Address, U256};
 
 lazy_static! {
@@ -309,9 +310,9 @@ pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRespo
 }
 
 pub fn make_send_error() -> SendError<SequencedPacket> {
-    let (tx, rx) = futures::sync::mpsc::unbounded();
+    let (tx, rx) = unbounded_channel();
     drop(rx);
-    tx.unbounded_send(SequencedPacket {
+    tx.send(SequencedPacket {
         data: vec![],
         sequence_number: 0,
         last_data: false,
@@ -568,7 +569,7 @@ pub mod unshared_test_utils {
     use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
-    #[cfg(not(feature = "no_test_share"))]
+    // #[cfg(not(feature = "no_test_share"))]
     use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
@@ -641,7 +642,7 @@ pub mod unshared_test_utils {
         );
     }
 
-    pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
+    pub fn make_simplified_multi_config<const T: usize>(args: [&str; T]) -> MultiConfig {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
         let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();

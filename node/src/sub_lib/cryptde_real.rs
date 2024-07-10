@@ -15,6 +15,7 @@ use sodiumoxide::crypto::sign as signing;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
 use std::any::Any;
+use sodiumoxide::crypto::sign::Signature;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -137,8 +138,15 @@ impl CryptDE for CryptDEReal {
         let mut signature_data = [0u8; signing::SIGNATUREBYTES];
         signature_data.copy_from_slice(signature.as_slice());
         let data_to_verify = [data.as_slice(), &self.pre_shared_data[..]].concat();
+        let signature = match Signature::from_bytes(&signature_data) {
+            None => {
+                todo! ("Signature came in from outside. Not allowed to panic. Drive in an error log here");
+                return false
+            },
+            Some(signature) => signature,
+        };
         signing::verify_detached(
-            &signing::Signature(signature_data),
+            &signature,
             data_to_verify.as_slice(),
             &Self::signing_public_key_from(public_key),
         )
