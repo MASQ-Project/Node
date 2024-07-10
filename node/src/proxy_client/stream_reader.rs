@@ -327,14 +327,13 @@ mod tests {
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
 
         let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
-        let peer_actors = peer_actors_builder().build();
         let mut sequencer = Sequencer::new();
         sequencer.next_sequence_number();
         sequencer.next_sequence_number();
 
         let mut subject = StreamReader {
             stream_key,
-            proxy_client_sub: peer_actors.proxy_client_opt.unwrap().inbound_server_data,
+            proxy_client_sub: make_proxy_client_sub(),
             stream: Box::new(stream),
             stream_killer,
             shutdown_signal: unbounded().1,
@@ -415,27 +414,37 @@ mod tests {
     #[test]
     fn stream_reader_shuts_down_when_it_receives_the_shutdown_signal() {
         init_test_logging();
-        let proxy_client_sub = peer_actors_builder()
-            .build()
-            .proxy_client_opt
-            .unwrap()
-            .inbound_server_data;
+        let test_name = "stream_reader_shuts_down_when_it_receives_the_shutdown_signal";
         let (shutdown_tx, shutdown_rx) = unbounded();
-        let mut subject = StreamReader {
-            stream_key: StreamKey::make_meaningless_stream_key(),
-            proxy_client_sub,
-            stream: Box::new(ReadHalfWrapperMock::new()),
-            stream_killer: unbounded().0,
-            shutdown_signal: shutdown_rx,
-            peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-            logger: Logger::new("test"),
-            sequencer: Sequencer::new(),
-        };
+        let mut subject = make_subject();
+        subject.shutdown_signal = shutdown_rx;
+        subject.logger = Logger::new(test_name);
 
         shutdown_tx.send(()).unwrap();
 
-        let result = subject.poll();
-        assert_eq!(result, Ok(Async::Ready(())));
-        TestLogHandler::new().exists_log_containing("Received shutdown signal");
+        assert_eq!(subject.poll(), Ok(Async::Ready(())));
+        TestLogHandler::new()
+            .exists_log_containing(&format!("INFO: {test_name}: Received shutdown signal"));
+    }
+
+    pub fn make_subject() -> StreamReader {
+        StreamReader {
+            stream_key: StreamKey::make_meaningless_stream_key(),
+            proxy_client_sub: make_proxy_client_sub(),
+            stream: Box::new(ReadHalfWrapperMock::new()),
+            stream_killer: unbounded().0,
+            shutdown_signal: unbounded().1,
+            peer_addr: SocketAddr::from_str("9.8.7.6:5432").unwrap(),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        }
+    }
+
+    pub fn make_proxy_client_sub() -> Recipient<InboundServerData> {
+        peer_actors_builder()
+            .build()
+            .proxy_client_opt
+            .unwrap()
+            .inbound_server_data
     }
 }
