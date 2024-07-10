@@ -6,7 +6,7 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
@@ -27,15 +27,13 @@ impl Future for StreamReader {
     type Item = ();
     type Error = ();
 
-    // Unit test: Create StreamReader and call poll(), it should check return value - return Ok(Async::Ready(()));
-    // stream.poll_read_results = vec![]
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
-            // TODO: GH-800: If there is a message waiting log the message with the info!() and break out of the loop
-            // TODO: We should check for self.shutdown_signal.try_recv()
-            // If the check is successful we want to close the Stream and complete the future.
-            // Async::Ready(()) can be used
+            if self.shutdown_signal.try_recv().is_ok() {
+                info!(self.logger, "Received shutdown signal");
+                return Ok(Async::Ready(()));
+            }
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(0)) => {
@@ -412,5 +410,32 @@ mod tests {
                 data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
             }
         );
+    }
+
+    #[test]
+    fn stream_reader_shuts_down_when_it_receives_the_shutdown_signal() {
+        init_test_logging();
+        let proxy_client_sub = peer_actors_builder()
+            .build()
+            .proxy_client_opt
+            .unwrap()
+            .inbound_server_data;
+        let (shutdown_tx, shutdown_rx) = unbounded();
+        let mut subject = StreamReader {
+            stream_key: StreamKey::make_meaningless_stream_key(),
+            proxy_client_sub,
+            stream: Box::new(ReadHalfWrapperMock::new()),
+            stream_killer: unbounded().0,
+            shutdown_signal: shutdown_rx,
+            peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        };
+
+        shutdown_tx.send(()).unwrap();
+
+        let result = subject.poll();
+        assert_eq!(result, Ok(Async::Ready(())));
+        TestLogHandler::new().exists_log_containing("Received shutdown signal");
     }
 }

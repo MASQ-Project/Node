@@ -35,6 +35,8 @@ pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
 }
 
+// TODO: GH-800: We don't need to keep StreamSenders at two places here, one in stream_adder_rx,
+// and the other in inner -> stream_writer_channels
 pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
     stream_adder_rx: Receiver<(StreamKey, StreamSenders)>,
