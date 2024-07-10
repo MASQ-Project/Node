@@ -438,6 +438,24 @@ enum RouteDirection {
     Back,
 }
 
+#[derive(Clone)]
+struct RouteSegmentVars<'a> {
+    minimum_hops: usize,
+    payload_size: usize,
+    direction: RouteDirection,
+    hostname_opt: Option<&'a str>,
+    exit_location_opt: Option<&'a String>,
+}
+
+#[derive(Clone, Copy)]
+struct RoutingEngineVars<'a> {
+    hops_remaining: usize,
+    payload_size: usize,
+    direction: RouteDirection,
+    hostname_opt: Option<&'a str>,
+    exit_location_opt: Option<&'a String>,
+}
+
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
@@ -1018,6 +1036,7 @@ impl Neighborhood {
         request_msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
         let hostname_opt = request_msg.hostname_opt.as_deref();
+        let target_gountry_opt = request_msg.target_country_opt.as_ref();
         let over = self.make_route_segment(
             self.cryptde.public_key(),
             request_msg.target_key_opt.as_ref(),
@@ -1026,7 +1045,7 @@ impl Neighborhood {
             request_msg.payload_size,
             RouteDirection::Over,
             hostname_opt,
-            request_msg.target_country_opt.clone()
+            target_gountry_opt,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         // Estimate for routing-undesirability calculations.
@@ -1044,7 +1063,7 @@ impl Neighborhood {
             anticipated_response_payload_len,
             RouteDirection::Back,
             hostname_opt,
-            request_msg.target_country_opt
+            target_gountry_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1105,16 +1124,19 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
-        exit_location_opt: Option<String>,
+        exit_location_opt: Option<&String>,
     ) -> Result<RouteSegment, String> {
-        let route_opt = self.find_best_route_segment(
-            origin,
-            target_opt,
-            minimum_hop_count,
+        let route_vars = RouteSegmentVars {
+            minimum_hops: minimum_hop_count,
             payload_size,
             direction,
             hostname_opt,
-            exit_location_opt
+            exit_location_opt,
+        };
+        let route_opt = self.find_best_route_segment(
+            origin,
+            target_opt,
+            route_vars,
         );
         match route_opt {
             None => {
@@ -1221,7 +1243,8 @@ impl Neighborhood {
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_, Some(exit_location_opt)) => {
-                node_record.inner.rate_pack.exit_charge(payload_size) + node_record.country_code_exeption(exit_location_opt)
+                node_record.inner.rate_pack.exit_charge(payload_size)
+                    + node_record.country_code_exeption(exit_location_opt)
             }
             UndesirabilityType::ExitRequest(_, None) => {
                 node_record.inner.rate_pack.exit_charge(payload_size)
@@ -1231,7 +1254,9 @@ impl Neighborhood {
                     + node_record.inner.rate_pack.routing_charge(payload_size)
             }
         } as i64;
-        if let UndesirabilityType::ExitRequest(Some(hostname), Some(exit_location_opt)) = undesirability_type {
+        if let UndesirabilityType::ExitRequest(Some(hostname), Some(exit_location_opt)) =
+            undesirability_type
+        {
             if node_record.metadata.unreachable_hosts.contains(hostname) {
                 trace!(
                     logger,
@@ -1244,7 +1269,7 @@ impl Neighborhood {
                 );
                 rate_undesirability += UNREACHABLE_HOST_PENALTY;
             }
-            if node_record.inner.country_code.to_owned() != exit_location_opt.to_owned() {
+            if node_record.inner.country_code != *exit_location_opt {
                 trace!(
                     logger,
                     "Node with PubKey {:?} is not from requested Country {:?} during ExitRequest; Undesirability: {} + {} = {}",
@@ -1292,30 +1317,25 @@ impl Neighborhood {
         &'a self,
         source: &'a PublicKey,
         target_opt: Option<&'a PublicKey>,
-        minimum_hops: usize,
-        payload_size: usize,
-        direction: RouteDirection,
-        hostname_opt: Option<&str>,
-        exit_location_opt: Option<String>
+        route_vars: RouteSegmentVars,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        let exit_country_opt = match exit_location_opt.as_ref() {
-            Some(country) => Some(country),
-            None => None
-        };
         let initial_undesirability =
-            self.compute_initial_undesirability(source, payload_size as u64, direction);
+            self.compute_initial_undesirability(source, route_vars.payload_size as u64, route_vars.direction);
+        let routing_vars = RoutingEngineVars {
+            hops_remaining: route_vars.minimum_hops,
+            payload_size: route_vars.payload_size,
+            direction: route_vars.direction,
+            hostname_opt: route_vars.hostname_opt,
+            exit_location_opt: route_vars.exit_location_opt,
+        };
         let result = self
             .routing_engine(
                 vec![source],
                 initial_undesirability,
                 target_opt,
-                minimum_hops,
-                payload_size,
-                direction,
                 &mut minimum_undesirability,
-                hostname_opt,
-                exit_country_opt
+                routing_vars
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1333,12 +1353,8 @@ impl Neighborhood {
         prefix: Vec<&'a PublicKey>,
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
-        hops_remaining: usize,
-        payload_size: usize,
-        direction: RouteDirection,
         minimum_undesirability: &mut i64,
-        hostname_opt: Option<&str>,
-        exit_country_opt: Option<&String>,
+        routing_vars: RoutingEngineVars
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1349,7 +1365,7 @@ impl Neighborhood {
             .node_by_key(prefix.last().expect("Empty prefix"))
             .expect("Last Node magically disappeared");
         // Check to see if we're done. If we are, all three of these qualifications will pass.
-        if self.route_length_qualifies(hops_remaining)
+        if self.route_length_qualifies(routing_vars.hops_remaining)
             && self.last_key_qualifies(previous_node, target_opt)
             && self.validate_last_node_not_too_close_to_first_node(
                 prefix.len(),
@@ -1361,7 +1377,7 @@ impl Neighborhood {
                 *minimum_undesirability = undesirability;
             }
             vec![ComputedRouteSegment::new(prefix, undesirability)]
-        } else if (hops_remaining == 0) && target_opt.is_none() {
+        } else if (routing_vars.hops_remaining == 0) && target_opt.is_none() {
             // don't continue a targetless search past the minimum hop count
             vec![]
         } else {
@@ -1372,16 +1388,20 @@ impl Neighborhood {
                 .filter(|node_record| !prefix.contains(&node_record.public_key()))
                 .filter(|node_record| {
                     node_record.routes_data()
-                        || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
+                        || Self::is_orig_node_on_back_leg(**node_record, target_opt, routing_vars.direction)
                 })
                 .flat_map(|node_record| {
                     let mut new_prefix = prefix.clone();
                     new_prefix.push(node_record.public_key());
 
-                    let new_hops_remaining = if hops_remaining == 0 {
+                    let new_hops_remaining = if routing_vars.hops_remaining == 0 {
                         0
                     } else {
-                        hops_remaining - 1
+                        routing_vars.hops_remaining - 1
+                    };
+                    let exit_country_opt = match routing_vars.exit_location_opt {
+                        Some(country) => Some(country),
+                        None => None,
                     };
 
                     let new_undesirability = self.compute_new_undesirability(
@@ -1389,22 +1409,18 @@ impl Neighborhood {
                         undesirability,
                         target_opt,
                         new_hops_remaining,
-                        payload_size as u64,
-                        direction,
-                        hostname_opt,
-                        exit_country_opt
+                        routing_vars.payload_size as u64,
+                        routing_vars.direction,
+                        routing_vars.hostname_opt,
+                        exit_country_opt,
                     );
 
                     self.routing_engine(
                         new_prefix.clone(),
                         new_undesirability,
                         target_opt,
-                        new_hops_remaining,
-                        payload_size,
-                        direction,
                         minimum_undesirability,
-                        hostname_opt,
-                        exit_country_opt,
+                        routing_vars
                     )
                 })
                 .collect()
@@ -2654,7 +2670,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None, 400));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 400,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2670,7 +2688,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,430));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 430,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2710,7 +2730,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, None,54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, None, 54000);
 
         let future = sub.send(msg);
 
@@ -2770,7 +2790,7 @@ mod tests {
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, None,20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, None, 20000);
 
         let future = sub.send(msg);
 
@@ -2790,7 +2810,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None,12345,
+            None, None, 12345,
         ));
 
         System::current().stop_with_code(0);
@@ -2886,7 +2906,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,5000));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 5000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2981,8 +3003,12 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,2000));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,3000));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 2000,
+        ));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 3000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3032,15 +3058,17 @@ mod tests {
         )
         .unwrap();
 
-        let route_request_1 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,1000));
+        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 1000,
+        ));
         configuration_change_msg_sub
             .try_send(ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
             })
             .unwrap();
-        let route_request_2 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,2000));
+        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 2000,
+        ));
 
         System::current().stop();
         system.run();
@@ -3269,35 +3297,44 @@ mod tests {
         db.add_arbitrary_full_neighbor(s, r);
 
         // At least two hops from p to anywhere standard
+        let mut route_vars = RouteSegmentVars {
+            minimum_hops: 2,
+            payload_size: 10000,
+            direction: RouteDirection::Over,
+            hostname_opt: None,
+            exit_location_opt: None,
+        };
         let route_opt =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, None, route_vars.clone());
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
         let route_opt =
-            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, Some(t), route_vars.clone());
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
         let route_opt =
-            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(t, Some(p), route_vars.clone());
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
+        route_vars.direction = RouteDirection::Back;
         let route_opt =
-            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None, None);
+            subject.find_best_route_segment(t, Some(p), route_vars.clone());
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
+        route_vars.direction = RouteDirection::Over;
         let route_opt =
-            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, Some(q), route_vars.clone());
 
         assert_eq!(route_opt, None);
     }
@@ -3369,8 +3406,15 @@ mod tests {
         let before = Instant::now();
 
         // All the target-designated routes from L to N
+        let route_vars = RouteSegmentVars {
+            minimum_hops: 3,
+            payload_size: 10000,
+            direction: RouteDirection::Back,
+            hostname_opt: None,
+            exit_location_opt: None,
+        };
         let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None, None)
+            .find_best_route_segment(&l, Some(&n), route_vars)
             .unwrap();
 
         let after = Instant::now();
@@ -3404,8 +3448,26 @@ mod tests {
         db.add_arbitrary_full_neighbor(c, a);
         let cdb = db.clone();
 
-        let route_au = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("AU".to_string()));
-        let route_fr = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("FR".to_string()));
+        let country_code_au = "AU".to_string();
+        let mut route_vars = RouteSegmentVars {
+            minimum_hops: 2,
+            payload_size: 10000,
+            direction: RouteDirection::Over,
+            hostname_opt: None,
+            exit_location_opt: Some(&country_code_au),
+        };
+        let route_au = subject.find_best_route_segment(
+            p,
+            None,
+            route_vars.clone()
+        );
+        let country_code_fr = "FR".to_string();
+        route_vars.exit_location_opt = Some(&country_code_fr);
+        let route_fr = subject.find_best_route_segment(
+            p,
+            None,
+            route_vars
+        );
 
         let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(2).unwrap());
         assert_eq!(exit_node.unwrap().inner.country_code, "AU");
@@ -3426,8 +3488,15 @@ mod tests {
         db.add_arbitrary_full_neighbor(q, r);
 
         // At least two hops from P to anywhere standard
+        let route_vars = RouteSegmentVars {
+            minimum_hops: 2,
+            payload_size: 10000,
+            direction: RouteDirection::Over,
+            hostname_opt: None,
+            exit_location_opt: None,
+        };
         let route_opt =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, None, route_vars);
 
         assert_eq!(route_opt, None);
     }
