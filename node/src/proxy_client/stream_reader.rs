@@ -127,7 +127,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
-    use actix::System;
+    use actix::{Actor, System};
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -330,7 +330,7 @@ mod tests {
 
         let mut subject = StreamReader {
             stream_key,
-            proxy_client_sub: make_proxy_client_sub(),
+            proxy_client_sub: make_recorder().0.start().recipient(),
             stream: Box::new(stream),
             stream_killer,
             shutdown_signal: unbounded().1,
@@ -346,7 +346,7 @@ mod tests {
         assert_eq!(result, Ok(Async::Ready(())));
         assert_eq!(kill_stream_params.try_recv().unwrap(), (stream_key, 2));
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Stream from 5.3.4.3:654 was closed: (0-byte read)"
+            "DEBUG: {test_name}: Stream from {peer_addr} was closed: (0-byte read)"
         ));
     }
 
@@ -431,7 +431,7 @@ mod tests {
     pub fn make_subject() -> StreamReader {
         StreamReader {
             stream_key: StreamKey::make_meaningless_stream_key(),
-            proxy_client_sub: make_proxy_client_sub(),
+            proxy_client_sub: make_recorder().0.start().recipient(),
             stream: Box::new(ReadHalfWrapperMock::new()),
             stream_killer: unbounded().0,
             shutdown_signal: unbounded().1,
@@ -439,13 +439,5 @@ mod tests {
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         }
-    }
-
-    pub fn make_proxy_client_sub() -> Recipient<InboundServerData> {
-        peer_actors_builder()
-            .build()
-            .proxy_client_opt
-            .unwrap()
-            .inbound_server_data
     }
 }
