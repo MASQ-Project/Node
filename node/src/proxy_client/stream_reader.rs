@@ -261,16 +261,12 @@ mod tests {
         });
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
-        let mut subject = StreamReader {
-            stream_key: StreamKey::make_meaningless_stream_key(),
-            proxy_client_sub,
-            stream: Box::new(stream),
-            stream_killer,
-            shutdown_signal: unbounded().1,
-            peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-            logger: Logger::new("test"),
-            sequencer: Sequencer::new(),
-        };
+        let peer_addr = SocketAddr::from_str("5.7.9.0:95").unwrap();
+        let mut subject = make_subject();
+        subject.proxy_client_sub = proxy_client_sub;
+        subject.stream = Box::new(stream);
+        subject.stream_killer = stream_killer;
+        subject.peer_addr = peer_addr;
 
         let result = subject.poll();
 
@@ -283,7 +279,7 @@ mod tests {
                 stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+                source: peer_addr,
                 data: b"HTTP/1.1 200".to_vec()
             }
         );
@@ -293,7 +289,7 @@ mod tests {
                 stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 1,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+                source: peer_addr,
                 data: b" OK\r\n\r\nHTTP/1.1 40".to_vec()
             }
         );
@@ -303,7 +299,7 @@ mod tests {
                 stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 2,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+                source: peer_addr,
                 data: b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
             }
         );
@@ -321,12 +317,13 @@ mod tests {
     #[test]
     fn receiving_0_bytes_kills_stream() {
         init_test_logging();
+        let test_name = "receiving_0_bytes_kills_stream";
         let stream_key = StreamKey::make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
-
-        let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
+        let peer_addr = SocketAddr::from_str("5.3.4.3:654").unwrap();
+        let system = System::new(test_name);
         let mut sequencer = Sequencer::new();
         sequencer.next_sequence_number();
         sequencer.next_sequence_number();
@@ -337,33 +334,36 @@ mod tests {
             stream: Box::new(stream),
             stream_killer,
             shutdown_signal: unbounded().1,
-            peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
-            logger: Logger::new("test"),
+            peer_addr,
+            logger: Logger::new(test_name),
             sequencer,
         };
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let result = subject.poll();
 
         assert_eq!(result, Ok(Async::Ready(())));
         assert_eq!(kill_stream_params.try_recv().unwrap(), (stream_key, 2));
-        TestLogHandler::new()
-            .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Stream from 5.3.4.3:654 was closed: (0-byte read)"
+        ));
     }
 
     #[test]
     fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
         init_test_logging();
+        let test_name = "non_dead_stream_read_errors_log_but_do_not_shut_down";
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let (stream_killer, _) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
+        let http_response = b"HTTP/1.1 200 OK\r\n\r\n";
         stream.poll_read_results = vec![
             (vec![], Err(Error::from(ErrorKind::Other))),
             (
-                Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
-                Ok(Async::Ready(b"HTTP/1.1 200 OK\r\n\r\n".len())),
+                http_response.to_vec(),
+                Ok(Async::Ready(http_response.len())),
             ),
             (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
         ];
@@ -380,14 +380,15 @@ mod tests {
         });
 
         let proxy_client_sub = rx.recv().unwrap();
+        let peer_addr = SocketAddr::from_str("6.5.4.1:8325").unwrap();
         let mut subject = StreamReader {
             stream_key,
             proxy_client_sub,
             stream: Box::new(stream),
             stream_killer,
             shutdown_signal: unbounded().1,
-            peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-            logger: Logger::new("test"),
+            peer_addr,
+            logger: Logger::new(test_name),
             sequencer: Sequencer::new(),
         };
 
@@ -396,17 +397,17 @@ mod tests {
         assert_eq!(result, Err(()));
         proxy_client_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing(
-            "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other error",
+            &format!("WARN: {test_name}: Continuing after read error on stream from {peer_addr}: other error"),
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
-                source: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
+                source: peer_addr,
+                data: http_response.to_vec()
             }
         );
     }
