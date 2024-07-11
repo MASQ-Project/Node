@@ -123,7 +123,7 @@ pub struct ReceivedPayments {
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
-    pub new_start_block: u64,
+    pub new_start_block: Option<u64>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1013,6 +1013,7 @@ mod tests {
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
+    use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
@@ -1266,7 +1267,11 @@ mod tests {
         config.suppress_initial_scans = true;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .config_dao(ConfigDaoMock::new().set_result(Ok(())))
+            .config_dao(
+                ConfigDaoMock::new()
+                    .get_result(Ok(ConfigDaoRecord::new("start_block", None, false)))
+                    .set_result(Ok(())),
+            )
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1276,7 +1281,7 @@ mod tests {
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
-            new_start_block: 1234567,
+            new_start_block: Some(1234567),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1876,6 +1881,7 @@ mod tests {
     ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_by_guest_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
@@ -1899,6 +1905,8 @@ mod tests {
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(wrapped_transaction);
         let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("start_block", None, false)))
             .set_by_guest_transaction_params(&set_by_guest_transaction_params_arc)
             .set_by_guest_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
@@ -1913,7 +1921,7 @@ mod tests {
             .try_send(ReceivedPayments {
                 timestamp: now,
                 payments: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
-                new_start_block: 123456789,
+                new_start_block: Some(123456789u64),
                 response_skeleton_opt: None,
             })
             .expect("unexpected actix error");

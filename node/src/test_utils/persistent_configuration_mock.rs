@@ -65,7 +65,7 @@ pub struct PersistentConfigurationMock {
     max_block_count_results: RefCell<Vec<Result<Option<u64>, PersistentConfigError>>>,
     set_max_block_count_params: Arc<Mutex<Vec<Option<u64>>>>,
     set_max_block_count_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    set_start_block_from_txn_params: Arc<Mutex<Vec<(u64, ArbitraryIdStamp)>>>,
+    set_start_block_from_txn_params: Arc<Mutex<Vec<(Option<u64>, ArbitraryIdStamp)>>>,
     set_start_block_from_txn_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     payment_thresholds_results: RefCell<Vec<Result<PaymentThresholds, PersistentConfigError>>>,
     set_payment_thresholds_params: Arc<Mutex<Vec<String>>>,
@@ -252,7 +252,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 
     fn set_start_block_from_txn(
         &mut self,
-        value: u64,
+        value: Option<u64>,
         transaction: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError> {
         self.set_start_block_from_txn_params
@@ -586,7 +586,7 @@ impl PersistentConfigurationMock {
 
     pub fn set_start_block_from_txn_params(
         mut self,
-        params: &Arc<Mutex<Vec<(u64, ArbitraryIdStamp)>>>,
+        params: &Arc<Mutex<Vec<(Option<u64>, ArbitraryIdStamp)>>>,
     ) -> Self {
         self.set_start_block_from_txn_params = params.clone();
         self
