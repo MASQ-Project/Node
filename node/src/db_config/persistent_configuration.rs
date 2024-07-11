@@ -113,7 +113,7 @@ pub trait PersistentConfiguration {
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
     fn set_mapping_protocol(
         &mut self,
-        value: Option<AutomapProtocol>,
+        value_opt: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError>;
     fn min_hops(&self) -> Result<Hops, PersistentConfigError>;
     fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError>;
@@ -132,12 +132,12 @@ pub trait PersistentConfiguration {
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<Option<u64>, PersistentConfigError>;
-    fn set_start_block(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
+    fn set_start_block(&mut self, value_opt: Option<u64>) -> Result<(), PersistentConfigError>;
     fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError>;
-    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError>;
+    fn set_max_block_count(&mut self, value_opt: Option<u64>) -> Result<(), PersistentConfigError>;
     fn set_start_block_from_txn(
         &mut self,
-        value: Option<u64>,
+        value_opt: Option<u64>,
         transaction: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
@@ -335,9 +335,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_mapping_protocol(
         &mut self,
-        value: Option<AutomapProtocol>,
+        value_opt: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set("mapping_protocol", value.map(to_string))?)
+        Ok(self.dao.set("mapping_protocol", value_opt.map(to_string))?)
     }
 
     fn min_hops(&self) -> Result<Hops, PersistentConfigError> {
@@ -410,24 +410,24 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(decode_u64(self.get("start_block")?)?)
     }
 
-    fn set_start_block(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set("start_block", encode_u64(value)?)?)
+    fn set_start_block(&mut self, value_opt: Option<u64>) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("start_block", encode_u64(value_opt)?)?)
     }
 
     fn max_block_count(&self) -> Result<Option<u64>, PersistentConfigError> {
         Ok(decode_u64(self.get("max_block_count")?)?)
     }
 
-    fn set_max_block_count(&mut self, value: Option<u64>) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set("max_block_count", encode_u64(value)?)?)
+    fn set_max_block_count(&mut self, value_opt: Option<u64>) -> Result<(), PersistentConfigError> {
+        Ok(self.dao.set("max_block_count", encode_u64(value_opt)?)?)
     }
 
     fn set_start_block_from_txn(
         &mut self,
-        value: Option<u64>,
+        value_opt: Option<u64>,
         transaction: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method_from_provided_txn("start_block", value, transaction)
+        self.simple_set_method_from_provided_txn("start_block", value_opt, transaction)
     }
 
     fn set_wallet_info(
@@ -568,12 +568,14 @@ impl PersistentConfigurationReal {
     fn simple_set_method_from_provided_txn<T: Display>(
         &mut self,
         parameter_name: &str,
-        value: Option<T>,
+        value_opt: Option<T>,
         txn: &mut TransactionSafeWrapper,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set_by_guest_transaction(txn, parameter_name, value.map(|v| v.to_string()))?)
+        Ok(self.dao.set_by_guest_transaction(
+            txn,
+            parameter_name,
+            value_opt.map(|v| v.to_string()),
+        )?)
     }
 
     fn combined_params_get_method<'a, T, C>(
