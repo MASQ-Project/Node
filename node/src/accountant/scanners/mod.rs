@@ -860,25 +860,15 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                 "No newly received payments were detected during the scanning process."
             );
 
-            if let Some(new_start_block) = msg.new_start_block {
-                let current_start_block = match self.persistent_configuration.start_block() {
-                    Ok(Some(current_start_block)) => current_start_block,
-                    _ => 0u64,
-                };
-                if new_start_block > current_start_block {
-                    match self
-                        .persistent_configuration
-                        .set_start_block(msg.new_start_block)
-                    {
-                        Ok(()) => debug!(logger, "Start block updated to {}", &new_start_block),
-                        Err(e) => panic!(
-                            "Attempt to set new start block to {} failed due to: {:?}",
-                            &new_start_block, e
-                        ),
-                    }
-                } else {
-                    warning!(logger, "The new_start_block ({}) is less than the current_start_block ({}). This is not a problem but by checking we avoid rescanning the same blocks again later.", &new_start_block, &current_start_block);
-                }
+            match self
+                .persistent_configuration
+                .set_start_block(Some(msg.new_start_block))
+            {
+                Ok(()) => debug!(logger, "Start block updated to {}", msg.new_start_block),
+                Err(e) => panic!(
+                    "Attempt to set new start block to {} failed due to: {:?}",
+                    msg.new_start_block, e
+                ),
             }
         } else {
             self.handle_new_received_payments(&msg, logger)
@@ -921,31 +911,23 @@ impl ReceivableScanner {
             .as_mut()
             .more_money_received(msg.timestamp, &msg.payments);
 
-        if let Some(new_start_block) = msg.new_start_block {
-            let current_start_block = match self.persistent_configuration.start_block() {
-                Ok(Some(start_block)) => start_block,
-                _ => 0u64,
-            };
-            if new_start_block > current_start_block {
-                match self
-                    .persistent_configuration
-                    .set_start_block_from_txn(msg.new_start_block, &mut txn)
-                {
-                    Ok(()) => (),
-                    Err(e) => panic!(
-                        "Attempt to set new start block to {} failed due to: {:?}",
-                        new_start_block, e
-                    ),
-                }
-                match txn.commit() {
-                    Ok(_) => {
-                        debug!(logger, "Updated start block to: {}", new_start_block)
-                    }
-                    Err(e) => panic!("Commit of received transactions failed: {:?}", e),
-                }
-            } else {
-                warning!(logger, "The new_start_block ({}) is less than the current_start_block ({}). This is not a problem but by checking we avoid rescanning the same blocks again later.", &new_start_block, &current_start_block);
+        let new_start_block = msg.new_start_block;
+        match self
+            .persistent_configuration
+            .set_start_block_from_txn(Some(new_start_block), &mut txn)
+        {
+            Ok(()) => (),
+            Err(e) => panic!(
+                "Attempt to set new start block to {} failed due to: {:?}",
+                new_start_block, e
+            ),
+        }
+
+        match txn.commit() {
+            Ok(_) => {
+                debug!(logger, "Updated start block to: {}", new_start_block)
             }
+            Err(e) => panic!("Commit of received transactions failed: {:?}", e),
         }
 
         let total_newly_paid_receivable = msg
@@ -2101,7 +2083,9 @@ mod tests {
         };
         let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
             .is_innocent_age_params(&is_innocent_age_params_arc)
-            .is_innocent_age_result(debt_age_s <= custom_payment_thresholds.maturity_threshold_sec)
+            .is_innocent_age_result(
+                debt_age_s <= custom_payment_thresholds.maturity_threshold_sec as u64,
+            )
             .is_innocent_balance_params(&is_innocent_balance_params_arc)
             .is_innocent_balance_result(
                 balance <= gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei),
@@ -2122,7 +2106,7 @@ mod tests {
         assert_eq!(debt_age_returned_innocent, debt_age_s);
         assert_eq!(
             curve_derived_time,
-            custom_payment_thresholds.maturity_threshold_sec
+            custom_payment_thresholds.maturity_threshold_sec as u64
         );
         let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
         assert_eq!(
@@ -3084,7 +3068,7 @@ mod tests {
         init_test_logging();
         let test_name = "receivable_scanner_aborts_scan_if_no_payments_were_supplied";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let new_start_block = Some(4321);
+        let new_start_block = 4321;
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(None))
             .set_start_block_params(&set_start_block_params_arc)
@@ -3117,7 +3101,7 @@ mod tests {
         let test_name = "no_transactions_received_but_start_block_setting_fails";
         let now = SystemTime::now();
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let new_start_block = Some(6709u64);
+        let new_start_block = 6709u64;
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(None))
             .set_start_block_params(&set_start_block_params_arc)
@@ -3182,7 +3166,7 @@ mod tests {
         let msg = ReceivedPayments {
             timestamp: now,
             payments: receivables.clone(),
-            new_start_block: Some(7890123),
+            new_start_block: 7890123,
             response_skeleton_opt: None,
         };
         subject.mark_as_started(SystemTime::now());
@@ -3237,7 +3221,7 @@ mod tests {
         let msg = ReceivedPayments {
             timestamp: now,
             payments: receivables,
-            new_start_block: Some(7890123),
+            new_start_block: 7890123,
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness
@@ -3281,7 +3265,7 @@ mod tests {
         let msg = ReceivedPayments {
             timestamp: now,
             payments: receivables,
-            new_start_block: Some(7890123),
+            new_start_block: 7890123,
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness
