@@ -456,6 +456,13 @@ struct RoutingEngineVars<'a> {
     exit_location_opt: Option<&'a String>,
 }
 
+struct NewUndesirabilityVars<'a> {
+    node_record: &'a NodeRecord,
+    undesirability: i64,
+    target_opt: Option<&'a PublicKey>,
+    hops_remaining: usize,
+}
+
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
@@ -1322,7 +1329,7 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, route_vars.payload_size as u64, route_vars.direction);
-        let routing_vars = RoutingEngineVars {
+        let mut routing_vars = RoutingEngineVars {
             hops_remaining: route_vars.minimum_hops,
             payload_size: route_vars.payload_size,
             direction: route_vars.direction,
@@ -1335,7 +1342,7 @@ impl Neighborhood {
                 initial_undesirability,
                 target_opt,
                 &mut minimum_undesirability,
-                routing_vars
+                &mut routing_vars
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1354,7 +1361,7 @@ impl Neighborhood {
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         minimum_undesirability: &mut i64,
-        routing_vars: RoutingEngineVars
+        mut routing_vars: &mut RoutingEngineVars
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1381,6 +1388,7 @@ impl Neighborhood {
             // don't continue a targetless search past the minimum hop count
             vec![]
         } else {
+            let direction = routing_vars.direction.clone();
             // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
             previous_node
                 .full_neighbors(&self.neighborhood_database)
@@ -1388,7 +1396,7 @@ impl Neighborhood {
                 .filter(|node_record| !prefix.contains(&node_record.public_key()))
                 .filter(|node_record| {
                     node_record.routes_data()
-                        || Self::is_orig_node_on_back_leg(**node_record, target_opt, routing_vars.direction)
+                        || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
                 })
                 .flat_map(|node_record| {
                     let mut new_prefix = prefix.clone();
@@ -1403,24 +1411,26 @@ impl Neighborhood {
                         Some(country) => Some(country),
                         None => None,
                     };
-
-                    let new_undesirability = self.compute_new_undesirability(
+                    let undesirability_vars = NewUndesirabilityVars {
                         node_record,
                         undesirability,
                         target_opt,
-                        new_hops_remaining,
+                        hops_remaining: new_hops_remaining,
+                    };
+                    let new_undesirability = self.compute_new_undesirability(
+                        undesirability_vars,
                         routing_vars.payload_size as u64,
                         routing_vars.direction,
                         routing_vars.hostname_opt,
                         exit_country_opt,
                     );
-
+                    routing_vars.hops_remaining = new_hops_remaining;
                     self.routing_engine(
                         new_prefix.clone(),
                         new_undesirability,
                         target_opt,
                         minimum_undesirability,
-                        routing_vars
+                        &mut routing_vars
                     )
                 })
                 .collect()
@@ -1470,17 +1480,14 @@ impl Neighborhood {
     #[allow(clippy::too_many_arguments)]
     fn compute_new_undesirability(
         &self,
-        node_record: &NodeRecord,
-        undesirability: i64,
-        target_opt: Option<&PublicKey>,
-        hops_remaining: usize,
+        new_undesirability_vars: NewUndesirabilityVars,
         payload_size: u64,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
         exit_country_opt: Option<&String>,
     ) -> i64 {
-        let undesirability_type = match (direction, target_opt) {
-            (RouteDirection::Over, None) if hops_remaining == 0 => {
+        let undesirability_type = match (direction, new_undesirability_vars.target_opt) {
+            (RouteDirection::Over, None) if new_undesirability_vars.hops_remaining == 0 => {
                 UndesirabilityType::ExitRequest(hostname_opt, exit_country_opt)
             }
             (RouteDirection::Over, _) => UndesirabilityType::Relay,
@@ -1488,12 +1495,12 @@ impl Neighborhood {
             (RouteDirection::Back, _) => UndesirabilityType::Relay,
         };
         let node_undesirability = Self::compute_undesirability(
-            node_record,
+            new_undesirability_vars.node_record,
             payload_size,
             undesirability_type,
             &self.logger,
         );
-        undesirability + node_undesirability
+        new_undesirability_vars.undesirability + node_undesirability
     }
 
     fn handle_gossip_reply(
@@ -3506,11 +3513,14 @@ mod tests {
         let node_record = make_node_record(1234, false);
         let subject = make_standard_subject();
 
+        let new_undesirability_vars = NewUndesirabilityVars {
+            node_record: &node_record,
+            undesirability: 1_000_000,
+            target_opt: None,
+            hops_remaining: 5,
+        };
         let new_undesirability = subject.compute_new_undesirability(
-            &node_record,
-            1_000_000, // Nonzero undesirability: on our way
-            None,
-            5, // Lots of hops to go yet
+            new_undesirability_vars, // Lots of hops to go yet
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
@@ -3531,11 +3541,14 @@ mod tests {
         let node_record = make_node_record(2345, false);
         let subject = make_standard_subject();
 
+        let new_undesirability_vars = NewUndesirabilityVars {
+            node_record: &node_record,
+            undesirability: 1_000_000,
+            target_opt: None,
+            hops_remaining: 0,
+        };
         let new_undesirability = subject.compute_new_undesirability(
-            &node_record,
-            1_000_000,
-            None,
-            0, // Last hop
+            new_undesirability_vars, // Last hop
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
@@ -3560,11 +3573,14 @@ mod tests {
             .insert("hostname.com".to_string());
         let subject = make_standard_subject();
 
+        let new_undesirability_vars = NewUndesirabilityVars {
+            node_record: &node_record,
+            undesirability: 1_000_000,
+            target_opt: None,
+            hops_remaining: 0,
+        };
         let new_undesirability = subject.compute_new_undesirability(
-            &node_record,
-            1_000_000,
-            None,
-            0, // Last hop
+            new_undesirability_vars, // Last hop
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
@@ -3633,12 +3649,16 @@ mod tests {
     fn computing_undesirability_works_for_relay_on_back_leg() {
         let node_record = make_node_record(4567, false);
         let subject = make_standard_subject();
+        let pubkey = PublicKey::new(b"Booga");
 
+        let new_undesirability_vars = NewUndesirabilityVars {
+            node_record: &node_record,
+            undesirability: 1_000_000,
+            target_opt: Some(&pubkey),
+            hops_remaining: 5,
+        };
         let new_undesirability = subject.compute_new_undesirability(
-            &node_record,
-            1_000_000, // Nonzero undesirability: we're on our way
-            Some(&PublicKey::new(b"Booga")),
-            5, // Plenty of hops remaining: not there yet
+            new_undesirability_vars, // Plenty of hops remaining: not there yet
             1_000,
             RouteDirection::Back,
             None,
