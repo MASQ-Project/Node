@@ -1218,7 +1218,7 @@ impl Neighborhood {
         undesirability_type: UndesirabilityType,
         logger: &Logger,
     ) -> i64 {
-        let mut rate_undesirability = match undesirability_type {
+        let rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_, Some(exit_location_opt)) => {
                 node_record.inner.rate_pack.exit_charge(payload_size) + node_record.country_code_exeption(exit_location_opt)
@@ -1231,34 +1231,53 @@ impl Neighborhood {
                     + node_record.inner.rate_pack.routing_charge(payload_size)
             }
         } as i64;
-        if let UndesirabilityType::ExitRequest(Some(hostname), Some(exit_location_opt)) = undesirability_type {
-            if node_record.metadata.unreachable_hosts.contains(hostname) {
-                trace!(
-                    logger,
-                    "Node with PubKey {:?} failed to reach host {:?} during ExitRequest; Undesirability: {} + {} = {}",
-                    node_record.public_key(),
-                    hostname,
-                    rate_undesirability,
-                    UNREACHABLE_HOST_PENALTY,
-                    rate_undesirability + UNREACHABLE_HOST_PENALTY
-                );
-                rate_undesirability += UNREACHABLE_HOST_PENALTY;
-            }
-            if node_record.inner.country_code.to_owned() != exit_location_opt.to_owned() {
-                trace!(
-                    logger,
-                    "Node with PubKey {:?} is not from requested Country {:?} during ExitRequest; Undesirability: {} + {} = {}",
-                    node_record.public_key(),
-                    hostname,
-                    rate_undesirability,
-                    WRONG_COUNTRY_PENALTY,
-                    rate_undesirability + WRONG_COUNTRY_PENALTY
-                );
-                rate_undesirability += WRONG_COUNTRY_PENALTY;
-            }
-        }
+        let exit_undesirability =
+        if let UndesirabilityType::ExitRequest(hostname_opt, exit_location_opt) = undesirability_type {
+            let unreachable_host_undesirability =
+            if let Some(hostname) = hostname_opt {
+                if node_record.metadata.unreachable_hosts.contains(hostname) {
+                    trace!(
+                        logger,
+                        "Node with PubKey {:?} failed to reach host {:?} during ExitRequest; Undesirability: {} + {} = {}",
+                        node_record.public_key(),
+                        hostname,
+                        rate_undesirability,
+                        UNREACHABLE_HOST_PENALTY,
+                        rate_undesirability + UNREACHABLE_HOST_PENALTY
+                    );
+                    UNREACHABLE_HOST_PENALTY
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            let unreachable_exit_country_undesirability =
+            if let Some(exit_location) = exit_location_opt {
+                if &node_record.inner.country_code != exit_location {
+                    trace!(
+                        logger,
+                        "Node with PubKey {:?} is not from requested Country {:?} during ExitRequest; Undesirability: {} + {} = {}",
+                        node_record.public_key(),
+                        exit_location,
+                        rate_undesirability,
+                        WRONG_COUNTRY_PENALTY,
+                        rate_undesirability + WRONG_COUNTRY_PENALTY
+                    );
+                    WRONG_COUNTRY_PENALTY
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
 
-        rate_undesirability
+            unreachable_host_undesirability + unreachable_exit_country_undesirability
+        } else {
+            0
+        };
+
+        rate_undesirability + exit_undesirability
     }
 
     fn is_orig_node_on_back_leg(
@@ -3391,6 +3410,10 @@ mod tests {
             Test is written from the standpoint of P. Node q is non-routing.
     */
 
+    // #[test]
+    // fn find_best_segment_traces_unreachable_country_code_exit_node() {
+    //     todo!("create me");
+    // }
     #[test]
     fn route_for_particular_country_code_is_constructed() {
         let mut subject = make_standard_subject();
