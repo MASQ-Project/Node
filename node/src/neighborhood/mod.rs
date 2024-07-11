@@ -1140,11 +1140,7 @@ impl Neighborhood {
             hostname_opt,
             exit_location_opt,
         };
-        let route_opt = self.find_best_route_segment(
-            origin,
-            target_opt,
-            route_vars,
-        );
+        let route_opt = self.find_best_route_segment(origin, target_opt, route_vars);
         match route_opt {
             None => {
                 let target_str = match target_opt {
@@ -1327,8 +1323,11 @@ impl Neighborhood {
         route_vars: RouteSegmentVars,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        let initial_undesirability =
-            self.compute_initial_undesirability(source, route_vars.payload_size as u64, route_vars.direction);
+        let initial_undesirability = self.compute_initial_undesirability(
+            source,
+            route_vars.payload_size as u64,
+            route_vars.direction,
+        );
         let mut routing_vars = RoutingEngineVars {
             hops_remaining: route_vars.minimum_hops,
             payload_size: route_vars.payload_size,
@@ -1342,7 +1341,7 @@ impl Neighborhood {
                 initial_undesirability,
                 target_opt,
                 &mut minimum_undesirability,
-                &mut routing_vars
+                &mut routing_vars,
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1361,7 +1360,7 @@ impl Neighborhood {
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         minimum_undesirability: &mut i64,
-        mut routing_vars: &mut RoutingEngineVars
+        mut routing_vars: &mut RoutingEngineVars,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1430,7 +1429,7 @@ impl Neighborhood {
                         new_undesirability,
                         target_opt,
                         minimum_undesirability,
-                        &mut routing_vars
+                        &mut routing_vars,
                     )
                 })
                 .collect()
@@ -3311,37 +3310,32 @@ mod tests {
             hostname_opt: None,
             exit_location_opt: None,
         };
-        let route_opt =
-            subject.find_best_route_segment(p, None, route_vars.clone());
+        let route_opt = subject.find_best_route_segment(p, None, route_vars.clone());
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
-        let route_opt =
-            subject.find_best_route_segment(p, Some(t), route_vars.clone());
+        let route_opt = subject.find_best_route_segment(p, Some(t), route_vars.clone());
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
-        let route_opt =
-            subject.find_best_route_segment(t, Some(p), route_vars.clone());
+        let route_opt = subject.find_best_route_segment(t, Some(p), route_vars.clone());
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
         route_vars.direction = RouteDirection::Back;
-        let route_opt =
-            subject.find_best_route_segment(t, Some(p), route_vars.clone());
+        let route_opt = subject.find_best_route_segment(t, Some(p), route_vars.clone());
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
         route_vars.direction = RouteDirection::Over;
-        let route_opt =
-            subject.find_best_route_segment(p, Some(q), route_vars.clone());
+        let route_opt = subject.find_best_route_segment(p, Some(q), route_vars.clone());
 
         assert_eq!(route_opt, None);
     }
@@ -3463,18 +3457,10 @@ mod tests {
             hostname_opt: None,
             exit_location_opt: Some(&country_code_au),
         };
-        let route_au = subject.find_best_route_segment(
-            p,
-            None,
-            route_vars.clone()
-        );
+        let route_au = subject.find_best_route_segment(p, None, route_vars.clone());
         let country_code_fr = "FR".to_string();
         route_vars.exit_location_opt = Some(&country_code_fr);
-        let route_fr = subject.find_best_route_segment(
-            p,
-            None,
-            route_vars
-        );
+        let route_fr = subject.find_best_route_segment(p, None, route_vars);
 
         let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(2).unwrap());
         assert_eq!(exit_node.unwrap().inner.country_code, "AU");
@@ -3502,8 +3488,7 @@ mod tests {
             hostname_opt: None,
             exit_location_opt: None,
         };
-        let route_opt =
-            subject.find_best_route_segment(p, None, route_vars);
+        let route_opt = subject.find_best_route_segment(p, None, route_vars);
 
         assert_eq!(route_opt, None);
     }
