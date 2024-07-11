@@ -3502,10 +3502,10 @@ mod tests {
             node_record: &node_record,
             undesirability: 1_000_000,
             target_opt: None,
-            hops_remaining: 5,
+            hops_remaining: 5, // Lots of hops to go yet
         };
         let new_undesirability = subject.compute_new_undesirability(
-            new_undesirability_vars, // Lots of hops to go yet
+            new_undesirability_vars,
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
@@ -3530,10 +3530,10 @@ mod tests {
             node_record: &node_record,
             undesirability: 1_000_000,
             target_opt: None,
-            hops_remaining: 0,
+            hops_remaining: 0, // Last hop
         };
         let new_undesirability = subject.compute_new_undesirability(
-            new_undesirability_vars, // Last hop
+            new_undesirability_vars,
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
@@ -3562,10 +3562,10 @@ mod tests {
             node_record: &node_record,
             undesirability: 1_000_000,
             target_opt: None,
-            hops_remaining: 0,
+            hops_remaining: 0, // Last hop
         };
         let new_undesirability = subject.compute_new_undesirability(
-            new_undesirability_vars, // Last hop
+            new_undesirability_vars,
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
@@ -3640,10 +3640,10 @@ mod tests {
             node_record: &node_record,
             undesirability: 1_000_000,
             target_opt: Some(&pubkey),
-            hops_remaining: 5,
+            hops_remaining: 5, // Plenty of hops remaining: not there yet
         };
         let new_undesirability = subject.compute_new_undesirability(
-            new_undesirability_vars, // Plenty of hops remaining: not there yet
+            new_undesirability_vars,
             1_000,
             RouteDirection::Back,
             None,
