@@ -124,7 +124,7 @@ pub struct ReceivedPayments {
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
-    pub new_start_block: Option<u64>,
+    pub new_start_block: u64,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1388,7 +1388,7 @@ mod tests {
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
-            new_start_block: Some(1234567),
+            new_start_block: 1234567,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -2036,7 +2036,7 @@ mod tests {
             .try_send(ReceivedPayments {
                 timestamp: now,
                 payments: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
-                new_start_block: Some(123456789u64),
+                new_start_block: 123456789u64,
                 response_skeleton_opt: None,
             })
             .expect("unexpected actix error");
@@ -4782,6 +4782,7 @@ mod tests {
             let factory = Accountant::dao_factory(data_dir);
             factory.make();
         };
+
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 }
