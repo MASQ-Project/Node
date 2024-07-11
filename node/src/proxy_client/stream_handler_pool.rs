@@ -49,11 +49,6 @@ pub struct StreamSenders {
 }
 
 struct StreamHandlerPoolRealInner {
-    // TODO: GH-800 - Hashmap with two senders in it
-    // KillStreamSignal
-    // Steps to follow:
-    // An Actor A sends a message containing the StreamKey signaling that it wants to Kill the stream
-    //
     accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
     proxy_client_subs: ProxyClientSubs,
     stream_writer_channels: HashMap<StreamKey, StreamSenders>,
@@ -198,9 +193,11 @@ impl StreamHandlerPoolReal {
         let payload_size = payload.sequenced_packet.data.len();
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
+            eprintln!("executing perform_write");
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
             // TODO: GH-800 - We want to process the payload before we perform what we're supposed to do if last_data is true.
             if last_data {
+                eprintln!("last_data = true detected");
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
                         debug!(
@@ -864,6 +861,127 @@ mod tests {
                     stream_adder_tx,
                     stream_killer_tx,
                     shutdown_signal_rx: unbounded().1,
+                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
+                        peer_addr.clone(),
+                        peer_addr.clone(),
+                        reader,
+                        writer,
+                    )),
+                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
+                    logger: inner.logger.clone(),
+                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
+                };
+
+                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
+                    make_results: RefCell::new(vec![establisher]),
+                });
+            }
+
+            run_process_package_in_actix(subject, package);
+        });
+
+        proxy_client_awaiter.await_message_count(1);
+        assert_eq!(
+            expected_lookup_ip_parameters.lock().unwrap().deref(),
+            &(vec![] as Vec<String>)
+        );
+        assert_eq!(
+            expected_write_parameters.lock().unwrap().remove(0),
+            b"These are the times".to_vec()
+        );
+        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        assert_eq!(
+            proxy_client_recording.get_record::<InboundServerData>(0),
+            &InboundServerData {
+                stream_key: StreamKey::make_meaningless_stream_key(),
+                last_data: false,
+                sequence_number: 0,
+                source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
+                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+            }
+        );
+    }
+
+    #[test]
+    fn trying_to_write_a_test_for_stream_senders() {
+        let cryptde = main_cryptde();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
+        let write_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_write_parameters = write_parameters.clone();
+        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        thread::spawn(move || {
+            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let stream_key = StreamKey::make_meaningful_stream_key("i should die");
+            let client_request_payload = ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: b"These are the times".to_vec(),
+                    sequence_number: 0,
+                    last_data: true,
+                },
+                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+            };
+            let package = ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            // TODO: GH-800: Apparently, we can remove both lookup_ip mock functions
+            let resolver = ResolverWrapperMock::new()
+                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_success(vec![
+                    IpAddr::from_str("2.3.4.5").unwrap(),
+                    IpAddr::from_str("3.4.5.6").unwrap(),
+                ]);
+            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
+            let reader = ReadHalfWrapperMock {
+                poll_read_results: vec![
+                    (
+                        first_read_result.to_vec(),
+                        Ok(Async::Ready(first_read_result.len())),
+                    ),
+                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
+                ],
+            };
+            let writer = WriteHalfWrapperMock {
+                poll_write_params: write_parameters,
+                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
+                // Vec<Result<Async<()>, io::Error>>;
+                shutdown_results: Arc::new(Mutex::new(vec![Ok(Async::Ready(()))])),
+            };
+            let mut subject = StreamHandlerPoolReal::new(
+                Box::new(resolver),
+                cryptde,
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
+                100,
+                200,
+            );
+            let (stream_killer_tx, stream_killer_rx) = unbounded();
+            subject.stream_killer_rx = stream_killer_rx;
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (shutdown_tx, shutdown_rx) = unbounded();
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                inner.stream_writer_channels.insert(
+                    stream_key,
+                    StreamSenders {
+                        writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                        reader_shutdown: shutdown_tx,
+                    },
+                );
+                let establisher = StreamEstablisher {
+                    cryptde,
+                    stream_adder_tx,
+                    stream_killer_tx,
+                    shutdown_signal_rx: shutdown_rx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),

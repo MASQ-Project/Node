@@ -31,7 +31,10 @@ impl Future for StreamReader {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
             if self.shutdown_signal.try_recv().is_ok() {
-                info!(self.logger, "Received shutdown signal");
+                info!(
+                    self.logger,
+                    "Shutting down for stream: {:?}", self.stream_key
+                );
                 return Ok(Async::Ready(()));
             }
             match self.stream.poll_read(&mut buf) {
@@ -424,8 +427,10 @@ mod tests {
         shutdown_tx.send(()).unwrap();
 
         assert_eq!(subject.poll(), Ok(Async::Ready(())));
-        TestLogHandler::new()
-            .exists_log_containing(&format!("INFO: {test_name}: Received shutdown signal"));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {test_name}: Shutting down for stream: {:?}",
+            subject.stream_key
+        ));
     }
 
     pub fn make_subject() -> StreamReader {
