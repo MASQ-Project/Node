@@ -1249,6 +1249,9 @@ impl Neighborhood {
                 node_record.inner.rate_pack.exit_charge(payload_size)
                     + node_record.country_code_exeption(exit_location_opt)
             }
+            UndesirabilityType::ExitRequest(None, None) => {
+                node_record.inner.rate_pack.exit_charge(payload_size)
+            }
             UndesirabilityType::ExitRequest(_, None) => {
                 node_record.inner.rate_pack.exit_charge(payload_size)
             }
@@ -1360,7 +1363,7 @@ impl Neighborhood {
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         minimum_undesirability: &mut i64,
-        mut routing_vars: &mut RoutingEngineVars,
+        routing_vars: &mut RoutingEngineVars,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1387,7 +1390,7 @@ impl Neighborhood {
             // don't continue a targetless search past the minimum hop count
             vec![]
         } else {
-            let direction = routing_vars.direction.clone();
+            let direction = routing_vars.direction;
             // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
             previous_node
                 .full_neighbors(&self.neighborhood_database)
@@ -1406,10 +1409,7 @@ impl Neighborhood {
                     } else {
                         routing_vars.hops_remaining - 1
                     };
-                    let exit_country_opt = match routing_vars.exit_location_opt {
-                        Some(country) => Some(country),
-                        None => None,
-                    };
+                    let exit_country_opt = routing_vars.exit_location_opt;
                     let undesirability_vars = NewUndesirabilityVars {
                         node_record,
                         undesirability,
@@ -1429,7 +1429,7 @@ impl Neighborhood {
                         new_undesirability,
                         target_opt,
                         minimum_undesirability,
-                        &mut routing_vars,
+                        routing_vars,
                     )
                 })
                 .collect()
