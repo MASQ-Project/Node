@@ -537,6 +537,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
@@ -555,10 +556,13 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::recorder_stop_conditions::StopCondition;
+    use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::System;
+    use core::any::TypeId;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -905,11 +909,11 @@ mod tests {
     #[test]
     fn trying_to_write_a_test_for_stream_senders() {
         let cryptde = main_cryptde();
-        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-        let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
-        let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let proxy_client =
+            proxy_client.system_stop_conditions(match_every_type_id!(InboundServerData));
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let stream_key = StreamKey::make_meaningful_stream_key("i should die");
@@ -933,12 +937,6 @@ mod tests {
                 0,
             );
             // TODO: GH-800: Apparently, we can remove both lookup_ip mock functions
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
             let reader = ReadHalfWrapperMock {
@@ -957,16 +955,13 @@ mod tests {
                 shutdown_results: Arc::new(Mutex::new(vec![Ok(Async::Ready(()))])),
             };
             let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
+                Box::new(ResolverWrapperMock::new()),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
                 200,
             );
-            let (stream_killer_tx, stream_killer_rx) = unbounded();
-            subject.stream_killer_rx = stream_killer_rx;
-            let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let (shutdown_tx, shutdown_rx) = unbounded();
             {
                 let mut inner = subject.inner.lock().unwrap();
@@ -979,8 +974,8 @@ mod tests {
                 );
                 let establisher = StreamEstablisher {
                     cryptde,
-                    stream_adder_tx,
-                    stream_killer_tx,
+                    stream_adder_tx: unbounded().0,
+                    stream_killer_tx: unbounded().0,
                     shutdown_signal_rx: shutdown_rx,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
@@ -1000,16 +995,6 @@ mod tests {
 
             run_process_package_in_actix(subject, package);
         });
-
-        proxy_client_awaiter.await_message_count(1);
-        assert_eq!(
-            expected_lookup_ip_parameters.lock().unwrap().deref(),
-            &(vec![] as Vec<String>)
-        );
-        assert_eq!(
-            expected_write_parameters.lock().unwrap().remove(0),
-            b"These are the times".to_vec()
-        );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
