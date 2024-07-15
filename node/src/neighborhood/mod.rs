@@ -1026,7 +1026,7 @@ impl Neighborhood {
             request_msg.payload_size,
             RouteDirection::Over,
             hostname_opt,
-            request_msg.target_country_opt.clone()
+            request_msg.target_country_opt.clone(),
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         // Estimate for routing-undesirability calculations.
@@ -1044,7 +1044,7 @@ impl Neighborhood {
             anticipated_response_payload_len,
             RouteDirection::Back,
             hostname_opt,
-            request_msg.target_country_opt
+            request_msg.target_country_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1114,7 +1114,7 @@ impl Neighborhood {
             payload_size,
             direction,
             hostname_opt,
-            exit_location_opt
+            exit_location_opt,
         );
         match route_opt {
             None => {
@@ -1221,7 +1221,8 @@ impl Neighborhood {
         let rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_, Some(exit_location_opt)) => {
-                node_record.inner.rate_pack.exit_charge(payload_size) + node_record.country_code_exeption(exit_location_opt)
+                node_record.inner.rate_pack.exit_charge(payload_size)
+                    + node_record.country_code_exeption(exit_location_opt)
             }
             UndesirabilityType::ExitRequest(_, None) => {
                 node_record.inner.rate_pack.exit_charge(payload_size)
@@ -1231,10 +1232,12 @@ impl Neighborhood {
                     + node_record.inner.rate_pack.routing_charge(payload_size)
             }
         } as i64;
-        let exit_undesirability =
-        if let UndesirabilityType::ExitRequest(hostname_opt, exit_location_opt) = undesirability_type {
-            let unreachable_host_undesirability =
-            if let Some(hostname) = hostname_opt {
+        let exit_undesirability = if let UndesirabilityType::ExitRequest(
+            hostname_opt,
+            exit_location_opt,
+        ) = undesirability_type
+        {
+            let unreachable_host_undesirability = if let Some(hostname) = hostname_opt {
                 if node_record.metadata.unreachable_hosts.contains(hostname) {
                     trace!(
                         logger,
@@ -1252,8 +1255,9 @@ impl Neighborhood {
             } else {
                 0
             };
-            let unreachable_exit_country_undesirability =
-            if let Some(exit_location) = exit_location_opt {
+            let unreachable_exit_country_undesirability = if let Some(exit_location) =
+                exit_location_opt
+            {
                 if &node_record.inner.country_code != exit_location {
                     trace!(
                         logger,
@@ -1307,6 +1311,7 @@ impl Neighborhood {
     // target in hops_remaining or more hops with no cycles, or from the origin hops_remaining hops
     // out into the MASQ Network. No round trips; if you want a round trip, call this method twice.
     // If the return value is None, no qualifying route was found.
+    #[allow(clippy::too_many_arguments)]
     fn find_best_route_segment<'a>(
         &'a self,
         source: &'a PublicKey,
@@ -1315,13 +1320,10 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
-        exit_location_opt: Option<String>
+        exit_location_opt: Option<String>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        let exit_country_opt = match exit_location_opt.as_ref() {
-            Some(country) => Some(country),
-            None => None
-        };
+        let exit_country_opt = exit_location_opt.as_ref();
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
@@ -1334,7 +1336,7 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-                exit_country_opt
+                exit_country_opt,
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1411,7 +1413,7 @@ impl Neighborhood {
                         payload_size as u64,
                         direction,
                         hostname_opt,
-                        exit_country_opt
+                        exit_country_opt,
                     );
 
                     self.routing_engine(
@@ -2673,7 +2675,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None, 400));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 400,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2689,7 +2693,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,430));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 430,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2729,7 +2735,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, None,54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, None, 54000);
 
         let future = sub.send(msg);
 
@@ -2789,7 +2795,7 @@ mod tests {
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, None,20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, None, 20000);
 
         let future = sub.send(msg);
 
@@ -2809,7 +2815,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None,12345,
+            None, None, 12345,
         ));
 
         System::current().stop_with_code(0);
@@ -2905,7 +2911,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,5000));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 5000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3000,8 +3008,12 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,2000));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,3000));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 2000,
+        ));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 3000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3051,15 +3063,17 @@ mod tests {
         )
         .unwrap();
 
-        let route_request_1 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,1000));
+        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 1000,
+        ));
         configuration_change_msg_sub
             .try_send(ConfigurationChangeMessage {
                 change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
             })
             .unwrap();
-        let route_request_2 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, None,2000));
+        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, None, 2000,
+        ));
 
         System::current().stop();
         system.run();
@@ -3427,8 +3441,24 @@ mod tests {
         db.add_arbitrary_full_neighbor(c, a);
         let cdb = db.clone();
 
-        let route_au = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("AU".to_string()));
-        let route_fr = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, Some("FR".to_string()));
+        let route_au = subject.find_best_route_segment(
+            p,
+            None,
+            2,
+            10000,
+            RouteDirection::Over,
+            None,
+            Some("AU".to_string()),
+        );
+        let route_fr = subject.find_best_route_segment(
+            p,
+            None,
+            2,
+            10000,
+            RouteDirection::Over,
+            None,
+            Some("FR".to_string()),
+        );
 
         let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(2).unwrap());
         assert_eq!(exit_node.unwrap().inner.country_code, "AU");
@@ -4807,7 +4837,7 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
             &format!("\"BAYFBw\" [label=\"AR v0\\nBAYFBw\\n4.6.5.7:4657\"];"),
-            5000,
+            10000,
         );
 
         tlh.exists_log_containing("Received Gossip: digraph db { ");

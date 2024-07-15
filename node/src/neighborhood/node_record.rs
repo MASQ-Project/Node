@@ -3,7 +3,9 @@
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_location::{get_node_location, NodeLocation};
-use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord, WRONG_COUNTRY_PENALTY};
+use crate::neighborhood::{
+    regenerate_signed_gossip, AccessibleGossipRecord, WRONG_COUNTRY_PENALTY,
+};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -116,9 +118,9 @@ impl NodeRecord {
     }
 
     pub fn country_code_exeption(&self, country_code: &String) -> u64 {
-        match self.inner.country_code.to_owned() == country_code.to_owned() {
+        match self.inner.country_code == *country_code {
             true => 0,
-            false => WRONG_COUNTRY_PENALTY as u64
+            false => WRONG_COUNTRY_PENALTY as u64,
         }
     }
 
