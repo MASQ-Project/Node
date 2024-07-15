@@ -302,7 +302,7 @@ pub fn send_payables_within_batch( // TODO: GH-744: Maybe Move this to lower_lev
     return Box::new(
         web3_batch
             .transport()
-            .submit_batch() // TODO: GH-744 Migrate submit_batch fn to lower_level_interface
+            .submit_batch()
             .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
             .and_then(move |batch_response| {
                 Ok(merged_output_data(
@@ -384,6 +384,7 @@ mod tests {
     use std::time::{SystemTime};
     use web3::api::Namespace;
     use web3::Error::{Rpc};
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
 
     #[test]
     fn calculate_fallback_start_block_number_works() {
@@ -1312,12 +1313,14 @@ mod tests {
     }
 
     fn test_gas_limit_is_between_limits(chain: Chain) {
+        // let not_under_this_value = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain); // <<< ---- HERE
         let not_under_this_value = match chain {
             // TODO: GH-744 this could be use by web3_gas_limit_const_part - once Merged with Master
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
             Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
         };
-        let not_above_this_value = not_under_this_value + 3328; // TODO: GH-744: this number can be replace by const WEB3_MAXIMAL_GAS_LIMIT_MARGIN. - once Merged with Master
+
+        let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         let data = sign_transaction_data(1_000_000_000, make_wallet("wallet1"));
 
         let gas_limit = gas_limit(data, chain);

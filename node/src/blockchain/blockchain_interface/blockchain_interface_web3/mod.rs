@@ -2,8 +2,6 @@
 
 mod batch_payable_tools;
 pub mod lower_level_interface_web3;
-mod test_utils;
-
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -229,30 +227,14 @@ pub struct HashAndAmount {
 
 impl BlockchainInterfaceWeb3 {
     pub fn new(transport: Http, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
-        // let web3 = Web3::new(transport.clone());
-        // let web3 = Rc::new(Web3::new(transport.clone()));
-        // let web3_batch = Rc::new(Web3::new(Batch::new(transport.clone())));
-        // let contract =
-        //     Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
-        //         .expect("Unable to initialize contract.");
-        // let lower_level_blockchain_interface = Box::new(LowBlockchainIntWeb3::new(
-        //     Rc::clone(&web3),
-        //     Rc::clone(&web3_batch),
-        //     contract,
-        // ));
         let gas_limit_const_part = Self::web3_gas_limit_const_part(chain);
-        let contract_address = chain.rec().contract;
 
         Self {
             logger: Logger::new("BlockchainInterface"),
-            chain, // GH-744: Move this to lower_interface
+            chain,
             gas_limit_const_part,
-            _event_loop_handle: event_loop_handle,  // GH-744: Move this to lower_interface?
-            // lower_interface: lower_level_blockchain_interface,
-            transport: transport.clone(), // GH-744: Move this to lower_interface
-            // web3,
-            // contract,
-            // lower_interface: Box::new(LowBlockchainIntWeb3::new(transport, contract_address))
+            _event_loop_handle: event_loop_handle,
+            transport: transport.clone(),
         }
     }
 
@@ -741,13 +723,9 @@ mod tests {
     {
         let wallet = make_wallet("bcd");
         let subject = make_blockchain_interface_web3(Some(port));
-        // TODO: GH-744: Come back to this
-        // subject.lower_interface = Box::new(lower_blockchain_interface);
-
         let result = subject
             .build_blockchain_agent(wallet.clone())
             .wait();
-
         let err = match result {
             Err(e) => e,
             _ => panic!("we expected Err() but got Ok()"),
@@ -995,55 +973,6 @@ mod tests {
             chain_id: Some(chain.rec().num_chain_id),
         }
     }
-
-    // TODO: GH-744 - This test was removed in master
-    // #[test]
-    // fn blockchain_interface_web3_can_fetch_nonce() {
-    //     let prepare_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let send_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let transport = TestTransport::default()
-    //         .prepare_params(&prepare_params_arc)
-    //         .send_params(&send_params_arc)
-    //         .send_result(json!(
-    //             "0x0000000000000000000000000000000000000000000000000000000000000001"
-    //         ));
-    //     let subject = BlockchainInterfaceWeb3::new(
-    //         transport.clone(),
-    //         make_fake_event_loop_handle(),
-    //         TEST_DEFAULT_CHAIN,
-    //     );
-    //
-    //     let result = subject
-    //         .get_transaction_count(&make_paying_wallet(b"gdasgsa"))
-    //         .wait();
-    //
-    //     assert_eq!(result, Ok(U256::from(1)));
-    //     let mut prepare_params = prepare_params_arc.lock().unwrap();
-    //     let (method_name, actual_arguments) = prepare_params.remove(0);
-    //     assert!(prepare_params.is_empty());
-    //     let actual_arguments: Vec<String> = actual_arguments
-    //         .into_iter()
-    //         .map(|arg| serde_json::to_string(&arg).unwrap())
-    //         .collect();
-    //     assert_eq!(method_name, "eth_getTransactionCount".to_string());
-    //     assert_eq!(
-    //         actual_arguments,
-    //         vec![
-    //             String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
-    //             String::from(r#""pending""#),
-    //         ]
-    //     );
-    //     let send_params = send_params_arc.lock().unwrap();
-    //     let rpc_call_params = vec![
-    //         Value::String(String::from("0x5c361ba8d82fcf0e5538b2a823e9d457a2296725")),
-    //         Value::String(String::from("pending")),
-    //     ];
-    //     let expected_request =
-    //         web3::helpers::build_request(1, "eth_getTransactionCount", rpc_call_params);
-    //     assert_eq!(*send_params, vec![(1, expected_request)])
-    // }
-
-
 
     #[test]
     fn hash_the_smart_contract_transfer_function_signature() {

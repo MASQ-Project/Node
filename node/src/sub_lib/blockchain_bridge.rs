@@ -3,7 +3,7 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
-use crate::blockchain::blockchain_bridge::{RetrieveTransactions, UpdateStartBlockMessage};
+use crate::blockchain::blockchain_bridge::{RetrieveTransactions};
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -30,7 +30,6 @@ pub struct BlockchainBridgeSubs {
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
-    pub update_start_block_sub: Recipient<UpdateStartBlockMessage>,
 }
 
 impl Debug for BlockchainBridgeSubs {

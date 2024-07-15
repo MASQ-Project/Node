@@ -10,7 +10,7 @@ use crate::accountant::{
 };
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::blockchain::blockchain_bridge::{
-    PendingPayableFingerprintSeeds, UpdateStartBlockMessage,
+    PendingPayableFingerprintSeeds,
 };
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -172,7 +172,6 @@ recorder_message_handler_t_m_p!(StartMessage);
 recorder_message_handler_t_m_p!(StreamShutdownMsg);
 recorder_message_handler_t_m_p!(TransmitDataMsg);
 recorder_message_handler_t_m_p!(UpdateNodeRecordMetadataMessage);
-recorder_message_handler_t_m_p!(UpdateStartBlockMessage);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
 where
@@ -489,7 +488,6 @@ pub fn make_blockchain_bridge_subs_from_recorder(addr: &Addr<Recorder>) -> Block
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
-        update_start_block_sub: recipient!(addr, UpdateStartBlockMessage),
     }
 }
 

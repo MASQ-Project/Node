@@ -71,7 +71,6 @@ pub fn make_meaningless_seed() -> Seed {
 }
 
 pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
-    //TODO: GH-744: Turn this into a builder patten.
     let port = port_opt.unwrap_or_else(|| find_free_port());
     let chain = Chain::PolyMainnet;
     let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -245,13 +244,12 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn get_chain(&self) -> Chain {
-        todo!()
+        unimplemented!("not needed so far")
     }
 
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
-        // end_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
@@ -269,17 +267,11 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         _consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
-        todo!("GH-744")
-        // self.build_blockchain_agent_params.lock().unwrap().push((
-        //     consuming_wallet.clone(),
-        //     persistent_config.arbitrary_id_stamp(),
-        // ));
-        // self.build_blockchain_agent_results.borrow_mut().remove(0)
+        unimplemented!("not needed so far")
     }
 
     fn lower_interface(&self) ->Box<dyn LowBlockchainInt> {
-        todo!("GH-744: Come back to this");
-        // self.lower_interface_result.as_ref().unwrap().as_ref()
+        unimplemented!("not needed so far")
     }
 }
 

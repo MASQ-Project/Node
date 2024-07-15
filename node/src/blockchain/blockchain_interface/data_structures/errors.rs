@@ -40,7 +40,7 @@ pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum PayableTransactionError {
     MissingConsumingWallet,
-    GasPriceQueryFailed(String), // TODO: GH-744: Change this to BlockchainError
+    GasPriceQueryFailed(BlockchainError),
     TransactionID(BlockchainError),
     UnusableWallet(String),
     Signing(String),
@@ -177,9 +177,7 @@ mod tests {
     fn payable_payment_error_implements_display() {
         let original_errors = [
             PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(
-                "Gas halves shut, no drop left".to_string(),
-            ),
+            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed("Gas halves shut, no drop left".to_string())),
             PayableTransactionError::TransactionID(BlockchainError::InvalidResponse),
             PayableTransactionError::UnusableWallet(
                 "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
@@ -205,7 +203,7 @@ mod tests {
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
                 "Missing consuming wallet to pay payable from",
-                "Unsuccessful gas price query: \"Gas halves shut, no drop left\"",
+                "Unsuccessful gas price query: \"Blockchain error: Query failed: Gas halves shut, no drop left\"",
                 "Transaction id fetching failed: Blockchain error: Invalid response",
                 "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
                 LEDGER wallet, stupid.\"",

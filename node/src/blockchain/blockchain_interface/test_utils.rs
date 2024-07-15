@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #![cfg(test)]
-
 use crate::blockchain::blockchain_interface::lower_level_interface::{
     LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
 };
@@ -35,75 +34,45 @@ pub struct LowBlockchainIntMock {
 
 impl LowBlockchainInt for LowBlockchainIntMock {
     fn get_transaction_fee_balance(&self, address: Address) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
-        // self.get_transaction_fee_balance_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(address);
-        // let result_for_balance = self.get_transaction_fee_balance_results.borrow_mut().remove(0);
-        // Box::new(
-        //     result_for_balance
-        // )
-        todo!("GH-744: Come back to this - get_transaction_fee_balance - Mock");
+        unimplemented!("not needed so far")
     }
 
-
     fn get_service_fee_balance(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        // self.get_masq_balance_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(address.clone());
-        // self.get_masq_balance_results.borrow_mut().remove(0)
-        todo!("GH-744: Come back to this - get_service_fee_balance - Mock");
+        unimplemented!("not needed so far")
     }
 
     fn get_gas_price(&self) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
-        todo!()
+        unimplemented!("not needed so far")
     }
 
     fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - get_block_number - Mock");
-        // self.get_block_number_results.borrow_mut().remove(0)
+        unimplemented!("not needed so far")
     }
 
     fn get_transaction_id(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - get_transaction_id - Mock");
-        // self.get_transaction_id_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(address.clone());
-        // self.get_transaction_id_results.borrow_mut().remove(0)
+        unimplemented!("not needed so far")
     }
 
     fn get_transaction_receipt(&self, hash: H256) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - get_transaction_receipt - Mock");
-
-        // self.get_transaction_receipt_params
-        //     .lock()
-        //     .unwrap()
-        //     .push(hash);
-        // self.get_transaction_receipt_results.borrow_mut().remove(0)
+        unimplemented!("not needed so far")
     }
 
-
     fn get_transaction_receipt_batch(&self, hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
-        todo!("GH-744: Come back to this - get_transaction_receiptget_transaction_receipt_batch - Mock");
+        unimplemented!("not needed so far")
     }
 
     fn get_contract(&self) -> Contract<Http> {
-        todo!()
+        unimplemented!("not needed so far")
     }
 
     fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
-        todo!()
+        unimplemented!("not needed so far")
     }
 
     fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
-        todo!()
+        unimplemented!("not needed so far")
     }
 
-    // fn dup(&self) -> Box<dyn LowBlockchainInt> {
-    //     todo!()
-    // }
 }
 
 impl LowBlockchainIntMock {
@@ -144,32 +113,3 @@ impl LowBlockchainIntMock {
         self
     }
 }
-
-// pub fn test_blockchain_interface_is_connected_and_functioning(port: u16, chain: Chain) {
-//     // let port = find_free_port();
-//     let test_server = TestServer::start(
-//         port,
-//         vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
-//     );
-//     let wallet = make_wallet("123");
-//     // let chain = Chain::PolyMainnet;
-//     let subject = make_subject() subject_factory(port, chain);
-//
-//     // no assertion for the result, we anticipate an error from a badly formatted response from the server;
-//     // yet enough to prove we have a proper connection
-//     let _ = subject.lower_interface().get_service_fee_balance(&wallet);
-//
-//     let requests = test_server.requests_so_far();
-//     let bodies: Vec<Value> = requests
-//         .into_iter()
-//         .map(|request| serde_json::from_slice(&request.body()).unwrap())
-//         .collect();
-//     assert_eq!(
-//         bodies[0]["params"][0]["data"].to_string()[35..75],
-//         wallet.to_string()[2..]
-//     );
-//     assert_eq!(
-//         bodies[0]["params"][0]["to"],
-//         format!("{:?}", chain.rec().contract)
-//     );
-// }

@@ -162,7 +162,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                 .map_err(|e| PayableTransactionError::TransactionID(e))
                 .and_then(move |pending_nonce| {
                     get_gas_price
-                        .map_err(|e| PayableTransactionError::GasPriceQueryFailed(e.to_string()))
+                        .map_err(|e| PayableTransactionError::GasPriceQueryFailed(e))
                         .and_then(move |gas_price| {
                             send_payables_within_batch(
                                 logger,

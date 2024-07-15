@@ -61,7 +61,6 @@ pub struct BlockchainBridge {
     payable_payments_setup_subs_opt: Option<Recipient<BlockchainAgentWithContextMessage>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
-    update_start_block_subs_opt: Option<Recipient<UpdateStartBlockMessage>>,
     crashable: bool,
     pending_payable_confirmation: TransactionConfirmationTools,
 }
@@ -90,8 +89,6 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
-        self.update_start_block_subs_opt =
-            Some(msg.peer_actors.blockchain_bridge.update_start_block_sub);
         match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(
                 self.logger,
@@ -171,25 +168,6 @@ pub struct PendingPayableFingerprintSeeds {
     pub hashes_and_balances: Vec<HashAndAmount>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Message)]
-pub struct UpdateStartBlockMessage {
-    pub start_block: u64,
-}
-
-// TODO: GH-744 - Remove this as no longer needed
-impl Handler<UpdateStartBlockMessage> for BlockchainBridge {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateStartBlockMessage, _ctx: &mut Self::Context) -> Self::Result {
-        if let Err(e) = self.persistent_config.set_start_block(msg.start_block) {
-            panic!(
-                "Cannot set start block in database; payments to you may not be processed: {:?}",
-                e
-            )
-        };
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PendingPayableFingerprint {
     // Sqlite begins counting from 1
@@ -225,7 +203,6 @@ impl BlockchainBridge {
             payable_payments_setup_subs_opt: None,
             received_payments_subs_opt: None,
             scan_error_subs_opt: None,
-            update_start_block_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
             pending_payable_confirmation: TransactionConfirmationTools {
@@ -257,8 +234,7 @@ impl BlockchainBridge {
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
 
-            None => panic!("Blockchain service can not start with out a blockchain service url"), //todo!("GH-744: Replace with BlockchainInterfaceNull")
-            // None => Box::new(BlockchainInterfaceNull::default()),
+            None => panic!("Blockchain service can not start with out a blockchain service url"),
         }
     }
 
@@ -270,7 +246,6 @@ impl BlockchainBridge {
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
-            update_start_block_sub: recipient!(addr, UpdateStartBlockMessage),
         }
     }
 
@@ -641,40 +616,6 @@ mod tests {
         ) -> Self::Result {
             (msg.assertions)(self)
         }
-    }
-
-    #[test]
-    fn update_start_block_message_works() {
-        let persistent_config = configure_default_persistent_config(ZERO)
-            .start_block_result(Ok(42143274))
-            .set_start_block_result(Ok(()));
-        let subject = BlockchainBridge::new(
-            stub_bi(),
-            Box::new(persistent_config),
-            false,
-            Some(make_wallet("test wallet")),
-        );
-        let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr = subject.start();
-        addr.try_send(BindMessage {
-            peer_actors: peer_actors_builder().build(),
-        })
-        .unwrap();
-
-        addr.try_send(UpdateStartBlockMessage {
-            start_block: 42143274,
-        })
-        .unwrap();
-
-        addr.try_send(AssertionsMessage {
-            assertions: Box::new(|blockchain_bridge: &mut BlockchainBridge| {
-                let start_block = blockchain_bridge.persistent_config.start_block().unwrap();
-                assert_eq!(start_block, 42143274);
-            }),
-        })
-        .unwrap();
-        System::current().stop();
-        system.run();
     }
 
     #[test]
@@ -1233,7 +1174,7 @@ mod tests {
         System::current().stop();
         system.run();
         let error_result = result.unwrap_err();
-        assert_eq!(error_result, GasPriceQueryFailed("Blockchain error: Query failed: Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()));
+        assert_eq!(error_result, GasPriceQueryFailed(BlockchainError::QueryFailed("Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string())));
         let recording = accountant_recording.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -1944,32 +1885,6 @@ mod tests {
         };
 
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Cannot set start block in database; payments to you may not be processed: TransactionError"
-    )]
-    fn handle_retrieve_transactions_panics_if_start_block_cannot_be_written() {
-        let system =
-            System::new("handle_retrieve_transactions_panics_if_start_block_cannot_be_written");
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_start_block_result(Err(PersistentConfigError::TransactionError));
-        let blockchain_interface = BlockchainInterfaceMock::default();
-        let subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(persistent_config),
-            false,
-            None, //not needed in this test
-        );
-        let addr = subject.start();
-
-        let _ = addr
-            .try_send(UpdateStartBlockMessage { start_block: 1234 })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
     }
 
     fn success_handler(

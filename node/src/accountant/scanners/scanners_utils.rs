@@ -772,7 +772,7 @@ mod tests {
                 "blah".to_string(),
             )),
             PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed("ouch".to_string()),
+            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed("ouch".to_string())),
             PayableTransactionError::UnusableWallet("fooo".to_string()),
             PayableTransactionError::Signing("tsss".to_string()),
         ];
