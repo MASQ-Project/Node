@@ -50,6 +50,7 @@ mod tests {
     use serde_json::Value;
     use std::net::Ipv4Addr;
     use web3::transports::Http;
+    use web3::Web3;
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
@@ -58,39 +59,29 @@ mod tests {
     use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::utils::find_free_port;
 
     #[test]
     fn initialize_web3_interface_works() {
         let port = find_free_port();
-        let test_server = TestServer::start(
-            port,
-            vec![br#"{"jsonrpc":"2.0","id":0,"result":someGarbage}"#.to_vec()],
-        );
+        let blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
+            .response("0xFF40".to_string(), 0)
+            .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
+            .response("0x23".to_string(), 1)
+            .start();
         let wallet = make_wallet("123");
         let chain = Chain::PolyMainnet;
         let server_url = &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port);
         let (event_loop_handle, transport) =
             Http::with_max_parallel(server_url, REQUESTS_IN_PARALLEL).unwrap();
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
-        let _ = subject
-            .get_web3()
-            .eth()
-            .balance(wallet.address(), None)
-            .wait();
-        //TODO: GH-744: Subject call is returning an error due to test_servers response, come back to this.
 
-        let requests = test_server.requests_so_far();
-        let bodies: Vec<Value> = requests
-            .into_iter()
-            .map(|request| serde_json::from_slice(&request.body()).unwrap())
-            .collect();
+        let blockchain_agent = subject.build_blockchain_agent(wallet.clone()).wait().unwrap();
 
-        assert_eq!(bodies[0]["params"][0].to_string(), format!("\"{wallet}\""));
-        assert_eq!(
-            bodies[0]["method"].to_string(),
-            format!("\"eth_getBalance\"")
-        );
+        assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
+        assert_eq!(blockchain_agent.agreed_fee_per_computation_unit(), 1);
     }
 
     #[test]

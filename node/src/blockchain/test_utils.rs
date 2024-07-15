@@ -248,31 +248,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         todo!()
     }
 
-    fn get_contract(&self) -> Contract<Http> {
-        todo!()
-    }
-
-    fn get_web3(&self) -> Web3<Http> {
-        todo!()
-    }
-
-    fn get_web3_batch(&self) -> Web3<Batch<Http>> {
-        todo!()
-    }
-
-    fn get_transport(&self) -> Http {
-        todo!()
-    }
-
-    // TODO: GH-744 Unsure if we need this...
-    // fn get_chain(&self) -> Chain {
-    //     self.get_chain_results.borrow_mut().remove(0)
-    // }
-    //
-    // fn get_batch_web3(&self) -> Web3<Batch<Http>> {
-    //     self.get_batch_web3_results.borrow_mut().remove(0)
-    // }
-
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
@@ -300,16 +275,6 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         //     persistent_config.arbitrary_id_stamp(),
         // ));
         // self.build_blockchain_agent_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
-        todo!("GH-744 - Migrating to lower_level_interface");
-
-        self.get_transaction_receipt_params
-            .lock()
-            .unwrap()
-            .push(hash);
-        self.get_transaction_receipt_results.borrow_mut().remove(0)
     }
 
     fn lower_interface(&self) ->Box<dyn LowBlockchainInt> {

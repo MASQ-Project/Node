@@ -92,28 +92,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         self.chain
     }
 
-    fn get_contract(&self) -> Contract<Http> {
-        Contract::from_json(
-            self.get_web3().eth(),
-            self.chain.rec().contract,
-            CONTRACT_ABI.as_bytes(),
-        )
-        .expect("Unable to initialize contract.")
-    }
-
-    fn get_web3(&self) -> Web3<Http> {
-        Web3::new(self.transport.clone())
-    }
-
-    fn get_web3_batch(&self) -> Web3<Batch<Http>> {
-        let transport = self.transport.clone();
-        Web3::new(Batch::new(transport))
-    }
-
-    fn get_transport(&self) -> Http {
-        self.transport.clone()
-    }
-
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
@@ -122,7 +100,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
-        let contract_address = self.get_contract().address();
+        let contract_address = lower_level_interface.get_contract().address();
         let num_chain_id = self.chain.rec().num_chain_id.clone();
         return Box::new(
             lower_level_interface.get_block_number().then(move |response_block_number_result| {
@@ -198,7 +176,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         )
                     })
                     .and_then(move |transaction_fee_balance| {
-                        eprintln!("transaction_fee_balance: {}", transaction_fee_balance);
                         get_service_fee_balance
                             .map_err(move |e| {
                                 BlockchainAgentBuildError::ServiceFeeBalance(
@@ -232,16 +209,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                     })
             }),
         )
-    }
-
-    // TODO: GH-744: Remove this wait -- Put this in lower_level_interface 
-    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
-        todo!("Where is get_transaction_receipt");
-        self.get_web3()
-            .eth()
-            .transaction_receipt(hash)
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
     }
 
     fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
@@ -1002,8 +969,8 @@ mod tests {
             .prepare_secp256k1_secret()
             .unwrap();
             let tx_params = from_raw_transaction_to_transaction_parameters(tx, chain);
-            let sign = subject
-                .get_web3()
+            let web3 = Web3::new(subject.transport.clone());
+            let sign = web3
                 .accounts()
                 .sign_transaction(tx_params, &secret)
                 .wait()

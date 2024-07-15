@@ -5,6 +5,8 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{Blockchai
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::{H256, U64};
 use futures::Future;
+use web3::contract::Contract;
+use web3::transports::Http;
 use web3::types::{Address, Filter, Log, TransactionReceipt, U256};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -30,6 +32,8 @@ pub trait LowBlockchainInt {
     fn get_transaction_receipt(&self, hash: H256) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>>;
 
     fn get_transaction_receipt_batch(&self, hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
+
+    fn get_contract(&self) -> Contract<Http>;
 
     fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>>;
 

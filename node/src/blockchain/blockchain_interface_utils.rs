@@ -255,10 +255,10 @@ pub fn sign_and_append_multiple_payments(
     hash_and_amount_list
 }
 
-pub fn send_payables_within_batch(
+pub fn send_payables_within_batch( // TODO: GH-744: Maybe Move this to lower_level_interface_web3
     logger: Logger,
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>, // TODO: Replaced with lower_level_interface
+    web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     gas_price: u64,
     pending_nonce: U256,
@@ -413,14 +413,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3_batch = Web3::new(Batch::new(transport));
         let pending_nonce = 1;
         let chain = TEST_DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
-        let web3_batch = subject.get_web3_batch();
         let signed_transaction = sign_transaction(
             chain,
             web3_batch.clone(),
@@ -459,14 +457,12 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
-        let web3_batch = subject.get_web3_batch();
+        let web3_batch = Web3::new(Batch::new(transport));
         let result = handle_new_transaction(
             chain,
             web3_batch.clone(),
@@ -500,8 +496,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
+        let web3_batch = Web3::new(Batch::new(transport));
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -511,7 +506,7 @@ mod tests {
 
         let result = sign_and_append_payment(
             chain,
-            subject.get_web3_batch(),
+            web3_batch,
             consuming_wallet,
             pending_nonce.into(),
             gas_price,
@@ -532,11 +527,14 @@ mod tests {
     fn send_and_append_multiple_payments_works() {
         let port = find_free_port();
         let logger = Logger::new("send_and_append_multiple_payments_works");
-        let blockchain_web3 = make_blockchain_interface_web3(Some(port));
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let web3_batch = Web3::new(Batch::new(transport));
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
-        let web3_batch = blockchain_web3.get_web3_batch();
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
         let account_2 = make_payable_account(2);
@@ -772,9 +770,7 @@ mod tests {
             .response("rpc_result_2".to_string(), 7)
             .end_batch()
             .start();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let web3_batch = blockchain_interface_web3.get_web3_batch();
+        let web3_batch = Web3::new(Batch::new(transport));
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
@@ -889,9 +885,7 @@ mod tests {
             )
             .end_batch()
             .start();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let web3_batch = blockchain_interface_web3.get_web3_batch();
+        let web3_batch = Web3::new(Batch::new(transport));
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
@@ -946,7 +940,7 @@ mod tests {
                 },
             ]
         );
-        assert_eq!(processed_payments[0], ProcessedPayableFallible::Failed(RpcPayableFailure{
+        assert_eq!(processed_payments[0], Failed(RpcPayableFailure{
             rpc_error: Rpc(Error {
                 code: ServerError(429),
                 message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
@@ -955,7 +949,7 @@ mod tests {
             recipient_wallet: accounts_1.wallet,
             hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
         }));
-        assert_eq!(processed_payments[1], ProcessedPayableFallible::Failed(RpcPayableFailure{
+        assert_eq!(processed_payments[1], Failed(RpcPayableFailure{
             rpc_error: Rpc(Error {
                 code: ServerError(429),
                 message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
@@ -999,9 +993,8 @@ mod tests {
             )
             .end_batch()
             .start();
-        let blockchain_interface_web3 =
-            BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
-        let web3_batch = blockchain_interface_web3.get_web3_batch();
+        let web3_batch =  Web3::new(Batch::new(transport.clone()));
+
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;

@@ -134,6 +134,10 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
+    fn get_contract(&self) -> Contract<Http> {
+        self.contract.clone()
+    }
+
     fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
         Box::new(
         self.web3.eth().logs(filter)
@@ -392,7 +396,7 @@ mod tests {
             )
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let contract = blockchain_interface_web3.get_contract();
+        let contract = blockchain_interface_web3.lower_interface().get_contract();
         let subject = make_blockchain_interface_web3(Some(port));
 
         let result = subject.lower_interface().get_service_fee_balance(
@@ -416,7 +420,7 @@ mod tests {
             )
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let contract = blockchain_interface_web3.get_contract();
+        let contract = blockchain_interface_web3.lower_interface().get_contract();
         let expected_err_msg = "Invalid hex";
         let subject = make_blockchain_interface_web3(Some(port));
 

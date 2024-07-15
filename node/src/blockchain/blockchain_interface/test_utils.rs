@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
+use web3::contract::Contract;
+use web3::transports::Http;
 use web3::types::{Address, Filter, Log, TransactionReceipt};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -85,6 +87,10 @@ impl LowBlockchainInt for LowBlockchainIntMock {
 
     fn get_transaction_receipt_batch(&self, hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         todo!("GH-744: Come back to this - get_transaction_receiptget_transaction_receipt_batch - Mock");
+    }
+
+    fn get_contract(&self) -> Contract<Http> {
+        todo!()
     }
 
     fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
