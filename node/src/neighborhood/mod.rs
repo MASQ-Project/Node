@@ -3450,8 +3450,11 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "Node with PubKey 0x05060708 is not from requested Country \"CZ\" during ExitRequest; Undesirability: 156816078 + 100000000 = 256816078",
         );
-
+        TestLogHandler::new().exists_log_containing(
+            "Node with PubKey 0x02030405 is not from requested Country \"CZ\" during ExitRequest; Undesirability: 123482745 + 100000000 = 223482745",
+        );
     }
+
     #[test]
     fn route_for_particular_country_code_is_constructed() {
         let mut subject = make_standard_subject();
