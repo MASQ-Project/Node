@@ -3424,10 +3424,34 @@ mod tests {
             Test is written from the standpoint of P. Node q is non-routing.
     */
 
-    // #[test]
-    // fn find_best_segment_traces_unreachable_country_code_exit_node() {
-    //     todo!("create me");
-    // }
+    #[test]
+    fn find_best_segment_traces_unreachable_country_code_exit_node() {
+        init_test_logging();
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let p = &db.root_mut().public_key().clone();
+        let a = &db.add_node(make_node_record(2345, true)).unwrap();
+        let b = &db.add_node(make_node_record(5678, true)).unwrap();
+        let c = &db.add_node(make_node_record(1234, true)).unwrap();
+        db.add_arbitrary_full_neighbor(p, c);
+        db.add_arbitrary_full_neighbor(c, b);
+        db.add_arbitrary_full_neighbor(c, a);
+
+        let _route_cz = subject.find_best_route_segment(
+            p,
+            None,
+            2,
+            10000,
+            RouteDirection::Over,
+            None,
+            Some("CZ".to_string()),
+        );
+
+        TestLogHandler::new().exists_log_containing(
+            "Node with PubKey 0x05060708 is not from requested Country \"CZ\" during ExitRequest; Undesirability: 156816078 + 100000000 = 256816078",
+        );
+
+    }
     #[test]
     fn route_for_particular_country_code_is_constructed() {
         let mut subject = make_standard_subject();
