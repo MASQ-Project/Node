@@ -10,6 +10,7 @@ description = "Handle embedding IP-address-to-country data in MASQ Node"
 
 [dependencies]
 csv = "1.3.0"
+itertools = "0.13.0"
 lazy_static = "1.4.0"
 masq_lib = { path = "../masq_lib" }
 

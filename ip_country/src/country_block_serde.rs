@@ -234,9 +234,9 @@ impl CountryBlockSerializer {
     }
 }
 
-pub trait CountryBlockDeserializer {
-    fn next(&mut self) -> Option<CountryBlock>;
-}
+// pub trait CountryBlockDeserializer {
+//     fn next(&mut self) -> Option<CountryBlock>;
+// }
 
 #[derive(Debug)]
 pub struct CountryBlockDeserializerIpv4 {
@@ -245,7 +245,9 @@ pub struct CountryBlockDeserializerIpv4 {
     empty: bool,
 }
 
-impl CountryBlockDeserializer for CountryBlockDeserializerIpv4 {
+impl Iterator for CountryBlockDeserializerIpv4 {
+    type Item = CountryBlock;
+
     fn next(&mut self) -> Option<CountryBlock> {
         if self.empty {
             return None;
@@ -320,7 +322,9 @@ pub struct CountryBlockDeserializerIpv6 {
     empty: bool,
 }
 
-impl CountryBlockDeserializer for CountryBlockDeserializerIpv6 {
+impl Iterator for CountryBlockDeserializerIpv6 {
+    type Item = CountryBlock;
+
     fn next(&mut self) -> Option<CountryBlock> {
         if self.empty {
             return None;
@@ -395,6 +399,15 @@ impl CountryBlockDeserializerIpv6 {
         })
     }
 }
+
+// impl Iterator for CountryBlockDeserializerIpv4 {
+//     type Item = CountryBlock;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         let current = self.nth(0);
+//        current
+//     }
+// }
 
 #[derive(Debug)]
 struct StreamRecordIpv4 {
