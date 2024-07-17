@@ -83,7 +83,7 @@ pub fn make_multi_thread_rt() -> Runtime {
         .unwrap()
 }
 
-#[cfg(not(feature = "no_test_share"))]
+// #[cfg(not(feature = "no_test_share"))]
 pub struct MutexIncrementInset(pub usize);
 
 #[cfg(test)]

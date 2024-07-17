@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use actix::Recipient;
+use actix::{ContextFutureSpawner, Recipient};
 use futures::Future;
 use serde_json::Value;
 use std::fmt::Debug;
