@@ -914,9 +914,10 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
+        init_test_logging();
         let (shutdown_tx, shutdown_rx) = unbounded();
         thread::spawn(move || {
-            let stream_key = StreamKey::make_meaningful_stream_key("i should die");
+            let stream_key = StreamKey::make_meaningful_stream_key("I should die");
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket {
@@ -961,6 +962,11 @@ mod tests {
         });
         let received = shutdown_rx.recv();
         assert_eq!(received, Ok(()));
+        TestLogHandler::new().await_log_containing(
+            "Removing StreamWriter and Shutting down StreamReader \
+            for 8vVp1ZyZaZzRXCPNdf1OSE1bCVs to 3.4.5.6:80",
+            100,
+        );
     }
 
     #[test]
