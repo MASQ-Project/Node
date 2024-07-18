@@ -43,6 +43,7 @@ pub struct StreamHandlerPoolReal {
     stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
 
+#[derive(Debug)]
 pub struct StreamSenders {
     pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
     pub reader_shutdown: Sender<()>,
@@ -200,21 +201,28 @@ impl StreamHandlerPoolReal {
                 eprintln!("last_data = true detected");
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
+                        eprintln!("Removed stream key: {:?}", stream_key);
+                        stream_senders.reader_shutdown.send(()).unwrap();
+                        todo!("stop please");
                         debug!(
                             inner.logger,
                             "Removing StreamWriter {:?} to {}",
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
+
                         // You need not to use expect(), _ is sufficient, you may use match in case you want to log it because it might be already gone
                         todo!("Try stream_senders.reader_shutdown.unbounded_send(()) ")
 
                         // TODO: GH-800 - We want the StreamReader to shutdown here
                     }
-                    None => debug!(
-                        inner.logger,
-                        "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
-                    ),
+                    None => {
+                        eprintln!("Failed to Remove stream key: {:?}", stream_key);
+                        debug!(
+                            inner.logger,
+                            "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
+                        )
+                    }
                 }
             }
             if payload_size > 0 {
@@ -907,13 +915,14 @@ mod tests {
     }
 
     #[test]
-    fn trying_to_write_a_test_for_stream_senders() {
+    fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
         let cryptde = main_cryptde();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let proxy_client =
             proxy_client.system_stop_conditions(match_every_type_id!(InboundServerData));
+        let (shutdown_tx, shutdown_rx) = unbounded();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let stream_key = StreamKey::make_meaningful_stream_key("i should die");
@@ -962,7 +971,6 @@ mod tests {
                 100,
                 200,
             );
-            let (shutdown_tx, shutdown_rx) = unbounded();
             {
                 let mut inner = subject.inner.lock().unwrap();
                 inner.stream_writer_channels.insert(
@@ -976,7 +984,7 @@ mod tests {
                     cryptde,
                     stream_adder_tx: unbounded().0,
                     stream_killer_tx: unbounded().0,
-                    shutdown_signal_rx: shutdown_rx,
+                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -995,17 +1003,20 @@ mod tests {
 
             run_process_package_in_actix(subject, package);
         });
-        let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-        assert_eq!(
-            proxy_client_recording.get_record::<InboundServerData>(0),
-            &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
-                last_data: false,
-                sequence_number: 0,
-                source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
-            }
-        );
+        let received = shutdown_rx.recv();
+        assert_eq!(received, Ok(()));
+
+        // let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        // assert_eq!(
+        //     proxy_client_recording.get_record::<InboundServerData>(0),
+        //     &InboundServerData {
+        //         stream_key: StreamKey::make_meaningless_stream_key(),
+        //         last_data: false,
+        //         sequence_number: 0,
+        //         source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
+        //         data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
+        //     }
+        // );
     }
 
     #[test]
