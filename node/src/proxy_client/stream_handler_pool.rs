@@ -194,35 +194,7 @@ impl StreamHandlerPoolReal {
         let payload_size = payload.sequenced_packet.data.len();
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
-            eprintln!("executing perform_write");
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
-            // TODO: GH-800 - We want to process the payload before we perform what we're supposed to do if last_data is true.
-            if last_data {
-                eprintln!("last_data = true detected");
-                match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(stream_senders) => {
-                        eprintln!("Removed stream key: {:?}", stream_key);
-                        stream_senders
-                            .reader_shutdown
-                            .send(())
-                            .expect("StreamReader Shutdown channel is already gone");
-                        // TODO: GH-800: Should it be a log instead of expect?
-                        debug!(
-                            inner.logger,
-                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
-                            stream_key,
-                            stream_senders.writer_data.peer_addr()
-                        );
-                    }
-                    None => {
-                        eprintln!("Failed to Remove stream key: {:?}", stream_key);
-                        debug!(
-                            inner.logger,
-                            "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
-                        )
-                    }
-                }
-            }
             if payload_size > 0 {
                 match paying_wallet_opt {
                     Some(wallet) => inner
@@ -242,6 +214,31 @@ impl StreamHandlerPoolReal {
                     ),
                 }
             }
+            if last_data {
+                match inner.stream_writer_channels.remove(&stream_key) {
+                    Some(stream_senders) => {
+                        stream_senders
+                            .reader_shutdown
+                            .send(())
+                            .expect("StreamReader Shutdown channel is already gone");
+                        // TODO: GH-800: Should it be a log instead
+                        debug!(
+                            inner.logger,
+                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
+                            stream_key,
+                            stream_senders.writer_data.peer_addr()
+                        );
+                    }
+                    None => {
+                        eprintln!("Failed to Remove stream key: {:?}", stream_key);
+                        debug!(
+                            inner.logger,
+                            "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
+                        )
+                    }
+                }
+            }
+
             Ok(())
         })
     }
@@ -455,7 +452,7 @@ impl StreamHandlerPoolReal {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
-                Some(writer_channel) => {
+                Some(stream_senders) => {
                     inner
                         .proxy_client_subs
                         .inbound_server_data
@@ -463,16 +460,18 @@ impl StreamHandlerPoolReal {
                             stream_key,
                             last_data: true,
                             sequence_number,
-                            source: writer_channel.writer_data.peer_addr(),
+                            source: stream_senders.writer_data.peer_addr(),
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
-                    // TODO: GH-800: Send a signal to the reader_shutdown
+                    if let Err(e) = stream_senders.reader_shutdown.send(()) {
+                        todo!("test drive me");
+                    };
                     // Test should have a fake server, and the (read and write should be different) server
                     debug!(
                         inner.logger,
                         "Killed StreamWriter to {} and sent server-drop report",
-                        writer_channel.writer_data.peer_addr()
+                        stream_senders.writer_data.peer_addr()
                     )
                 }
                 None => debug!(
@@ -1809,13 +1808,14 @@ mod tests {
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = StreamKey::make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let (shutdown_tx, shutdown_rx) = unbounded();
         {
             let mut inner = subject.inner.lock().unwrap();
             inner.stream_writer_channels.insert(
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown: shutdown_tx,
                 },
             );
         }
@@ -1827,6 +1827,8 @@ mod tests {
         system.run();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         let report = proxy_client_recording.get_record::<InboundServerData>(0);
+        let shutdown_signal_received = shutdown_rx.recv();
+        assert_eq!(shutdown_signal_received, Ok(()));
         assert_eq!(
             report,
             &InboundServerData {
