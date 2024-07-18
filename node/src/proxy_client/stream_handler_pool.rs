@@ -916,8 +916,6 @@ mod tests {
     fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
         let (shutdown_tx, shutdown_rx) = unbounded();
         thread::spawn(move || {
-            let cryptde = main_cryptde();
-            let peer_actors = peer_actors_builder().build();
             let stream_key = StreamKey::make_meaningful_stream_key("i should die");
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
@@ -938,27 +936,11 @@ mod tests {
                 client_request_payload.into(),
                 0,
             );
-            // TODO: GH-800: Apparently, we can remove both lookup_ip mock functions
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock {
-                poll_read_results: vec![
-                    (
-                        first_read_result.to_vec(),
-                        Ok(Async::Ready(first_read_result.len())),
-                    ),
-                    (vec![], Err(Error::from(ErrorKind::ConnectionAborted))),
-                ],
-            };
-            let writer = WriteHalfWrapperMock {
-                poll_write_params: Arc::new(Mutex::new(vec![])),
-                poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
-                // Vec<Result<Async<()>, io::Error>>;
-                shutdown_results: Arc::new(Mutex::new(vec![Ok(Async::Ready(()))])),
-            };
+            let peer_actors = peer_actors_builder().build();
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
-                cryptde,
+                main_cryptde(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client_opt.unwrap().clone(),
                 100,
@@ -973,25 +955,6 @@ mod tests {
                         reader_shutdown: shutdown_tx,
                     },
                 );
-                let establisher = StreamEstablisher {
-                    cryptde,
-                    stream_adder_tx: unbounded().0,
-                    stream_killer_tx: unbounded().0,
-                    shutdown_signal_rx: unbounded().1,
-                    stream_connector: Box::new(StreamConnectorMock::new().with_connection(
-                        peer_addr.clone(),
-                        peer_addr.clone(),
-                        reader,
-                        writer,
-                    )),
-                    proxy_client_sub: inner.proxy_client_subs.inbound_server_data.clone(),
-                    logger: inner.logger.clone(),
-                    channel_factory: Box::new(FuturesChannelFactoryReal {}),
-                };
-
-                inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
-                    make_results: RefCell::new(vec![establisher]),
-                });
             }
 
             run_process_package_in_actix(subject, package);
