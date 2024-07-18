@@ -202,19 +202,17 @@ impl StreamHandlerPoolReal {
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
                         eprintln!("Removed stream key: {:?}", stream_key);
-                        stream_senders.reader_shutdown.send(()).unwrap();
-                        todo!("stop please");
+                        stream_senders
+                            .reader_shutdown
+                            .send(())
+                            .expect("StreamReader Shutdown channel is already gone");
+                        // TODO: GH-800: Should it be a log instead of expect?
                         debug!(
                             inner.logger,
-                            "Removing StreamWriter {:?} to {}",
+                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
-
-                        // You need not to use expect(), _ is sufficient, you may use match in case you want to log it because it might be already gone
-                        todo!("Try stream_senders.reader_shutdown.unbounded_send(()) ")
-
-                        // TODO: GH-800 - We want the StreamReader to shutdown here
                     }
                     None => {
                         eprintln!("Failed to Remove stream key: {:?}", stream_key);
@@ -916,27 +914,22 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
-        let cryptde = main_cryptde();
-        let write_parameters = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters.clone();
-        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let proxy_client =
-            proxy_client.system_stop_conditions(match_every_type_id!(InboundServerData));
         let (shutdown_tx, shutdown_rx) = unbounded();
         thread::spawn(move || {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let cryptde = main_cryptde();
+            let peer_actors = peer_actors_builder().build();
             let stream_key = StreamKey::make_meaningful_stream_key("i should die");
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket {
-                    data: b"These are the times".to_vec(),
+                    data: b"I'm gonna kill you stream key".to_vec(),
                     sequence_number: 0,
                     last_data: true,
                 },
                 target_hostname: Some(String::from("3.4.5.6:80")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"brutal death"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -958,7 +951,7 @@ mod tests {
                 ],
             };
             let writer = WriteHalfWrapperMock {
-                poll_write_params: write_parameters,
+                poll_write_params: Arc::new(Mutex::new(vec![])),
                 poll_write_results: vec![Ok(Async::Ready(first_read_result.len()))],
                 // Vec<Result<Async<()>, io::Error>>;
                 shutdown_results: Arc::new(Mutex::new(vec![Ok(Async::Ready(()))])),
@@ -1005,18 +998,6 @@ mod tests {
         });
         let received = shutdown_rx.recv();
         assert_eq!(received, Ok(()));
-
-        // let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
-        // assert_eq!(
-        //     proxy_client_recording.get_record::<InboundServerData>(0),
-        //     &InboundServerData {
-        //         stream_key: StreamKey::make_meaningless_stream_key(),
-        //         last_data: false,
-        //         sequence_number: 0,
-        //         source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
-        //         data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
-        //     }
-        // );
     }
 
     #[test]
