@@ -470,7 +470,8 @@ impl StreamHandlerPoolReal {
                     // Test should have a fake server, and the (read and write should be different) server
                     debug!(
                         inner.logger,
-                        "Killed StreamWriter to {} and sent server-drop report",
+                        "Killed StreamWriter and StreamReader for the stream key {:?} to {} and sent server-drop report",
+                        stream_key,
                         stream_senders.writer_data.peer_addr()
                     )
                 }
@@ -960,12 +961,12 @@ mod tests {
             run_process_package_in_actix(subject, package);
         });
         let received = shutdown_rx.recv();
-        assert_eq!(received, Ok(()));
         TestLogHandler::new().await_log_containing(
             "Removing StreamWriter and Shutting down StreamReader \
-            for 8vVp1ZyZaZzRXCPNdf1OSE1bCVs to 3.4.5.6:80",
-            100,
+            for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80",
+            500,
         );
+        assert_eq!(received, Ok(()));
     }
 
     #[test]
@@ -1846,8 +1847,7 @@ mod tests {
         init_test_logging();
         let test_name = "clean_up_dead_streams_logs_when_the_shutdown_channel_is_down";
         let system = System::new(test_name);
-        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let peer_actors = peer_actors_builder().build();
         let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
             main_cryptde(),
