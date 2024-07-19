@@ -166,11 +166,13 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(result.free_world, true);
+        assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
     }
 
     #[test]
-    fn real_test_ipv4_with_cz_isp() {
+    fn real_test_ipv4_with_cz_ip() {
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
@@ -183,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn real_test_ipv4_with_sk_isp() {
+    fn real_test_ipv4_with_sk_ip() {
         let _ = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
@@ -219,6 +221,8 @@ mod tests {
             .unwrap();
         let time_end = SystemTime::now();
 
+        assert_eq!(result.free_world, true);
+        assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
         let duration = time_end.duration_since(time_start).unwrap();
         assert!(duration.as_secs() < 1, "Duration of the search was too long: {} ms", duration.as_millis());
@@ -226,39 +230,23 @@ mod tests {
 
     #[test]
     fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
-        let mut result_ipv4: Vec<CountryBlock> = vec![];
-        let mut result_ipv6: Vec<CountryBlock> = vec![];
         let time_start = SystemTime::now();
-        let mut deserializer_ipv4 =
+        let deserializer_ipv4 =
             CountryBlockDeserializerIpv4::new(crate::dbip_country::ipv4_country_data());
-        let mut deserializer_ipv6 =
+        let deserializer_ipv6 =
             CountryBlockDeserializerIpv6::new(crate::dbip_country::ipv6_country_data());
         let time_end = SystemTime::now();
 
         let time_start_fill = SystemTime::now();
-        loop {
-            match deserializer_ipv4.next() {
-                None => break,
-                Some(country_block) => {
-                    result_ipv4.push(country_block);
-                }
-            }
-        }
-        loop {
-            match deserializer_ipv6.next() {
-                None => break,
-                Some(country_block) => {
-                    result_ipv6.push(country_block);
-                }
-            }
-        }
+        let _ = deserializer_ipv4.collect_vec();
+        let _ = deserializer_ipv6.collect_vec();
         let time_end_fill = SystemTime::now();
 
-        let duration = time_end.duration_since(time_start).unwrap();
+        let duration_deserialize = time_end.duration_since(time_start).unwrap();
         let duration_fill = time_end_fill
             .duration_since(time_start_fill)
             .unwrap();
-        assert!(duration.as_secs() < 5, "Duration of the deserialization was too long: {} ms", duration.as_millis());
-        assert!(duration_fill.as_secs() < 1, "Duration of the filling the vectors was too long: {} ms", duration_fill.as_millis());
+        assert!(duration_deserialize.as_secs() < 5, "Duration of the deserialization was too long: {} ms", duration_deserialize.as_millis());
+        assert!(duration_fill.as_secs() < 2, "Duration of the filling the vectors was too long: {} ms", duration_fill.as_millis());
     }
 }

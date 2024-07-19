@@ -1625,6 +1625,40 @@ mod tests {
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
     }
 
+    #[test]
+    #[should_panic(
+        expected = "Writing max_block_count failed: QueryFailed"
+    )]
+    fn handle_retrieve_transactions_panics_if_writing_max_block_count_failed() {
+        let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
+        let earning_wallet = make_wallet("somewallet");
+        let latest_block_number = LatestBlockNumber::Ok(1024u64.into());
+        let lower_interface =
+            LowBlockchainIntMock::default().get_block_number_result(latest_block_number);
+        let blockchain_interface =
+            BlockchainInterfaceMock::default()
+                .retrieve_transactions_params(&retrieve_transactions_params_arc)
+                .retrieve_transactions_result(Err(BlockchainError::QueryFailed("RPC error: Error { code: ServerError(-32005), message: \"eth_getLogs is limited to 1024 block range. Please check the parameter requirements at  https://docs.blockpi.io/documentations/api-reference\", data: None }".to_string())))
+                .lower_interface_results(Box::new(lower_interface));
+        let persistent_config = PersistentConfigurationMock::new()
+            .max_block_count_result(Ok(Some(10000u64)))
+            .start_block_result(Ok(6))
+            .set_max_block_count_result(Err(PersistentConfigError::TransactionError));
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_config),
+            false,
+            Some(make_wallet("consuming")),
+        );
+
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: earning_wallet,
+            response_skeleton_opt: None,
+        };
+
+        let _ = subject.handle_retrieve_transactions(retrieve_transactions);
+    }
+
     fn success_handler(
         _bcb: &mut BlockchainBridge,
         _msg: RetrieveTransactions,
