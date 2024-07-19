@@ -465,7 +465,7 @@ impl StreamHandlerPoolReal {
                         })
                         .expect("ProxyClient is dead");
                     if let Err(e) = stream_senders.reader_shutdown.send(()) {
-                        todo!("test drive me");
+                        debug!(inner.logger, "Unable to send a shutdown signal to the StreamReader for stream key {:?}. The channel is already gone.", stream_key)
                     };
                     // Test should have a fake server, and the (read and write should be different) server
                     debug!(
@@ -1839,6 +1839,50 @@ mod tests {
                 data: vec![]
             }
         );
+    }
+
+    #[test]
+    fn clean_up_dead_streams_logs_when_the_shutdown_channel_is_down() {
+        init_test_logging();
+        let test_name = "clean_up_dead_streams_logs_when_the_shutdown_channel_is_down";
+        let system = System::new(test_name);
+        let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            main_cryptde(),
+            peer_actors.accountant.report_exit_service_provided,
+            peer_actors.proxy_client_opt.unwrap(),
+            0,
+            0,
+        );
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+        let stream_key = StreamKey::make_meaningful_stream_key("I'll be gone well before then.");
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let broken_shutdown_channel_tx = unbounded().0;
+        {
+            let mut inner = subject.inner.lock().unwrap();
+            inner.logger = Logger::new(test_name);
+            inner.stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown: broken_shutdown_channel_tx,
+                },
+            );
+        }
+        stream_killer_tx.send((stream_key, 47)).unwrap();
+
+        subject.clean_up_dead_streams();
+
+        System::current().stop_with_code(0);
+        system.run();
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Unable to send a shutdown signal \
+            to the StreamReader for stream key cv9IZ5fizc4kZmR+0d+OQGXr3bw. \
+            The channel is already gone."
+        ));
     }
 
     #[test]
