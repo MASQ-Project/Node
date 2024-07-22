@@ -23,10 +23,10 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
         false,
         true,
     );
-    let (write_error_tx, write_error_rx) = unbounded();
+    let (server_write_error_tx, server_write_error_rx) = unbounded();
     let server_port = find_free_port();
     thread::spawn(move || {
-        endless_write_server(server_port, write_error_tx);
+        endless_write_server(server_port, server_write_error_tx);
     });
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
@@ -39,7 +39,9 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
     // We want to make sure the Server is sending before we shutdown the stream
     stream.read(&mut buf).unwrap();
     stream.shutdown(Shutdown::Write).unwrap();
-    let write_error = write_error_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // TODO: GH-800 We are failing on this timeout
+    let write_error = server_write_error_rx
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap(); // TODO: GH-800 We are failing on this timeout
 
     assert_eq!(write_error.kind(), io::ErrorKind::ConnectionAborted);
 }
