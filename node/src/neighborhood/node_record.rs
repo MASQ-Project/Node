@@ -299,7 +299,7 @@ impl NodeRecord {
 
 impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
-        let ip_add_opt = agr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr);
+        let ip_add_opt = agr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr());
         let mut node_record = NodeRecord {
             inner: agr.inner,
             metadata: NodeRecordMetadata::new(),
@@ -324,7 +324,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 
     fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
         let inner = NodeRecordInner_0v1::try_from(gnr)?;
-        let ip_addr_opt = gnr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr);
+        let ip_addr_opt = gnr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr());
         let mut node_record = NodeRecord {
             inner,
             metadata: NodeRecordMetadata::new(),

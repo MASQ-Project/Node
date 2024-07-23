@@ -52,7 +52,7 @@ impl NeighborhoodDatabase {
         };
 
         let location = if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
-            get_node_location(Some(node_addr.ip_addr))
+            get_node_location(Some(node_addr.ip_addr()))
         } else {
             None
         };

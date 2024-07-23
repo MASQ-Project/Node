@@ -508,7 +508,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             self.config.blockchain_bridge_config.chain,
         );
         let node_ip = match self.config.neighborhood_config.mode.node_addr_opt() {
-            Some(node_addr) => Some(node_addr.ip_addr),
+            Some(node_addr) => Some(node_addr.ip_addr()),
             None => None,
         };
         let country_code = match get_node_location(node_ip) {

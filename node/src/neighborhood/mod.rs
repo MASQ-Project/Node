@@ -545,13 +545,13 @@ impl Neighborhood {
     }
 
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
-        let node_location = get_node_location(Some(new_public_ip));
+        let node_location_opt = get_node_location(Some(new_public_ip));
         self.neighborhood_database
             .root_mut()
             .metadata
-            .node_location_opt = node_location.clone();
+            .node_location_opt = node_location_opt.clone();
         self.neighborhood_database.root_mut().inner.country_code =
-            node_location.expect("expected Node location").country_code;
+            node_location_opt.expect("expected Node location").country_code;
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -3359,7 +3359,7 @@ mod tests {
         assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
         let interval = after.duration_since(before);
         assert!(
-            interval.as_millis() <= 600,
+            interval.as_millis() <= 100,
             "Should have calculated route in <=100ms, but was {}ms",
             interval.as_millis()
         );
@@ -3710,11 +3710,7 @@ mod tests {
         let (call_database, call_agrs, call_gossip_source, neighborhood_metadata) =
             handle_params.remove(0);
         assert!(handle_params.is_empty());
-        subject_node.inner.country_code = call_database.root().inner.country_code.clone();
-        subject_node.metadata.node_location_opt =
-            call_database.root().metadata.node_location_opt.clone();
         subject_node.metadata.last_update = call_database.root().metadata.last_update;
-        subject_node.resign();
         assert_eq!(&subject_node, call_database.root());
         assert_eq!(1, call_database.keys().len());
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -4821,11 +4817,7 @@ mod tests {
         };
         let temp_db = db_from_node(&this_node);
         let expected_gnr = GossipNodeRecord::from((&temp_db, this_node.public_key(), true));
-        //let node_record = NodeRecord::try_from(&gossip.node_records.remove(0)).unwrap();
 
-        println!("gossip: {:?}", &gossip);
-        // this_node.metadata.last_update = node_record.metadata.last_update;
-        // assert_contains(vec![node_record].as_slice(), &this_node);
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
         TestLogHandler::new().exists_log_containing(&format!(
@@ -5581,7 +5573,7 @@ mod tests {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1345, true);
         let public_key = PublicKey::from(&b"exit_node"[..]);
-        let node_record_data = NodeRecordInputs {
+        let node_record_inputs = NodeRecordInputs {
             earning_wallet: make_wallet("earning"),
             rate_pack: rate_pack(100),
             accepts_connections: true,
@@ -5589,7 +5581,7 @@ mod tests {
             version: 0,
             location: None,
         };
-        let node_record = NodeRecord::new(&public_key, main_cryptde(), node_record_data);
+        let node_record = NodeRecord::new(&public_key, main_cryptde(), node_record_inputs);
         let unreachable_host = String::from("facebook.com");
         let mut subject = neighborhood_from_nodes(&subject_node, None);
         let _ = subject.neighborhood_database.add_node(node_record);

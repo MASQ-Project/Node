@@ -199,7 +199,7 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, Chain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
         let ip_addr = match node_record.node_addr_opt() {
-            Some(ip) => Some(ip.ip_addr),
+            Some(ip) => Some(ip.ip_addr()),
             None => None,
         };
         let country_code = match get_node_location(ip_addr) {
@@ -231,7 +231,7 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
             None
         } else {
             let node_addr = NodeAddr::from_str(str_node_addr)?;
-            ip_addr = Some(node_addr.ip_addr);
+            ip_addr = Some(node_addr.ip_addr());
             Some(node_addr)
         };
         let country_code = match get_node_location(ip_addr) {
