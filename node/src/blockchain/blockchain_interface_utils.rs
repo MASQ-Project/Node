@@ -255,7 +255,7 @@ pub fn sign_and_append_multiple_payments(
     hash_and_amount_list
 }
 
-pub fn send_payables_within_batch( // TODO: GH-744: Maybe Move this to lower_level_interface_web3
+pub fn send_payables_within_batch(
     logger: Logger,
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
@@ -266,6 +266,7 @@ pub fn send_payables_within_batch( // TODO: GH-744: Maybe Move this to lower_lev
     accounts: Vec<PayableAccount>,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
 {
+    eprintln!("calling - send_payables_within_batch");
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -305,6 +306,9 @@ pub fn send_payables_within_batch( // TODO: GH-744: Maybe Move this to lower_lev
             .submit_batch()
             .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
             .and_then(move |batch_response| {
+                eprintln!("DEBUG - send_payables_within_batch - batch_response: {:?}", batch_response);
+                eprintln!("DEBUG - send_payables_within_batch - hashes_and_paid_amounts_ok: {:?}", hashes_and_paid_amounts_ok);
+
                 Ok(merged_output_data(
                     batch_response,
                     hashes_and_paid_amounts_ok,

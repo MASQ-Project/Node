@@ -38,7 +38,7 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct OutboundPaymentsInstructions {
     pub affordable_accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,

@@ -287,6 +287,7 @@ impl BlockchainBridge {
         &mut self,
         msg: OutboundPaymentsInstructions,
     ) -> Box<dyn Future<Item = (), Error = String>> {
+        eprintln!("handle_outbound_payments_instructions - msg: {:?}", msg);
         let skeleton_opt = msg.response_skeleton_opt;
         let sent_payable_subs = self
             .sent_payable_subs_opt
@@ -302,6 +303,7 @@ impl BlockchainBridge {
         return Box::new(
             self.process_payments(msg)
                 .map_err(move |e: PayableTransactionError| {
+                    eprintln!("send_message_if_failure: {:?}", e);
                     send_message_if_failure(SentPayables {
                         payment_procedure_result: Err(e.clone()),
                         response_skeleton_opt: skeleton_opt,
@@ -309,6 +311,7 @@ impl BlockchainBridge {
                     format!("ReportAccountsPayable: {}", e)
                 })
                 .and_then(move |payment_result| {
+                    eprintln!("send_message_if_successful: {:?}", payment_result);
                     send_message_if_successful(SentPayables {
                         payment_procedure_result: Ok(payment_result),
                         response_skeleton_opt: skeleton_opt,
@@ -392,6 +395,10 @@ impl BlockchainBridge {
         &mut self,
         msg: RequestTransactionReceipts,
     ) -> Box<dyn Future<Item = (), Error = String>> {
+        eprintln!("DEBUG - handle_request_transaction_receipts called");
+        // todo!("Why are we failed here on a null response from the RPC?");
+        let msg_clone = msg.clone();
+        
         let accountant_recipient = self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt
             .clone()
@@ -401,10 +408,17 @@ impl BlockchainBridge {
             finger_print.hash
         }).collect::<Vec<Hash>>();
 
+        eprintln!("DEBUG - handle_request_transaction_receipts - transaction_hashes: {:?}", transaction_hashes);
+
         Box::new(
             self.blockchain_interface.lower_interface().get_transaction_receipt_batch(transaction_hashes)
-                .map_err(|e| e.to_string() )
+                .map_err(move |e| {
+                    eprintln!("DEBUG - handle_request_transaction_receipts ERROR HIT: {:?}", msg_clone);
+                    eprintln!("Error: {:?}", e.to_string());
+                    return e.to_string()
+                } )
                 .and_then(move |transaction_receipts_results| {
+                    eprintln!("DEBUG - handle_request_transaction_receipts - transaction_receipts_results: {:?}", transaction_receipts_results);
                     let length = transaction_receipts_results.len();
                     let mut transactions_found = 0;
                     for transaction_receipt in &transaction_receipts_results {

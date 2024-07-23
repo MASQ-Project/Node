@@ -545,6 +545,7 @@ impl PayableDao for PayableDaoMock {
         &self,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
+        eprintln!("DEBUG - mark_pending_payables_rowids - wallets_and_rowids: {:?}", wallets_and_rowids);
         self.mark_pending_payables_rowids_params
             .lock()
             .unwrap()
