@@ -105,10 +105,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
             self.web3_batch
                 .transport()
                 .submit_batch()
-                .map_err(|e| {
-                    eprintln!("ERROR - get_transaction_receipt_batch - submit_batch - map_err : {:?}", e.to_string());
-                    return QueryFailed(e.to_string())
-                })
+                .map_err(|e| QueryFailed(e.to_string()))
                 .and_then(move |batch_response| {
                     Ok(
                         batch_response.into_iter().map(|response| {
@@ -162,12 +159,8 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
 
         return Box::new(
             get_transaction_id
-                .map_err(|e| {
-                    eprintln!("Failed here get_transaction_id");
-                    return PayableTransactionError::TransactionID(e)
-                })
+                .map_err(|e| PayableTransactionError::TransactionID(e))
                 .and_then(move |pending_nonce| {
-                    eprintln!("request - get_gas_price");
                     get_gas_price
                         .map_err(|e| PayableTransactionError::GasPriceQueryFailed(e))
                         .and_then(move |gas_price| {

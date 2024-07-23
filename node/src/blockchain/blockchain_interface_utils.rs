@@ -63,7 +63,6 @@ pub fn merged_output_data(
     hashes_and_paid_amounts: Vec<HashAndAmount>,
     accounts: Vec<PayableAccount>,
 ) -> Vec<ProcessedPayableFallible> {
-    // TODO: GH-744 Hashes and paid amounts are now out of sync with accounts. Need to look into this.
     let iterator_with_all_data = responses
         .into_iter()
         .zip(hashes_and_paid_amounts.into_iter())
@@ -266,7 +265,6 @@ pub fn send_payables_within_batch(
     accounts: Vec<PayableAccount>,
 ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
 {
-    eprintln!("calling - send_payables_within_batch");
     debug!(
             logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -306,9 +304,6 @@ pub fn send_payables_within_batch(
             .submit_batch()
             .map_err(|e| error_with_hashes(e, hashes_and_paid_amounts_error))
             .and_then(move |batch_response| {
-                eprintln!("DEBUG - send_payables_within_batch - batch_response: {:?}", batch_response);
-                eprintln!("DEBUG - send_payables_within_batch - hashes_and_paid_amounts_ok: {:?}", hashes_and_paid_amounts_ok);
-
                 Ok(merged_output_data(
                     batch_response,
                     hashes_and_paid_amounts_ok,

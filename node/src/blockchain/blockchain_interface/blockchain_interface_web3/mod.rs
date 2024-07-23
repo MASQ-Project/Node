@@ -197,7 +197,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                                 masq_token_balance,
                                                 pending_transaction_id,
                                             };
-                                        eprintln!("Blockchain Agent OK");
                                         Ok(create_blockchain_agent_web3(
                                             gas_limit_const_part,
                                             blockchain_agent_future_result,

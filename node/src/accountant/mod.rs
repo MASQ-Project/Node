@@ -913,9 +913,6 @@ impl Accountant {
                 format!("{:?}", hash_and_amount.hash)
             })
         }
-
-        eprintln!("called handle_new_pending_payable_fingerprints");
-
         match self
             .pending_payable_dao
             .insert_new_fingerprints(&msg.hashes_and_balances, msg.batch_wide_timestamp)
@@ -3192,189 +3189,17 @@ mod tests {
     }
 
     #[test]
-    fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled_2() {
-        init_test_logging();
-        let port = find_free_port();
-        let pending_tx_hash_1 = H256::from_str("3fc5df85fbeb442627911796d88def92161855cded99509404e60ef8d8b171d8").unwrap();
-        let pending_tx_hash_2 = H256::from_str("3deab5514f9c38cad0fb3f31bc8090caa4cbca8243394dedd69402f8ac5fd678").unwrap();
-
-        let blockchain_client_server = MBCSBuilder::new(port)
-            // Round 1 - handle_request_transaction_receipts
-            .begin_batch()
-            .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string()) // Null response
-            .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).build())
-            .end_batch()
-
-            // Round 2 - handle_request_transaction_receipts
-            .begin_batch()
-            .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_1).build())
-            .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).build())
-            .end_batch()
-            .start();
-
-        let now = SystemTime::now();
-        let past_payable_timestamp_1 = now.sub(Duration::from_secs(
-            (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 555) as u64,
-        ));
-        let past_payable_timestamp_2 = now.sub(Duration::from_secs(
-            (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 50) as u64,
-        ));
-
-        let payable_account_balance_1 =
-            gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 10);
-        let payable_account_balance_2 =
-            gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666);
-        let wallet_account_1 = make_wallet("creditor1");
-        let wallet_account_2 = make_wallet("creditor2");
-
-        let account_1 = PayableAccount {
-            wallet: wallet_account_1.clone(),
-            balance_wei: payable_account_balance_1,
-            last_paid_timestamp: past_payable_timestamp_1,
-            pending_payable_opt: None,
-        };
-        let account_2 = PayableAccount {
-            wallet: wallet_account_2.clone(),
-            balance_wei: payable_account_balance_2,
-            last_paid_timestamp: past_payable_timestamp_2,
-            pending_payable_opt: None,
-        };
-
-        let rowid_for_account_1 = 3;
-        let rowid_for_account_2 = 5;
-        let this_payable_timestamp_1 = now;
-        let this_payable_timestamp_2 = now.add(Duration::from_millis(50));
-        let fingerprint_1_first_round = PendingPayableFingerprint {
-            rowid: rowid_for_account_1,
-            timestamp: this_payable_timestamp_1,
-            hash: pending_tx_hash_1,
-            attempt: 1,
-            amount: payable_account_balance_1,
-            process_error: None,
-        };
-        let fingerprint_2_first_round = PendingPayableFingerprint {
-            rowid: rowid_for_account_2,
-            timestamp: this_payable_timestamp_2,
-            hash: pending_tx_hash_2,
-            attempt: 1,
-            amount: payable_account_balance_2,
-            process_error: None,
-        };
-
-        let consuming_wallet = make_paying_wallet(b"wallet");
-        let system = System::new("pending_transaction");
-        let blockchain_interface = make_blockchain_interface_web3(Some(port));
-        let blockchain_bridge = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            Some(consuming_wallet.clone()),
-        );
-
-        let pending_payable_scan_interval = 1000; // should be slightly less than 1/5 of the time until shutting the system
-        let mut bootstrapper_config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        bootstrapper_config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_secs(1_000_000), // we don't care about this scan
-            receivable_scan_interval: Duration::from_secs(1_000_000), // we don't care about this scan
-            pending_payable_scan_interval: Duration::from_millis(pending_payable_scan_interval),
-        });
-
-        let pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
-            .return_all_errorless_fingerprints_result(vec![])
-            .return_all_errorless_fingerprints_result(vec![fingerprint_1_first_round, fingerprint_2_first_round]);
-
-
-        let payable_dao_for_payable_scanner = PayableDaoMock::new()
-            .non_pending_payables_result(vec![account_1, account_2]);
-
-
-        let mut subject = AccountantBuilder::default().bootstrapper_config(bootstrapper_config)
-            .payable_daos(vec![
-                ForPayableScanner(payable_dao_for_payable_scanner)
-            ])
-            .pending_payable_daos(vec![
-                ForPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
-            ])
-            .build();
-        subject.scanners.receivable = Box::new(NullScanner::new());
-
-
-        let accountant_addr = subject.start();
-        let mut peer_actors = peer_actors_builder().build();
-        let accountant_subs = Accountant::make_subs_from(&accountant_addr);
-        peer_actors.accountant = accountant_subs.clone();
-        let blockchain_bridge_addr = blockchain_bridge.start();
-        let blockchain_bridge_subs = BlockchainBridge::make_subs_from(&blockchain_bridge_addr);
-        peer_actors.blockchain_bridge = blockchain_bridge_subs.clone();
-        send_bind_message!(accountant_subs, peer_actors);
-        send_bind_message!(blockchain_bridge_subs, peer_actors);
-
-        send_start_message!(accountant_subs);
-
-        SystemKillerActor::new(Duration::from_secs(5)).start();
-        assert_eq!(system.run(), 0);
-
-    }
-
-    #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
-        // TODO GH-744  Failing test, need to either create a mock or use hardhat/ganache - for - submit_batch
-        // todo!("GH-744: Failing test, need to either create a mock or use hardhat/ganache - for - submit_batch");
         init_test_logging();
         let port = find_free_port();
-
-        // let pending_tx_hash_1 = make_tx_hash(0x7b);
-        // let pending_tx_hash_2 = make_tx_hash(0x237);
         let pending_tx_hash_1 = H256::from_str("3fc5df85fbeb442627911796d88def92161855cded99509404e60ef8d8b171d8").unwrap();
         let pending_tx_hash_2 = H256::from_str("3deab5514f9c38cad0fb3f31bc8090caa4cbca8243394dedd69402f8ac5fd678").unwrap();
-
-
-
-        // let blockchain_client_server = MBCSBuilder::new(port)
-        //     // Blockchain Agent
-        //     .response("0x3B9ACA00".to_string(), 0)// 1000000000
-        //     .response("0xFFF0".to_string(), 0) // 65520
-        //     .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
-        //     .response("0x2".to_string(), 1)
-        //     // ...
-        //     .response("0x2".to_string(), 1) // tx_id ???
-        //     .response("0x2".to_string(), 1) // tx_id
-        //     .response("0xFFF0".to_string(), 1) // gas_price
-        //     // Round 1
-        //     .begin_batch()
-        //     .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string()) // Null response
-        //     .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).build())
-        //     .end_batch()
-        //     // Round 2
-        //     .begin_batch()
-        //     .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_1).build())
-        //     .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).build())
-        //     .end_batch()
-        //     // Round 3
-        //     .begin_batch()
-        //     .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_1).status(U64::from(0)).build())
-        //     .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).build())
-        //     .end_batch()
-        //     // Round 4
-        //     .begin_batch()
-        //     .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).status(U64::from(1)).build())
-        //     .end_batch()
-        //     .start();
-
-
-
-
         let blockchain_client_server = MBCSBuilder::new(port)
             // Blockchain Agent
             .response("0x3B9ACA00".to_string(), 0)// 1000000000
             .response("0xFFF0".to_string(), 0) // 65520
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
             .response("0x2".to_string(), 1)
-
-            // handle_request_transaction_receipt before Process payments
-            // .begin_batch()
-            // .end_batch()
-
             // tx_id
             .response("0x2".to_string(), 1)
             // gas_price
@@ -3384,7 +3209,6 @@ mod tests {
             .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_1).build())
             .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).build())
             .end_batch()
-
             // Round 1 - handle_request_transaction_receipts
             .begin_batch()
             .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string()) // Null response
@@ -3404,17 +3228,11 @@ mod tests {
             .begin_batch()
             .raw_response(ReceiptResponseBuilder::default().transaction_hash(pending_tx_hash_2).status(U64::from(1)).build())
             .end_batch()
-
             .start();
 
-
-
-
             let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
-            // let build_blockchain_agent_params = Arc::new(Mutex::new(vec![]));
             let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
             let return_all_errorless_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
-            // let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
             let update_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
             let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
             let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3422,7 +3240,6 @@ mod tests {
             let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
             let notify_later_scan_for_pending_payable_arc_cloned =
                 notify_later_scan_for_pending_payable_params_arc.clone(); // because it moves into a closure
-
             let rowid_for_account_1 = 3;
             let rowid_for_account_2 = 5;
             let now = SystemTime::now();
@@ -3440,49 +3257,16 @@ mod tests {
                 gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666);
             let wallet_account_1 = make_wallet("creditor1");
             let wallet_account_2 = make_wallet("creditor2");
-
             let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
-
             let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
             let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
-
             let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
             transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); // failure
             let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
-
             let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
             transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
-
             let agent = BlockchainAgentMock::default();
-
             let blockchain_interface = make_blockchain_interface_web3(Some(port));
-            // let blockchain_interface = BlockchainInterfaceMock::default()
-            //     .build_blockchain_agent_params(&build_blockchain_agent_params)
-            //     .build_blockchain_agent_result(Ok(Box::new(agent)))
-            //     // because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
-            //     // there is one component missing in this wholesome test - the part where we send a request for
-            //     // a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
-            //     .send_batch_of_payables_result(Ok(vec![
-            //         ProcessedPayableFallible::Correct(PendingPayable {
-            //             recipient_wallet: wallet_account_1.clone(),
-            //             hash: pending_tx_hash_1,
-            //         }),
-            //         ProcessedPayableFallible::Correct(PendingPayable {
-            //             recipient_wallet: wallet_account_2.clone(),
-            //             hash: pending_tx_hash_2,
-            //         }),
-            //     ]))
-            //     .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
-            //     .get_transaction_receipt_result(Ok(None))
-            //     .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
-
-            //     .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_1_second_round)))
-            //     .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_second_round)))
-
-            //     .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_1_third_round)))
-            //     .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_third_round)))
-
-            //     .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_fourth_round)));
             let consuming_wallet = make_paying_wallet(b"wallet");
             let system = System::new("pending_transaction");
             let persistent_config_id_stamp = ArbitraryIdStamp::new();
@@ -3507,17 +3291,14 @@ mod tests {
                 pending_payable_opt: None,
             };
             let pending_payable_scan_interval = 1000; // should be slightly less than 1/5 of the time until shutting the system
-
             let payable_dao_for_payable_scanner = PayableDaoMock::new()
                 .non_pending_payables_params(&non_pending_payables_params_arc)
                 .non_pending_payables_result(vec![account_1, account_2])
                 .mark_pending_payables_rowids_params(&mark_pending_payable_params_arc)
                 .mark_pending_payables_rowids_result(Ok(()));
-
             let payable_dao_for_pending_payable_scanner = PayableDaoMock::new()
                 .transactions_confirmed_params(&transactions_confirmed_params_arc)
                 .transactions_confirmed_result(Ok(()));
-
             let mut bootstrapper_config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
             bootstrapper_config.scan_intervals_opt = Some(ScanIntervals {
                 payable_scan_interval: Duration::from_secs(1_000_000), // we don't care about this scan
@@ -3569,17 +3350,11 @@ mod tests {
                     (Some(rowid_for_account_1), pending_tx_hash_1),
                     (Some(rowid_for_account_2), pending_tx_hash_2),
                 ]);
-                // .insert_fingerprints_result(Ok(()))
-                // .insert_fingerprints_result(Ok(()));
-
             let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
                 .insert_fingerprints_result(Ok(()))
                 .insert_fingerprints_result(Ok(()))
                 .return_all_errorless_fingerprints_params(&return_all_errorless_fingerprints_params_arc)
                 .return_all_errorless_fingerprints_result(vec![])
-                // .return_all_errorless_fingerprints_result(vec![])
-                // .return_all_errorless_fingerprints_result(vec![])
-                // .return_all_errorless_fingerprints_result(vec![])
                 .return_all_errorless_fingerprints_result(vec![
                     fingerprint_1_first_round,
                     fingerprint_2_first_round,
@@ -3609,10 +3384,7 @@ mod tests {
                 .delete_fingerprints_result(Ok(()));
             pending_payable_dao_for_pending_payable_scanner
                 .have_return_all_errorless_fingerprints_shut_down_the_system = true;
-
             let pending_payable_dao_for_accountant = PendingPayableDaoMock::new().insert_fingerprints_result(Ok(()));
-
-
             let accountant_addr = Arbiter::builder()
                 .stop_system_on_panic(true)
                 .start(move |_| {
@@ -3654,13 +3426,7 @@ mod tests {
             let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
             let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0);
             assert!(mark_pending_payable_params.is_empty());
-
-            eprintln!("one_set_of_mark_pending_payable_params: {:?}", one_set_of_mark_pending_payable_params);
-
             let first_payable = one_set_of_mark_pending_payable_params.remove(0);
-
-            eprintln!("first_payable: {:?}", first_payable);
-
             assert_eq!(first_payable.0, wallet_account_2);
             assert_eq!(first_payable.1, rowid_for_account_2);
             let second_payable = one_set_of_mark_pending_payable_params.remove(0);
@@ -3677,27 +3443,6 @@ mod tests {
             assert!(return_all_errorless_fingerprints_params.len() >= 5);
             let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
             assert_eq!(*non_pending_payables_params, vec![()]); // because we disabled further scanning for payables
-
-            // let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();
-            // assert_eq!(
-            //     *get_transaction_receipt_params,
-            //     vec![
-            //         pending_tx_hash_1,
-            //         pending_tx_hash_2,
-            //         pending_tx_hash_1,
-            //         pending_tx_hash_2,
-            //         pending_tx_hash_1,
-            //         pending_tx_hash_2,
-            //         pending_tx_hash_2,
-            //     ]
-            // );
-
-            // let build_blockchain_agent_params = build_blockchain_agent_params.lock().unwrap();
-            // assert_eq!(
-            //     *build_blockchain_agent_params,
-            //     vec![(consuming_wallet, persistent_config_id_stamp)]
-            // );
-
             let update_fingerprints_params = update_fingerprint_params_arc.lock().unwrap();
             assert_eq!(
                 *update_fingerprints_params,

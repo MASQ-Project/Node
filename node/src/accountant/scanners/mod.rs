@@ -440,7 +440,6 @@ impl PayableScanner {
     }
 
     fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
-        eprintln!("DEBUG - mark_pending_payable - sent_payments: {:?}", sent_payments);
         fn missing_fingerprints_msg(nonexistent: &[PendingPayableMetadata]) -> String {
             format!(
                 "Expected pending payable fingerprints for {} were not found; system unreliable",
@@ -462,8 +461,6 @@ impl PayableScanner {
         let (existent, nonexistent) =
             self.separate_existent_and_nonexistent_fingerprints(sent_payments);
         let mark_pp_input_data = ready_data_for_supply(&existent);
-
-        eprintln!("DEBUG - mark_pending_payable - mark_pp_input_data: {:?}", mark_pp_input_data);
         if !mark_pp_input_data.is_empty() {
             if let Err(e) = self
                 .payable_dao
@@ -607,7 +604,6 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         message: ReportTransactionReceipts,
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
-        eprintln!("DEBUG - finish_scan called");
         let response_skeleton_opt = message.response_skeleton_opt;
 
         match message.fingerprints_with_receipts.is_empty() {
@@ -619,7 +615,6 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
                     message.fingerprints_with_receipts.len()
                 );
                 let scan_report = self.handle_receipts_for_pending_transactions(message, logger);
-                eprintln!("DEBUG - finish_scan - scan_report: {:?}", scan_report);
                 self.process_transactions_by_reported_state(scan_report, logger);
             }
         }
