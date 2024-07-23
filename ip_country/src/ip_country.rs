@@ -26,7 +26,7 @@ pub fn ip_country(
                     serializer.add(country_block);
                     None
                 }
-                Err(e) => Some(format!("Line {}: {}", line_number, e)), // TODO no test for this line yet
+                Err(e) => Some(format!("Line {}: {}", line_number, e)),
             }
         })
         .collect::<Vec<String>>();
