@@ -1626,9 +1626,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Writing max_block_count failed: QueryFailed"
-    )]
+    #[should_panic(expected = "Writing max_block_count failed: QueryFailed")]
     fn handle_retrieve_transactions_panics_if_writing_max_block_count_failed() {
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
         let earning_wallet = make_wallet("somewallet");

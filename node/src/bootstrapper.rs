@@ -507,11 +507,11 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        let node_ip = match self.config.neighborhood_config.mode.node_addr_opt() {
+        let node_ip_opt = match self.config.neighborhood_config.mode.node_addr_opt() {
             Some(node_addr) => Some(node_addr.ip_addr()),
             None => None,
         };
-        let country_code = match get_node_location(node_ip) {
+        let country_code = match get_node_location(node_ip_opt) {
             Some(country) => country.country_code,
             None => "ZZ".to_string(),
         };

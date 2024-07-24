@@ -1,6 +1,4 @@
-use crate::country_block_serde::{
-    CountryBlockDeserializerIpv4, CountryBlockDeserializerIpv6,
-};
+use crate::country_block_serde::{CountryBlockDeserializerIpv4, CountryBlockDeserializerIpv6};
 use crate::country_block_stream::{Country, CountryBlock};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -135,7 +133,11 @@ mod tests {
 
         assert_eq!(result, None);
         let duration = time_end.duration_since(time_start).unwrap();
-        assert!(duration.as_secs() < 1, "Duration of the search was too long: {} ms", duration.as_millis());
+        assert!(
+            duration.as_secs() < 1,
+            "Duration of the search was too long: {} ms",
+            duration.as_millis()
+        );
     }
 
     #[test]
@@ -196,14 +198,18 @@ mod tests {
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
-            .unwrap();
+        .unwrap();
         let time_end = SystemTime::now();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
         assert_eq!(result.name, "Slovakia".to_string());
         let duration = time_end.duration_since(time_start).unwrap();
-        assert!(duration.as_secs() < 1, "Duration of the search was too long: {} ms", duration.as_millis());
+        assert!(
+            duration.as_secs() < 1,
+            "Duration of the search was too long: {} ms",
+            duration.as_millis()
+        );
     }
 
     #[test]
@@ -218,14 +224,18 @@ mod tests {
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
-            .unwrap();
+        .unwrap();
         let time_end = SystemTime::now();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
         let duration = time_end.duration_since(time_start).unwrap();
-        assert!(duration.as_secs() < 1, "Duration of the search was too long: {} ms", duration.as_millis());
+        assert!(
+            duration.as_secs() < 1,
+            "Duration of the search was too long: {} ms",
+            duration.as_millis()
+        );
     }
 
     #[test]
@@ -243,10 +253,16 @@ mod tests {
         let time_end_fill = SystemTime::now();
 
         let duration_deserialize = time_end.duration_since(time_start).unwrap();
-        let duration_fill = time_end_fill
-            .duration_since(time_start_fill)
-            .unwrap();
-        assert!(duration_deserialize.as_secs() < 5, "Duration of the deserialization was too long: {} ms", duration_deserialize.as_millis());
-        assert!(duration_fill.as_secs() < 2, "Duration of the filling the vectors was too long: {} ms", duration_fill.as_millis());
+        let duration_fill = time_end_fill.duration_since(time_start_fill).unwrap();
+        assert!(
+            duration_deserialize.as_secs() < 5,
+            "Duration of the deserialization was too long: {} ms",
+            duration_deserialize.as_millis()
+        );
+        assert!(
+            duration_fill.as_secs() < 2,
+            "Duration of the filling the vectors was too long: {} ms",
+            duration_fill.as_millis()
+        );
     }
 }

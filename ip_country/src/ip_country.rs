@@ -3,6 +3,7 @@ use crate::country_block_serde::CountryBlockSerializer;
 use crate::country_block_stream::CountryBlock;
 use std::io;
 
+const COUNTRY_BLOCK_BIT_SIZE: usize = 64;
 #[allow(unused_must_use)]
 pub fn ip_country(
     _args: Vec<String>,
@@ -11,7 +12,6 @@ pub fn ip_country(
     stderr: &mut dyn io::Write,
 ) -> i32 {
     let mut serializer = CountryBlockSerializer::new();
-    let mut line_number = 0usize;
     let mut csv_rdr = csv::Reader::from_reader(stdin);
     let mut errors = csv_rdr
         .records()
@@ -19,20 +19,20 @@ pub fn ip_country(
             Ok(string_record) => CountryBlock::try_from(string_record),
             Err(e) => Err(format!("CSV format error: {:?}", e)),
         })
-        .flat_map(|country_block_result| {
-            line_number += 1;
+        .enumerate()
+        .flat_map(|(idx, country_block_result)| {
             match country_block_result {
                 Ok(country_block) => {
                     serializer.add(country_block);
                     None
                 }
-                Err(e) => Some(format!("Line {}: {}", line_number, e)),
+                Err(e) => Some(format!("Line {}: {}", idx + 1, e)),
             }
         })
         .collect::<Vec<String>>();
     let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
     if let Err(error) = generate_rust_code(ipv4_bit_queue, ipv6_bit_queue, stdout) {
-        errors.push(format!("Error generating Rust code: {:?}", error)) // TODO no test for this line yet
+        errors.push(format!("Error generating Rust code: {:?}", error))
     }
     if errors.is_empty() {
         return 0;
@@ -52,7 +52,7 @@ pub fn ip_country(
 "#,
             error_list
         );
-        write!(stderr, "{}", errors.join("\n"));
+        write!(stderr, "{}", error_list);
         return 1;
     }
 }
@@ -80,8 +80,8 @@ fn generate_country_data(
     write!(output, "    (\n")?;
     write!(output, "        vec![")?;
     let mut values_written = 0usize;
-    while bit_queue.len() >= 64 {
-        write_value(&mut bit_queue, 64, &mut values_written, output)?;
+    while bit_queue.len() >= COUNTRY_BLOCK_BIT_SIZE {
+        write_value(&mut bit_queue, COUNTRY_BLOCK_BIT_SIZE, &mut values_written, output)?;
     }
     if bit_queue.len() > 0 {
         let bit_count = bit_queue.len();
@@ -117,8 +117,9 @@ fn write_value(
 mod tests {
     use super::*;
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
+    use std::io::{Error, ErrorKind};
 
-    static TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
+    static POPER_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
 1.0.0.0,1.0.0.255,AU
 1.0.1.0,1.0.3.255,CN
 1.0.4.0,1.0.7.255,AU
@@ -166,7 +167,7 @@ BOOGA,BOOGA,BOOGA
 
     #[test]
     fn happy_path_test() {
-        let mut stdin = ByteArrayReader::new(TEST_DATA.as_bytes());
+        let mut stdin = ByteArrayReader::new(POPER_TEST_DATA.as_bytes());
         let mut stdout = ByteArrayWriter::new();
         let mut stderr = ByteArrayWriter::new();
 
@@ -272,5 +273,35 @@ Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
 Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'"#
 .to_string()
         );
+    }
+
+    #[test]
+    fn write_error_test() {
+        let mut subject = BitQueue::new();
+        let output = &mut ByteArrayWriter::new();
+
+        subject.add_bits(0b11011, 5);
+        subject.add_bits(0b00111001110011100, 17);
+        subject.add_bits(0b1, 1);
+
+        output.reject_next_write(Error::new(ErrorKind::WriteZero, "Bad file Descriptor"));
+        let result = generate_country_data("ipv4_country_data", subject, output).unwrap_err();
+        assert_eq!(result.kind(), ErrorKind::WriteZero)
+    }
+
+    #[test]
+    fn write_error_from_ip_country() {
+        let stdin = &mut ByteArrayReader::new(POPER_TEST_DATA.as_bytes());
+        let stdout = &mut ByteArrayWriter::new();
+        let stderr = &mut ByteArrayWriter::new();
+        stdout.reject_next_write(Error::new(ErrorKind::WriteZero, "Bad file Descriptor"));
+
+        let result = ip_country(vec![], stdin, stdout, stderr);
+
+        assert_eq!(result, 1);
+        let stdout_string = String::from_utf8(stdout.get_bytes()).unwrap();
+        let stderr_string = String::from_utf8(stderr.get_bytes()).unwrap();
+        assert_eq!(stderr_string, "Error generating Rust code: Custom { kind: WriteZero, error: \"Bad file Descriptor\" }");
+        assert_eq!(stdout_string, "\n            *** DO NOT USE THIS CODE ***\n            It will produce incorrect results.\n            The process that generated it found these errors:\n\nError generating Rust code: Custom { kind: WriteZero, error: \"Bad file Descriptor\" }\n\n            Fix the errors and regenerate the code.\n            *** DO NOT USE THIS CODE ***\n");
     }
 }
