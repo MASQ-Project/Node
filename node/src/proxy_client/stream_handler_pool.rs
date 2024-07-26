@@ -14,7 +14,7 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, SendError, Sender};
 use futures::future;
 use futures::future::Future;
 use masq_lib::logger::Logger;
@@ -213,18 +213,24 @@ impl StreamHandlerPoolReal {
                     ),
                 }
             }
+            debug!(Logger::new("TEST"), "Stop right before last_data check!");
             if last_data {
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
-                        if let Err(e) = stream_senders.reader_shutdown.send(()) {
-                            debug!(
-                                inner.logger,
-                                "Unable to send a shutdown signal to the StreamReader for \
-                                stream key {:?}. The channel is already gone.",
-                                stream_key
-                            );
+                        // TODO: GH-800: We need a log here
+                        match stream_senders.reader_shutdown.send(()) {
+                            Ok(()) => {
+                                debug!(inner.logger, "A shutdown signal was sent.")
+                            }
+                            Err(e) => {
+                                debug!(
+                                    inner.logger,
+                                    "Unable to send a shutdown signal to the StreamReader for \
+                                    stream key {:?}. The channel is already gone.",
+                                    stream_key
+                                );
+                            }
                         }
-                        // .expect("StreamReader Shutdown channel is already gone");
                         debug!(
                             inner.logger,
                             "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
