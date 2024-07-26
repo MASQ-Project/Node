@@ -374,32 +374,6 @@ async fn make_client_listener(
     Ok(talker_half)
 }
 
-#[derive(Default)]
-pub struct WSClientHandshakeHandler {}
-
-#[async_trait]
-impl Handshake for WSClientHandshakeHandler {
-    async fn handshake(
-        &self,
-        sender: &async_channel::Sender<Message>,
-        receiver: &async_channel::Receiver<Message>,
-    ) -> workflow_websocket::client::Result<()> {
-        let incoming_msg = receiver.recv().await.unwrap();
-        match incoming_msg {
-            Message::Text(text) if text.contains(NODE_UI_PROTOCOL) => {
-                todo!()
-                //sender.send(Message::Open).await.unwrap();
-                //Ok(())
-            }
-            _ => {
-                todo!()
-                //sender.send(Message::Close).await.unwrap();
-                //Err(NegotiationFailure)
-            }
-        }
-    }
-}
-
 struct CmsManagerInner {
     active_port: Option<u16>,
     daemon_port: u16,
@@ -733,7 +707,7 @@ impl ConnectionsEventLoop {
 mod tests {
     use super::*;
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
-    use crate::test_utils::mocks::{websocket_utils, RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock, make_and_connect_websocket};
+    use crate::test_utils::mocks::{RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock};
     use async_channel::TryRecvError;
     use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiDescriptorRequest, UiFinancialStatistics, UiNodeCrashedBroadcast, UiSetupBroadcast};
     use masq_lib::messages::{
@@ -754,6 +728,7 @@ mod tests {
     use tokio::runtime::Runtime;
     use tokio::select;
     use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
+    use masq_lib::test_utils::websocket_utils::{establish_ws_conn_with_handshake, websocket_utils};
 
     #[test]
     fn constants_have_correct_values() {
@@ -1530,68 +1505,18 @@ mod tests {
         );
     }
 
+
     #[tokio::test]
-    async fn experiment(){
-        let daemon_port = find_free_port();
-        let daemon_server = MockWebSocketsServer::new(daemon_port);
-
-        let daemon_stop_handle = daemon_server.start().await;
-        let ws = make_and_connect_websocket(daemon_port).await;
-
-        daemon_stop_handle.kill(None).await;
-    }
-
-    struct KilledByConsequences{
-        sender: UnboundedSender<()>
-    }
-
-    impl KilledByConsequences {
-        fn funny_method(&self){
-            let now = SystemTime::now();
-            eprintln!("Useless {:?}", now)
-        }
-    }
-
-    impl Drop for KilledByConsequences{
-        fn drop(&mut self) {
-            self.sender.send(()).unwrap()
-        }
-    }
-
-    //#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[tokio::test]
-    async fn experiment2(){
-
-        let (drop_signaler_tx, mut drop_signaler_rx) =unbounded_channel();
-        let (tx, mut rx) = unbounded_channel();
-
-        let long_task = async move {
-            let subject = KilledByConsequences{
-                sender: drop_signaler_tx
-            };
-
-            tokio::time::sleep(Duration::from_millis(10_000)).await;
-
-            subject.funny_method()
-        };
-
-        let main_future_handle = tokio::task::spawn(async move {
-            select! {
-                _ = tokio::time::sleep(Duration::from_millis(10_000)) => {
-                    eprintln!("Just finished long task")
-                    },
-
-                _ = rx.recv() => {
-                        panic!("Just finished short task")
-                    }
-            }
-        });
-
-        tx.send(()).unwrap();
-      //  main_future_handle.await.unwrap();
-        drop_signaler_rx.recv().await.unwrap();
-
-
+    async fn server_can_be_killed_from_outside(){
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port).write_logs();
+        let stop_handle = server.start().await;
+        let client = establish_ws_conn_with_handshake(port).await;
+        stop_handle.kill(None).await;
+        client.send(Message::Text("attempt".to_string())).await.unwrap();
+        //
+        // let res = client.send(workflow_websocket::client::Message::Text("bluh".to_string())).await;
+        // assert_eq!(res, Err(Arc::new(workflow_websocket::client::Error::NotConnected)))
     }
 
     #[tokio::test]

@@ -159,7 +159,6 @@ impl ClientListenerEventLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::mocks::{make_and_connect_websocket, websocket_utils};
     use async_channel::{unbounded, Sender};
     use futures::{FutureExt, TryFutureExt};
     use masq_lib::messages::{
@@ -174,6 +173,7 @@ mod tests {
     use tokio::task::JoinError;
     use workflow_websocket::client::{Ack, Message as ClientMessage};
     use workflow_websocket::server::Message as ServerMessage;
+    use masq_lib::test_utils::websocket_utils::{establish_ws_conn_with_handshake, websocket_utils};
 
     impl WSClientHandle {
         pub fn is_connection_open(&self) -> bool {
@@ -199,7 +199,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let stop_handle = server.start().await;
-        let websocket = make_and_connect_websocket(port);
+        let websocket = establish_ws_conn_with_handshake(port);
         let (websocket, talker_half, _) = websocket_utils(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
@@ -273,7 +273,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_owned_message(ServerMessage::Binary(vec![]));
         let stop_handle = server.start().await;
-        let websocket = make_and_connect_websocket(port).await;
+        let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
@@ -297,7 +297,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port).queue_string("booga");
         let stop_handle = server.start().await;
-        let websocket = make_and_connect_websocket(port).await;
+        let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
@@ -392,7 +392,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let websocket = make_and_connect_websocket(port).await;
+        let websocket = establish_ws_conn_with_handshake(port).await;
         let meaningless_event_loop_join_handle = tokio::task::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(1000)).await;

@@ -15,16 +15,20 @@ use std::ops::Not;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, thread};
+use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::{select, task};
 use std::str::FromStr;
+use actix::dev::MessageResponse;
 use clap::ArgAction;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::{JoinHandle, spawn_blocking};
 use workflow_websocket::server::error::Error as WebsocketServerError;
-use workflow_websocket::server::{Error, Message, WebSocketConfig, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketServerTrait, WebSocketSink};
+use workflow_websocket::server::{Error, Message, WebSocketConfig, WebSocketCounters, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketServerTrait, WebSocketSink};
+use workflow_websocket::server::handshake::greeting;
 use crate::test_utils::utils::make_rt;
+use crate::test_utils::websocket_utils::{establish_bare_ws_conn, establish_ws_conn_with_handshake};
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -36,7 +40,7 @@ struct NodeUiProtocolWebSocketHandler {
     termination_style_rx: Receiver<TerminationStyle>,
     websocket_sink_tx: Sender<WebSocketSink>,
     websocket_sink_rx: Receiver<WebSocketSink>,
-    connections_status: Arc<tokio::sync::Mutex<ConnectionStatus>>,
+    server_connection_counters: Arc<WebSocketCounters>,
     opening_broadcasts_signal_rx_opt: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     do_log: bool,
     index: u64,
@@ -44,6 +48,7 @@ struct NodeUiProtocolWebSocketHandler {
 
 impl Drop for NodeUiProtocolWebSocketHandler {
     fn drop(&mut self) {
+        panic!("bluh");
         let termination_style = self.termination_style_rx.try_recv();
         let kill_flag = match termination_style {
             Ok(TerminationStyle::Kill) => true,
@@ -86,7 +91,7 @@ impl Drop for NodeUiProtocolWebSocketHandler {
 
 #[async_trait]
 impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
-    type Context = ();
+    type Context = SocketAddr;
 
     async fn handshake(
         self: &Arc<Self>,
@@ -95,28 +100,46 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         receiver: &mut WebSocketReceiver,
         sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<Self::Context> {
+        self.websocket_sink_tx.send(sink.clone()).unwrap();
+
+        log(
+            self.do_log,
+            self.index,
+            format!("Awaiting handshake msg from {}", peer).as_str(),
+        );
+
+        greeting(
+            Duration::from_millis(5000),
+            sender,
+            receiver,
+            Box::pin(Self::verify_subprotocol_or_shutdown_server),
+        ).await?;
+
+        log(
+            self.do_log,
+            self.index,
+            "Checking for exposed, initial fire-and-forget messages to push them off",
+        );
+        self.handle_opening_broadcasts(sink);
+
+        Ok(*peer)
+    }
+
+    async fn connect(self: &Arc<Self>, peer: &SocketAddr) -> workflow_websocket::server::Result<()> {
         log(
             self.do_log,
             self.index,
             format!("Accepted TCP connection from {}", peer).as_str(),
         );
-        self.websocket_sink_tx.send(sink.clone()).unwrap();
-
-        // TODO Real handshake stuff, if any, goes here
-
-        log(
-            self.do_log,
-            self.index,
-            "Checking for initial fire-and-forget messages",
-        );
-        self.handle_opening_broadcasts(sink);
-        MockWebSocketsServer::switch_connection_status(&self.connections_status).await;
-        eprintln!("After change: {:?}", self.connections_status.lock().await);
         Ok(())
     }
 
-    async fn disconnect(self: &Arc<Self>, _ctx: Self::Context, _result: workflow_websocket::server::Result<()>) {
-        MockWebSocketsServer::switch_connection_status(&self.connections_status).await;
+    async fn disconnect(self: &Arc<Self>, ctx: SocketAddr, _result: workflow_websocket::server::Result<()>) {
+        log(
+            self.do_log,
+            self.index,
+            format!("Disconnecting TCP connection to {}", ctx).as_str(),
+        );
     }
 
     async fn message(
@@ -131,10 +154,12 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             "Checking for fire-and-forget messages",
         );
         self.release_fire_and_forget_messages_introducing_the_queue(sink);
+
         log(self.do_log, self.index, "Checking for message from client");
+
         let incoming = self.handle_incoming_msg(msg);
 
-        let cash_for_panic_opt = self.record_incomming_msg(
+        let cash_for_panic_opt = self.record_incoming_msg(
             incoming.received_wrong_data_is_fatal(),
             incoming.request_to_be_recorded,
         );
@@ -163,7 +188,7 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
                 );
                 panic!(
                     "Unrecognizable incoming message received; you should refrain from sending some \
-                    meaningless garbage to the server: {:?}",
+                    meaningless garbage to the test server: {:?}",
                     cash_for_panic_opt
                         .expect("panic expected but the cached data to be print can not be found")
                 )
@@ -174,6 +199,18 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
 }
 
 impl NodeUiProtocolWebSocketHandler {
+    fn verify_subprotocol_or_shutdown_server(initial_msg: &str)->workflow_websocket::server::Result<()>{
+        if initial_msg == NODE_UI_PROTOCOL {
+            Ok(())
+        } else if initial_msg == "kill-mock-server" {
+            todo!()
+        } else if initial_msg == "stop-mock-server" {
+            todo!()
+        } else {
+            todo!("msg was {:?}", initial_msg)
+        }
+    }
+
     fn release_fire_and_forget_messages_introducing_the_queue(&self, sink: &WebSocketSink) {
         let mut counter = 0usize;
         loop {
@@ -208,7 +245,7 @@ impl NodeUiProtocolWebSocketHandler {
         }
     }
 
-    fn record_incomming_msg(
+    fn record_incoming_msg(
         &self,
         processing_is_going_wrong: bool,
         request_to_be_recorded: MockWSServerRecordedRequest,
@@ -368,7 +405,6 @@ impl MockWebSocketsServer {
         };
         let requests_arc = Arc::new(Mutex::new(vec![]));
         let (termination_style_tx, termination_style_rx) = unbounded();
-        let (server_shutdown_tx, mut server_shutdown_rx) = unbounded_channel();
         let (websocket_sink_tx, websocket_sink_rx) = unbounded();
         let connection_status = Arc::new(tokio::sync::Mutex::new(ConnectionStatus::Disconnected(0)));
 
@@ -384,7 +420,9 @@ impl MockWebSocketsServer {
             index,
         };
 
-        let ws_server = WebSocketServer::new(Arc::new(handler), None);
+        let counters = Arc::new(WebSocketCounters::default());
+        let ws_server_handle = WebSocketServer::new(Arc::new(handler), Some(counters.clone()));
+        let ws_server_handle_clone = ws_server_handle.clone();
         let socket_addr = SocketAddr::new(localhost(), self.port);
         log(
             self.do_log,
@@ -392,232 +430,19 @@ impl MockWebSocketsServer {
             format!("Listening on: {}", socket_addr).as_str(),
         );
         let static_socket_addr_str: &'static str = Box::leak(socket_addr.to_string().into_boxed_str());
-        let server_task = ws_server.listen(static_socket_addr_str, None);
-        let join_handle = task::spawn(async move {
-                select! {
-                    res = server_task => {
-                        log(
-                            self.do_log,
-                            index,
-                            "Server's task completed unexpectedly",
-                        );
-                        res
-                    },
-                    _ = server_shutdown_rx.recv() => {
-                        log(
-                            self.do_log,
-                            index,
-                            "Received a shutdown order. Dumping the server's task",
-                        );
-                        Ok(())
-                    }
-                }
-            }
-        );
+        let server_task = ws_server_handle_clone.listen(static_socket_addr_str, None);
+        tokio::spawn(server_task);
 
         MockWebSocketsServerStopHandle {
             index,
             log: self.do_log,
             requests_arc,
-            connection_status,
-            termination_style_tx,
-            server_shutdown_tx,
-            // join_handle_opt: Some(join_handle),
+            counters,
+            server_handle: ws_server_handle,
+            server_port: self.port
         }
     }
 
-    // async fn process_connection(
-    //     stream: TcpStream,
-    //     peer_addr: SocketAddr,
-    //     requests_arc: Arc<Mutex<Vec<Result<MessageBody, String>>>>,
-    //     responses_arc: Arc<Mutex<Vec<Message>>>,
-    //     looping_tx: Sender<()>,
-    //     stop_rx: Receiver<bool>,
-    //     first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
-    //     do_log: bool,
-    //     index: u64,
-    // ) {
-    //     let ws_connection = tokio_tungstenite::accept_hdr_async(
-    //         stream,
-    //         AcceptHdrCallback::new(/* TODO Put something here */)
-    //     ).await.unwrap();
-    //     log(do_log, index, format!("New WebSocket connection from: {}", peer_addr).as_str());
-    //     let (ws_transmitter_sink, mut ws_receiver) = ws_connection.split();
-    //     let ws_transmitter = ws_transmitter_sink.with(|item| async { Ok(item) });
-    //     pin!(ws_transmitter);
-    //     log(do_log, index, "Entering background loop");
-    //     match looping_tx.send(()) {
-    //         Ok(_) => (),
-    //         Err(e) => {
-    //             log(do_log, index, &format!("MockWebSocketsServerStopHandle died before loop could start: {:?}", e));
-    //             return;
-    //         }
-    //     }
-    //     loop {
-    //         log(do_log, index, "Checking for fire-and-forget messages");
-    //         Self::handle_all_f_f_messages_introducing_the_queue(
-    //             first_f_f_msg_sent_tx_opt.clone(),
-    //             &mut ws_transmitter,
-    //             &responses_arc.clone(),
-    //             index,
-    //             do_log,
-    //         ).await;
-    //         log(do_log, index, "Checking for message from client");
-    //         if let Some(incoming) =
-    //             Self::handle_incoming_msg_raw(ws_receiver.next().await, do_log, index)
-    //         {
-    //             log(
-    //                 do_log,
-    //                 index,
-    //                 &format!("Recording incoming message: {:?}", incoming),
-    //             );
-    //             {
-    //                 requests_arc.lock().unwrap().push(incoming.clone());
-    //             }
-    //             if let Ok(message_body) = incoming {
-    //                 match message_body.path {
-    //                     MessagePath::Conversation(_) => {
-    //                         if Self::handle_conversational_incoming_message(
-    //                             &mut ws_transmitter,
-    //                             &responses_arc.clone(),
-    //                             index,
-    //                             do_log,
-    //                         ).await.not() {
-    //                             break; //"disconnect" received
-    //                         }
-    //                     }
-    //
-    //                     MessagePath::FireAndForget => {
-    //                         log(
-    //                             do_log,
-    //                             index,
-    //                             "Responding to FireAndForget message by forgetting",
-    //                         );
-    //                     }
-    //                 }
-    //             } else {
-    //                 log(
-    //                     do_log,
-    //                     index,
-    //                     "Going to panic: Unrecognizable form of a text message",
-    //                 );
-    //                 panic!("Unrecognizable incoming message received; you should refrain from sending some meaningless garbage to the server: {:?}", incoming)
-    //             }
-    //         }
-    //         log(do_log, index, "Checking for termination directive");
-    //         if let Ok(kill) = stop_rx.try_recv() {
-    //             log(
-    //                 do_log,
-    //                 index,
-    //                 &format!("Received termination directive with kill = {}", kill),
-    //             );
-    //             if !kill {
-    //                 ws_transmitter.send(Message::Close(None)).await.unwrap();
-    //             }
-    //             break;
-    //         }
-    //         log(
-    //             do_log,
-    //             index,
-    //             "No termination directive. Sleeping for 50ms before the next iteration",
-    //         );
-    //         thread::sleep(Duration::from_millis(50))
-    //     }
-    //     log(do_log, index, "Connection-handling future completed");
-    // }
-
-    // async fn handle_all_f_f_messages_introducing_the_queue<S>(
-    //     first_f_f_msg_sent_tx_opt: Option<Sender<()>>,
-    //     ws_transmitter: &mut S,
-    //     inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
-    //     index: u64,
-    //     do_log: bool,
-    // ) where S: SinkExt<Message, Error=Error> + Unpin
-    // {
-    //     let mut counter = 0usize;
-    //     let mut inner_responses_vec = inner_responses_arc.lock().unwrap();
-    //     loop {
-    //         let should_signal_first_f_f_msg = first_f_f_msg_sent_tx_opt.is_some() && counter == 1;
-    //         if inner_responses_vec.is_empty() {
-    //             break;
-    //         }
-    //         let temporarily_owned_possible_f_f = inner_responses_vec.remove(0);
-    //         if match &temporarily_owned_possible_f_f {
-    //             Message::Text(text) =>
-    //                 match UiTrafficConverter::new_unmarshal_to_ui(text, MessageTarget::AllClients)
-    //                 {
-    //                     Ok(msg) => match msg.body.path {
-    //                         MessagePath::FireAndForget => {
-    //                             if should_signal_first_f_f_msg {
-    //                                 log(do_log,index,"Sending a signal between the first two fire-and-forget messages");
-    //                                 first_f_f_msg_sent_tx_opt.as_ref().unwrap().send(()).unwrap()
-    //                             }
-    //                             let f_f_message = temporarily_owned_possible_f_f.clone();
-    //                             ws_transmitter.send(f_f_message).await;
-    //                             log(do_log, index, "Sending a fire-and-forget message to the UI");
-    //                             true
-    //                         }
-    //                         _ => false
-    //                     }
-    //                     _ => false
-    //                 }
-    //             _ => false
-    //         }.not() {
-    //             inner_responses_vec.insert(0, temporarily_owned_possible_f_f);
-    //             log(do_log, index, "No fire-and-forget message found; heading over to conversational messages");
-    //             break
-    //         }
-    //         thread::sleep(Duration::from_millis(1));
-    //         counter += 1;
-    //         //for true, we keep looping
-    //     }
-    // }
-
-    //     async fn handle_conversational_incoming_message<S>(
-    //         ws_transmitter: &mut S,
-    //         inner_responses_arc: &Arc<Mutex<Vec<Message>>>,
-    //         index: u64,
-    //         do_log: bool,
-    //     ) -> bool where S: SinkExt<Message, Error=Error> + Unpin
-    //     {
-    //         let mut temporary_access_to_inner_responses_arc = inner_responses_arc.lock().unwrap();
-    //         if temporary_access_to_inner_responses_arc.len() != 0 {
-    //             match temporary_access_to_inner_responses_arc.remove(0) {
-    //                 Message::Text(outgoing) => {
-    //                     if outgoing == "disconnect" {
-    //                         log(do_log, index, "Executing 'disconnect' directive");
-    //                         return false;
-    //                     }
-    //                     if outgoing == "close" {
-    //                         log(do_log, index, "Sending Close message");
-    //                         ws_transmitter.send(Message::Close(None)).await.unwrap();
-    //                     } else {
-    //                         log(
-    //                             do_log,
-    //                             index,
-    //                             &format!("Responding with preset message: '{}'", &outgoing),
-    //                         );
-    //                         ws_transmitter.send(Message::Text(outgoing)).await.unwrap();
-    //                     }
-    //                 }
-    //                 om => {
-    //                     log(
-    //                         do_log,
-    //                         index,
-    //                         &format!("Responding with preset Message: {:?}", om),
-    //                     );
-    //                     ws_transmitter.send(om).await.unwrap()
-    //                 }
-    //             }
-    //         } else {
-    //             log(do_log, index, "Sending Close message");
-    //             ws_transmitter
-    //                 .send(Message::Binary(b"EMPTY QUEUE".to_vec()))
-    //                 .await
-    //                 .unwrap()
-    //         };
-    //         true
-    //     }
     async fn switch_connection_status(storage: &Arc<tokio::sync::Mutex<ConnectionStatus>>){
         let mut current = storage.lock().await;
         let new = current.switched();
@@ -689,9 +514,9 @@ pub struct MockWebSocketsServerStopHandle {
     index: u64,
     log: bool,
     requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
-    termination_style_tx: Sender<TerminationStyle>,
-    server_shutdown_tx: UnboundedSender<()>,
-    connection_status: Arc<tokio::sync::Mutex<ConnectionStatus>>,
+    counters: Arc<WebSocketCounters>,
+    server_handle: Arc<WebSocketServer<NodeUiProtocolWebSocketHandler>>,
+    server_port: u16
     // join_handle_opt: Option<JoinHandle<Result<(), workflow_websocket::server::Error>>>,
 }
 
@@ -721,62 +546,74 @@ impl MockWebSocketsServerStopHandle {
         // disconnected - an active one would keep it from reaching the directive)
         let start = Instant::now();
         let hard_limit = time_granted_for_conn_establishment_opt.unwrap_or(Duration::from_millis(0));
-        let requests = loop {
-            let connection_status = {
-                *self.connection_status.lock().await
-            };
-            match connection_status {
-                ConnectionStatus::Connected(..) => {
-                    log(
-                        self.log,
-                        self.index,
-                        &format!(
-                            "Sending terminate order with kill = {} to running background thread",
-                            kill
-                        ),
-                    );
-                    let terminataion_msg = if kill {
-                        TerminationStyle::Kill
-                    } else {
-                        TerminationStyle::Stop
-                    };
-                    self.termination_style_tx
-                        .send(terminataion_msg)
-                        .unwrap();
-                    log(self.log, self.index, "Joining background thread");
 
-                    break self.await_all_msgs_to_be_handled(awaited_count_of_handled_msgs).await
-                },
-                ConnectionStatus::Disconnected(..) => {
-                    if start.elapsed() < hard_limit {
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                    } else {
-                        log(
-                            self.log,
-                            self.index,
-                            "Processing termination order, but Websockects already \
-                            disconnected. Proceeding to shut down the server wholly",
-                        );
-                        self.server_shutdown_tx.send(()).expect("Failed to send a shutdown order to the server");
-                        break vec![]
-                    }
-                }
-                ConnectionStatus::ServerKilledFromOuterDirective => {
-                    log(
-                        self.log,
-                        self.index,
-                        "Server already killed, no need to kick the horse's dead body",
-                    );
-                }
-            }
-        };
+        let tracked_active_conns = self.counters.active_connections.load(Ordering::Relaxed);
+
+        log(
+            self.log,
+            self.index,
+            &format!(
+                "Server termination order comes into while there be {} connections open", tracked_active_conns
+            ),
+        );
+
+        log(
+            self.log,
+            self.index,
+            &format!(
+                "Sending terminate order with kill = {} to running background thread",
+                kill
+            ),
+        );
+        // let terminataion_msg = if kill {
+        //     TerminationStyle::Kill
+        // } else {
+        //     TerminationStyle::Stop
+        // };
+        // self.termination_style_tx
+        //     .send(terminataion_msg)
+        //     .unwrap();
+
+        log(self.log, self.index, "Joining background thread");
+
+        let requests = self.await_all_msgs_to_be_handled(kill, awaited_count_of_handled_msgs).await;
+
+        //     ConnectionStatus::Disconnected(..) => {
+        //         if start.elapsed() < hard_limit {
+        //             tokio::time::sleep(Duration::from_millis(50)).await;
+        //         } else {
+        //             log(
+        //                 self.log,
+        //                 self.index,
+        //                 "Processing termination order, but Websockects already \
+        //                 disconnected. Proceeding to shut down the server wholly",
+        //             );
+        //
+        //             self.stop_server();
+        //             break vec![]
+        //         }
+        //     }
+        //     ConnectionStatus::ServerKilledFromOuterDirective => {
+        //         log(
+        //             self.log,
+        //             self.index,
+        //             "Server already killed, no need to kick the horse's dead body",
+        //         );
+        //     }
+        // }
+        let start = Instant::now();
+        let
+        while self.counters.active_connections.load(Ordering::Relaxed) != 0 {
+            if start.elapsed() >
+            tokio::time::sleep(Duration::from_millis(100)).await
+        }
 
         self.await_disconnection().await;
 
         requests
     }
 
-    async fn await_all_msgs_to_be_handled(&mut self, awaited_msg_count: usize)-> Vec<MockWSServerRecordedRequest>{
+    async fn await_all_msgs_to_be_handled(&mut self, kill: bool, awaited_msg_count: usize)-> Vec<MockWSServerRecordedRequest>{
         let obtain_guard = ||match self.requests_arc.lock() {
             Ok(guard) => guard,
             Err(poison_error) => poison_error.into_inner(),
@@ -791,12 +628,16 @@ impl MockWebSocketsServerStopHandle {
         let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
         while obtain_guard().len() < awaited_msg_count {
             if recorded_requests_waiting_start.elapsed().expect("travelling in time") >= recorded_requests_waiting_hard_limit {
-                panic!("We waited for all expected requests but they weren't receieved even after {} ms", recorded_requests_waiting_hard_limit.as_millis())
+                panic!("We waited for all expected requests, but they weren't received even after {} ms", recorded_requests_waiting_hard_limit.as_millis())
             }
             tokio::time::sleep(Duration::from_millis(50)).await
         }
         let waiting_for_joining_the_server_task_hard_limit = Duration::from_millis(2500);
-        self.server_shutdown_tx.send(()).expect("sending server shutdown order failed");
+        self.stop_server();
+
+        //self.send_termination_order_via_connection_attempt(kill).await;
+
+        // self.server_shutdown_tx.send(()).expect("sending server shutdown order failed");
         // self.join_handle_opt.take().expect("join handle should be present").await;
         // tokio::time::timeout(waiting_for_joining_the_server_task_hard_limit, self.join_handle).await
         //     .unwrap_or_else(|_|panic!("Timed out after {} waiting for joining the stopped server", waiting_for_joining_the_server_task_hard_limit.as_millis()));
@@ -809,6 +650,20 @@ impl MockWebSocketsServerStopHandle {
         (*obtain_guard()).clone()
     }
 
+    fn stop_server(&self){
+        self.server_handle.stop().expect("failed to make a stop order to the server");
+    }
+
+    async fn send_termination_order_via_connection_attempt(&self, kill: bool){
+        let ws = establish_bare_ws_conn(self.server_port).await;
+        let msg = if kill {
+            "kill-mock-server"
+        } else {
+            "stop-mock-server"
+        };
+        let _ = ws.send(workflow_websocket::client::Message::Text(msg.to_string())).await.expect("failed to send the mock ws server termination directive");
+    }
+
     pub async fn await_conn_established(&self){
         self.await_loop(|read_conn_status|matches!(read_conn_status, ConnectionStatus::Connected(..))).await
     }
@@ -818,7 +673,7 @@ impl MockWebSocketsServerStopHandle {
     }
 
     async fn await_loop<F>(&self, test_desired_condition: F) where F: Fn(ConnectionStatus)->bool{
-        let status_clone = self.connection_status.clone();
+        let status_clone = self.connection_statuses.clone();
         let fut = async {
             loop {
                 let status = *status_clone.lock().await;
@@ -834,7 +689,7 @@ impl MockWebSocketsServerStopHandle {
     // }
 
     async fn connection_status(&self)->ConnectionStatus{
-        let status = *self.connection_status.lock().await;
+        let status = *self.connection_statuses.lock().await;
         eprintln!("status: {:?}", status);
         status
     }
@@ -850,6 +705,10 @@ fn log(do_log: bool, index: u64, msg: &str) {
 enum TerminationStyle {
     Stop,
     Kill,
+}
+
+struct ConnectionStatuses{
+    initiated_connections_and_statuses: HashMap<SocketAddr, ConnectionStatus>
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -1077,5 +936,18 @@ mod tests {
 
         assert_eq!(second, ConnectionStatus::Disconnected(3));
         assert_eq!(third, ConnectionStatus::Connected(4))
+    }
+
+    #[tokio::test]
+    async fn server_can_be_killed_from_outside(){
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let stop_handle = server.start().await;
+        let client = establish_ws_conn_with_handshake(port).await;
+
+        stop_handle.kill(None).await;
+
+        let res = client.send(workflow_websocket::client::Message::Text("bluh".to_string())).await;
+        assert_eq!(res, Err(Arc::new(workflow_websocket::client::Error::NotConnected)))
     }
 }

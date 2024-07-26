@@ -50,6 +50,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Message, WebSocket, WebSocketConfig,
 };
+use masq_lib::test_utils::websocket_utils::establish_ws_conn_with_handshake;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -351,33 +352,27 @@ impl MockCommand {
     }
 }
 
-pub async fn make_and_connect_websocket(port: u16) -> WebSocket {
-    let url = format!("ws://{}:{}", localhost(), port);
-    let mut config = WebSocketConfig::default();
-    // config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
-    let websocket = WebSocket::new(Some(&url), Some(config))
-        .expect("Couldn't initialize websocket for the client");
-    connect(&websocket).await;
-    websocket
-}
-
-pub async fn connect(websocket: &WebSocket) {
-    let mut connect_options = ConnectOptions::default();
-    connect_options.block_async_connect = true;
-    connect_options.connect_timeout = Some(Duration::from_millis(1000));
-    connect_options.strategy = ConnectStrategy::Fallback;
-    websocket
-        .connect(connect_options)
-        .await
-        .expect("Connecting to the websocket server failed");
-}
-
-pub async fn websocket_utils(port: u16) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
-    let websocket = make_and_connect_websocket(port).await;
-    let talker_half = websocket.sender_tx().clone();
-    let listener_half = websocket.receiver_rx().clone();
-    (websocket, talker_half, listener_half)
-}
+// pub async fn make_and_connect_websocket(port: u16) -> WebSocket {
+//     let url = format!("ws://{}:{}", localhost(), port);
+//     let mut config = WebSocketConfig::default();
+//     // config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
+//     let websocket = WebSocket::new(Some(&url), Some(config))
+//         .expect("Couldn't initialize websocket for the client");
+//     connect(&websocket).await;
+//     websocket
+// }
+//
+// pub async fn connect(websocket: &WebSocket) {
+//     let mut connect_options = ConnectOptions::default();
+//     connect_options.block_async_connect = true;
+//     connect_options.connect_timeout = Some(Duration::from_millis(1000));
+//     connect_options.strategy = ConnectStrategy::Fallback;
+//     websocket
+//         .connect(connect_options)
+//         .await
+//         .expect("Connecting to the websocket server failed");
+// }
+//
 //
 // #[derive(Clone, Debug)]
 // pub struct TestWrite {

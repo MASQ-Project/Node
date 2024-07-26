@@ -904,8 +904,8 @@ mod tests {
         assert_eq!(result, Ok(0xFEDCBA9876543210ABCDEF))
     }
 
-    #[test]
-    fn short_writeln_write_text_properly() {
+    #[tokio::test]
+    async fn short_writeln_write_text_properly() {
         let mut buffer = Vec::new();
         let mut string_buffer = String::new();
         short_writeln!(buffer, "This is the first line");
@@ -924,9 +924,9 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "writeln failed")]
-    fn short_writeln_panic_politely_with_a_message() {
+    async fn short_writeln_panic_politely_with_a_message() {
         let path = current_dir().unwrap();
         let path = path.join("tests").join("short_writeln");
         let _ = create_dir_all(&path);

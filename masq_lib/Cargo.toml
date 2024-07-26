@@ -31,6 +31,7 @@ tiny-hderive = "0.3.0"
 tokio = "1.34.0"
 toml = "0.7.6"
 workflow-websocket = "0.11.0"
+async-channel = "2.3.1"
 url = "1.7.2"
 
 [features]
