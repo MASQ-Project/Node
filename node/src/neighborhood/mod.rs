@@ -550,9 +550,11 @@ impl Neighborhood {
             .root_mut()
             .metadata
             .node_location_opt = node_location_opt.clone();
-        self.neighborhood_database.root_mut().inner.country_code = node_location_opt
-            .expect("expected Node location")
-            .country_code;
+        self.neighborhood_database.root_mut().inner.country_code = Some(
+            node_location_opt
+                .expect("expected Node location")
+                .country_code,
+        );
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -4349,14 +4351,17 @@ mod tests {
 
         assert_eq!(
             subject.neighborhood_database.root().inner.country_code,
-            subject
-                .neighborhood_database
-                .root()
-                .metadata
-                .node_location_opt
-                .as_ref()
-                .unwrap()
-                .country_code
+            Some(
+                subject
+                    .neighborhood_database
+                    .root()
+                    .metadata
+                    .node_location_opt
+                    .as_ref()
+                    .unwrap()
+                    .country_code
+                    .clone()
+            )
         );
         assert_eq!(
             subject
@@ -5073,7 +5078,6 @@ mod tests {
                                 ),
                                 Chain::EthRopsten,
                                 cryptde,
-                                "ZZ".to_string()
                             ))],
                             rate_pack(100),
                         ),
@@ -5205,7 +5209,6 @@ mod tests {
                                 ),
                                 Chain::EthRopsten,
                                 cryptde,
-                                "ZZ".to_string()
                             ))],
                             rate_pack(100),
                         ),

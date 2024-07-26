@@ -20,14 +20,12 @@ pub fn ip_country(
             Err(e) => Err(format!("CSV format error: {:?}", e)),
         })
         .enumerate()
-        .flat_map(|(idx, country_block_result)| {
-            match country_block_result {
-                Ok(country_block) => {
-                    serializer.add(country_block);
-                    None
-                }
-                Err(e) => Some(format!("Line {}: {}", idx + 1, e)),
+        .flat_map(|(idx, country_block_result)| match country_block_result {
+            Ok(country_block) => {
+                serializer.add(country_block);
+                None
             }
+            Err(e) => Some(format!("Line {}: {}", idx + 1, e)),
         })
         .collect::<Vec<String>>();
     let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
@@ -81,7 +79,12 @@ fn generate_country_data(
     write!(output, "        vec![")?;
     let mut values_written = 0usize;
     while bit_queue.len() >= COUNTRY_BLOCK_BIT_SIZE {
-        write_value(&mut bit_queue, COUNTRY_BLOCK_BIT_SIZE, &mut values_written, output)?;
+        write_value(
+            &mut bit_queue,
+            COUNTRY_BLOCK_BIT_SIZE,
+            &mut values_written,
+            output,
+        )?;
     }
     if bit_queue.len() > 0 {
         let bit_count = bit_queue.len();

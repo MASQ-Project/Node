@@ -26,7 +26,7 @@ pub struct NodeRecordInner_0v1 {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
-    pub country_code: String,
+    pub country_code: Option<String>,
 }
 
 impl TryFrom<GossipNodeRecord> for NodeRecordInner_0v1 {
@@ -77,13 +77,10 @@ impl NodeRecord {
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
         node_record_inputs: NodeRecordInputs,
     ) -> NodeRecord {
-        let mut country = String::default();
-        match node_record_inputs.location.as_ref() {
-            Some(node_location) => {
-                country = node_location.country_code.clone();
-            }
-            None => {}
-        };
+        let country = node_record_inputs
+            .location
+            .as_ref()
+            .map(|node_location| node_location.country_code.clone());
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
             inner: NodeRecordInner_0v1 {

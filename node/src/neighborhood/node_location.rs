@@ -7,8 +7,8 @@ use std::net::IpAddr;
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct NodeLocation {
-    pub(crate) country_code: String,
-    pub(crate) free_world_bit: bool,
+    pub country_code: String,
+    pub free_world_bit: bool,
 }
 
 impl PartialEq<Self> for NodeLocation {
@@ -86,7 +86,7 @@ mod tests {
         });
         node_record.metadata.node_addr_opt =
             Some(NodeAddr::new(&country_record.0, &[8000 % 10000]));
-        node_record.inner.country_code = country_record.1;
+        node_record.inner.country_code = Some(country_record.1);
 
         assert_eq!(
             node_record.metadata.node_location_opt,
@@ -108,7 +108,7 @@ mod tests {
             free_world_bit: country_record.2,
         });
         node.metadata.node_addr_opt = Some(NodeAddr::new(&country_record.0, &[8000 % 10000]));
-        node.inner.country_code = country_record.1;
+        node.inner.country_code = Some(country_record.1);
         let db = db_from_node(&node);
         let builder = GossipBuilder::new(&db);
 
@@ -123,7 +123,7 @@ mod tests {
             gossip_result.node_addr_opt.unwrap(),
             node.node_addr_opt().unwrap()
         );
-        assert_eq!(node_record.inner.country_code, "US")
+        assert_eq!(node_record.inner.country_code.unwrap(), "US")
     }
 }
 

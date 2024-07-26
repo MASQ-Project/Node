@@ -139,7 +139,7 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                     accepts_connections: accepts_connections_opt.expect("public_key disappeared"),
                     routes_data: routes_data_opt.expect("public_key disappeared"),
                     version: version_opt.expect("public_key disappeared"),
-                    country_code: country_code_opt.expect("country_code disappeared"),
+                    country_code: country_code_opt,
                 })
             }
             _ => Err(StepError::SemanticError(format!(
@@ -182,7 +182,7 @@ mod tests {
             pub accepts_connections: bool,
             pub routes_data: bool,
             pub version: u32,
-            pub country_code: String,
+            pub country_code: Option<String>,
             pub another_field: String,
             pub yet_another_field: u64,
         }
@@ -196,7 +196,7 @@ mod tests {
             accepts_connections: false,
             routes_data: true,
             version: 42,
-            country_code: "AU".to_string(),
+            country_code: Some("AU".to_string()),
         };
         let future_nri = ExampleFutureNRI {
             public_key: expected_nri.public_key.clone(),

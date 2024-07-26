@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn produce_debut_creates_a_gossip_to_a_target_about_ourselves_when_accepting_connections() {
         let mut our_node_record: NodeRecord = make_node_record(7771, true);
-        our_node_record.inner.country_code = "US".to_string();
+        our_node_record.inner.country_code = Some("US".to_string());
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
@@ -375,7 +375,7 @@ mod tests {
         let result_gossip_record = result_gossip.node_records.first().unwrap();
         assert_eq!(result_gossip_record.node_addr_opt, None);
         let result_node_record_inner = NodeRecordInner_0v1::try_from(result_gossip_record).unwrap();
-        our_node_record.inner.country_code = "".to_string();
+        our_node_record.inner.country_code = None;
         assert_eq!(result_node_record_inner, our_node_record.inner);
         let our_cryptde = CryptDENull::from(our_node_record.public_key(), TEST_DEFAULT_CHAIN);
         assert_eq!(

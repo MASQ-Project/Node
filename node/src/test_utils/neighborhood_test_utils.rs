@@ -345,7 +345,6 @@ pub fn make_node_descriptor(ip_addr: IpAddr) -> NodeDescriptor {
         blockchain: Chain::EthRopsten,
         encryption_public_key: PublicKey::from(&b"bitcoin is real money"[..]),
         node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
-        country_code: "ZZ".to_string(),
     }
 }
 

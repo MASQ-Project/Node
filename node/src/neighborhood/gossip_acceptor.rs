@@ -3261,7 +3261,7 @@ Length: 24 (0x18) bytes
             .add_half_neighbor_key(existing_node_4_key.clone())
             .unwrap();
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.inner.country_code = "AU".to_string();
+        root_node.inner.country_code = Some("AU".to_string());
         root_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -3350,7 +3350,7 @@ Length: 24 (0x18) bytes
             .unwrap();
         root_node.resign();
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.inner.country_code = "AU".to_string();
+        root_node.inner.country_code = Some("AU".to_string());
         root_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
