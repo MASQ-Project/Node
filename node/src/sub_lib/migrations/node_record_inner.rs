@@ -139,7 +139,7 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                     accepts_connections: accepts_connections_opt.expect("public_key disappeared"),
                     routes_data: routes_data_opt.expect("public_key disappeared"),
                     version: version_opt.expect("public_key disappeared"),
-                    country_code: country_code_opt,
+                    country_code_opt,
                 })
             }
             _ => Err(StepError::SemanticError(format!(
@@ -196,7 +196,7 @@ mod tests {
             accepts_connections: false,
             routes_data: true,
             version: 42,
-            country_code: Some("AU".to_string()),
+            country_code_opt: Some("AU".to_string()),
         };
         let future_nri = ExampleFutureNRI {
             public_key: expected_nri.public_key.clone(),
@@ -206,7 +206,7 @@ mod tests {
             accepts_connections: expected_nri.accepts_connections,
             routes_data: expected_nri.routes_data,
             version: expected_nri.version,
-            country_code: expected_nri.country_code.clone(),
+            country_code: expected_nri.country_code_opt.clone(),
             another_field: "These are the times that try men's souls".to_string(),
             yet_another_field: 1234567890,
         };

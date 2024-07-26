@@ -26,7 +26,7 @@ pub struct NodeRecordInner_0v1 {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
-    pub country_code: Option<String>,
+    pub country_code_opt: Option<String>,
 }
 
 impl TryFrom<GossipNodeRecord> for NodeRecordInner_0v1 {
@@ -91,7 +91,7 @@ impl NodeRecord {
                 routes_data: node_record_inputs.routes_data,
                 neighbors: BTreeSet::new(),
                 version: node_record_inputs.version,
-                country_code: country,
+                country_code_opt: country,
             },
             signed_gossip: PlainData::new(&[]),
             signature: CryptData::new(&[]),

@@ -3003,7 +3003,7 @@ GossipNodeRecord {
 	},
 	node_addr_opt: Some(1.2.3.4:[1234]),
 	signed_data:
-Length: 250 (0xfa) bytes
+Length: 254 (0xfe) bytes
 0000:   a8 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
 0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
 0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
@@ -3018,12 +3018,12 @@ Length: 250 (0xfa) bytes
 00b0:   6e 65 69 67  68 62 6f 72  73 81 44 02  03 04 05 73   neighbors.D....s
 00c0:   61 63 63 65  70 74 73 5f  63 6f 6e 6e  65 63 74 69   accepts_connecti
 00d0:   6f 6e 73 f5  6b 72 6f 75  74 65 73 5f  64 61 74 61   ons.kroutes_data
-00e0:   f5 67 76 65  72 73 69 6f  6e 01 6c 63  6f 75 6e 74   .gversion.lcount
-00f0:   72 79 5f 63  6f 64 65 62  41 55                      ry_codebAU
+00e0:   f5 67 76 65  72 73 69 6f  6e 01 70 63  6f 75 6e 74   .gversion.pcount
+00f0:   72 79 5f 63  6f 64 65 5f  6f 70 74 62  41 55         ry_code_optbAU
 	signature:
 Length: 24 (0x18) bytes
-0000:   01 02 03 04  92 6e bc 1c  98 60 ab 43  9e da 54 86   .....n...`.C..T.
-0010:   c8 ae bd 2f  df 98 d6 cf                             .../....
+0000:   01 02 03 04  f7 26 1e a5  d4 4a 71 d9  f8 42 08 35   .....&...Jq..B.5
+0010:   e4 99 27 4a  85 7f 01 11                             ..'J....
 }] }, 0x02030405, 2.3.4.5:[2345])".to_string();
         assert_eq!(format!("{:?}", result), expected);
         root_node
@@ -3261,7 +3261,7 @@ Length: 24 (0x18) bytes
             .add_half_neighbor_key(existing_node_4_key.clone())
             .unwrap();
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.inner.country_code = Some("AU".to_string());
+        root_node.inner.country_code_opt = Some("AU".to_string());
         root_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -3350,7 +3350,7 @@ Length: 24 (0x18) bytes
             .unwrap();
         root_node.resign();
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.inner.country_code = Some("AU".to_string());
+        root_node.inner.country_code_opt = Some("AU".to_string());
         root_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,

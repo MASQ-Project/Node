@@ -550,7 +550,7 @@ impl Neighborhood {
             .root_mut()
             .metadata
             .node_location_opt = node_location_opt.clone();
-        self.neighborhood_database.root_mut().inner.country_code = Some(
+        self.neighborhood_database.root_mut().inner.country_code_opt = Some(
             node_location_opt
                 .expect("expected Node location")
                 .country_code,
@@ -4350,7 +4350,7 @@ mod tests {
         });
 
         assert_eq!(
-            subject.neighborhood_database.root().inner.country_code,
+            subject.neighborhood_database.root().inner.country_code_opt,
             Some(
                 subject
                     .neighborhood_database

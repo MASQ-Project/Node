@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = Some("AU".to_string());
+        this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn can_get_mutable_root() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = Some("AU".to_string());
+        this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -518,7 +518,7 @@ mod tests {
     #[test]
     fn node_by_key_works() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = Some("AU".to_string());
+        this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn node_by_ip_works() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = Some("AU".to_string());
+        this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -859,7 +859,7 @@ mod tests {
     fn new_public_ip_replaces_ip_address_and_nothing_else() {
         let this_node = make_node_record(1234, true);
         let mut old_node = this_node.clone();
-        old_node.inner.country_code = Some("AU".to_string());
+        old_node.inner.country_code_opt = Some("AU".to_string());
         old_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
