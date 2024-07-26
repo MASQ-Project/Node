@@ -4,12 +4,22 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use std::net::IpAddr;
 
+#[cfg(not(test))]
 lazy_static! {
     pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
         crate::dbip_country::ipv4_country_data(),
         crate::dbip_country::ipv6_country_data()
     );
 }
+
+#[cfg(test)]
+lazy_static! {
+    pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
+        crate::test_dbip_country::ipv4_country_data(),
+        crate::test_dbip_country::ipv6_country_data()
+    );
+}
+
 pub struct CountryCodeFinder {
     ipv4: Vec<CountryBlock>,
     ipv6: Vec<CountryBlock>,
