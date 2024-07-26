@@ -64,6 +64,7 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
         payload: ClientRequestPayload_0v1,
         paying_wallet_opt: Option<Wallet>,
     ) {
+        // TODO: GH-800: We need a test to prove that do_housekeeping() is called
         self.do_housekeeping();
         Self::process_package(payload, paying_wallet_opt, self.inner.clone())
     }
@@ -489,18 +490,17 @@ impl StreamHandlerPoolReal {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
         loop {
             match self.stream_adder_rx.try_recv() {
-                Err(e) => panic!("{:?}", e),
+                Err(_) => break,
                 Ok((stream_key, stream_senders)) => {
-                    todo!("GH-800: Fix it such that the stream_adder_rx holds StreamSenders");
-                    // debug!(
-                    //     inner.logger,
-                    //     "Persisting StreamWriter to {} under key {:?}",
-                    //     stream_senders.writer_data.peer_addr(),
-                    //     stream_key
-                    // );
-                    // inner
-                    //     .stream_writer_channels
-                    //     .insert(stream_key, stream_senders)
+                    debug!(
+                        inner.logger,
+                        "Persisting StreamWriter to {} under key {:?}",
+                        stream_senders.writer_data.peer_addr(),
+                        stream_key
+                    );
+                    inner
+                        .stream_writer_channels
+                        .insert(stream_key, stream_senders)
                 }
             };
         }
@@ -580,9 +580,10 @@ mod tests {
     use std::net::IpAddr;
     use std::net::SocketAddr;
     use std::ops::Deref;
+    use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
+    use std::{sync, thread};
     use tokio;
     use tokio::prelude::Async;
     use trust_dns_resolver::error::ResolveErrorKind;
@@ -2048,5 +2049,78 @@ mod tests {
         system.run();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(proxy_client_recording.len(), 0);
+    }
+
+    #[test]
+    fn add_new_streams_works() {
+        init_test_logging();
+        let test_name = "add_new_streams_works";
+        let (stream_adder_tx, stream_adder_rx) = unbounded();
+        let peer_actors = peer_actors_builder().build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            main_cryptde(),
+            peer_actors.accountant.report_exit_service_provided,
+            peer_actors.proxy_client_opt.unwrap(),
+            0,
+            0,
+        );
+        subject.stream_adder_rx = stream_adder_rx;
+        {
+            subject.inner.lock().unwrap().logger = Logger::new(test_name);
+        }
+        let first_stream_key = StreamKey::make_meaningful_stream_key("first_stream_key");
+        let (first_writer_data_tx, first_writer_data_rx) = futures::sync::mpsc::unbounded();
+        let (first_shutdown_tx, first_shutdown_rx) = unbounded();
+        let first_stream_senders = StreamSenders {
+            writer_data: Box::new(SenderWrapperReal::new(
+                SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                first_writer_data_tx,
+            )),
+            reader_shutdown: first_shutdown_tx,
+        };
+        let (second_writer_data_tx, second_writer_data_rx) = futures::sync::mpsc::unbounded();
+        let (second_shutdown_tx, second_shutdown_rx) = unbounded();
+        let second_stream_key = StreamKey::make_meaningful_stream_key("second_stream_key");
+        let second_stream_senders = StreamSenders {
+            writer_data: Box::new(SenderWrapperReal::new(
+                SocketAddr::from_str("2.3.4.5:6789").unwrap(),
+                second_writer_data_tx,
+            )),
+            reader_shutdown: second_shutdown_tx,
+        };
+        stream_adder_tx
+            .send((first_stream_key.clone(), first_stream_senders))
+            .unwrap();
+        stream_adder_tx
+            .send((second_stream_key.clone(), second_stream_senders))
+            .unwrap();
+
+        subject.add_new_streams();
+
+        let mut inner = subject.inner.lock().unwrap();
+        let actual_first_stream_senders = inner
+            .stream_writer_channels
+            .remove(&first_stream_key)
+            .unwrap();
+        let actual_second_stream_senders = inner
+            .stream_writer_channels
+            .remove(&second_stream_key)
+            .unwrap();
+        assert_eq!(
+            actual_first_stream_senders.writer_data.peer_addr(),
+            SocketAddr::from_str("1.2.3.4:5678").unwrap()
+        );
+        assert_eq!(
+            actual_second_stream_senders.writer_data.peer_addr(),
+            SocketAddr::from_str("2.3.4.5:6789").unwrap()
+        );
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Persisting StreamWriter to 1.2.3.4:5678 under key gY2vJ+OwPuItsBcFhbilDI61LGo"
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Persisting StreamWriter to 2.3.4.5:6789 under key 1Kbv+3/MIN4/1hLQXLeNPgdDM58"
+        ));
     }
 }
