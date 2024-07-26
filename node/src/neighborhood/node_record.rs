@@ -631,36 +631,25 @@ mod tests {
             version: 0,
             location: None,
         };
-        let node_record_data_duplicate = node_record_data.clone();
-        let node_record_data_with_neighbor = node_record_data.clone();
-        let node_record_data_mod_key = node_record_data.clone();
-        let mut node_record_data_mod_earning_wallet = node_record_data.clone();
-        let mut node_record_data_mod_rate_pack = node_record_data.clone();
-        let mut node_record_data_mod_accepts_connections = node_record_data.clone();
-        let mut node_record_data_mod_routes_data = node_record_data.clone();
-        let mut node_record_data_mod_version = node_record_data.clone();
-        let node_record_data_mod_signed_gossip = node_record_data.clone();
-        let node_record_data_mod_signature = node_record_data.clone();
-        let node_record_data_mod_node_addr = node_record_data.clone();
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data,
+            node_record_data.clone(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_duplicate,
+            node_record_data.clone(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_with_neighbor,
+            node_record_data.clone(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
             main_cryptde(),
-            node_record_data_mod_key,
+            node_record_data.clone(),
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -668,7 +657,7 @@ mod tests {
         let mut mod_node_addr = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_node_addr,
+            node_record_data.clone(),
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -676,24 +665,28 @@ mod tests {
                 &[1234],
             ))
             .unwrap();
+        let mut node_record_data_mod_earning_wallet = node_record_data.clone();
         node_record_data_mod_earning_wallet.earning_wallet = make_wallet("booga");
         let mod_earning_wallet = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
             node_record_data_mod_earning_wallet,
         );
+        let mut node_record_data_mod_rate_pack = node_record_data.clone();
         node_record_data_mod_rate_pack.rate_pack = rate_pack(200);
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
             node_record_data_mod_rate_pack,
         );
+        let mut node_record_data_mod_accepts_connections = node_record_data.clone();
         node_record_data_mod_accepts_connections.accepts_connections = false;
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
             node_record_data_mod_accepts_connections,
         );
+        let mut node_record_data_mod_routes_data = node_record_data.clone();
         node_record_data_mod_routes_data.routes_data = false;
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -703,15 +696,16 @@ mod tests {
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_signed_gossip,
+            node_record_data.clone(),
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_signature,
+            node_record_data.clone(),
         );
         mod_signature.signature = CryptData::new(&[]);
+        let mut node_record_data_mod_version = node_record_data.clone();
         node_record_data_mod_version.version = 1;
         let mod_version = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),

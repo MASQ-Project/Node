@@ -396,16 +396,7 @@ mod tests {
 
         let subject = db_from_node(&this_node);
 
-        let this_pubkey = this_node.public_key();
-        let last_update = subject
-            .by_public_key
-            .iter()
-            .map(|(pubkey, node_record)| match pubkey == this_pubkey {
-                true => node_record.metadata.last_update,
-                false => todo!("implement me"),
-            })
-            .exactly_one()
-            .unwrap();
+        let last_update = subject.root().metadata.last_update;
         this_node.metadata.last_update = last_update;
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
