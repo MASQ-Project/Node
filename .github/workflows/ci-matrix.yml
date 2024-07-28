@@ -85,7 +85,7 @@ jobs:
         - if: startsWith(github.head_ref, 'GH')
           name: Versioned S3 Sync
           env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET_TESTING }}
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
@@ -96,7 +96,7 @@ jobs:
         - if: startsWith(github.head_ref, 'v')
           name: Latest S3 Sync
           env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET_TESTING }}
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
@@ -106,7 +106,7 @@ jobs:
 
         - name: Invalidate Binaries CloudFront
           env:
-            DISTRIBUTION_ID: ${{ secrets.DISTRIBUTION }}
+            DISTRIBUTION_ID: ${{ secrets.DISTRIBUTION_TESTING }}
           run: |
             INVALIDATION_ID=$(aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/*" | jq -r '.Invalidation.Id')
             echo "Invalidation ID: $INVALIDATION_ID"
