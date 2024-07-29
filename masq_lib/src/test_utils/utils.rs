@@ -51,8 +51,16 @@ pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
 }
 
 pub fn is_running_under_github_actions() -> bool {
-    if let Ok(value) = std::env::var("GITHUB_ACTIONS") {
-        &value == "true"
+    is_env_variable_set("GITHUB_ACTIONS", "true")
+}
+
+pub fn is_test_generated_data_allowed_to_escape_project_dir() -> bool {
+    is_env_variable_set("ALLOW_TEST_DATA_ESCAPE_PROJECT_DIR", "true")
+}
+
+fn is_env_variable_set(var_name: &str, searched_value: &str) -> bool {
+    if let Ok(value) = std::env::var(var_name) {
+        value == searched_value
     } else {
         false
     }

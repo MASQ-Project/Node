@@ -22,14 +22,13 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
-use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, ConnectionProgressMessage};
+use crate::sub_lib::neighborhood::{ConfigChangeMsg, ConnectionProgressMessage};
 
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -129,7 +128,7 @@ recorder_message_handler_t_m_p!(AddRouteResultMessage);
 recorder_message_handler_t_p!(AddStreamMsg);
 recorder_message_handler_t_m_p!(BindMessage);
 recorder_message_handler_t_p!(BlockchainAgentWithContextMessage);
-recorder_message_handler_t_m_p!(ConfigurationChangeMessage);
+recorder_message_handler_t_m_p!(ConfigChangeMsg);
 recorder_message_handler_t_m_p!(ConnectionProgressMessage);
 recorder_message_handler_t_m_p!(CrashNotification);
 recorder_message_handler_t_m_p!(DaemonBindMessage);
@@ -145,7 +144,6 @@ recorder_message_handler_t_m_p!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler_t_m_p!(InboundClientData);
 recorder_message_handler_t_m_p!(InboundServerData);
 recorder_message_handler_t_m_p!(IncipientCoresPackage);
-recorder_message_handler_t_m_p!(NewPasswordMessage); // GH-728
 recorder_message_handler_t_m_p!(NewPublicIp);
 recorder_message_handler_t_m_p!(NodeFromUiMessage);
 recorder_message_handler_t_m_p!(NodeToUiMessage);
@@ -447,10 +445,9 @@ pub fn make_neighborhood_subs_from_recorder(addr: &Addr<Recorder>) -> Neighborho
         gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),
         remove_neighbor: recipient!(addr, RemoveNeighborMessage),
-        configuration_change_msg_sub: recipient!(addr, ConfigurationChangeMessage),
+        config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
-        new_password_sub: recipient!(addr, NewPasswordMessage), // GH-728
         connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }
@@ -458,6 +455,7 @@ pub fn make_neighborhood_subs_from_recorder(addr: &Addr<Recorder>) -> Neighborho
 pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSubs {
     AccountantSubs {
         bind: recipient!(addr, BindMessage),
+        config_change_msg_sub: recipient!(addr, ConfigChangeMsg),
         start: recipient!(addr, StartMessage),
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),

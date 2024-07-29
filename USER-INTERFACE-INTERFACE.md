@@ -512,7 +512,7 @@ There are following three connection stages:
 
 1. NotConnected: No external neighbor is connected to us.
 2. ConnectedToNeighbor: External node(s) are connected to us.
-3. ThreeHopsRouteFound: You can relay data over the network.
+3. RouteFound: You can relay data over the network.
 
 The Node can only be on one of these connection stages during any moment of the Node's lifetime.
 
@@ -1095,6 +1095,18 @@ even for parameters whose values are natively of other types.
 ##### Description:
 If the value of the respective parameter was successfully changed, this is a simple acknowledgment that the change is complete.
 
+The following commands can be configured using the `setConfiguration`:
+
+
+| Name             | Parameter       | Possible Values  |
+|------------------|-----------------|------------------|
+| Gas Price        | `--gas-price`   | > 0              |
+| Start Block      | `--start-block` | > 0              |
+| Min Hops         | `--min-hops`    | [1, 6]           |
+
+
+Note: The descriptions for the above commands can be found [here](#permitted-names).
+
 #### `setup`
 ##### Direction: Request
 ##### Correspondent: Daemon
@@ -1131,10 +1143,11 @@ be cleared.
 * `db-password` - Password to unlock the sensitive values in the database.
 * `dns-servers` - Comma-separated list of DNS servers to use.
 * `earning-wallet` - Wallet into which earnings should be deposited.
-* `gas-price` - Transaction fee to offer on the blockchain.
+* `gas-price` - The fee per unit of computational effort in blockchain transactions, measured in gwei.
 * `ip` - The public IP address of the Node.
 * `log-level` - The lowest level of logs that should be recorded. `off`, `error`, `warn`, `info`, `debug`, `trace`
 * `mapping-protocol` - The management protocol to try first with the router. `pcp`, `pmp`, `igdp`
+* `min-hops`: The minimum number of hops required for the package to reach the Exit Node.
 * `neighborhood-mode` - `zero-hop`, `originate-only`, `consume-only`, `standard`
 * `neighbors` - Comma-separated list of Node descriptors for neighbors to contact on startup
 * `real-user` - Non-Windows platforms only, only where required: <uid>:<gid>:<home directory>

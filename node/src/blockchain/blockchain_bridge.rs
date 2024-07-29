@@ -53,7 +53,6 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_le
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
 pub struct BlockchainBridge {
-    consuming_wallet_opt: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -89,16 +88,8 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
-        match self.consuming_wallet_opt.as_ref() {
-            Some(wallet) => debug!(
-                self.logger,
-                "Received BindMessage; consuming wallet address {}", wallet
-            ),
-            None => debug!(
-                self.logger,
-                "Received BindMessage; no consuming wallet address specified"
-            ),
-        }
+        // There's a multinode integration test looking for this message
+        debug!(self.logger, "Received BindMessage");
     }
 }
 
@@ -193,10 +184,8 @@ impl BlockchainBridge {
         blockchain_interface: Box<dyn BlockchainInterface>,
         persistent_config: Box<dyn PersistentConfiguration>,
         crashable: bool,
-        consuming_wallet_opt: Option<Wallet>,
     ) -> BlockchainBridge {
         BlockchainBridge {
-            consuming_wallet_opt,
             blockchain_interface,
             persistent_config,
             sent_payable_subs_opt: None,
@@ -557,7 +546,6 @@ mod tests {
         make_empty_payments_and_start_block, protect_payables_in_test,
     };
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
-    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
@@ -579,8 +567,8 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
+        assert_on_initialization_with_panic_on_migration,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
@@ -592,6 +580,7 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
     use rustc_hex::FromHex;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use std::any::TypeId;
     use std::net::Ipv4Addr;
     use std::path::Path;
@@ -664,30 +653,6 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_bridge_receives_bind_message_without_consuming_private_key() {
-        init_test_logging();
-        let subject = BlockchainBridge::new(
-            stub_bi(),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-            None,
-        );
-        let system = System::new("blockchain_bridge_receives_bind_message");
-        let addr = subject.start();
-
-        addr.try_send(BindMessage {
-            peer_actors: peer_actors_builder().build(),
-        })
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-        TestLogHandler::new().exists_log_containing(
-            "DEBUG: BlockchainBridge: Received BindMessage; no consuming wallet address specified",
-        );
-    }
-
-    #[test]
     fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant() {
         let system = System::new(
         "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
@@ -730,12 +695,12 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
             false,
-            Some(consuming_wallet.clone()),
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let qualified_payables = protect_payables_in_test(qualified_payables.clone());
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables.clone(),
+            consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -758,7 +723,7 @@ mod tests {
         assert_eq!(blockchain_agent_with_context_msg_actual.agent.pending_transaction_id(), 35.into());
         assert_eq!(blockchain_agent_with_context_msg_actual.agent.agreed_fee_per_computation_unit(), 9);
         assert_eq!(
-            blockchain_agent_with_context_msg_actual.agent.consuming_wallet_balances(), 
+            blockchain_agent_with_context_msg_actual.agent.consuming_wallet_balances(),
             ConsumingWalletBalances::new(35.into(), 65535.into())
         );
         assert_eq!(
@@ -766,7 +731,7 @@ mod tests {
             659952
         );
         assert_eq!(
-            blockchain_agent_with_context_msg_actual.response_skeleton_opt, 
+            blockchain_agent_with_context_msg_actual.response_skeleton_opt,
             Some(ResponseSkeleton{
                 client_id: 11122,
                 context_id: 444
@@ -801,6 +766,7 @@ mod tests {
         let qualified_payables = protect_payables_in_test(vec![]);
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables,
+            consuming_wallet,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -879,7 +845,6 @@ mod tests {
         let blockchain_interface =
             BlockchainInterfaceWeb3::new(http, event_loop_handle, DEFAULT_CHAIN);
         let persistent_configuration_mock = PersistentConfigurationMock::default();
-        let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_configuration_mock),
@@ -971,12 +936,10 @@ mod tests {
             BlockchainInterfaceWeb3::new(http, event_loop_handle, DEFAULT_CHAIN);
         let persistent_configuration_mock =
             PersistentConfigurationMock::default();
-        let consuming_wallet = make_paying_wallet(b"somewallet");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_configuration_mock),
             false,
-            Some(consuming_wallet),
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
@@ -1256,7 +1219,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(PersistentConfigurationMock::default()),
             false,
-            None,
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
@@ -1327,7 +1289,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            None,
         );
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         subject.received_payments_subs_opt = Some(received_payments_subs);
@@ -1427,7 +1388,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(PersistentConfigurationMock::default()),
             false,
-            None,
         );
         subject
             .pending_payable_confirmation
@@ -1493,7 +1453,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(PersistentConfigurationMock::default()),
             false,
-            Some(Wallet::new("mine")),
         );
         subject
             .pending_payable_confirmation
@@ -1553,7 +1512,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(PersistentConfigurationMock::default()),
             false,
-            None,
         );
         subject
             .pending_payable_confirmation
@@ -1626,7 +1584,6 @@ mod tests {
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),
             false,
-            Some(make_wallet("consuming")),
         );
         subject.received_payments_subs_opt = Some(accountant.start().recipient());
         let retrieve_transactions = RetrieveTransactions {
@@ -1877,7 +1834,6 @@ mod tests {
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(persistent_config),
             false,
-            None, //not needed in this test
         );
         let retrieve_transactions = RetrieveTransactions {
             recipient: make_wallet("somewallet"),
@@ -1908,7 +1864,6 @@ mod tests {
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::new()),
             false,
-            None, //not needed in this test
         );
         let system = System::new("test");
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
@@ -1940,7 +1895,6 @@ mod tests {
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::new()),
             false,
-            None, //not needed in this test
         );
         let system = System::new("test");
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
@@ -1979,7 +1933,6 @@ mod tests {
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::new()),
             false,
-            None, //not needed in this test
         );
         let system = System::new("test");
         subject.scan_error_subs_opt = Some(accountant.start().recipient());
@@ -2024,7 +1977,6 @@ mod tests {
             Box::new(BlockchainInterfaceMock::default()),
             Box::new(PersistentConfigurationMock::default()),
             crashable,
-            None,
         );
 
         prove_that_crash_request_handler_is_hooked_up(subject, CRASH_KEY);
@@ -2048,7 +2000,7 @@ mod tests {
         assert_eq!(Some(100000u64), max_block_count);
     }
     /*
-        POKT (Polygon mainnet and mumbai)
+        POKT (Polygon mainnet and amoy)
         {"jsonrpc":"2.0","id":7,"error":{"message":"You cannot query logs for more than 100000 blocks at once.","code":-32064}}
     */
     /*

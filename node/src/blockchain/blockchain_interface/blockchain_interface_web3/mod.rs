@@ -241,7 +241,7 @@ impl BlockchainInterfaceWeb3 {
     pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
         match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
         }
     }
 
@@ -810,10 +810,7 @@ mod tests {
             Subject::web3_gas_limit_const_part(Chain::PolyMainnet),
             70_000
         );
-        assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::PolyMumbai),
-            70_000
-        );
+        assert_eq!(Subject::web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 
@@ -851,8 +848,8 @@ mod tests {
         assert_signature(Chain::EthMainnet, signatures)
     }
 
-    //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
+    // Adapted test from old times when we had our own signing method.
+    // Don't have data for new chains, so I omit them in this kind of tests
     #[test]
     fn signs_various_transactions_for_ropsten() {
         let signatures = &[

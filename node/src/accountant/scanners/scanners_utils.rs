@@ -7,7 +7,6 @@ pub mod payable_scanner_utils {
         LocallyCausedError, RemotelyCausedErrors,
     };
     use crate::accountant::{comma_joined_stringifiable, SentPayables};
-    use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -20,7 +19,6 @@ pub mod payable_scanner_utils {
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
-    pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
@@ -121,6 +119,7 @@ pub mod payable_scanner_utils {
         batch_request_responses: &'a [ProcessedPayableFallible],
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
+        //TODO maybe we can return not tuple but struct with remote_errors_opt member
         let (oks, errs) = batch_request_responses
             .iter()
             .fold((vec![], vec![]), |acc, rpc_result| {
@@ -261,27 +260,18 @@ pub mod payable_scanner_utils {
         )
     }
 
-    pub fn err_msg_if_failed_without_existing_fingerprints(
-        nonexistent: VecOfRowidOptAndHash,
+    pub fn err_msg_for_failure_with_expected_but_missing_fingerprints(
+        nonexistent: Vec<H256>,
         serialize_hashes: fn(&[H256]) -> String,
     ) -> Option<String> {
-        let hashes_of_nonexistent = nonexistent
-            .iter()
-            .map(|(_, hash)| *hash)
-            .collect::<Vec<H256>>();
         nonexistent.is_empty().not().then_some(format!(
             "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
-            serialize_hashes(&hashes_of_nonexistent),
+            serialize_hashes(&nonexistent),
         ))
     }
 
-    pub fn separate_rowids_and_hashes(
-        ids_of_payments: VecOfRowidOptAndHash,
-    ) -> (Vec<u64>, Vec<H256>) {
-        ids_of_payments
-            .into_iter()
-            .map(|(checked_rowid, hash)| (checked_rowid.expectv("validated rowid"), hash))
-            .unzip()
+    pub fn separate_rowids_and_hashes(ids_of_payments: Vec<(u64, H256)>) -> (Vec<u64>, Vec<H256>) {
+        ids_of_payments.into_iter().unzip()
     }
 
     pub trait PayableThresholdsGauge {

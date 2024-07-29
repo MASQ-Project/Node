@@ -395,7 +395,7 @@ pub fn all_chains() -> [Chain; 4] {
     [
         Chain::EthMainnet,
         Chain::PolyMainnet,
-        Chain::PolyMumbai,
+        Chain::PolyAmoy,
         Chain::Dev,
     ]
 }
