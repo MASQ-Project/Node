@@ -242,34 +242,35 @@ impl BlockchainBridge {
         &mut self,
         incoming_message: QualifiedPayablesMessage,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        let consuming_wallet = match self.consuming_wallet_opt.clone() {
-            Some(wallet) => wallet,
-            None => {
-                return Box::new(err(
-                    "Cannot inspect available balances for payables while consuming wallet \
-                    is missing".to_string(),
-                ))
-            }
-        };
-        //TODO rewrite this into a batch call as soon as GH-629 gets into master
-        let accountant_recipient =  self.payable_payments_setup_subs_opt.clone();
-
-        return Box::new(
-            self.blockchain_interface.build_blockchain_agent(consuming_wallet)
-                .map_err(|e| format!("Blockchain agent build error: {:?}", e) )
-                .and_then(move |agent| {
-                    let outgoing_message = BlockchainAgentWithContextMessage::new(
-                        incoming_message.protected_qualified_payables,
-                        agent,
-                        incoming_message.response_skeleton_opt,
-                    );
-                    accountant_recipient
-                        .expect("Accountant is unbound")
-                        .try_send(outgoing_message)
-                        .expect("Accountant is dead");
-                    Ok(())
-                })
-        );
+        todo!("GH-744 - handle_qualified_payable_msg fix this need consuming_wallet")
+        // let consuming_wallet = match self.consuming_wallet_opt.clone() {
+        //     Some(wallet) => wallet,
+        //     None => {
+        //         return Box::new(err(
+        //             "Cannot inspect available balances for payables while consuming wallet \
+        //             is missing".to_string(),
+        //         ))
+        //     }
+        // };
+        // //TODO rewrite this into a batch call as soon as GH-629 gets into master
+        // let accountant_recipient =  self.payable_payments_setup_subs_opt.clone();
+        //
+        // return Box::new(
+        //     self.blockchain_interface.build_blockchain_agent(consuming_wallet)
+        //         .map_err(|e| format!("Blockchain agent build error: {:?}", e) )
+        //         .and_then(move |agent| {
+        //             let outgoing_message = BlockchainAgentWithContextMessage::new(
+        //                 incoming_message.protected_qualified_payables,
+        //                 agent,
+        //                 incoming_message.response_skeleton_opt,
+        //             );
+        //             accountant_recipient
+        //                 .expect("Accountant is unbound")
+        //                 .try_send(outgoing_message)
+        //                 .expect("Accountant is dead");
+        //             Ok(())
+        //         })
+        // );
     }
 
     fn handle_outbound_payments_instructions(
@@ -475,21 +476,22 @@ impl BlockchainBridge {
         msg: OutboundPaymentsInstructions,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
-        let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
-            Some(consuming_wallet) => consuming_wallet,
-            None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
-        };
-        let new_fingerprints_recipient = self.new_fingerprints_recipient();
-        let logger = self.logger.clone();
-        let chain = self.blockchain_interface.get_chain();
-        let consuming_wallet_clone = consuming_wallet.clone();
-        self.blockchain_interface.lower_interface().submit_payables_in_batch(
-            logger,
-            chain,
-            consuming_wallet_clone,
-            new_fingerprints_recipient,
-            msg.affordable_accounts
-        )
+        todo!("GH-744 - process_payments missing consuming_wallet");
+        // let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
+        //     Some(consuming_wallet) => consuming_wallet,
+        //     None => return Box::new(err(PayableTransactionError::MissingConsumingWallet)),
+        // };
+        // let new_fingerprints_recipient = self.new_fingerprints_recipient();
+        // let logger = self.logger.clone();
+        // let chain = self.blockchain_interface.get_chain();
+        // let consuming_wallet_clone = consuming_wallet.clone();
+        // self.blockchain_interface.lower_interface().submit_payables_in_batch(
+        //     logger,
+        //     chain,
+        //     consuming_wallet_clone,
+        //     new_fingerprints_recipient,
+        //     msg.affordable_accounts
+        // )
     }
 
     fn new_fingerprints_recipient(&self) -> Recipient<PendingPayableFingerprintSeeds> {
@@ -566,10 +568,7 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::test_utils::unshared_test_utils::{
-        assert_on_initialization_with_panic_on_migration,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
-    };
+    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, configure_default_persistent_config, ZERO};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::{U64};
@@ -580,7 +579,6 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
     use rustc_hex::FromHex;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use std::any::TypeId;
     use std::net::Ipv4Addr;
     use std::path::Path;
@@ -591,6 +589,7 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::ReceivedPaymentsError::OtherRPCError;
+    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::{GasPriceQueryFailed, MissingConsumingWallet, TransactionID};
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
@@ -628,7 +627,6 @@ mod tests {
             stub_bi(),
             Box::new(configure_default_persistent_config(ZERO)),
             false,
-            Some(consuming_wallet.clone()),
         );
         let system = System::new("blockchain_bridge_receives_bind_message");
         let addr = subject.start();
@@ -760,13 +758,12 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
             false,
-            Some(consuming_wallet.clone()),
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
         let qualified_payables = protect_payables_in_test(vec![]);
         let qualified_payables_msg = QualifiedPayablesMessage {
             protected_qualified_payables: qualified_payables,
-            consuming_wallet,
+            consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
                 context_id: 444,
@@ -795,8 +792,8 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
             false,
-            None,
         );
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let request = QualifiedPayablesMessage {
             protected_qualified_payables: protect_payables_in_test(vec![PayableAccount {
                 wallet: make_wallet("blah"),
@@ -804,6 +801,7 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }]),
+            consuming_wallet: consuming_wallet,
             response_skeleton_opt: None,
         };
 
@@ -849,7 +847,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_configuration_mock),
             false,
-            Some(consuming_wallet),
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
@@ -1026,7 +1023,6 @@ mod tests {
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet),
         );
         let (accountant, _, accountant_recording) = make_recorder();
         subject
@@ -1086,7 +1082,6 @@ mod tests {
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet),
         );
         let (accountant, _, accountant_recording) = make_recorder();
         subject
@@ -1125,7 +1120,6 @@ mod tests {
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet),
         );
         let (accountant, _, accountant_recording) = make_recorder();
         subject
@@ -1161,7 +1155,6 @@ mod tests {
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
             false,
-            None,
         );
         let (accountant, _, accountant_recording) = make_recorder();
         subject
@@ -1691,7 +1684,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet.clone()),
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
@@ -1782,7 +1774,6 @@ mod tests {
             Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
-            Some(consuming_wallet.clone()),
         );
         let addr = subject.start();
         let subject_subs = BlockchainBridge::make_subs_from(&addr);

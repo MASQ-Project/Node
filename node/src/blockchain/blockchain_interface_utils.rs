@@ -747,7 +747,7 @@ mod tests {
         let nonce = U256::from(1);
 
         sign_transaction(
-            Chain::PolyMumbai,
+            Chain::PolyAmoy,
             Web3::new(Batch::new(transport)),
             recipient_wallet,
             consuming_wallet,
@@ -1234,7 +1234,7 @@ mod tests {
     //with a real confirmation through a transaction sent with this data to the network
     #[test]
     fn web3_interface_signing_a_transaction_works_for_polygon_mumbai() {
-        let chain = Chain::PolyMumbai;
+        let chain = Chain::PolyAmoy;
         let nonce = 5;
         // signed_transaction_data changed after we changed the contract address of polygon matic
         let signed_transaction_data = "f8ad05850ba43b740083011980949b27034acabd44223fb23d628ba4849867ce1db280b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a5100083027126a09fdbbd7064d3b7240f5422b2164aaa13d62f0946a683d82ee26f97f242570d90a077b49dbb408c20d73e0666ba0a77ac888bf7a9cb14824a5f35c97217b9bc0a5a";
@@ -1299,7 +1299,7 @@ mod tests {
 
     #[test]
     fn gas_limit_for_polygon_mumbai_lies_within_limits_for_raw_transaction() {
-        test_gas_limit_is_between_limits(Chain::PolyMumbai);
+        test_gas_limit_is_between_limits(Chain::PolyAmoy);
     }
 
     #[test]
@@ -1351,7 +1351,7 @@ mod tests {
             Chain::EthMainnet => TEST_GAS_PRICE_ETH,
             Chain::EthRopsten => TEST_GAS_PRICE_ETH,
             Chain::PolyMainnet => TEST_GAS_PRICE_POLYGON,
-            Chain::PolyMumbai => TEST_GAS_PRICE_POLYGON,
+            Chain::PolyAmoy => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1379,7 +1379,7 @@ mod tests {
         let not_under_this_value = match chain {
             // TODO: GH-744 this could be use by web3_gas_limit_const_part - once Merged with Master
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyMumbai => 70_000,
+            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
         };
 
         let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
