@@ -2,9 +2,10 @@
 
 use crate::command::Command;
 use crate::masq_node::MASQNodeUtils;
-use crate::utils::UrlHolder;
+// use crate::utils::UrlHolder;
 use node_lib::test_utils;
 use std::net::{IpAddr, Ipv4Addr};
+use masq_lib::test_utils::utils::UrlHolder;
 
 pub struct BlockchainServer<'a> {
     pub name: &'a str,

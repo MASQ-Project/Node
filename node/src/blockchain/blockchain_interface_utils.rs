@@ -14,15 +14,14 @@ use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableF
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
-use ethereum_types::U64;
 use futures::{Future};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use serde_json::Value;
 use std::iter::once;
 use std::time::{SystemTime};
+use secp256k1secrets::SecretKey;
 use thousands::Separable;
-use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, H256, U256};
 use web3::{Web3};
@@ -155,19 +154,23 @@ pub fn sign_transaction(
     };
     let key = consuming_wallet
         .prepare_secp256k1_secret()
-        .expect("Consuming wallet doesnt contain a secret key"); // TODO: GH-744: need a test for this
-                                                                 // This wait call doesnt actually make any RPC call and signing is done locally.
-    let sign_transaction_result = web3_batch
+        .expect("Consuming wallet doesnt contain a secret key");
+
+    sign_transaction_locally(web3_batch, transaction_parameters, &key)
+}
+
+pub fn sign_transaction_locally(web3_batch: Web3<Batch<Http>>, transaction_parameters: TransactionParameters, key: &SecretKey) -> SignedTransaction {
+    if transaction_parameters.nonce.is_none() ||
+        transaction_parameters.chain_id.is_none() ||
+        transaction_parameters.gas_price.is_none() {
+        panic!("Signing should be done locally");
+    }
+
+    // This wait call doesn't actually make any RPC call and signing is done locally.
+    web3_batch
         .accounts()
         .sign_transaction(transaction_parameters, &key)
-        .wait();
-
-    match sign_transaction_result {
-        Ok(signed_transaction) => signed_transaction,
-        Err(error) => {
-            panic!("Signing should be done locally: {:?}", error); // TODO: GH-744: need a test for this
-        }
-    }
+        .wait().expect("Web call wasn't allowed")
 }
 
 pub fn handle_new_transaction(
@@ -1088,10 +1091,7 @@ mod tests {
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        // let transport = TestTransport::default();
-
+        ).unwrap();
         let web3 = Web3::new(transport.clone());
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
@@ -1101,7 +1101,6 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let consuming_wallet_secret_key = consuming_wallet.prepare_secp256k1_secret().unwrap();
         let data = sign_transaction_data(amount, recipient_wallet.clone());
-
         let tx_parameters = TransactionParameters {
             nonce: Some(nonce),
             to: Some(chain.rec().contract),
@@ -1111,7 +1110,6 @@ mod tests {
             data: Bytes(data.to_vec()),
             chain_id: Some(chain.rec().num_chain_id),
         };
-
         let result = sign_transaction(
             chain,
             Web3::new(Batch::new(transport)),
@@ -1130,6 +1128,71 @@ mod tests {
 
         assert_eq!(result, signed_transaction);
     }
+
+
+    #[test]
+    #[should_panic(expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x00000000636f6e73756d696e675f77616c6c6574).\")")]
+    fn sign_transaction_panics_on_bad_consuming_wallet() {
+        let port = find_free_port();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let chain = DEFAULT_CHAIN;
+        let amount = 11_222_333_444;
+        let gas_price_in_gwei = 123000000000_u64;
+        let nonce = U256::from(5);
+        let recipient_wallet = make_wallet("recipient_wallet");
+        let consuming_wallet = make_wallet("consuming_wallet");
+
+        let result = sign_transaction(
+            chain,
+            Web3::new(Batch::new(transport)),
+            recipient_wallet,
+            consuming_wallet,
+            amount,
+            nonce,
+            gas_price_in_gwei,
+        );
+    }
+
+
+    #[test]
+    #[should_panic(expected = "Signing should be done locally")]
+    fn sign_transaction_locally_panics_on_signed_transaction() {
+        let port = find_free_port();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        ).unwrap();
+        let chain = DEFAULT_CHAIN;
+        let amount = 11_222_333_444;
+        let gas_limit = U256::from(5);
+        let gas_price = U256::from(5);
+        let nonce = U256::from(5);
+        let recipient_wallet = make_wallet("recipient_wallet");
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let data = sign_transaction_data(amount, recipient_wallet);
+        let transaction_parameters = TransactionParameters {
+            nonce: None,
+            to: Some(chain.rec().contract),
+            gas: gas_limit,
+            gas_price: Some(gas_price),
+            value: U256::zero(),
+            data: Bytes(data.to_vec()),
+            chain_id: Some(chain.rec().num_chain_id),
+        };
+        let key = consuming_wallet
+            .prepare_secp256k1_secret()
+            .expect("Consuming wallet doesnt contain a secret key");
+
+        let result = sign_transaction_locally(
+            Web3::new(Batch::new(transport)),
+            transaction_parameters,
+            &key
+        );
+    }
+
 
     #[test]
     fn sign_and_append_payment_just_works() {

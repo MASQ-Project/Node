@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-
 use crate::test_utils::utils::UrlHolder;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -15,9 +14,6 @@ use itertools::Either::{Left, Right};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
-
-// use crate::masq_node_cluster::DockerHostSocketAddr;
-// use crate::utils::UrlHolder;
 
 lazy_static! {
     pub static ref CONTENT_LENGTH_DETECTOR: Regex =
@@ -404,3 +400,5 @@ struct ConnectionState {
     request_stage: RequestStage,
     request_accumulator: String,
 }
+
+// Test for this are located: multinode_integration_tests/src/mock_blockchain_client_server.rs

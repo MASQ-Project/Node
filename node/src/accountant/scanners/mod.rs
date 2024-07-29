@@ -924,7 +924,6 @@ impl ReceivableScanner {
         timestamp: SystemTime,
         logger: &Logger,
     ) {
-        // TODO: GH-744: We want to refactor this maybe;
         if payments_and_start_block.payments.is_empty() {
             info!(
                 logger,
@@ -947,7 +946,6 @@ impl ReceivableScanner {
                 .receivable_dao
                 .as_mut()
                 .more_money_received(timestamp, &payments_and_start_block.payments);
-
             let new_start_block = payments_and_start_block.new_start_block;
             match self
                 .persistent_configuration
