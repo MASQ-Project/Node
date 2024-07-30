@@ -384,6 +384,7 @@ mod tests {
     use serde_json::Value;
     use std::str::FromStr;
     use std::time::{SystemTime};
+    use rustc_hex::ToHex;
     use web3::api::Namespace;
     use web3::Error::{Rpc};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
@@ -1233,23 +1234,28 @@ mod tests {
 
     //with a real confirmation through a transaction sent with this data to the network
     #[test]
-    fn web3_interface_signing_a_transaction_works_for_polygon_mumbai() {
+    fn web3_interface_signing_a_transaction_works_for_polygon_amoy() {
         let chain = Chain::PolyAmoy;
-        let nonce = 5;
-        // signed_transaction_data changed after we changed the contract address of polygon matic
-        let signed_transaction_data = "f8ad05850ba43b740083011980949b27034acabd44223fb23d628ba4849867ce1db280b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a5100083027126a09fdbbd7064d3b7240f5422b2164aaa13d62f0946a683d82ee26f97f242570d90a077b49dbb408c20d73e0666ba0a77ac888bf7a9cb14824a5f35c97217b9bc0a5a";
-
+        let nonce = 4;
+        let signed_transaction_data = "f8ad04850ba43b74008301198094d98c3ebd6b7f9b7cda2449ecac00d1e5f47a819380b844a9\
+        059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b0000000000000000000000000000000000000000000\
+        00000000000e8d4a5100083027127a0ef0873170be31c30f532edf3c97fe8a1d577859fd4045b060007cf9e75bda875a01e4a3f7e06d12b22\
+        68d9889e279643ad8e1d291bca8f9f741bd6ec1aca2c0766";
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
+
 
     //with a real confirmation through a transaction sent with this data to the network
     #[test]
     fn web3_interface_signing_a_transaction_works_for_eth_ropsten() {
         let chain = Chain::EthRopsten;
         let nonce = 1; //must stay like this!
-        let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
+        let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cb\
+        b0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000\
+        000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15\
+        a891cd027a4c261bb80b51f33b78adf";
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)

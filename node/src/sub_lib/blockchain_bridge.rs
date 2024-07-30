@@ -12,6 +12,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use web3::types::U256;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
@@ -38,19 +39,22 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Message, Debug)]
+#[derive(Message)]
 pub struct OutboundPaymentsInstructions {
     pub affordable_accounts: Vec<PayableAccount>,
+    pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 impl OutboundPaymentsInstructions {
     pub fn new(
         affordable_accounts: Vec<PayableAccount>,
+        agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) -> Self {
         Self {
             affordable_accounts,
+            agent,
             response_skeleton_opt,
         }
     }

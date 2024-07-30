@@ -1659,10 +1659,15 @@ mod tests {
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
+        // In the real world the agents are identical, here they bear different ids
+        // so that we can watch their journey better
+        let agent_id_stamp_second_phase = ArbitraryIdStamp::new();
+        let agent =
+            BlockchainAgentMock::default().set_arbitrary_id_stamp(agent_id_stamp_second_phase);
         let affordable_accounts = vec![adjusted_account_1.clone(), adjusted_account_2.clone()];
         let payments_instructions = OutboundPaymentsInstructions {
             affordable_accounts: affordable_accounts.clone(),
-            // agent: Box::new(agent),
+            agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -3433,7 +3438,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // GH-744 FIX THIS!!
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
         let port = find_free_port();
@@ -3510,7 +3514,8 @@ mod tests {
             let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
             let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
             transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
-            let agent = BlockchainAgentMock::default();
+            // let consuming_wallet= make_paying_wallet(b"consuming_wallet");
+            // let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
             let blockchain_interface = make_blockchain_interface_web3(Some(port));
             let consuming_wallet = make_paying_wallet(b"wallet");
             let system = System::new("pending_transaction");
@@ -3687,6 +3692,7 @@ mod tests {
 
             send_start_message!(accountant_subs);
 
+            SystemKillerActor::new(Duration::from_secs(10)).start();
             assert_eq!(system.run(), 0);
             let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
             let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0);
