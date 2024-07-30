@@ -5583,7 +5583,7 @@ mod tests {
             accepts_connections: true,
             routes_data: true,
             version: 0,
-            location: None,
+            location_opt: None,
         };
         let node_record = NodeRecord::new(&public_key, main_cryptde(), node_record_inputs);
         let unreachable_host = String::from("facebook.com");

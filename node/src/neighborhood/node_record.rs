@@ -68,7 +68,7 @@ pub struct NodeRecordInputs {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
-    pub location: Option<NodeLocation>,
+    pub location_opt: Option<NodeLocation>,
 }
 
 impl NodeRecord {
@@ -78,7 +78,7 @@ impl NodeRecord {
         node_record_inputs: NodeRecordInputs,
     ) -> NodeRecord {
         let country = node_record_inputs
-            .location
+            .location_opt
             .as_ref()
             .map(|node_location| node_location.country_code.clone());
         let mut node_record = NodeRecord {
@@ -96,7 +96,7 @@ impl NodeRecord {
             signed_gossip: PlainData::new(&[]),
             signature: CryptData::new(&[]),
         };
-        node_record.metadata.node_location_opt = node_record_inputs.location;
+        node_record.metadata.node_location_opt = node_record_inputs.location_opt;
         node_record.regenerate_signed_gossip(cryptde);
         node_record
     }
@@ -629,7 +629,7 @@ mod tests {
             accepts_connections: true,
             routes_data: true,
             version: 0,
-            location: None,
+            location_opt: None,
         };
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
