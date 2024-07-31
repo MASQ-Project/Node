@@ -33,11 +33,11 @@ pub struct LowBlockchainIntMock {
 }
 
 impl LowBlockchainInt for LowBlockchainIntMock {
-    fn get_transaction_fee_balance(&self, address: Address) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
+    fn get_transaction_fee_balance(&self, _address: Address) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
-    fn get_service_fee_balance(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    fn get_service_fee_balance(&self, _address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
@@ -49,15 +49,15 @@ impl LowBlockchainInt for LowBlockchainIntMock {
         unimplemented!("not needed so far")
     }
 
-    fn get_transaction_id(&self, address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    fn get_transaction_id(&self, _address: Address) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>> {
+    fn get_transaction_receipt(&self, _hash: H256) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
-    fn get_transaction_receipt_batch(&self, hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
+    fn get_transaction_receipt_batch(&self, _hash_vec: Vec<H256>) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
@@ -65,11 +65,11 @@ impl LowBlockchainInt for LowBlockchainIntMock {
         unimplemented!("not needed so far")
     }
 
-    fn get_transaction_logs(&self, filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
+    fn get_transaction_logs(&self, _filter: Filter) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
-    fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
+    fn submit_payables_in_batch(&self, _logger: Logger, _chain: Chain, _consuming_wallet: Wallet, _fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, _affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
         unimplemented!("not needed so far")
     }
 

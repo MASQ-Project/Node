@@ -623,7 +623,7 @@ where
 mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
-    use crate::accountant::{DEFAULT_PENDING_TOO_LONG_SEC, PaymentsAndStartBlock, ReceivedPayments, ResponseSkeleton, ScanError};
+    use crate::accountant::{DEFAULT_PENDING_TOO_LONG_SEC, ReceivedPayments};
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
@@ -649,7 +649,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, AssertionsMessage, SubsFactoryTestAddrLeaker};
+    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, match_every_type_id, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
@@ -661,13 +661,13 @@ mod tests {
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use crossbeam_channel::{bounded, Receiver, unbounded};
+    use crossbeam_channel::{bounded, unbounded};
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
-    use masq_lib::messages::{ScanType, ToMessageBody, UiCrashRequest, UiDescriptorRequest};
+    use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::{find_free_port, running_test};
@@ -685,11 +685,7 @@ mod tests {
     use std::time::Duration;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, RetrievedBlockchainTransactions};
-    use crate::blockchain::test_utils::make_blockchain_interface_web3;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::http_test_server::TestServer;
 
     struct LogRecipientSetterNull {}
 
@@ -1980,7 +1976,6 @@ mod tests {
     fn blockchain_bridge_is_constructed_with_correctly_functioning_connections() {
         let test_name = "blockchain_bridge_is_constructed_with_correctly_functioning_connections";
         let data_dir = ensure_node_home_directory_exists("actor_system_factory", test_name);
-        let gas_price = 444;
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
@@ -2012,7 +2007,7 @@ mod tests {
             )
             .start();
         let server_url = format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port);
-        let persistent_config = {
+        let _persistent_config = {
             let conn = DbInitializerReal::default()
                 .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();

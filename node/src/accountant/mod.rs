@@ -77,7 +77,7 @@ use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
-use web3::types::{TransactionReceipt, H256};
+use web3::types::H256;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -1071,9 +1071,8 @@ mod tests {
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
-    // use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
-    use crate::blockchain::test_utils::{BlockchainInterfaceMock, make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
@@ -1098,7 +1097,7 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use actix::{Arbiter, System};
-    use ethereum_types::{U256, U64};
+    use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use log::Level;
     use masq_lib::constants::{
@@ -3441,7 +3440,7 @@ mod tests {
         let port = find_free_port();
         let pending_tx_hash_1 = H256::from_str("3fc5df85fbeb442627911796d88def92161855cded99509404e60ef8d8b171d8").unwrap();
         let pending_tx_hash_2 = H256::from_str("3deab5514f9c38cad0fb3f31bc8090caa4cbca8243394dedd69402f8ac5fd678").unwrap();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             // Blockchain Agent
             .response("0x3B9ACA00".to_string(), 0)// 1000000000
             .response("0xFFF0".to_string(), 0) // 65520

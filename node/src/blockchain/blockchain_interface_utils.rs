@@ -6,10 +6,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{to_wei, HashAndAmount, TRANSFER_METHOD_ID, BlockchainInterfaceWeb3};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainError, PayableTransactionError,
-};
+use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -23,7 +20,7 @@ use std::time::{SystemTime};
 use secp256k1secrets::SecretKey;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, H256, U256};
+use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, H256, U256};
 use web3::{Web3};
 use web3::{Error as Web3Error};
 
@@ -366,8 +363,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{
         Correct, Failed,
     };
-    use crate::blockchain::blockchain_interface::BlockchainInterface;
-    use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash};
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
@@ -384,7 +380,6 @@ mod tests {
     use serde_json::Value;
     use std::str::FromStr;
     use std::time::{SystemTime};
-    use rustc_hex::ToHex;
     use web3::api::Namespace;
     use web3::Error::{Rpc};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
@@ -412,7 +407,7 @@ mod tests {
             )
             .end_batch()
             .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
@@ -456,7 +451,7 @@ mod tests {
             )
             .end_batch()
             .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
@@ -495,7 +490,7 @@ mod tests {
     #[test]
     fn sign_and_append_payment_works() {
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
@@ -531,7 +526,7 @@ mod tests {
     fn send_and_append_multiple_payments_works() {
         let port = find_free_port();
         let logger = Logger::new("send_and_append_multiple_payments_works");
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         ).unwrap();
@@ -763,7 +758,7 @@ mod tests {
         init_test_logging();
         let test_name = "send_payables_within_batch_works";
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
@@ -868,7 +863,7 @@ mod tests {
         init_test_logging();
         let test_name = "send_payables_within_batch_all_payments_fail";
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
@@ -981,7 +976,7 @@ mod tests {
         init_test_logging();
         let test_name = "send_payables_within_batch_one_payment_works_the_other_fails";
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
@@ -1146,7 +1141,7 @@ mod tests {
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_wallet("consuming_wallet");
 
-        let result = sign_transaction(
+        let _result = sign_transaction(
             chain,
             Web3::new(Batch::new(transport)),
             recipient_wallet,
@@ -1170,7 +1165,6 @@ mod tests {
         let amount = 11_222_333_444;
         let gas_limit = U256::from(5);
         let gas_price = U256::from(5);
-        let nonce = U256::from(5);
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let data = sign_transaction_data(amount, recipient_wallet);
@@ -1187,7 +1181,7 @@ mod tests {
             .prepare_secp256k1_secret()
             .expect("Consuming wallet doesnt contain a secret key");
 
-        let result = sign_transaction_locally(
+        let _result = sign_transaction_locally(
             Web3::new(Batch::new(transport)),
             transaction_parameters,
             &key
@@ -1381,13 +1375,7 @@ mod tests {
     }
 
     fn test_gas_limit_is_between_limits(chain: Chain) {
-        // let not_under_this_value = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain); // <<< ---- HERE
-        let not_under_this_value = match chain {
-            // TODO: GH-744 this could be use by web3_gas_limit_const_part - once Merged with Master
-            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
-        };
-
+        let not_under_this_value = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain);
         let not_above_this_value = not_under_this_value + WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         let data = sign_transaction_data(1_000_000_000, make_wallet("wallet1"));
 

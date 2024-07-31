@@ -2,12 +2,10 @@
 
 use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{CONTRACT_ABI, ResultForReceipt};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use futures::{Future};
-use itertools::Itertools;
-use serde::Deserializer;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -201,17 +199,14 @@ impl LowBlockchainIntWeb3 {
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
-    use crate::blockchain::blockchain_interface::lower_level_interface::{LowBlockchainInt};
     use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
     use crate::sub_lib::wallet::Wallet;
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
-    use ethabi::Address;
     use ethereum_types::{H256, U64};
     use futures::Future;
     use web3::transports::Http;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, H2048, Log, TransactionReceipt, U256};
-    use websocket::header::RelationType::Index;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL};
@@ -220,43 +215,6 @@ mod tests {
     use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
     use crate::test_utils::{assert_string_contains, make_wallet};
 
-    fn tmp_nested_get_transaction_fee_balance_future(subject: Box<dyn LowBlockchainInt>, address: Address) -> Box<dyn Future<Item = (), Error = String>> {
-        Box::new(
-            subject.get_transaction_fee_balance(address).map_err(|e| {
-                format!("Error: 1 {:?}", e)
-            }).and_then(move |balance_1| {
-                subject.get_transaction_fee_balance(address).map_err(|e| {
-                    format!("Error: 2 {:?}", e)
-                }).and_then(move |balance_2| {
-                    subject.get_transaction_fee_balance(address).map_err(|e| {
-                        format!("Error: 3 {:?}", e)
-                    }).and_then(move |balance_3| {
-                        eprintln!("balance_1: {:?}", balance_1);
-                        eprintln!("balance_2: {:?}", balance_2);
-                        eprintln!("balance_3: {:?}", balance_3);
-                        Ok(())
-                    })
-                })
-            })
-        )
-    }
-
-    #[test]
-    fn tmp_nested_future_test() {
-        let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xDEADBEEF".to_string(), 0)
-            .response("0xDEADBEEE".to_string(), 0)
-            .response("0xDEADBEED".to_string(), 0)
-            .start();
-        let subject = make_blockchain_interface_web3(Some(port));
-        let wallet = make_wallet("test_wallet");
-        let address = wallet.address();
-
-        let result = tmp_nested_get_transaction_fee_balance_future(subject.lower_interface(), address);
-
-        result.wait().expect("TODO: panic message");
-    }
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -395,8 +353,6 @@ mod tests {
                 0,
             )
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let contract = blockchain_interface_web3.lower_interface().get_contract();
         let subject = make_blockchain_interface_web3(Some(port));
 
         let result = subject.lower_interface().get_service_fee_balance(
@@ -419,8 +375,6 @@ mod tests {
                 0,
             )
             .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let contract = blockchain_interface_web3.lower_interface().get_contract();
         let expected_err_msg = "Invalid hex";
         let subject = make_blockchain_interface_web3(Some(port));
 
@@ -460,7 +414,7 @@ mod tests {
             .gas_used(gas_used)
             .status(status)
             .build();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .raw_response(tx_receipt_response)
             .start();
         let subject = make_blockchain_interface_web3(Some(port));
@@ -534,7 +488,7 @@ mod tests {
             .status(status)
             .logs_bloom(logs_bloom)
             .build();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .err_response(
                 429,
@@ -572,7 +526,7 @@ mod tests {
     #[test]
     fn transaction_receipt_batch_fails_on_submit_batch() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
              .start();
         let subject = make_blockchain_interface_web3(Some(port));
         let tx_hash_1 = H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e").unwrap();
@@ -587,7 +541,7 @@ mod tests {
     #[test]
     fn get_transaction_logs_works() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .raw_response(r#"{
               "jsonrpc": "2.0",
               "id": 1,
@@ -659,7 +613,7 @@ mod tests {
     #[test]
     fn get_transaction_logs_fails() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .raw_response(r#"{
               "jsonrpc": "2.0",
               "id": 1,

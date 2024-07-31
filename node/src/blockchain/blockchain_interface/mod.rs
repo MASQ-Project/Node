@@ -7,19 +7,14 @@ pub mod test_utils;
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
-};
+    BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
 use core::panic;
-use ethereum_types::U256;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use web3::contract::{Contract};
-use web3::transports::{Batch, Http};
-use web3::types::{Address, BlockNumber, H256};
-use web3::{Web3};
+use web3::types::{Address, BlockNumber};
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;

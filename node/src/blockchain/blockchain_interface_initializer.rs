@@ -47,16 +47,13 @@ mod tests {
     use masq_lib::blockchains::chains::Chain;
 
     use futures::Future;
-    use serde_json::Value;
     use std::net::Ipv4Addr;
     use web3::transports::Http;
-    use web3::Web3;
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
     };
     use crate::blockchain::blockchain_interface::BlockchainInterface;
-    use crate::test_utils::http_test_server::TestServer;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -65,7 +62,7 @@ mod tests {
     #[test]
     fn initialize_web3_interface_works() {
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
             .response("0xFF40".to_string(), 0)
             .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)

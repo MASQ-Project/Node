@@ -19,8 +19,7 @@ use masq_lib::logger::Logger;
 use std::convert::{From, TryInto};
 use std::fmt::Debug;
 use ethereum_types::U64;
-use web3::contract::{Contract};
-use web3::transports::{Batch, EventLoopHandle, Http};
+use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, FilterBuilder};
 use web3::Web3;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
@@ -316,13 +315,11 @@ mod tests {
     };
     use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
     use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError, BlockchainInterface, RetrievedBlockchainTransactions};
-    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, make_tx_hash};
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::http_test_server::TestServer;
-    use crate::test_utils::{assert_string_contains, make_paying_wallet};
+    use crate::test_utils::make_paying_wallet;
     use crate::test_utils::{make_wallet, TestRawTransaction};
-    use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use futures::Future;
     use indoc::indoc;
@@ -335,12 +332,10 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{
-        BlockNumber, Bytes, TransactionParameters, TransactionReceipt, H2048, H256, U256,
+        BlockNumber, Bytes, TransactionParameters, H256, U256,
     };
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::blockchain::blockchain_interface_utils::calculate_fallback_start_block_number;
-
-    // #[test]
 
     #[test]
     fn constants_are_correct() {

@@ -9,7 +9,6 @@ use crate::accountant::{
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::actor_system_factory::SubsFactory;
-// use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainError, PayableTransactionError,
@@ -17,7 +16,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::blockchain::blockchain_interface_initializer::BlockchainInterfaceInitializer;
-use crate::blockchain::blockchain_interface_utils::{calculate_fallback_start_block_number, send_payables_within_batch};
+use crate::blockchain::blockchain_interface_utils::calculate_fallback_start_block_number;
 use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
@@ -34,7 +33,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
-use futures::future::err;
 use futures::Future;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -45,9 +43,8 @@ use regex::Regex;
 use std::path::Path;
 use std::time::SystemTime;
 use ethabi::Hash;
-use web3::transports::{Batch, Http};
-use web3::types::{BlockNumber, TransactionReceipt, H256};
-use web3::Web3;
+use web3::transports::Http;
+use web3::types::{BlockNumber, H256};
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
@@ -564,7 +561,6 @@ mod tests {
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;
-    use rustc_hex::FromHex;
     use std::any::TypeId;
     use std::net::Ipv4Addr;
     use std::path::Path;
@@ -576,10 +572,8 @@ mod tests {
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::ReceivedPaymentsError::OtherRPCError;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::{GasPriceQueryFailed, MissingConsumingWallet, TransactionID};
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::{GasPriceQueryFailed, TransactionID};
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
-    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -605,11 +599,6 @@ mod tests {
     #[test]
     fn blockchain_bridge_receives_bind_message() {
         init_test_logging();
-        let secret: Vec<u8> = "cc46befe8d169b89db447bd725fc2368b12542113555302598430cb5d5c74ea9"
-            .from_hex()
-            .unwrap();
-        let consuming_wallet =
-            Wallet::from(Bip32EncryptionKeyProvider::from_raw_secret(&secret).unwrap());
         let subject = BlockchainBridge::new(
             stub_bi(),
             Box::new(configure_default_persistent_config(ZERO)),
@@ -631,7 +620,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Blockchain service can not start with out a blockchain service url")]
     fn blockchain_interface_null_as_result_of_missing_blockchain_service_url() {
-        let result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
+        let _result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
     }
 
     #[test]
@@ -1069,7 +1058,7 @@ mod tests {
     fn process_payments_fails_on_missing_gas_price() {
         let test_name = "process_payments_fails_on_missing_gas_price";
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x20".to_string(), 0)
             .response("Trash Gas Price".to_string(), 0)
             .start();
@@ -1129,7 +1118,7 @@ mod tests {
         };
         let first_response = ReceiptResponseBuilder::default().transaction_hash(hash_1).build();
         let port= find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .raw_response(first_response)
             .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
@@ -1255,7 +1244,7 @@ mod tests {
             .block_number(block_number)
             .contract_address(contract_address)
             .build();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
             .raw_response(tx_receipt_response)
@@ -1364,7 +1353,7 @@ mod tests {
         let recipient = accountant.start().recipient();
         let transaction_receipt_response = ReceiptResponseBuilder::default().build();
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port)
+        let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .raw_response(transaction_receipt_response)
             .end_batch()
@@ -1427,7 +1416,7 @@ mod tests {
             process_error: None,
         };
         let port = find_free_port();
-        let blockchain_client_server = MBCSBuilder::new(port).start();
+        let _blockchain_client_server = MBCSBuilder::new(port).start();
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1607,7 +1596,6 @@ mod tests {
         };
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(6)).max_block_count_result(Err(PersistentConfigError::NotPresent));
-        let consuming_wallet = make_wallet("consuming");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -1697,7 +1685,6 @@ mod tests {
         let mut blockchain_interface = make_blockchain_interface_web3(Some(port));
         blockchain_interface.logger = logger;
         let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(6)).max_block_count_result(Err(PersistentConfigError::NotPresent));
-        let consuming_wallet = make_wallet("consuming");
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),

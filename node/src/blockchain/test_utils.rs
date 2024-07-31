@@ -25,29 +25,20 @@ use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H160, H256, U64};
 use futures::future::result;
 use futures::Future;
-use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{find_free_port, to_string};
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
-use std::process::id;
 use std::sync::{Arc, Mutex};
 use ethabi::Hash;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use serde_json::json;
-use web3::contract::Contract;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, H2048, Index, Log, SignedTransaction, TransactionReceipt, U256};
-use web3::{BatchTransport, Error as Web3Error, Web3};
-use web3::{RequestId, Transport};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
+use web3::Web3;
 use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
-use crate::sub_lib::peer_actors::PeerActors;
-use crate::test_utils::recorder::{make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder, make_configurator_subs_from_recorder, make_dispatcher_subs_from_recorder, make_hopper_subs_from_recorder, make_neighborhood_subs_from_recorder, make_proxy_client_subs_from_recorder, make_proxy_server_subs_from_recorder, make_ui_gateway_subs_from_recorder, Recorder};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
