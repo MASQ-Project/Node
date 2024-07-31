@@ -319,7 +319,11 @@ impl DebutHandler {
                                 "DebutHandler database state: {}",
                                 &database.to_dot_graph(),
                             );
-                            let debut_gossip = Self::create_debut_gossip_response(cryptde, database, debut_node_key);
+                            let debut_gossip = Self::create_debut_gossip_response(
+                                cryptde,
+                                database,
+                                debut_node_key,
+                            );
                             Ok(GossipAcceptanceResult::Reply(
                                 debut_gossip,
                                 debuting_agr.inner.public_key.clone(),
@@ -337,17 +341,23 @@ impl DebutHandler {
         }
     }
 
-    fn create_debut_gossip_response(cryptde: &dyn CryptDE, database: &mut NeighborhoodDatabase, debut_node_key: PublicKey) -> Gossip_0v1 {
+    fn create_debut_gossip_response(
+        cryptde: &dyn CryptDE,
+        database: &mut NeighborhoodDatabase,
+        debut_node_key: PublicKey,
+    ) -> Gossip_0v1 {
         let mut root_node = database.root().clone();
         root_node.clear_half_neighbors();
         root_node
             .add_half_neighbor_key(debut_node_key.clone())
-            .unwrap_or_else(|e|panic!("Couldn't add debuting {} as a half neighbor: {:?}", debut_node_key, e));
-        let gnr = GossipNodeRecord::from((
-            root_node.inner.clone(),
-            root_node.node_addr_opt(),
-            cryptde,
-        ));
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Couldn't add debuting {} as a half neighbor: {:?}",
+                    debut_node_key, e
+                )
+            });
+        let gnr =
+            GossipNodeRecord::from((root_node.inner.clone(), root_node.node_addr_opt(), cryptde));
         let debut_gossip = Gossip_0v1 {
             node_records: vec![gnr],
         };
@@ -1679,9 +1689,11 @@ mod tests {
             .unwrap();
 
         let (debut_reply, dest_public_key, dest_node_addr) = match counter_debut {
-            GossipAcceptanceResult::Reply(ref debut_reply, ref dest_public_key, ref dest_node_addr) => {
-                (debut_reply, dest_public_key, dest_node_addr)
-            }
+            GossipAcceptanceResult::Reply(
+                ref debut_reply,
+                ref dest_public_key,
+                ref dest_node_addr,
+            ) => (debut_reply, dest_public_key, dest_node_addr),
             x => panic!("Expected Reply, got {:?}", x),
         };
 
@@ -1692,7 +1704,11 @@ mod tests {
             .unwrap();
         assert_eq!(
             counter_debut,
-            GossipAcceptanceResult::Reply(debut_reply.clone(), dest_public_key.clone(), dest_node_addr.clone())
+            GossipAcceptanceResult::Reply(
+                debut_reply.clone(),
+                dest_public_key.clone(),
+                dest_node_addr.clone()
+            )
         )
     }
 
@@ -2028,7 +2044,8 @@ mod tests {
             handle_result
         );
 
-        let result_introducer: &NodeRecord = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+        let result_introducer: &NodeRecord =
+            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
@@ -2104,7 +2121,8 @@ mod tests {
             ),
             handle_result
         );
-        let result_introducer: &NodeRecord = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+        let result_introducer: &NodeRecord =
+            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
@@ -2160,7 +2178,8 @@ mod tests {
             handle_result
         );
 
-        let result_introducer: &NodeRecord = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+        let result_introducer: &NodeRecord =
+            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
@@ -3439,10 +3458,7 @@ Length: 24 (0x18) bytes
             node_records: vec![gnr],
         };
         let expected = make_expected_non_introduction_debut_response(&src_node, debut_gossip);
-        assert_eq!(
-            result,
-            expected
-        );
+        assert_eq!(result, expected);
         assert_eq!(
             dest_db
                 .node_by_key(dest_node.public_key())
@@ -3491,10 +3507,7 @@ Length: 24 (0x18) bytes
             node_records: vec![gnr],
         };
         let expected = make_expected_non_introduction_debut_response(&src_node, debut_gossip);
-        assert_eq!(
-            result,
-            expected
-        );
+        assert_eq!(result, expected);
         assert_eq!(
             dest_db
                 .node_by_key(dest_node.public_key())
@@ -3504,15 +3517,14 @@ Length: 24 (0x18) bytes
         );
     }
 
-    fn make_expected_non_introduction_debut_response(src_node: &NodeRecord, debut_gossip: Gossip_0v1) -> GossipAcceptanceResult {
+    fn make_expected_non_introduction_debut_response(
+        src_node: &NodeRecord,
+        debut_gossip: Gossip_0v1,
+    ) -> GossipAcceptanceResult {
         GossipAcceptanceResult::Reply(
             debut_gossip,
             src_node.public_key().clone(),
-            src_node
-                .node_addr_opt()
-                .as_ref()
-                .unwrap()
-                .clone(),
+            src_node.node_addr_opt().as_ref().unwrap().clone(),
         )
     }
 
@@ -4027,9 +4039,7 @@ Length: 24 (0x18) bytes
         );
         assert_node_records_eq(
             dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
-            expected_dest_db
-                .node_by_key(src_node.public_key())
-                .unwrap(),
+            expected_dest_db.node_by_key(src_node.public_key()).unwrap(),
             before,
             after,
         );

@@ -21,11 +21,9 @@ pub fn get_node_location(ip_opt: Option<IpAddr>) -> Option<NodeLocation> {
     match ip_opt {
         Some(ip_addr) => {
             let country_opt = CountryCodeFinder::find_country(&COUNTRY_CODE_FINDER, ip_addr);
-            country_opt.map(|country|{
-                NodeLocation {
-                    country_code: country.iso3166.to_string(),
-                    free_world_bit: country.free_world,
-                }
+            country_opt.map(|country| NodeLocation {
+                country_code: country.iso3166.to_string(),
+                free_world_bit: country.free_world,
             })
         }
         None => None,
@@ -69,9 +67,20 @@ mod tests {
         let node_record = make_node_record(3333, true);
         let (record_addr, record_cc, record_fwb) = pick_country_code_record(3333);
 
-        assert_eq!(node_record.node_addr_opt().as_ref().unwrap().ip_addr(), record_addr);
+        assert_eq!(
+            node_record.node_addr_opt().as_ref().unwrap().ip_addr(),
+            record_addr
+        );
         assert_eq!(node_record.inner.country_code_opt.unwrap(), record_cc);
-        assert_eq!(node_record.metadata.node_location_opt.as_ref().unwrap().free_world_bit, record_fwb);
+        assert_eq!(
+            node_record
+                .metadata
+                .node_location_opt
+                .as_ref()
+                .unwrap()
+                .free_world_bit,
+            record_fwb
+        );
         assert_eq!(
             node_record.metadata.node_location_opt,
             Some(NodeLocation {

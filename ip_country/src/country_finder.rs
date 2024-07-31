@@ -53,7 +53,8 @@ impl CountryCodeFinder {
             IpAddr::V4(_) => &country_code_block.ipv4,
             IpAddr::V6(_) => &country_code_block.ipv6,
         };
-        let block_index = country_finder.binary_search_by(|block| block.ip_range.in_range(ip_addr));
+        let block_index =
+            country_finder.binary_search_by(|block| block.ip_range.ordering_by_range(ip_addr));
         let country = match block_index {
             Ok(index) => country_finder[index].country.clone(),
             _ => Country::try_from("ZZ").expect("expected Country"),

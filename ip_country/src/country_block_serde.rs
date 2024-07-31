@@ -1,3 +1,5 @@
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::bit_queue::BitQueue;
 use crate::country_block_stream::{Country, CountryBlock, IpRange};
 use std::net::{Ipv4Addr, Ipv6Addr};
