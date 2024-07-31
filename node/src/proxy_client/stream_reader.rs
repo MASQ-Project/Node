@@ -7,17 +7,19 @@ use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use futures::{Poll, Stream};
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 pub struct StreamReader {
     stream_key: StreamKey,
     proxy_client_sub: Recipient<InboundServerData>,
     stream: Box<dyn ReadHalfWrapper>,
     stream_killer: Sender<(StreamKey, u64)>,
-    shutdown_signal: Receiver<()>,
+    shutdown_signal: UnboundedReceiver<()>,
     peer_addr: SocketAddr,
     logger: Logger,
     sequencer: Sequencer,
@@ -30,12 +32,24 @@ impl Future for StreamReader {
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
-            if self.shutdown_signal.try_recv().is_ok() {
-                info!(
-                    self.logger,
-                    "Shutting down for stream: {:?}", self.stream_key
-                );
-                return Ok(Async::Ready(()));
+            match self.shutdown_signal.poll() {
+                // TODO: GH-800: Test Drive Me
+                Ok(Async::Ready(_something)) => {
+                    info!(
+                        self.logger,
+                        "Shutting down for stream: {:?}", self.stream_key
+                    );
+                    return Ok(Async::Ready(()));
+                }
+                Ok(Async::NotReady) => (),
+                Err(_e) => {
+                    warning!(
+                        self.logger,
+                        "Failed to receive a signal for shutting down StreamReader for stream key: {:?}",
+                        self.stream_key,
+                    );
+                    return Err(());
+                }
             }
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
@@ -99,7 +113,7 @@ impl StreamReader {
         proxy_client_sub: Recipient<InboundServerData>,
         stream: Box<dyn ReadHalfWrapper>,
         stream_killer: Sender<(StreamKey, u64)>,
-        shutdown_signal: Receiver<()>,
+        shutdown_signal: UnboundedReceiver<()>,
         peer_addr: SocketAddr,
     ) -> StreamReader {
         let logger = Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]);
@@ -150,6 +164,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::thread;
+    use tokio::sync::mpsc::unbounded_channel;
 
     #[test]
     fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
@@ -196,7 +211,7 @@ mod tests {
             proxy_client_sub,
             stream,
             stream_killer,
-            shutdown_signal: unbounded().1,
+            shutdown_signal: unbounded_channel().1,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
@@ -347,7 +362,7 @@ mod tests {
             proxy_client_sub: make_recorder().0.start().recipient(),
             stream: Box::new(stream),
             stream_killer,
-            shutdown_signal: unbounded().1,
+            shutdown_signal: unbounded_channel().1,
             peer_addr,
             logger: Logger::new(test_name),
             sequencer,
@@ -400,7 +415,7 @@ mod tests {
             proxy_client_sub,
             stream: Box::new(stream),
             stream_killer,
-            shutdown_signal: unbounded().1,
+            shutdown_signal: unbounded_channel().1,
             peer_addr,
             logger: Logger::new(test_name),
             sequencer: Sequencer::new(),
@@ -430,12 +445,12 @@ mod tests {
     fn stream_reader_shuts_down_when_it_receives_the_shutdown_signal() {
         init_test_logging();
         let test_name = "stream_reader_shuts_down_when_it_receives_the_shutdown_signal";
-        let (shutdown_tx, shutdown_rx) = unbounded();
+        let (mut shutdown_tx, shutdown_rx) = unbounded_channel();
         let mut subject = make_subject();
         subject.shutdown_signal = shutdown_rx;
         subject.logger = Logger::new(test_name);
 
-        shutdown_tx.send(()).unwrap();
+        shutdown_tx.try_send(()).unwrap();
 
         assert_eq!(subject.poll(), Ok(Async::Ready(())));
         TestLogHandler::new().exists_log_containing(&format!(
@@ -450,7 +465,7 @@ mod tests {
             proxy_client_sub: make_recorder().0.start().recipient(),
             stream: Box::new(ReadHalfWrapperMock::new()),
             stream_killer: unbounded().0,
-            shutdown_signal: unbounded().1,
+            shutdown_signal: unbounded_channel().1,
             peer_addr: SocketAddr::from_str("9.8.7.6:5432").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),

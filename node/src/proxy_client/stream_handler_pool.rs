@@ -14,9 +14,9 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
-use crossbeam_channel::{unbounded, Receiver, SendError, Sender};
-use futures::future;
+use crossbeam_channel::{unbounded, Receiver};
 use futures::future::Future;
+use futures::{future, Sink};
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::io;
@@ -26,6 +26,8 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
@@ -44,7 +46,7 @@ pub struct StreamHandlerPoolReal {
 #[derive(Debug)]
 pub struct StreamSenders {
     pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
-    pub reader_shutdown: Sender<()>,
+    pub reader_shutdown_tx: UnboundedSender<()>,
 }
 
 struct StreamHandlerPoolRealInner {
@@ -223,14 +225,14 @@ impl StreamHandlerPoolReal {
             if last_data {
                 debug!(test_logger, "last_data = true");
                 match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(stream_senders) => {
+                    Some(mut stream_senders) => {
                         debug!(
                             inner.logger,
                             "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
-                        match stream_senders.reader_shutdown.send(()) {
+                        match stream_senders.reader_shutdown_tx.try_send(()) {
                             Ok(()) => {
                                 debug!(test_logger, "A shutdown signal was sent.")
                             }
@@ -467,7 +469,7 @@ impl StreamHandlerPoolReal {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
-                Some(stream_senders) => {
+                Some(mut stream_senders) => {
                     debug!(
                         Logger::new("TEST"),
                         "clean_up_dead_streams() removed the stream key"
@@ -483,7 +485,7 @@ impl StreamHandlerPoolReal {
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
-                    if let Err(e) = stream_senders.reader_shutdown.send(()) {
+                    if let Err(e) = stream_senders.reader_shutdown_tx.try_send(()) {
                         debug!(inner.logger, "Unable to send a shutdown signal to the StreamReader for stream key {:?}. The channel is already gone.", stream_key)
                     };
                     // Test should have a fake server, and the (read and write should be different) server
@@ -587,6 +589,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::{Actor, System};
     use core::any::TypeId;
+    use futures::Stream;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -602,6 +605,7 @@ mod tests {
     use std::{sync, thread};
     use tokio;
     use tokio::prelude::Async;
+    use tokio::sync::mpsc::unbounded_channel;
     use trust_dns_resolver::error::ResolveErrorKind;
 
     struct StreamEstablisherFactoryMock {
@@ -739,7 +743,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: tx_to_write,
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown_tx: unbounded_channel().0,
                 },
             );
 
@@ -800,7 +804,7 @@ mod tests {
                 client_request_payload.stream_key,
                 StreamSenders {
                     writer_data: Box::new(tx_to_write),
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown_tx: unbounded_channel().0,
                 },
             );
 
@@ -935,7 +939,7 @@ mod tests {
     fn while_housekeeping_the_stream_senders_are_received_by_stream_handler_pool() {
         init_test_logging();
         let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
-        let (shutdown_tx, shutdown_rx) = unbounded();
+        let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
         let (stream_adder_tx, stream_adder_rx) = unbounded();
         thread::spawn(move || {
             let stream_key = StreamKey::make_meaningful_stream_key("I should die");
@@ -976,7 +980,7 @@ mod tests {
                     stream_key,
                     StreamSenders {
                         writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown: shutdown_tx,
+                        reader_shutdown_tx: shutdown_tx,
                     },
                 );
                 inner.establisher_factory = Box::new(StreamEstablisherFactoryReal {
@@ -994,8 +998,8 @@ mod tests {
 
             run_process_package_in_actix(subject, package);
         });
-        let received = shutdown_rx.recv();
-        assert_eq!(received, Ok(()));
+        let received = shutdown_rx.poll().unwrap();
+        assert_eq!(received, Async::Ready(Some(())));
         TestLogHandler::new().await_log_containing(
             &format!(
                 "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
@@ -1009,7 +1013,7 @@ mod tests {
     fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
         init_test_logging();
         let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
-        let (shutdown_tx, shutdown_rx) = unbounded();
+        let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
         thread::spawn(move || {
             let stream_key = StreamKey::make_meaningful_stream_key("I should die");
             let client_request_payload = ClientRequestPayload_0v1 {
@@ -1048,15 +1052,15 @@ mod tests {
                     stream_key,
                     StreamSenders {
                         writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown: shutdown_tx,
+                        reader_shutdown_tx: shutdown_tx,
                     },
                 );
             }
 
             run_process_package_in_actix(subject, package);
         });
-        let received = shutdown_rx.recv();
-        assert_eq!(received, Ok(()));
+        let received = shutdown_rx.poll().unwrap();
+        assert_eq!(received, Async::Ready(Some(())));
         TestLogHandler::new().await_log_containing(
             &format!(
                 "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
@@ -1070,7 +1074,7 @@ mod tests {
     fn stream_handler_pool_logs_when_shutdown_channel_is_broken() {
         init_test_logging();
         let test_name = "stream_handler_pool_logs_when_shutdown_channel_is_broken";
-        let broken_shutdown_channel_tx = unbounded().0;
+        let broken_shutdown_channel_tx = unbounded_channel().0;
         thread::spawn(move || {
             let stream_key = StreamKey::make_meaningful_stream_key("I should die");
             let client_request_payload = ClientRequestPayload_0v1 {
@@ -1109,7 +1113,7 @@ mod tests {
                     stream_key,
                     StreamSenders {
                         writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown: broken_shutdown_channel_tx,
+                        reader_shutdown_tx: broken_shutdown_channel_tx,
                     },
                 );
             }
@@ -1869,7 +1873,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(sender_wrapper),
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown_tx: unbounded_channel().0,
                 },
             );
 
@@ -1965,14 +1969,14 @@ mod tests {
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = StreamKey::make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let (shutdown_tx, shutdown_rx) = unbounded();
+        let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
         {
             let mut inner = subject.inner.lock().unwrap();
             inner.stream_writer_channels.insert(
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                    reader_shutdown: shutdown_tx,
+                    reader_shutdown_tx: shutdown_tx,
                 },
             );
         }
@@ -1984,8 +1988,8 @@ mod tests {
         system.run();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         let report = proxy_client_recording.get_record::<InboundServerData>(0);
-        let shutdown_signal_received = shutdown_rx.recv();
-        assert_eq!(shutdown_signal_received, Ok(()));
+        let shutdown_signal_received = shutdown_rx.poll().unwrap();
+        assert_eq!(shutdown_signal_received, Async::Ready(Some(())));
         assert_eq!(
             report,
             &InboundServerData {
@@ -2016,7 +2020,7 @@ mod tests {
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = StreamKey::make_meaningful_stream_key("I'll be gone well before then.");
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let broken_shutdown_channel_tx = unbounded().0;
+        let broken_shutdown_channel_tx = unbounded_channel().0;
         {
             let mut inner = subject.inner.lock().unwrap();
             inner.logger = Logger::new(test_name);
@@ -2024,7 +2028,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                    reader_shutdown: broken_shutdown_channel_tx,
+                    reader_shutdown_tx: broken_shutdown_channel_tx,
                 },
             );
         }
@@ -2087,23 +2091,23 @@ mod tests {
         }
         let first_stream_key = StreamKey::make_meaningful_stream_key("first_stream_key");
         let (first_writer_data_tx, first_writer_data_rx) = futures::sync::mpsc::unbounded();
-        let (first_shutdown_tx, first_shutdown_rx) = unbounded();
+        let (first_shutdown_tx, first_shutdown_rx) = unbounded_channel();
         let first_stream_senders = StreamSenders {
             writer_data: Box::new(SenderWrapperReal::new(
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 first_writer_data_tx,
             )),
-            reader_shutdown: first_shutdown_tx,
+            reader_shutdown_tx: first_shutdown_tx,
         };
         let (second_writer_data_tx, second_writer_data_rx) = futures::sync::mpsc::unbounded();
-        let (second_shutdown_tx, second_shutdown_rx) = unbounded();
+        let (second_shutdown_tx, second_shutdown_rx) = unbounded_channel();
         let second_stream_key = StreamKey::make_meaningful_stream_key("second_stream_key");
         let second_stream_senders = StreamSenders {
             writer_data: Box::new(SenderWrapperReal::new(
                 SocketAddr::from_str("2.3.4.5:6789").unwrap(),
                 second_writer_data_tx,
             )),
-            reader_shutdown: second_shutdown_tx,
+            reader_shutdown_tx: second_shutdown_tx,
         };
         stream_adder_tx
             .send((first_stream_key.clone(), first_stream_senders))

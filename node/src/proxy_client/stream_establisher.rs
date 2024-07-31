@@ -20,6 +20,7 @@ use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
@@ -60,7 +61,8 @@ impl StreamEstablisher {
             payload.target_port,
             &self.logger,
         )?;
-        let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
+        // TODO: GH-800: Change it to a tokio channel instead of a crossbeam channel
+        let (shutdown_signal_tx, shutdown_signal_rx) = tokio::sync::mpsc::unbounded_channel();
 
         self.spawn_stream_reader(
             &payload.clone(),
@@ -80,7 +82,7 @@ impl StreamEstablisher {
 
         let stream_senders = StreamSenders {
             writer_data: tx_to_write.clone(),
-            reader_shutdown: shutdown_signal_tx,
+            reader_shutdown_tx: shutdown_signal_tx,
         };
 
         self.stream_adder_tx
@@ -94,7 +96,7 @@ impl StreamEstablisher {
         payload: &ClientRequestPayload_0v1,
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
-        shutdown_signal: Receiver<()>,
+        shutdown_signal: UnboundedReceiver<()>,
     ) {
         let stream_reader = StreamReader::new(
             payload.stream_key,
@@ -153,6 +155,7 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
     use tokio::prelude::Async;
+    use tokio::sync::mpsc::unbounded_channel;
 
     #[test]
     fn spawn_stream_reader_handles_data() {
@@ -205,7 +208,7 @@ mod tests {
                 },
                 read_stream,
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-                unbounded().1,
+                unbounded_channel().1,
             );
 
             proxy_client_awaiter.await_message_count(1);
