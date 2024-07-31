@@ -358,10 +358,9 @@ impl DebutHandler {
             });
         let gnr =
             GossipNodeRecord::from((root_node.inner.clone(), root_node.node_addr_opt(), cryptde));
-        let debut_gossip = Gossip_0v1 {
+        Gossip_0v1 {
             node_records: vec![gnr],
-        };
-        debut_gossip
+        }
     }
 
     fn make_introduction(
