@@ -3795,7 +3795,7 @@ Length: 24 (0x18) bytes
 
         <------------------------------------->
          */
-        let before = time_t_timestamp();
+
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
         let node_a = make_node_record(2345, true);
@@ -3844,6 +3844,7 @@ Length: 24 (0x18) bytes
             .node(node_f.public_key(), true)
             .build();
         let subject = make_subject(main_cryptde());
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -4019,7 +4020,7 @@ Length: 24 (0x18) bytes
         assert_node_records_eq(
             dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
             expected_dest_db
-                .node_by_key_mut(third_node.public_key())
+                .node_by_key(third_node.public_key())
                 .unwrap(),
             before,
             after,
@@ -4027,7 +4028,7 @@ Length: 24 (0x18) bytes
         assert_node_records_eq(
             dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
             expected_dest_db
-                .node_by_key_mut(src_node.public_key())
+                .node_by_key(src_node.public_key())
                 .unwrap(),
             before,
             after,
@@ -4035,7 +4036,7 @@ Length: 24 (0x18) bytes
         assert_node_records_eq(
             dest_db.node_by_key_mut(dest_node.public_key()).unwrap(),
             expected_dest_db
-                .node_by_key_mut(dest_node.public_key())
+                .node_by_key(dest_node.public_key())
                 .unwrap(),
             before,
             after,
@@ -4048,7 +4049,6 @@ Length: 24 (0x18) bytes
 
     #[test]
     fn standard_gossip_with_current_and_obsolete_versions_doesnt_change_anything() {
-        let before = time_t_timestamp();
         let dest_root = make_node_record(1234, true);
         let mut dest_db = db_from_node(&dest_root);
         let src_root = make_node_record(2345, true);
@@ -4079,6 +4079,7 @@ Length: 24 (0x18) bytes
             .build();
         let subject = make_subject(main_cryptde());
         let original_dest_db = dest_db.clone();
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -4384,8 +4385,8 @@ Length: 24 (0x18) bytes
         )
     }
 
-    fn make_single_node_gossip<'a>(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
-        let mut debut_node: NodeRecord = make_node_record(n, true);
+    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
+        let mut debut_node = make_node_record(n, true);
         adjust_for_mode(&mut debut_node, mode);
         let src_db = db_from_node(&debut_node);
         let gossip = GossipBuilder::new(&src_db)
