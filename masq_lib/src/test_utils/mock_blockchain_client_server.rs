@@ -1,11 +1,5 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::JoinHandle;
-use std::time::Duration;
 use crate::test_utils::utils::UrlHolder;
 use crate::utils::localhost;
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -14,6 +8,12 @@ use itertools::Either::{Left, Right};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 lazy_static! {
     pub static ref CONTENT_LENGTH_DETECTOR: Regex =

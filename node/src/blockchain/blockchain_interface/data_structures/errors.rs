@@ -5,7 +5,7 @@ use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{TransactionReceipt, H256, Address};
+use web3::types::{Address, TransactionReceipt, H256};
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -91,10 +91,9 @@ pub enum BlockchainAgentBuildError {
 impl Display for BlockchainAgentBuildError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let preformatted_or_complete = match self {
-            Self::GasPrice(blockchain_e) => Either::Left(format!(
-                "gas price due to: {:?}",
-                blockchain_e
-            )),
+            Self::GasPrice(blockchain_e) => {
+                Either::Left(format!("gas price due to: {:?}", blockchain_e))
+            }
             Self::TransactionFeeBalance(address, blockchain_e) => Either::Left(format!(
                 "transaction fee balance for our earning wallet {:#x} due to: {}",
                 address, blockchain_e
@@ -177,7 +176,9 @@ mod tests {
     fn payable_payment_error_implements_display() {
         let original_errors = [
             PayableTransactionError::MissingConsumingWallet,
-            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed("Gas halves shut, no drop left".to_string())),
+            PayableTransactionError::GasPriceQueryFailed(BlockchainError::QueryFailed(
+                "Gas halves shut, no drop left".to_string(),
+            )),
             PayableTransactionError::TransactionID(BlockchainError::InvalidResponse),
             PayableTransactionError::UnusableWallet(
                 "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),

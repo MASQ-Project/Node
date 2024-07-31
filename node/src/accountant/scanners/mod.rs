@@ -686,8 +686,18 @@ impl PendingPayableScanner {
                     fingerprint,
                     logger,
                 ),
-                TransactionReceiptResult::NotPresent => handle_none_receipt(scan_report_so_far, fingerprint, "none was given".to_string(), logger),
-                TransactionReceiptResult::Error(e) => handle_none_receipt(scan_report_so_far, fingerprint, format!("failed due to {}", e), logger)
+                TransactionReceiptResult::NotPresent => handle_none_receipt(
+                    scan_report_so_far,
+                    fingerprint,
+                    "none was given".to_string(),
+                    logger,
+                ),
+                TransactionReceiptResult::Error(e) => handle_none_receipt(
+                    scan_report_so_far,
+                    fingerprint,
+                    format!("failed due to {}", e),
+                    logger,
+                ),
             },
         )
     }
@@ -2581,7 +2591,10 @@ mod tests {
             process_error: None,
         };
         let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![(TransactionReceiptResult::NotPresent, fingerprint.clone())],
+            fingerprints_with_receipts: vec![(
+                TransactionReceiptResult::NotPresent,
+                fingerprint.clone(),
+            )],
             response_skeleton_opt: None,
         };
 
@@ -2924,8 +2937,14 @@ mod tests {
         };
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
-                (TransactionReceiptResult::Found(transaction_receipt_1), fingerprint_1.clone()),
-                (TransactionReceiptResult::Found(transaction_receipt_2), fingerprint_2.clone()),
+                (
+                    TransactionReceiptResult::Found(transaction_receipt_1),
+                    fingerprint_1.clone(),
+                ),
+                (
+                    TransactionReceiptResult::Found(transaction_receipt_2),
+                    fingerprint_2.clone(),
+                ),
             ],
             response_skeleton_opt: None,
         };

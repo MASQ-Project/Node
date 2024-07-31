@@ -65,7 +65,10 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)
             .response("0xFF40".to_string(), 0)
-            .response("0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), 0)
+            .response(
+                "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
+                0,
+            )
             .response("0x23".to_string(), 1)
             .start();
         let wallet = make_wallet("123");
@@ -75,7 +78,10 @@ mod tests {
             Http::with_max_parallel(server_url, REQUESTS_IN_PARALLEL).unwrap();
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
-        let blockchain_agent = subject.build_blockchain_agent(wallet.clone()).wait().unwrap();
+        let blockchain_agent = subject
+            .build_blockchain_agent(wallet.clone())
+            .wait()
+            .unwrap();
 
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
         assert_eq!(blockchain_agent.agreed_fee_per_computation_unit(), 1);

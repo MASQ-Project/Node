@@ -2,28 +2,31 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::{to_wei, HashAndAmount, TRANSFER_METHOD_ID, BlockchainInterfaceWeb3};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
+    to_wei, BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
+};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
-use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::data_structures::{
+    ProcessedPayableFallible, RpcPayableFailure,
+};
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
-use futures::{Future};
+use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
+use secp256k1secrets::SecretKey;
 use serde_json::Value;
 use std::iter::once;
-use std::time::{SystemTime};
-use secp256k1secrets::SecretKey;
+use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, H256, U256};
-use web3::{Web3};
-use web3::{Error as Web3Error};
-
+use web3::Error as Web3Error;
+use web3::Web3;
 
 const GWEI_UNIT: u64 = 1_000_000_000; // 1 Gwei = 1e9 Wei
 
@@ -156,10 +159,15 @@ pub fn sign_transaction(
     sign_transaction_locally(web3_batch, transaction_parameters, &key)
 }
 
-pub fn sign_transaction_locally(web3_batch: Web3<Batch<Http>>, transaction_parameters: TransactionParameters, key: &SecretKey) -> SignedTransaction {
-    if transaction_parameters.nonce.is_none() ||
-        transaction_parameters.chain_id.is_none() ||
-        transaction_parameters.gas_price.is_none() {
+pub fn sign_transaction_locally(
+    web3_batch: Web3<Batch<Http>>,
+    transaction_parameters: TransactionParameters,
+    key: &SecretKey,
+) -> SignedTransaction {
+    if transaction_parameters.nonce.is_none()
+        || transaction_parameters.chain_id.is_none()
+        || transaction_parameters.gas_price.is_none()
+    {
         panic!("Signing should be done locally");
     }
 
@@ -167,7 +175,8 @@ pub fn sign_transaction_locally(web3_batch: Web3<Batch<Http>>, transaction_param
     web3_batch
         .accounts()
         .sign_transaction(transaction_parameters, &key)
-        .wait().expect("Web call wasn't allowed")
+        .wait()
+        .expect("Web call wasn't allowed")
 }
 
 pub fn handle_new_transaction(
@@ -313,10 +322,7 @@ pub fn send_payables_within_batch(
     );
 }
 
-pub fn calculate_fallback_start_block_number(
-    start_block_number: u64,
-    max_block_count: u64,
-) -> u64 {
+pub fn calculate_fallback_start_block_number(start_block_number: u64, max_block_count: u64) -> u64 {
     if max_block_count == u64::MAX {
         start_block_number + 1u64
     } else {
@@ -349,9 +355,9 @@ pub fn create_blockchain_agent_web3(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::gwei_to_wei;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
@@ -378,11 +384,11 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
     use serde_json::Value;
+    use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use std::time::{SystemTime};
+    use std::time::SystemTime;
     use web3::api::Namespace;
-    use web3::Error::{Rpc};
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use web3::Error::Rpc;
 
     #[test]
     fn calculate_fallback_start_block_number_works() {
@@ -529,7 +535,8 @@ mod tests {
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -992,7 +999,7 @@ mod tests {
             )
             .end_batch()
             .start();
-        let web3_batch =  Web3::new(Batch::new(transport.clone()));
+        let web3_batch = Web3::new(Batch::new(transport.clone()));
 
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
@@ -1087,7 +1094,8 @@ mod tests {
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let web3 = Web3::new(transport.clone());
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
@@ -1125,15 +1133,17 @@ mod tests {
         assert_eq!(result, signed_transaction);
     }
 
-
     #[test]
-    #[should_panic(expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x00000000636f6e73756d696e675f77616c6c6574).\")")]
+    #[should_panic(
+        expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x00000000636f6e73756d696e675f77616c6c6574).\")"
+    )]
     fn sign_transaction_panics_on_bad_consuming_wallet() {
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
         let gas_price_in_gwei = 123000000000_u64;
@@ -1152,7 +1162,6 @@ mod tests {
         );
     }
 
-
     #[test]
     #[should_panic(expected = "Signing should be done locally")]
     fn sign_transaction_locally_panics_on_signed_transaction() {
@@ -1160,7 +1169,8 @@ mod tests {
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
-        ).unwrap();
+        )
+        .unwrap();
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
         let gas_limit = U256::from(5);
@@ -1184,10 +1194,9 @@ mod tests {
         let _result = sign_transaction_locally(
             Web3::new(Batch::new(transport)),
             transaction_parameters,
-            &key
+            &key,
         );
     }
-
 
     #[test]
     fn sign_and_append_payment_just_works() {
@@ -1239,7 +1248,6 @@ mod tests {
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
-
 
     //with a real confirmation through a transaction sent with this data to the network
     #[test]

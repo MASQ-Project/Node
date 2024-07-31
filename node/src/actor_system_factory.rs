@@ -623,8 +623,10 @@ where
 mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
-    use crate::accountant::{DEFAULT_PENDING_TOO_LONG_SEC, ReceivedPayments};
+    use crate::accountant::{ReceivedPayments, DEFAULT_PENDING_TOO_LONG_SEC};
+    use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
+    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
@@ -645,22 +647,32 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::{make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder, make_configurator_subs_from_recorder, make_hopper_subs_from_recorder, make_neighborhood_subs_from_recorder, make_proxy_client_subs_from_recorder, make_proxy_server_subs_from_recorder, make_ui_gateway_subs_from_recorder, peer_actors_builder, Recording};
+    use crate::test_utils::recorder::{
+        make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
+        make_configurator_subs_from_recorder, make_hopper_subs_from_recorder,
+        make_neighborhood_subs_from_recorder, make_proxy_client_subs_from_recorder,
+        make_proxy_server_subs_from_recorder, make_ui_gateway_subs_from_recorder,
+        peer_actors_builder, Recording,
+    };
     use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker};
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, SubsFactoryTestAddrLeaker,
+    };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
-    use crate::{hopper, match_every_type_id, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
-    use core::any::TypeId;
+    use crate::{
+        hopper, match_every_type_id, proxy_client, proxy_server, stream_handler_pool, ui_gateway,
+    };
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
+    use core::any::TypeId;
     use crossbeam_channel::{bounded, unbounded};
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
@@ -668,10 +680,13 @@ mod tests {
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN,
+    };
     use masq_lib::ui_gateway::NodeFromUiMessage;
-    use masq_lib::utils::{find_free_port, running_test};
     use masq_lib::utils::AutomapProtocol::Igdp;
+    use masq_lib::utils::{find_free_port, running_test};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -683,9 +698,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-    use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
 
     struct LogRecipientSetterNull {}
 
@@ -2022,22 +2034,30 @@ mod tests {
         bootstrapper_config.data_directory = data_dir.clone();
         let system = System::new(test_name);
         let (accountant, _, accountant_recording) = make_recorder();
-        let accountant= accountant.system_stop_conditions(match_every_type_id!(ReceivedPayments));
+        let accountant = accountant.system_stop_conditions(match_every_type_id!(ReceivedPayments));
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         let (tx, blockchain_bridge_addr_rx) = bounded(1);
         let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
 
-        ActorFactoryReal{}.make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker);
+        ActorFactoryReal {}.make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker);
 
         let blockchain_bridge_addr = blockchain_bridge_addr_rx.try_recv().unwrap();
-        blockchain_bridge_addr.try_send(BindMessage { peer_actors: peer_actors }).unwrap();
-        blockchain_bridge_addr.try_send(RetrieveTransactions{ recipient: wallet, response_skeleton_opt: None }).unwrap();
+        blockchain_bridge_addr
+            .try_send(BindMessage {
+                peer_actors: peer_actors,
+            })
+            .unwrap();
+        blockchain_bridge_addr
+            .try_send(RetrieveTransactions {
+                recipient: wallet,
+                response_skeleton_opt: None,
+            })
+            .unwrap();
         assert_eq!(system.run(), 0);
         let recording = accountant_recording.lock().unwrap();
         let received_payments_message = recording.get_record::<ReceivedPayments>(0);
         assert!(received_payments_message.scan_result.is_ok());
     }
-
 
     #[test]
     fn load_banned_cache_implements_panic_on_migration() {

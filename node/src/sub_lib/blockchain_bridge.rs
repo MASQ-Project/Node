@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
-use crate::blockchain::blockchain_bridge::{RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
@@ -12,7 +13,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use web3::types::U256;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
@@ -86,10 +86,10 @@ mod tests {
     use crate::actor_system_factory::SubsFactory;
     use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactoryReal};
     // use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
     use actix::Actor;
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
 
     #[test]
     fn blockchain_bridge_subs_debug() {

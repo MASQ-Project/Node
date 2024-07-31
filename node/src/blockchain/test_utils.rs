@@ -16,29 +16,31 @@ use crate::blockchain::blockchain_interface::data_structures::{
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 // use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
+use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
+use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
 use futures::future::result;
 use futures::Future;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{find_free_port, to_string};
+use serde::Serialize;
+use serde_derive::Deserialize;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
-use ethabi::Hash;
-use serde::Serialize;
-use serde_derive::Deserialize;
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{Address, BlockNumber, H2048, Index, Log, SignedTransaction, TransactionReceipt, U256};
+use web3::types::{
+    Address, BlockNumber, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256,
+};
 use web3::Web3;
-use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -74,11 +76,11 @@ pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterf
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct RpcResponse<S:Serialize> {
+pub struct RpcResponse<S: Serialize> {
     #[serde(rename = "jsonrpc")]
     json_rpc: String,
     id: u8,
-    result: S
+    result: S,
 }
 
 #[derive(Default)]
@@ -182,7 +184,7 @@ impl ReceiptResponseBuilder {
         transaction_receipt.status = self.status_opt;
         transaction_receipt.root = self.root_opt;
 
-        let rpc_response = RpcResponse{
+        let rpc_response = RpcResponse {
             json_rpc: "2.0".to_string(),
             id: 0,
             result: transaction_receipt,
@@ -190,17 +192,6 @@ impl ReceiptResponseBuilder {
         serde_json::to_string(&rpc_response).unwrap()
     }
 }
-
-
-
-
-
-
-
-
-
-
-
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
@@ -261,7 +252,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         unimplemented!("not needed so far")
     }
 
-    fn lower_interface(&self) ->Box<dyn LowBlockchainInt> {
+    fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
         unimplemented!("not needed so far")
     }
 }
@@ -359,7 +350,6 @@ impl BlockchainInterfaceMock {
 
     set_arbitrary_id_stamp_in_mock_impl!();
 }
-
 
 pub fn make_fake_event_loop_handle() -> EventLoopHandle {
     Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)

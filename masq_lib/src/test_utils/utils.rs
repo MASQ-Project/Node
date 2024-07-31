@@ -2,16 +2,15 @@
 
 use crate::blockchains::chains::Chain;
 use crate::test_utils::environment_guard::EnvironmentGuard;
+use serde_derive::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use serde_derive::Serialize;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
-
 
 #[derive(Serialize)]
 pub struct LogObject {
@@ -69,9 +68,6 @@ fn is_env_variable_set(var_name: &str, searched_value: &str) -> bool {
 pub trait UrlHolder {
     fn url(&self) -> String;
 }
-
-
-
 
 #[derive(PartialEq, Eq)]
 pub enum ShouldWeRunTheTest {
