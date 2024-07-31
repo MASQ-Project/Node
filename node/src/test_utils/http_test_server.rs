@@ -34,7 +34,8 @@ impl TestServer {
                 }
                 tx.send(req).unwrap();
                 let body = bodies_arc.lock().unwrap().remove(0);
-                Ok(rsp.body(body)?)
+                let result = rsp.body(body);
+                Ok(result?)
             })
             .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
         });
