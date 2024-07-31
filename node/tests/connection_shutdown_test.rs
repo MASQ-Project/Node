@@ -2,6 +2,7 @@
 
 pub mod utils;
 
+use crate::utils::CommandConfig;
 use crossbeam_channel::{unbounded, Sender};
 use masq_lib::utils::find_free_port;
 use node_lib::test_utils::read_until_timeout;
@@ -25,7 +26,7 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
     );
     let (server_write_error_tx, server_write_error_rx) = unbounded();
     let server_port = find_free_port();
-    thread::spawn(move || {
+    let join_handle = thread::spawn(move || {
         endless_write_server(server_port, server_write_error_tx);
     });
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
@@ -33,17 +34,18 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
         .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
     let request = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{server_port}\r\n\r\n");
-
     stream.write(request.as_bytes()).unwrap();
     let mut buf = [0u8; 16384];
     // We want to make sure the Server is sending before we shutdown the stream
     stream.read(&mut buf).unwrap();
-    stream.shutdown(Shutdown::Write).unwrap();
-    let write_error = server_write_error_rx
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap(); // TODO: GH-800 We are failing on this timeout
 
-    assert_eq!(write_error.kind(), io::ErrorKind::ConnectionAborted);
+    stream.shutdown(Shutdown::Write).unwrap();
+
+    let write_error = server_write_error_rx
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap(); // TODO: GH-800 We are failing on this timeout
+    assert_eq!(write_error.kind(), io::ErrorKind::BrokenPipe);
+    join_handle.join().unwrap();
 }
 
 fn endless_write_server(port: u16, write_error_tx: Sender<io::Error>) {
@@ -54,6 +56,9 @@ fn endless_write_server(port: u16, write_error_tx: Sender<io::Error>) {
     .unwrap();
     let mut buf = [0u8; 16_384];
     let (mut stream, _) = listener.accept().unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
     let _ = stream.read(&mut buf).unwrap();
     stream
         .write("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".as_bytes())

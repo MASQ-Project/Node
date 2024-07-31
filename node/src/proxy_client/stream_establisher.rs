@@ -60,12 +60,7 @@ impl StreamEstablisher {
             payload.target_port,
             &self.logger,
         )?;
-
-        // TODO: GH-800: Test Drive Me
-        // let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
-
-        let shutdown_signal_tx = unbounded().0;
-        let shutdown_signal_rx = unbounded().1;
+        let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
 
         self.spawn_stream_reader(
             &payload.clone(),

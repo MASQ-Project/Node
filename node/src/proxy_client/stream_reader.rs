@@ -84,6 +84,15 @@ impl Future for StreamReader {
     }
 }
 
+impl Drop for StreamReader {
+    fn drop(&mut self) {
+        debug!(
+            Logger::new("TEST"),
+            "StreamReader for stream key {:?} is being dropped.", self.stream_key
+        )
+    }
+}
+
 impl StreamReader {
     pub fn new(
         stream_key: StreamKey,
@@ -93,6 +102,8 @@ impl StreamReader {
         shutdown_signal: Receiver<()>,
         peer_addr: SocketAddr,
     ) -> StreamReader {
+        let logger = Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]);
+        debug!(logger, "Initialised StreamReader");
         StreamReader {
             stream_key,
             proxy_client_sub,
@@ -100,7 +111,7 @@ impl StreamReader {
             stream_killer,
             shutdown_signal,
             peer_addr,
-            logger: Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]),
+            logger,
             sequencer: Sequencer::new(),
         }
     }

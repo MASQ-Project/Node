@@ -170,10 +170,15 @@ impl StreamHandlerPoolReal {
         );
         if let Some(sender_wrapper) = inner.stream_writer_channels.remove(stream_key) {
             debug!(
+                Logger::new("TEST"),
+                "clean_up_bad_stream() removed the stream key"
+            );
+            debug!(
                 inner.logger,
                 "Removing stream writer for {}",
                 sender_wrapper.writer_data.peer_addr()
             );
+            // TODO: GH-800: Send a shutdown signal to the Reader
         }
         Self::send_terminating_package(
             stream_key,
@@ -191,6 +196,7 @@ impl StreamHandlerPoolReal {
         let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
+        let test_logger = Logger::new("TEST");
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
@@ -213,14 +219,20 @@ impl StreamHandlerPoolReal {
                     ),
                 }
             }
-            debug!(Logger::new("TEST"), "Stop right before last_data check!");
+            debug!(test_logger, "Stop right before last_data check!");
             if last_data {
+                debug!(test_logger, "last_data = true");
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
-                        // TODO: GH-800: We need a log here
+                        debug!(
+                            inner.logger,
+                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
+                            stream_key,
+                            stream_senders.writer_data.peer_addr()
+                        );
                         match stream_senders.reader_shutdown.send(()) {
                             Ok(()) => {
-                                debug!(inner.logger, "A shutdown signal was sent.")
+                                debug!(test_logger, "A shutdown signal was sent.")
                             }
                             Err(e) => {
                                 debug!(
@@ -231,12 +243,6 @@ impl StreamHandlerPoolReal {
                                 );
                             }
                         }
-                        debug!(
-                            inner.logger,
-                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
-                            stream_key,
-                            stream_senders.writer_data.peer_addr()
-                        );
                     }
                     None => {
                         eprintln!("Failed to Remove stream key: {:?}", stream_key);
@@ -462,6 +468,10 @@ impl StreamHandlerPoolReal {
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
                 Some(stream_senders) => {
+                    debug!(
+                        Logger::new("TEST"),
+                        "clean_up_dead_streams() removed the stream key"
+                    );
                     inner
                         .proxy_client_subs
                         .inbound_server_data
