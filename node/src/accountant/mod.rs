@@ -202,6 +202,7 @@ impl Handler<StartMessage> for Accountant {
                 &self.logger,
                 "Started with --scans on; starting database and blockchain scans"
             );
+
             ctx.notify(ScanForPendingPayables {
                 response_skeleton_opt: None,
             });
@@ -256,7 +257,6 @@ impl Handler<SentPayables> for Accountant {
 }
 
 impl Handler<ScanForPayables> for Accountant {
-    // Marked to be Fixed
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
@@ -266,7 +266,6 @@ impl Handler<ScanForPayables> for Accountant {
 }
 
 impl Handler<ScanForPendingPayables> for Accountant {
-    // Marked to be Fixed
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
@@ -276,7 +275,6 @@ impl Handler<ScanForPendingPayables> for Accountant {
 }
 
 impl Handler<ScanForReceivables> for Accountant {
-    // Marked to be Fixed
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
@@ -3506,16 +3504,6 @@ mod tests {
                 gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666);
             let wallet_account_1 = make_wallet("creditor1");
             let wallet_account_2 = make_wallet("creditor2");
-            let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
-            let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
-            let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
-            let mut transaction_receipt_tx_1_third_round = TransactionReceipt::default();
-            transaction_receipt_tx_1_third_round.status = Some(U64::from(0)); // failure
-            let transaction_receipt_tx_2_third_round = TransactionReceipt::default();
-            let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
-            transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
-            // let consuming_wallet= make_paying_wallet(b"consuming_wallet");
-            // let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
             let blockchain_interface = make_blockchain_interface_web3(Some(port));
             let consuming_wallet = make_paying_wallet(b"wallet");
             let system = System::new("pending_transaction");
@@ -3605,14 +3593,6 @@ mod tests {
                     ],
                     no_rowid_results: vec![],
                 });
-                // .fingerprints_rowids_result(vec![
-                //     (rowid_for_account_1, pending_tx_hash_1),
-                //     (rowid_for_account_2, pending_tx_hash_2),
-                // ])
-                // .fingerprints_rowids_result(vec![
-                //     (Some(rowid_for_account_1), pending_tx_hash_1),
-                //     (Some(rowid_for_account_2), pending_tx_hash_2),
-                // ]);
             let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
                 .insert_fingerprints_result(Ok(()))
                 .insert_fingerprints_result(Ok(()))
@@ -3638,10 +3618,6 @@ mod tests {
                     ],
                     no_rowid_results: vec![],
                 })
-                // .fingerprints_rowids_result(vec![
-                //     (Some(rowid_for_account_1), pending_tx_hash_1),
-                //     (Some(rowid_for_account_2), pending_tx_hash_2),
-                // ])
                 .increment_scan_attempts_params(&update_fingerprint_params_arc)
                 .increment_scan_attempts_result(Ok(()))
                 .increment_scan_attempts_result(Ok(()))
@@ -3658,7 +3634,7 @@ mod tests {
             let accountant_addr = Arbiter::builder()
                 .stop_system_on_panic(true)
                 .start(move |_| {
-                    let mut subject = AccountantBuilder::default()
+                    let mut subject = AccountantBuilder::default().consuming_wallet(consuming_wallet)
                         .bootstrapper_config(bootstrapper_config)
                         .payable_daos(vec![
                             ForPayableScanner(payable_dao_for_payable_scanner),
@@ -3692,22 +3668,23 @@ mod tests {
 
             send_start_message!(accountant_subs);
 
-            SystemKillerActor::new(Duration::from_secs(10)).start();
             assert_eq!(system.run(), 0);
             let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
-            let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0);
+
+            let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0); //<<<-------
+
             assert!(mark_pending_payable_params.is_empty());
             let first_payable = one_set_of_mark_pending_payable_params.remove(0);
-            assert_eq!(first_payable.0, wallet_account_2);
-            assert_eq!(first_payable.1, rowid_for_account_2);
+            assert_eq!(first_payable.0, wallet_account_1);
+            assert_eq!(first_payable.1, rowid_for_account_1);
             let second_payable = one_set_of_mark_pending_payable_params.remove(0);
             assert!(
                 one_set_of_mark_pending_payable_params.is_empty(),
                 "{:?}",
                 one_set_of_mark_pending_payable_params
             );
-            assert_eq!(second_payable.0, wallet_account_1);
-            assert_eq!(second_payable.1, rowid_for_account_1);
+            assert_eq!(second_payable.0, wallet_account_2);
+            assert_eq!(second_payable.1, rowid_for_account_2);
             let return_all_errorless_fingerprints_params =
                 return_all_errorless_fingerprints_params_arc.lock().unwrap();
             // it varies with machines and sometimes we manage more cycles than necessary
