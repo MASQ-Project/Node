@@ -29,7 +29,7 @@ use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, TopRecordsOrdering,
     UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse,
 };
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
 use std::io::{Stderr, Write};
@@ -67,7 +67,7 @@ impl Command for FinancialsCommand {
                     .await
             }
             Err(e) => {
-                short_writeln!(stderr, "Financials retrieval failed: {:?}", e);
+                masq_short_writeln!(stderr, "Financials retrieval failed: {:?}", e);
                 Err(e)
             }
         }

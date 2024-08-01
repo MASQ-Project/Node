@@ -199,7 +199,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let stop_handle = server.start().await;
-        let websocket = establish_ws_conn_with_handshake(port);
+        //let websocket = establish_ws_conn_with_handshake(port);
         let (websocket, talker_half, _) = websocket_utils(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);

@@ -10,7 +10,7 @@ use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
-use masq_lib::{implement_as_any, short_writeln};
+use masq_lib::{implement_as_any, masq_short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::io::Write;
@@ -66,7 +66,7 @@ impl ChangePasswordCommand {
         stdout: &TerminalWriter,
         _stderr: &TerminalWriter,
     ) {
-        short_writeln!(stdout, "\nThe Node's database password has changed.\n\n");
+        masq_short_writeln!(stdout, "\nThe Node's database password has changed.\n\n");
     }
 }
 
@@ -85,7 +85,7 @@ impl Command for ChangePasswordCommand {
         };
         let _: UiChangePasswordResponse =
             transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
-        short_writeln!(stdout, "Database password has been changed");
+        masq_short_writeln!(stdout, "Database password has been changed");
         Ok(())
     }
 

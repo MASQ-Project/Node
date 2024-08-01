@@ -9,6 +9,7 @@ use crate::utils::localhost;
 use std::net::SocketAddr;
 use workflow_websocket::client::{ConnectOptions, WebSocket};
 use workflow_websocket::server::Message;
+use crate::test_utils::websocket_utils::{establish_bare_ws_conn, establish_ws_conn_with_arbitrary_handshake};
 
 pub struct UiConnection {
     context_id: u64,
@@ -17,19 +18,13 @@ pub struct UiConnection {
 }
 
 impl UiConnection {
-    pub async fn make(port: u16, protocol: &str) -> Result<UiConnection, String> {
-        let ws = match WebSocket::new(Some(format!("ws://localhost:{}", port).as_str()), None) {
-            Err(e) => return Err(format!("{:?}", e)),
-            Ok(ws) => ws,
-        };
-        match ws.connect(ConnectOptions::default()).await {
-            Err(e) => Err(format!("{:?}", e)),
-            Ok(_) => Ok(UiConnection {
+    pub async fn new(port: u16, protocol: &str) -> Result<UiConnection, String> {
+        let ws = establish_ws_conn_with_arbitrary_handshake(port, protocol).await?;
+        Ok(UiConnection {
                 context_id: 0,
                 local_addr: SocketAddr::new(localhost(), port),
                 websocket: ws,
-            }),
-        }
+            })
     }
     //
     // fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
@@ -52,11 +47,6 @@ impl UiConnection {
     //         .body(())
     //         .unwrap()
     // }
-
-    pub fn new(port: u16, protocol: &str) -> UiConnection {
-        let future = Self::make(port, protocol);
-        make_rt().block_on(future).unwrap()
-    }
 
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr

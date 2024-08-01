@@ -15,7 +15,7 @@ use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::{Debug, Display};
@@ -65,14 +65,14 @@ impl Command for ConfigurationCommand {
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
+                masq_short_writeln!(
                     stderr,
                     "MASQNode is not running; therefore its configuration cannot be displayed."
                 );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(stderr, "Configuration retrieval failed: {:?}", e);
+                masq_short_writeln!(stderr, "Configuration retrieval failed: {:?}", e);
                 Err(e)
             }
         }

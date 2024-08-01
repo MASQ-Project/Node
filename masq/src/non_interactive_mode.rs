@@ -22,7 +22,7 @@
 // };
 // use async_trait::async_trait;
 // use itertools::Either;
-// use masq_lib::short_writeln;
+// use masq_lib::masq_short_writeln;
 // use masq_lib::test_utils::fake_stream_holder::AsyncByteArrayWriter;
 // use masq_lib::ui_gateway::MessageBody;
 // use masq_lib::ui_traffic_converter::TrafficConversionError;
@@ -60,7 +60,7 @@
 //         // {
 //         //     Ok(d) => d,
 //         //     Err(e) => {
-//         //         short_writeln!(streams.stderr, "Pre-configuration error: {}", e);
+//         //         masq_short_writeln!(streams.stderr, "Pre-configuration error: {}", e);
 //         //         return Self::bool_into_numeric_code(false);
 //         //     }
 //         // };
@@ -203,16 +203,16 @@
 //     // let command = match command_factory.make(command_parts) {
 //     //     Ok(c) => c,
 //     //     Err(UnrecognizedSubcommand(msg)) => {
-//     //         short_writeln!(stderr, "Unrecognized command: '{}'", msg);
+//     //         masq_short_writeln!(stderr, "Unrecognized command: '{}'", msg);
 //     //         return false;
 //     //     }
 //     //     Err(CommandSyntax(msg)) => {
-//     //         short_writeln!(stderr, "{}", msg);
+//     //         masq_short_writeln!(stderr, "{}", msg);
 //     //         return false;
 //     //     }
 //     // };
 //     // if let Err(e) = processor.process(command) {
-//     //     short_writeln!(stderr, "{}", e);
+//     //     masq_short_writeln!(stderr, "{}", e);
 //     //     false
 //     // } else {
 //     //     true

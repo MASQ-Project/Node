@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::utils::localhost;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpStream};
@@ -56,21 +56,21 @@ impl Command for ShutdownCommand {
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {
-                short_writeln!(
+                masq_short_writeln!(
                     stdout,
                     "MASQNode was instructed to shut down and has broken its connection"
                 );
                 return Ok(());
             }
             Err(Transmission(_)) => {
-                short_writeln!(
+                masq_short_writeln!(
                     stdout,
                     "MASQNode was instructed to shut down and has broken its connection"
                 );
                 return Ok(());
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
+                masq_short_writeln!(
                     stderr,
                     "MASQNode is not running; therefore it cannot be shut down"
                 );
@@ -83,7 +83,7 @@ impl Command for ShutdownCommand {
         }
         match context.active_port().await {
             None => {
-                short_writeln!(
+                masq_short_writeln!(
                     stdout,
                     "MASQNode was instructed to shut down and has stopped answering; but the Daemon seems to be down as well"
                 );
@@ -95,13 +95,13 @@ impl Command for ShutdownCommand {
                     .wait(active_port, self.attempt_interval, self.attempt_limit)
                     .await
                 {
-                    short_writeln!(
+                    masq_short_writeln!(
                         stdout,
                         "MASQNode was instructed to shut down and has stopped answering"
                     );
                     Ok(())
                 } else {
-                    short_writeln!(
+                    masq_short_writeln!(
                         stderr,
                         "MASQNode ignored the instruction to shut down and is still running"
                     );

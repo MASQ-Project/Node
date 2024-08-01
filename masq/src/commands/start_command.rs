@@ -6,7 +6,7 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -37,7 +37,7 @@ impl Command for StartCommand {
             transaction(out_message, context, &stderr, START_COMMAND_TIMEOUT_MILLIS).await;
         match result {
             Ok(response) => {
-                short_writeln!(
+                masq_short_writeln!(
                     stdout,
                     "MASQNode successfully started in process {} on port {}",
                     response.new_process_id,

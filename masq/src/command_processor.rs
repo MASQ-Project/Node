@@ -69,16 +69,16 @@ pub trait CommandProcessor {
         // let command = match command_factory.make(command_parts) {
         //     Ok(c) => c,
         //     Err(UnrecognizedSubcommand(msg)) => {
-        //         short_writeln!(stderr, "Unrecognized command: '{}'", msg);
+        //         masq_short_writeln!(stderr, "Unrecognized command: '{}'", msg);
         //         return false;
         //     }
         //     Err(CommandSyntax(msg)) => {
-        //         short_writeln!(stderr, "{}", msg);
+        //         masq_short_writeln!(stderr, "{}", msg);
         //         return false;
         //     }
         // };
         // if let Err(e) = processor.process(command) {
-        //     short_writeln!(stderr, "{}", e);
+        //     masq_short_writeln!(stderr, "{}", e);
         //     false
         // } else {
         //     true

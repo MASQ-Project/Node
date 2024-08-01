@@ -17,7 +17,7 @@ use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
 
@@ -231,28 +231,28 @@ impl GenerateWalletsCommand {
         _stderr: &TerminalWriter,
     ) {
         if let Some(mnemonic_phrase) = response.mnemonic_phrase_opt {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "Copy this phrase down and keep it safe; you'll need it to restore your wallet:"
             );
-            short_writeln!(stdout, "'{}'", mnemonic_phrase.join(" "));
+            masq_short_writeln!(stdout, "'{}'", mnemonic_phrase.join(" "));
         }
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Address of     consuming wallet: {}",
             response.consuming_wallet_address
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Private key of consuming wallet: {}",
             response.consuming_wallet_private_key
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Address of       earning wallet: {}",
             response.earning_wallet_address
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Private key of   earning wallet: {}",
             response.earning_wallet_private_key

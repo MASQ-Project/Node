@@ -4,7 +4,7 @@
 // use linefeed::{ReadResult, Signal};
 // use masq_lib::command::StdStreams;
 // use masq_lib::constants::MASQ_PROMPT;
-// use masq_lib::short_writeln;
+// use masq_lib::masq_short_writeln;
 // use std::error::Error;
 // use std::fmt::Debug;
 // use std::io::Write;
@@ -47,7 +47,7 @@
 //             .interface
 //             .lock_writer_append()
 //             .expect("lock writer append failed");
-//         short_writeln!(
+//         masq_short_writeln!(
 //             if !stderr {
 //                 &mut streams.stdout
 //             } else {

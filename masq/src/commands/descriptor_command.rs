@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -40,9 +40,9 @@ impl Command for DescriptorCommand {
             Ok(response) => {
                 match response.node_descriptor_opt {
                     Some(node_descriptor) => {
-                        short_writeln!(stdout, "{}", node_descriptor)
+                        masq_short_writeln!(stdout, "{}", node_descriptor)
                     }
-                    None => short_writeln!(
+                    None => masq_short_writeln!(
                         stdout,
                         "Node descriptor is not yet available; try again later"
                     ),
@@ -50,14 +50,14 @@ impl Command for DescriptorCommand {
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
+                masq_short_writeln!(
                     stderr,
                     "MASQNode is not running; therefore its descriptor cannot be displayed."
                 );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(stderr, "Descriptor retrieval failed: {:?}", e);
+                masq_short_writeln!(stderr, "Descriptor retrieval failed: {:?}", e);
                 Err(e)
             }
         }

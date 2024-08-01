@@ -2,7 +2,7 @@
 
 use crate::terminal::TerminalWriter;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 #[cfg(target_os = "windows")]
 use masq_lib::utils::exit_process;
 #[cfg(not(target_os = "windows"))]
@@ -28,7 +28,7 @@ impl CrashNotifier {
             #[cfg(not(target_os = "windows"))]
             exit_process_with_sigterm("\nThe Daemon is no longer running; masq is terminating.\n")
         }
-        short_writeln!(stdout,
+        masq_short_writeln!(stdout,
             "\nThe Node running as process {} terminated{}\nThe Daemon is once more accepting setup changes.\n",
             response.process_id,
             Self::dress_message (response.crash_reason)

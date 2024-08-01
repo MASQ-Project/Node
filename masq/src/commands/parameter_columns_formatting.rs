@@ -3,7 +3,7 @@
 use crate::commands::commands_common::STANDARD_COLUMN_WIDTH;
 use crate::terminal::TerminalWriter;
 use futures::future::join_all;
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 
 pub async fn dump_parameter_line(
     stdout: &TerminalWriter,
@@ -41,7 +41,7 @@ pub async fn dump_already_formatted_parameter_line(
     indention: usize,
     formatted_line: &str,
 ) {
-    short_writeln!(
+    masq_short_writeln!(
         stdout,
         "{:indention$}{}",
         "",

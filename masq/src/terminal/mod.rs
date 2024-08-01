@@ -2,7 +2,6 @@
 
 use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use async_trait::async_trait;
-use clap::builder::Str;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::io::Error;

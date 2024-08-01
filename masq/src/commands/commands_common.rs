@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use masq_lib::intentionally_blank;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;
 use std::fmt::Debug;
@@ -97,7 +97,7 @@ where
         Ok((r, _)) => r,
         Err(e) => {
             //TODO do I want to flush it here?
-            short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
+            masq_short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
             return Err(UnexpectedResponse(e));
         }
     };

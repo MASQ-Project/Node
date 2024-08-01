@@ -11,7 +11,7 @@ use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
@@ -132,7 +132,7 @@ impl Command for RecoverWalletsCommand {
         };
         let _: UiRecoverWalletsResponse =
             transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
-        short_writeln!(stdout, "Wallets were successfully recovered");
+        masq_short_writeln!(stdout, "Wallets were successfully recovered");
         Ok(())
     }
 

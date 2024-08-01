@@ -2,7 +2,7 @@
 
 use crate::terminal::TerminalWriter;
 use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use std::io::Write;
 
 pub struct ConnectionChangeNotification {}
@@ -24,7 +24,7 @@ impl ConnectionChangeNotification {
                 "\nRouteFound: You can now relay data over the network.\n"
             }
         };
-        short_writeln!(stdout, "{}", output_string);
+        masq_short_writeln!(stdout, "{}", output_string);
     }
 }
 

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ impl Command for CheckPasswordCommand {
         };
         let msg: UiCheckPasswordResponse =
             transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "{}",
             if msg.matches {

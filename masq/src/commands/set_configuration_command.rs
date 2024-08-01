@@ -7,7 +7,7 @@ use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::{GasPrice, GAS_PRICE_HELP};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
@@ -53,7 +53,7 @@ impl Command for SetConfigurationCommand {
         };
 
         let _: UiSetConfigurationResponse = transaction(input, context, &stderr, 1000).await?;
-        short_writeln!(stdout, "Parameter was successfully set");
+        masq_short_writeln!(stdout, "Parameter was successfully set");
         Ok(())
     }
 

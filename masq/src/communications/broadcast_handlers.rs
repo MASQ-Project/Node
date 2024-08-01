@@ -14,7 +14,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, intentionally_blank, short_writeln};
+use masq_lib::{declare_as_any, implement_as_any, intentionally_blank, masq_short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
@@ -203,7 +203,7 @@ async fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
     _stdout: &TerminalWriter,
     stderr: &TerminalWriter,
 ) {
-    short_writeln!(
+    masq_short_writeln!(
         stderr,
         "\nCannot handle {} request: Node is not running.\n",
         body.opcode
@@ -215,7 +215,7 @@ async fn handle_unrecognized_broadcast(
     stdout: &TerminalWriter,
     _stderr: &TerminalWriter,
 ) {
-    short_writeln!(
+    masq_short_writeln!(
         stdout,
         "Discarding unrecognized broadcast with opcode '{}'\n",
         message_body.opcode
@@ -227,7 +227,7 @@ async fn handle_ui_log_broadcast(
     stdout: &TerminalWriter,
     _stderr: &TerminalWriter,
 ) {
-    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg)
+    masq_short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg)
 }
 
 pub struct RedirectBroadcastHandle {

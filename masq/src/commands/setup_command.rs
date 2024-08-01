@@ -14,7 +14,7 @@ use masq_lib::messages::{
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
 use masq_lib::shared_schema::{data_directory_arg, shared_app};
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTORY_DAEMON_HELP};
 #[cfg(test)]
 use std::any::Any;
@@ -67,7 +67,7 @@ impl Command for SetupCommand {
                 Ok(())
             }
             Err(CommandError::Payload(err, msg)) if err == SETUP_ERROR => {
-                short_writeln!(stderr, "{}", msg);
+                masq_short_writeln!(stderr, "{}", msg);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -111,7 +111,7 @@ impl SetupCommand {
         stdout: &TerminalWriter,
         _stderr: &TerminalWriter,
     ) {
-        short_writeln!(stdout, "\nDaemon setup has changed:\n");
+        masq_short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout).await;
     }
 
@@ -130,7 +130,7 @@ impl SetupCommand {
                 .partial_cmp(&b.name)
                 .expect("String comparison failed")
         });
-        short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
+        masq_short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
         let chain_and_data_dir =
             |p: &UiSetupResponseValue| (p.name.to_owned(), (p.value.clone(), p.status));
         let chain = inner
@@ -147,7 +147,7 @@ impl SetupCommand {
             .expect("data-directory is missing in setup cluster!");
 
         join_all(inner.values.into_iter().map(|value| async move {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
                 value.name,
@@ -156,22 +156,22 @@ impl SetupCommand {
             );
         }))
         .await;
-        short_writeln!(stdout);
+        masq_short_writeln!(stdout);
         if !inner.errors.is_empty() {
-            short_writeln!(stdout, "ERRORS:");
+            masq_short_writeln!(stdout, "ERRORS:");
             join_all(
                 inner
                     .errors
                     .into_iter()
                     .map(|(parameter, reason)| async move {
-                        short_writeln!(stdout, "{:29} {}", parameter, reason)
+                        masq_short_writeln!(stdout, "{:29} {}", parameter, reason)
                     }),
             )
             .await;
-            short_writeln!(stdout);
+            masq_short_writeln!(stdout);
         }
         if inner.running {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
@@ -179,7 +179,7 @@ impl SetupCommand {
         if chain.1 .1 != UiSetupResponseValueStatus::Default
             || data_directory.1 .1 != UiSetupResponseValueStatus::Default
         {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "NOTE: your data directory was modified to match the chain parameter.\n"
             );

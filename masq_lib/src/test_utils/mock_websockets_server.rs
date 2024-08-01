@@ -40,7 +40,6 @@ struct NodeUiProtocolWebSocketHandler {
     termination_style_rx: Receiver<TerminationStyle>,
     websocket_sink_tx: Sender<WebSocketSink>,
     websocket_sink_rx: Receiver<WebSocketSink>,
-    server_connection_counters: Arc<WebSocketCounters>,
     opening_broadcasts_signal_rx_opt: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     do_log: bool,
     index: u64,
@@ -49,43 +48,43 @@ struct NodeUiProtocolWebSocketHandler {
 impl Drop for NodeUiProtocolWebSocketHandler {
     fn drop(&mut self) {
         panic!("bluh");
-        let termination_style = self.termination_style_rx.try_recv();
-        let kill_flag = match termination_style {
-            Ok(TerminationStyle::Kill) => true,
-            _ => false,
-        };
-        let latest_connection_status = self.connections_status.clone();
-        let do_log = self.do_log;
-        let index = self.index;
-
-        tokio::task::spawn( async move {
-            if kill_flag {
-                log(
-                    do_log,
-                    index,
-                    "Setting the connection status that server is killed from an outer directive",
-                );
-                MockWebSocketsServer::announce_killed_status(latest_connection_status).await
-            } else if matches!(*latest_connection_status.lock().await, ConnectionStatus::Connected(..)) {
-                log(
-                    do_log,
-                    index,
-                    "Server's disconnect function hasn't been called, fixing status during drop",
-                );
-                MockWebSocketsServer::switch_connection_status(&latest_connection_status).await;
-            }
-        });
-
-        if !kill_flag {
-            if let Ok(websocket_sink) = self.websocket_sink_rx.try_recv() {
-                let _ = websocket_sink.send(Message::Close(None));
-            } else {
-                eprintln!(
-                    "No WebSocket connection has been initialized in the server's session, \
-                    Close cannot be, and what more, does't need to be signalized."
-                )
-            }
-        }
+        // let termination_style = self.termination_style_rx.try_recv();
+        // let kill_flag = match termination_style {
+        //     Ok(TerminationStyle::Kill) => true,
+        //     _ => false,
+        // };
+        // let latest_connection_status = self.connections_status.clone();
+        // let do_log = self.do_log;
+        // let index = self.index;
+        //
+        // tokio::task::spawn( async move {
+        //     if kill_flag {
+        //         log(
+        //             do_log,
+        //             index,
+        //             "Setting the connection status that server is killed from an outer directive",
+        //         );
+        //         MockWebSocketsServer::announce_killed_status(latest_connection_status).await
+        //     } else if matches!(*latest_connection_status.lock().await, ConnectionStatus::Connected(..)) {
+        //         log(
+        //             do_log,
+        //             index,
+        //             "Server's disconnect function hasn't been called, fixing status during drop",
+        //         );
+        //         MockWebSocketsServer::switch_connection_status(&latest_connection_status).await;
+        //     }
+        // });
+        //
+        // if !kill_flag {
+        //     if let Ok(websocket_sink) = self.websocket_sink_rx.try_recv() {
+        //         let _ = websocket_sink.send(Message::Close(None));
+        //     } else {
+        //         eprintln!(
+        //             "No WebSocket connection has been initialized in the server's session, \
+        //             Close cannot be, and what more, does't need to be signalized."
+        //         )
+        //     }
+        // }
     }
 }
 
@@ -406,7 +405,6 @@ impl MockWebSocketsServer {
         let requests_arc = Arc::new(Mutex::new(vec![]));
         let (termination_style_tx, termination_style_rx) = unbounded();
         let (websocket_sink_tx, websocket_sink_rx) = unbounded();
-        let connection_status = Arc::new(tokio::sync::Mutex::new(ConnectionStatus::Disconnected(0)));
 
         let handler = NodeUiProtocolWebSocketHandler {
             requests_arc: requests_arc.clone(),
@@ -414,7 +412,6 @@ impl MockWebSocketsServer {
             termination_style_rx,
             websocket_sink_tx,
             websocket_sink_rx,
-            connections_status: connection_status.clone(),
             opening_broadcasts_signal_rx_opt: Mutex::new(self.opening_broadcast_signal_rx_opt),
             do_log: self.do_log,
             index,
@@ -439,7 +436,8 @@ impl MockWebSocketsServer {
             requests_arc,
             counters,
             server_handle: ws_server_handle,
-            server_port: self.port
+            server_port: self.port,
+            configuration: Default::default(),
         }
     }
 
@@ -516,25 +514,29 @@ pub struct MockWebSocketsServerStopHandle {
     requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
     counters: Arc<WebSocketCounters>,
     server_handle: Arc<WebSocketServer<NodeUiProtocolWebSocketHandler>>,
-    server_port: u16
-    // join_handle_opt: Option<JoinHandle<Result<(), workflow_websocket::server::Error>>>,
+    server_port: u16,
+    configuration: MockWSServerStopConfig
+}
+
+#[derive(Default)]
+struct MockWSServerStopConfig{
+    time_granted_for_conn_establishment_opt: Option<Duration>,
+    min_count_of_awaited_requests_opt: Option<usize>
 }
 
 impl MockWebSocketsServerStopHandle {
-    pub async fn stop(self, time_granted_for_conn_establishment_opt: Option<Duration>, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<MockWSServerRecordedRequest> {
-        self.send_terminate_order(false, time_granted_for_conn_establishment_opt, min_count_of_awaited_requests_opt.unwrap_or(0)).await
+    // pub async fn stop(self, time_granted_for_conn_establishment_opt: Option<Duration>, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<MockWSServerRecordedRequest> {
+    //     self.send_terminate_order(false, time_granted_for_conn_establishment_opt, min_count_of_awaited_requests_opt.unwrap_or(0)).await
+    // }
+
+    pub async fn kill(self) -> Vec<MockWSServerRecordedRequest> {
+        self.terminate_server_and_retrieve_requests().await
     }
 
-    pub async fn kill(self, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<MockWSServerRecordedRequest> {
-        let result = self.send_terminate_order(true, None, min_count_of_awaited_requests_opt.unwrap_or(0)).await;
-        result
-    }
-
-    async fn send_terminate_order(
+    async fn terminate_server_and_retrieve_requests(
         mut self,
-        kill: bool,
-        time_granted_for_conn_establishment_opt: Option<Duration>,
-        awaited_count_of_handled_msgs: usize
+        // time_granted_for_conn_est_opt: Option<Duration>,
+        // awaited_count_of_handled_msgs: usize
     ) -> Vec<MockWSServerRecordedRequest> {
         // Unfortunately, the used library and the tokio frimewark don't allow much about controlling
         // the spawned server to such a level that we could politely shut down the server and still
@@ -544,154 +546,121 @@ impl MockWebSocketsServerStopHandle {
         // 'abort()' on its handle. The 'stop_and_join()' method belonging to the server disappointed
         // by its effectiveness constrained only to running a server with all connections already
         // disconnected - an active one would keep it from reaching the directive)
-        let start = Instant::now();
-        let hard_limit = time_granted_for_conn_establishment_opt.unwrap_or(Duration::from_millis(0));
+        let conn_est_start = Instant::now();
+        let conn_est_hard_limit = self.configuration.time_granted_for_conn_establishment_opt.unwrap_or(Duration::from_millis(0));
 
-        let tracked_active_conns = self.counters.active_connections.load(Ordering::Relaxed);
+        let (requests, allow_waiting) = loop {
+            let tracked_total_conns = self.counters.total_connections.load(Ordering::Relaxed);
+            let tracked_active_conns = self.counters.active_connections.load(Ordering::Relaxed);
 
-        log(
-            self.log,
-            self.index,
-            &format!(
-                "Server termination order comes into while there be {} connections open", tracked_active_conns
-            ),
-        );
+            if tracked_total_conns == 0 && tracked_active_conns == 0 {
+                if conn_est_start.elapsed() > conn_est_hard_limit {
+                    panic!("Server hasn't started in this test even though it was expected")
+                } else {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } else {
+                let allow_waiting = tracked_active_conns > 0;
 
-        log(
-            self.log,
-            self.index,
-            &format!(
-                "Sending terminate order with kill = {} to running background thread",
-                kill
-            ),
-        );
-        // let terminataion_msg = if kill {
-        //     TerminationStyle::Kill
-        // } else {
-        //     TerminationStyle::Stop
-        // };
-        // self.termination_style_tx
-        //     .send(terminataion_msg)
-        //     .unwrap();
+                log(
+                    self.log,
+                    self.index,
+                    &format!(
+                        "Server termination order comes into while there are {} connections open", tracked_active_conns
+                    ),
+                );
 
-        log(self.log, self.index, "Joining background thread");
+                let requests = self.await_all_msgs_to_be_handled(allow_waiting, self.configuration.min_count_of_awaited_requests_opt.unwrap_or(0)).await;
 
-        let requests = self.await_all_msgs_to_be_handled(kill, awaited_count_of_handled_msgs).await;
+                break (requests, allow_waiting)
+            }
+        };
 
-        //     ConnectionStatus::Disconnected(..) => {
-        //         if start.elapsed() < hard_limit {
-        //             tokio::time::sleep(Duration::from_millis(50)).await;
-        //         } else {
-        //             log(
-        //                 self.log,
-        //                 self.index,
-        //                 "Processing termination order, but Websockects already \
-        //                 disconnected. Proceeding to shut down the server wholly",
-        //             );
-        //
-        //             self.stop_server();
-        //             break vec![]
-        //         }
-        //     }
-        //     ConnectionStatus::ServerKilledFromOuterDirective => {
-        //         log(
-        //             self.log,
-        //             self.index,
-        //             "Server already killed, no need to kick the horse's dead body",
-        //         );
-        //     }
-        // }
-        let start = Instant::now();
-        let
-        while self.counters.active_connections.load(Ordering::Relaxed) != 0 {
-            if start.elapsed() >
-            tokio::time::sleep(Duration::from_millis(100)).await
+        if allow_waiting {
+            let disconnection_start = Instant::now();
+            let disconnection_hard_limit = Duration::from_millis(300);
+            while self.counters.active_connections.load(Ordering::Relaxed) != 0 {
+                if disconnection_start.elapsed() > disconnection_hard_limit {
+                    panic!("Websocket server disconnection is taking too much time; ")
+                } else {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
         }
-
-        self.await_disconnection().await;
 
         requests
     }
 
-    async fn await_all_msgs_to_be_handled(&mut self, kill: bool, awaited_msg_count: usize)-> Vec<MockWSServerRecordedRequest>{
+    async fn await_all_msgs_to_be_handled(&mut self, allow_waiting: bool, awaited_msg_count: usize)-> Vec<MockWSServerRecordedRequest>{
         let obtain_guard = ||match self.requests_arc.lock() {
             Ok(guard) => guard,
             Err(poison_error) => poison_error.into_inner(),
         };
 
-        log(
-            self.log,
-            self.index,
-            "Waiting for expected number of received requests",
-        );
-        let recorded_requests_waiting_start = SystemTime::now();
-        let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
-        while obtain_guard().len() < awaited_msg_count {
-            if recorded_requests_waiting_start.elapsed().expect("travelling in time") >= recorded_requests_waiting_hard_limit {
-                panic!("We waited for all expected requests, but they weren't received even after {} ms", recorded_requests_waiting_hard_limit.as_millis())
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await
-        }
-        let waiting_for_joining_the_server_task_hard_limit = Duration::from_millis(2500);
-        self.stop_server();
-
-        //self.send_termination_order_via_connection_attempt(kill).await;
-
-        // self.server_shutdown_tx.send(()).expect("sending server shutdown order failed");
-        // self.join_handle_opt.take().expect("join handle should be present").await;
-        // tokio::time::timeout(waiting_for_joining_the_server_task_hard_limit, self.join_handle).await
-        //     .unwrap_or_else(|_|panic!("Timed out after {} waiting for joining the stopped server", waiting_for_joining_the_server_task_hard_limit.as_millis()));
+        if allow_waiting {
+            let recorded_requests_waiting_start = SystemTime::now();
+            let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
             log(
                 self.log,
                 self.index,
-                "Background thread joined; retrieving recording",
+                &format!("Waiting for the expected count of received requests: {}", awaited_msg_count),
             );
+            while obtain_guard().len() < awaited_msg_count {
+                if recorded_requests_waiting_start.elapsed().expect("travelling in time") >= recorded_requests_waiting_hard_limit {
+                    panic!("We waited for all expected requests, but they weren't received even after {} ms", recorded_requests_waiting_hard_limit.as_millis())
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await
+            }
+        }
+
+        log(self.log, self.index, "About to try joining the background thread");
+
+        self.stop_server_and_join(None).await;
+
+        log(
+            self.log,
+            self.index,
+            "Background thread joined; retrieving recording",
+        );
 
         (*obtain_guard()).clone()
     }
 
-    fn stop_server(&self){
-        self.server_handle.stop().expect("failed to make a stop order to the server");
+    async fn stop_server_and_join(&self, timeout: Option<Duration>){
+        let fut = self.server_handle.stop_and_join();
+        let _ = tokio::time::timeout(timeout.unwrap_or(Duration::from_millis(500)), fut).await.expect("Failed to join the server's thread");
     }
 
-    async fn send_termination_order_via_connection_attempt(&self, kill: bool){
-        let ws = establish_bare_ws_conn(self.server_port).await;
-        let msg = if kill {
-            "kill-mock-server"
-        } else {
-            "stop-mock-server"
-        };
-        let _ = ws.send(workflow_websocket::client::Message::Text(msg.to_string())).await.expect("failed to send the mock ws server termination directive");
+    // async fn send_termination_order_via_connection_attempt(&self, kill: bool){
+    //     let ws = establish_bare_ws_conn(self.server_port).await;
+    //     let msg = if kill {
+    //         "kill-mock-server"
+    //     } else {
+    //         "stop-mock-server"
+    //     };
+    //     let _ = ws.send(workflow_websocket::client::Message::Text(msg.to_string())).await.expect("failed to send the mock ws server termination directive");
+    // }
+
+    pub async fn await_conn_established(&self, biased_by_other_connections_opt: Option<usize>){
+        let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
+        self.await_loop(|counters|(counters.active_connections.load(Ordering::Relaxed) - allowed_parallel_conn) > 0).await
     }
 
-    pub async fn await_conn_established(&self){
-        self.await_loop(|read_conn_status|matches!(read_conn_status, ConnectionStatus::Connected(..))).await
+    pub async fn await_disconnection(&self, biased_by_other_connections_opt: Option<usize>){
+        let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
+        self.await_loop(|counters|counters.active_connections.load(Ordering::Relaxed) == (0 + allowed_parallel_conn)).await
     }
 
-    pub async fn await_disconnection(&self){
-        self.await_loop(|read_conn_status|matches!(read_conn_status, ConnectionStatus::Disconnected(..))).await
-    }
-
-    async fn await_loop<F>(&self, test_desired_condition: F) where F: Fn(ConnectionStatus)->bool{
-        let status_clone = self.connection_statuses.clone();
+    async fn await_loop<F>(&self, test_desired_condition: F) where F: Fn(&Arc<WebSocketCounters>)->bool{
         let fut = async {
             loop {
-                let status = *status_clone.lock().await;
-                eprintln!("trying again: {:?}", status);
+                if test_desired_condition(&self.counters) {
+                    break
+                }
                 tokio::time::sleep(Duration::from_millis(100)).await
             }
         };
         tokio::time::timeout(Duration::from_millis(5_000), fut).await.expect("Timed out waiting for server connection's status change")
-    }
-
-    // pub fn is_terminated(&self) -> bool {
-    //     self.join_handle_opt.is_finished()
-    // }
-
-    async fn connection_status(&self)->ConnectionStatus{
-        let status = *self.connection_statuses.lock().await;
-        eprintln!("status: {:?}", status);
-        status
     }
 }
 
@@ -762,10 +731,10 @@ mod tests {
 
         let actual_response: UiCheckPasswordResponse = connection
             .transact_with_context_id(request.clone(), 123)
-            .await
             .unwrap();
 
-        let requests = stop_handle.stop();
+        let requests = stop_handle.kill().await;
+        requests.
         let actual_message_gotten_by_the_server =
             UiCheckPasswordRequest::fmb(requests[0].clone().unwrap())
                 .unwrap()

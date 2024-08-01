@@ -8,7 +8,7 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
-use masq_lib::{implement_as_any, short_writeln};
+use masq_lib::{implement_as_any, masq_short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
@@ -66,12 +66,12 @@ impl Command for WalletAddressesCommand {
         };
         let msg: UiWalletAddressesResponse =
             transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Your consuming wallet address: {}",
             msg.consuming_wallet_address
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Your   earning wallet address: {}",
             msg.earning_wallet_address
