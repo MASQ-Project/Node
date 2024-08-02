@@ -433,6 +433,10 @@ impl Debug for NeighborhoodSubs {
     }
 }
 
+// TODO This message doesn't seem to fit exactly to its use. Some fields are required only in some
+// cases, like the NodeAddr and nothing else. We should consider making some or both of the other
+// fields optional. In the bigger image, we might want to design an enum that could store all sorts
+// of responses that could result from a NodeQuery.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeQueryResponseMetadata {
     pub public_key: PublicKey,
