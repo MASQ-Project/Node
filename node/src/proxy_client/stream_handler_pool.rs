@@ -66,7 +66,6 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
         payload: ClientRequestPayload_0v1,
         paying_wallet_opt: Option<Wallet>,
     ) {
-        // TODO: GH-800: We need a test to prove that do_housekeeping() is called
         self.do_housekeeping();
         Self::process_package(payload, paying_wallet_opt, self.inner.clone())
     }
@@ -159,6 +158,27 @@ impl StreamHandlerPoolReal {
         };
     }
 
+    fn send_shutdown_signal_to_stream_reader(
+        mut reader_shutdown_tx: UnboundedSender<()>,
+        stream_key: &StreamKey,
+        logger: &Logger,
+    ) {
+        // TODO: GH-800: Test Drive Me especially the logs
+        match reader_shutdown_tx.try_send(()) {
+            Ok(()) => {
+                debug!(logger, "A shutdown signal was sent.")
+            }
+            Err(_e) => {
+                debug!(
+                    logger,
+                    "Unable to send a shutdown signal to the StreamReader for \
+                    stream key {:?}. The channel is already gone.",
+                    stream_key
+                );
+            }
+        }
+    }
+
     fn clean_up_bad_stream(
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
@@ -170,17 +190,17 @@ impl StreamHandlerPoolReal {
             inner.logger,
             "Couldn't process request from CORES package: {}", error
         );
-        if let Some(sender_wrapper) = inner.stream_writer_channels.remove(stream_key) {
-            debug!(
-                Logger::new("TEST"),
-                "clean_up_bad_stream() removed the stream key"
-            );
+        if let Some(mut stream_senders) = inner.stream_writer_channels.remove(stream_key) {
             debug!(
                 inner.logger,
                 "Removing stream writer for {}",
-                sender_wrapper.writer_data.peer_addr()
+                stream_senders.writer_data.peer_addr()
             );
-            // TODO: GH-800: Send a shutdown signal to the Reader
+            Self::send_shutdown_signal_to_stream_reader(
+                stream_senders.reader_shutdown_tx,
+                stream_key,
+                &inner.logger,
+            )
         }
         Self::send_terminating_package(
             stream_key,
@@ -232,19 +252,11 @@ impl StreamHandlerPoolReal {
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
-                        match stream_senders.reader_shutdown_tx.try_send(()) {
-                            Ok(()) => {
-                                debug!(test_logger, "A shutdown signal was sent.")
-                            }
-                            Err(e) => {
-                                debug!(
-                                    inner.logger,
-                                    "Unable to send a shutdown signal to the StreamReader for \
-                                    stream key {:?}. The channel is already gone.",
-                                    stream_key
-                                );
-                            }
-                        }
+                        Self::send_shutdown_signal_to_stream_reader(
+                            stream_senders.reader_shutdown_tx,
+                            &stream_key,
+                            &inner.logger,
+                        );
                     }
                     None => {
                         eprintln!("Failed to Remove stream key: {:?}", stream_key);
@@ -764,6 +776,7 @@ mod tests {
         let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let (reader_shutdown_tx, mut reader_shutdown_rx) = unbounded_channel();
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: StreamKey::make_meaningless_stream_key(),
@@ -804,7 +817,7 @@ mod tests {
                 client_request_payload.stream_key,
                 StreamSenders {
                     writer_data: Box::new(tx_to_write),
-                    reader_shutdown_tx: unbounded_channel().0,
+                    reader_shutdown_tx,
                 },
             );
 
@@ -812,6 +825,8 @@ mod tests {
         });
         proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        let received = reader_shutdown_rx.poll().unwrap();
+        assert_eq!(received, Async::Ready(Some(())));
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
