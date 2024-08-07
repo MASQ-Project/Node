@@ -601,7 +601,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::{Actor, System};
     use core::any::TypeId;
-    use futures::Stream;
+    use futures::{Poll, Stream};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -610,10 +610,11 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::IpAddr;
     use std::net::SocketAddr;
-    use std::ops::Deref;
+    use std::ops::{Add, Deref};
     use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
     use std::{sync, thread};
     use tokio;
     use tokio::prelude::Async;
@@ -1026,85 +1027,69 @@ mod tests {
 
     #[test]
     fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
-        // TODO: GH-800: Identify why am I receiving this error - no Task is currently running
         init_test_logging();
         let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
         let mut system = System::new(test_name);
-        let future = future::lazy(move || {
-            let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
-            actix::spawn(move || {
-                future::lazy({
-                    let stream_key = StreamKey::make_meaningful_stream_key("I should die");
-                    let client_request_payload = ClientRequestPayload_0v1 {
-                        stream_key,
-                        sequenced_packet: SequencedPacket {
-                            data: b"I'm gonna kill you stream key".to_vec(),
-                            sequence_number: 0,
-                            last_data: true,
-                        },
-                        target_hostname: Some(String::from("3.4.5.6:80")),
-                        target_port: HTTP_PORT,
-                        protocol: ProxyProtocol::HTTP,
-                        originator_public_key: PublicKey::new(&b"brutal death"[..]),
-                    };
-                    let package = ExpiredCoresPackage::new(
-                        SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                        Some(make_wallet("consuming")),
-                        make_meaningless_route(),
-                        client_request_payload.into(),
-                        0,
-                    );
-                    let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-                    let peer_actors = peer_actors_builder().build();
-                    let mut subject = StreamHandlerPoolReal::new(
-                        Box::new(ResolverWrapperMock::new()),
-                        main_cryptde(),
-                        peer_actors.accountant.report_exit_service_provided.clone(),
-                        peer_actors.proxy_client_opt.unwrap().clone(),
-                        100,
-                        200,
-                    );
-                    {
-                        let mut inner = subject.inner.lock().unwrap();
-                        inner.logger = Logger::new(test_name);
-                        inner.stream_writer_channels.insert(
-                            stream_key,
-                            StreamSenders {
-                                writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                                reader_shutdown_tx: shutdown_tx,
-                            },
-                        );
-                    }
-
-                    let paying_wallet = package.paying_wallet.clone();
-                    let payload = match package.payload {
-                        MessageType::ClientRequest(vd) => vd
-                            .extract(
-                                &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
-                            )
-                            .unwrap(),
-                        _ => panic!("Expected MessageType::ClientRequest, got something else"),
-                    };
-                    // actix::run(move || {
-                    subject.process_package(payload, paying_wallet);
-                    //     ok(())
-                    // })
-
-                    // run_process_package_in_actix(subject, package);
-                })
-            });
-            let received = shutdown_rx.poll().unwrap();
-            assert_eq!(received, Async::Ready(Some(())));
-            TestLogHandler::new().await_log_containing(
-                &format!(
-                    "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
-            for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
-                ),
-                500,
+        let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
+        let stream_key = StreamKey::make_meaningful_stream_key("I should die");
+        let client_request_payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket {
+                data: b"I'm gonna kill you stream key".to_vec(),
+                sequence_number: 0,
+                last_data: true,
+            },
+            target_hostname: Some(String::from("3.4.5.6:80")),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(&b"brutal death"[..]),
+        };
+        let package = ExpiredCoresPackage::new(
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            Some(make_wallet("consuming")),
+            make_meaningless_route(),
+            client_request_payload.into(),
+            0,
+        );
+        let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+        let peer_actors = peer_actors_builder().build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            main_cryptde(),
+            peer_actors.accountant.report_exit_service_provided.clone(),
+            peer_actors.proxy_client_opt.unwrap().clone(),
+            100,
+            200,
+        );
+        {
+            let mut inner = subject.inner.lock().unwrap();
+            inner.logger = Logger::new(test_name);
+            inner.stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown_tx: shutdown_tx,
+                },
             );
-            ok(())
-        });
-        system.block_on(future).unwrap();
+        }
+        let paying_wallet = package.paying_wallet.clone();
+        let payload = match package.payload {
+            MessageType::ClientRequest(vd) => vd
+                .extract(&crate::sub_lib::migrations::client_request_payload::MIGRATIONS)
+                .unwrap(),
+            _ => panic!("Expected MessageType::ClientRequest, got something else"),
+        };
+
+        subject.process_package(payload, paying_wallet);
+
+        let future_result = shutdown_rx.and_then(|_| Ok(()));
+        let future_with_timeout =
+            tokio::timer::Timeout::new(future_result, Duration::from_secs(10)).into_future();
+        assert!(system.block_on(future_with_timeout).is_ok());
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
+            for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
+        ));
     }
 
     #[test]
