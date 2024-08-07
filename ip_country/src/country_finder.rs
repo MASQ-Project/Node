@@ -1,8 +1,8 @@
-use crate::country_block_serde::{CountryBlockDeserializerIpv4, CountryBlockDeserializerIpv6};
+use crate::country_block_serde::CountryBlockDeserializer;
 use crate::country_block_stream::{Country, CountryBlock};
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[cfg(not(test))]
 lazy_static! {
@@ -34,13 +34,13 @@ impl CountryCodeFinder {
     }
 
     fn initialize_country_finder_ipv4(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
-        let deserializer = CountryBlockDeserializerIpv4::new(data);
+        let deserializer = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(data);
         let result: Vec<CountryBlock> = deserializer.into_iter().collect_vec();
         result
     }
 
     fn initialize_country_finder_ipv6(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
-        let deserializer = CountryBlockDeserializerIpv6::new(data);
+        let deserializer = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(data);
         let result: Vec<CountryBlock> = deserializer.collect_vec();
         result
     }
@@ -69,6 +69,7 @@ impl CountryCodeFinder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::country_block_serde::CountryBlockDeserializer;
     use lazy_static::lazy_static;
     use std::str::FromStr;
     use std::time::SystemTime;
@@ -253,9 +254,13 @@ mod tests {
     fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
         let time_start = SystemTime::now();
         let deserializer_ipv4 =
-            CountryBlockDeserializerIpv4::new(crate::dbip_country::ipv4_country_data());
+            CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
+                crate::dbip_country::ipv4_country_data(),
+            );
         let deserializer_ipv6 =
-            CountryBlockDeserializerIpv6::new(crate::dbip_country::ipv6_country_data());
+            CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
+                crate::dbip_country::ipv6_country_data(),
+            );
         let time_end = SystemTime::now();
 
         let time_start_fill = SystemTime::now();
