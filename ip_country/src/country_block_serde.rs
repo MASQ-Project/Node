@@ -631,6 +631,9 @@ mod tests {
     use crate::country_block_stream::{Country, IpRange};
     use std::net::Ipv4Addr;
     use std::str::FromStr;
+    use std::io::Write;
+    use std::marker::PhantomData;
+    use crate::country_block_serde;
 
     fn ipv4_country_blocks() -> Vec<CountryBlock> {
         vec![
@@ -682,6 +685,17 @@ mod tests {
                 country: Country::try_from("AO").unwrap().clone(),
             },
         ]
+    }
+
+    const SegmentsCount: usize = 4;
+
+    #[test]
+    fn versioned_ip_is_printed() {
+        let mut w = Vec::new();
+        let ip: VersionedIP<Ipv4Addr, SegmentNumRep, { SegmentsCount }> = VersionedIP::new(Ipv4Addr::new(1, 2, 3, 4));
+        write!(&mut w, "{}", ip.ip.to_string()).unwrap();
+
+        assert_eq!(w, b"1.2.3.4");
     }
 
     #[test]
