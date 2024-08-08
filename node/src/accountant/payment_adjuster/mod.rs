@@ -34,7 +34,7 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
     LowGainingAccountEliminated, SomeAccountsProcessed,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, DecidedAccounts, RecursionResults, WeightedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
@@ -300,6 +300,44 @@ impl PaymentAdjusterReal {
         );
 
         merged
+    }
+
+    fn resolve_current_iteration_result_2(
+        &mut self,
+        adjustment_iteration_result: AdjustmentIterationResult,
+    ) -> RecursionResults {
+        let remaining_undecided_accounts = adjustment_iteration_result.remaining_undecided_accounts;
+        let decided_accounts = adjustment_iteration_result.decided_accounts;
+        if remaining_undecided_accounts.is_empty() {
+            return match decided_accounts {
+                LowGainingAccountEliminated => RecursionResults::new(vec![], vec![]),
+                SomeAccountsProcessed(accounts) => RecursionResults::new(accounts, vec![]),
+            };
+        }
+        let here_decided_accounts = match decided_accounts {
+            LowGainingAccountEliminated => {
+                vec![]
+            }
+            SomeAccountsProcessed(accounts) => {
+                self.adjust_remaining_unallocated_cw_balance_down(&accounts);
+                accounts
+            }
+        };
+
+        let check_sum: u128 = sum_as(&remaining_undecided_accounts, |weighted_account| {
+            weighted_account.balance_minor()
+        });
+
+        let unallocated_cw_balance = self.inner.unallocated_cw_service_fee_balance_minor();
+
+        let down_stream_decided_accounts = if check_sum <= unallocated_cw_balance {
+            // Fast return after a direct conversion into the expected type
+            convert_collection(remaining_undecided_accounts)
+        } else {
+            self.propose_possible_adjustment_recursively(remaining_undecided_accounts)
+        };
+
+        RecursionResults::new(here_decided_accounts, down_stream_decided_accounts)
     }
 
     fn resolve_current_iteration_result(
