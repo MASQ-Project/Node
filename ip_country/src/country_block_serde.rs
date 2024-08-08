@@ -5,7 +5,7 @@ use crate::country_block_serde::semi_private_items::{
     DeserializerPrivate, Difference, IPIntoOctets, IPIntoSegments, PlusMinusOneIP,
 };
 use crate::country_block_stream::{Country, CountryBlock, IpRange};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::ops::{BitOrAssign, ShlAssign};
@@ -376,7 +376,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct CountryBlockDeserializer<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize> {
+pub struct CountryBlockDeserializer<IPType: Display, SegmentNumRep, const SEGMENTS_COUNT: usize> {
     prev_record: StreamRecord<IPType, SegmentNumRep, SEGMENTS_COUNT>,
     bit_queue: BitQueue,
     empty: bool,
@@ -459,7 +459,8 @@ where
         + PlusMinusOneIP
         + From<[SegmentNumRep; SEGMENTS_COUNT]>
         + Copy
-        + Debug,
+        + Debug
+        + Display,
     SegmentNumRep: TryFrom<u64>,
     <SegmentNumRep as TryFrom<u64>>::Error: Debug,
     IpRange: From<(IPType, IPType)>,
@@ -563,16 +564,17 @@ impl<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize>
     }
 }
 
-impl<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize> Debug
+impl<IPType: Display, SegmentNumRep, const SEGMENTS_COUNT: usize> Debug
     for VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!("Vojta, this is for you: use the `write!()` macro and make this custom debug impl...it should probably print only the field with the ip and its value")
+        //TODO("Vojta, this is for you: use the `write!()` macro and make this custom debug impl...it should probably print only the field with the ip and its value")
+        f.write_fmt(format_args!("ip: {}", self.ip))
     }
 }
 
 #[derive(Debug)]
-struct StreamRecord<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize> {
+struct StreamRecord<IPType: Display, SegmentNumRep, const SEGMENTS_COUNT: usize> {
     start: VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>,
     country_idx: usize,
 }
@@ -580,7 +582,7 @@ struct StreamRecord<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize> {
 impl<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize>
     StreamRecord<IPType, SegmentNumRep, SEGMENTS_COUNT>
 where
-    IPType: From<[SegmentNumRep; SEGMENTS_COUNT]>,
+    IPType: From<[SegmentNumRep; SEGMENTS_COUNT]> + Display,
     SegmentNumRep: TryFrom<u64>,
     <SegmentNumRep>::Error: Debug,
 {
@@ -632,8 +634,6 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use std::io::Write;
-    use std::marker::PhantomData;
-    use crate::country_block_serde;
 
     fn ipv4_country_blocks() -> Vec<CountryBlock> {
         vec![
@@ -687,15 +687,24 @@ mod tests {
         ]
     }
 
-    const SegmentsCount: usize = 4;
+    #[test]
+    fn versioned_ip_v4_is_printed() {
+        let mut w = Vec::new();
+        let ip: VersionedIP<Ipv4Addr, u8, 4> = VersionedIP::new(Ipv4Addr::new(1, 2, 3, 4));
+
+        write!(&mut w, "{:?}", ip).unwrap();
+
+        assert_eq!(w, [105, 112, 58, 32, 49, 46, 50, 46, 51, 46, 52]);
+    }
 
     #[test]
-    fn versioned_ip_is_printed() {
+    fn versioned_ip_v6_is_printed() {
         let mut w = Vec::new();
-        let ip: VersionedIP<Ipv4Addr, SegmentNumRep, { SegmentsCount }> = VersionedIP::new(Ipv4Addr::new(1, 2, 3, 4));
-        write!(&mut w, "{}", ip.ip.to_string()).unwrap();
+        let ip: VersionedIP<Ipv6Addr, u16, 8> = VersionedIP::new(Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 8));
 
-        assert_eq!(w, b"1.2.3.4");
+        write!(&mut w, "{:?}", ip).unwrap();
+
+        assert_eq!(w, [105, 112, 58, 32, 49, 58, 50, 58, 51, 58, 52, 58, 53, 58, 54, 58, 55, 58, 56]);
     }
 
     #[test]
