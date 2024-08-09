@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::time::Duration;
 use async_trait::async_trait;
-use time::Duration;
 use tokio::select;
 use workflow_websocket::client::Handshake;
 use workflow_websocket::client::Message;
@@ -17,29 +17,20 @@ impl Handshake for WSClientHandshakeHandler {
         sender: &async_channel::Sender<Message>,
         receiver: &async_channel::Receiver<Message>,
     ) -> workflow_websocket::client::Result<()> {
-        sender.send(Message::Text(NODE_UI_PROTOCOL.to_string())).await.map_err(|e| todo!())
-        // let delay = tokio::time::sleep(self.timeout);
-        // select! {
-        //     rcv_res = receiver.recv() => {
-        //         todo!()
-        //     },
-        //     _ = delay => {
-        //         todo!()
-        //     }
-        // }
-        //
-        // incoming_msg = receiver.recv().await;
-        // match incoming_msg {
-        //     Message::Text(text) if text.contains(NODE_UI_PROTOCOL) => {
-        //         todo!()
-        //         //sender.send(Message::Open).await.unwrap();
-        //         //Ok(())
-        //     }
-        //     _ => {
-        //         todo!()
-        //         //sender.send(Message::Close).await.unwrap();
-        //         //Err(NegotiationFailure)
-        //     }
-        // }
+        match sender.send(Message::Text(NODE_UI_PROTOCOL.to_string())).await{
+           Err(e) => todo!(),
+            Ok(_) => ()
+        }
+
+        let fut = async {
+            let server_response = match receiver.recv().await {
+              Ok(res) => todo!(),
+                Err(e) => todo!()
+            };
+        };
+
+        //Err(NegotiationFailure)
+
+        tokio::time::timeout(self.timeout, fut).await.map_err(|e|todo!())
     }
 }

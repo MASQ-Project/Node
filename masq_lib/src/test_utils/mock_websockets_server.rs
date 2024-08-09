@@ -17,17 +17,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, thread};
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
-use tokio::{select, task};
 use std::str::FromStr;
 use actix::dev::MessageResponse;
-use clap::ArgAction;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::task::{JoinHandle, spawn_blocking};
 use workflow_websocket::server::error::Error as WebsocketServerError;
 use workflow_websocket::server::{Error, Message, WebSocketConfig, WebSocketCounters, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketServerTrait, WebSocketSink};
 use workflow_websocket::server::handshake::greeting;
-use crate::test_utils::utils::make_rt;
 use crate::test_utils::websocket_utils::{establish_bare_ws_conn, establish_ws_conn_with_handshake};
 
 lazy_static! {
@@ -37,60 +31,23 @@ lazy_static! {
 struct NodeUiProtocolWebSocketHandler {
     requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
     responses_arc: Arc<Mutex<Vec<Message>>>,
-    termination_style_rx: Receiver<TerminationStyle>,
-    websocket_sink_tx: Sender<WebSocketSink>,
-    websocket_sink_rx: Receiver<WebSocketSink>,
     opening_broadcasts_signal_rx_opt: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     do_log: bool,
     index: u64,
 }
 
-impl Drop for NodeUiProtocolWebSocketHandler {
-    fn drop(&mut self) {
-        panic!("bluh");
-        // let termination_style = self.termination_style_rx.try_recv();
-        // let kill_flag = match termination_style {
-        //     Ok(TerminationStyle::Kill) => true,
-        //     _ => false,
-        // };
-        // let latest_connection_status = self.connections_status.clone();
-        // let do_log = self.do_log;
-        // let index = self.index;
-        //
-        // tokio::task::spawn( async move {
-        //     if kill_flag {
-        //         log(
-        //             do_log,
-        //             index,
-        //             "Setting the connection status that server is killed from an outer directive",
-        //         );
-        //         MockWebSocketsServer::announce_killed_status(latest_connection_status).await
-        //     } else if matches!(*latest_connection_status.lock().await, ConnectionStatus::Connected(..)) {
-        //         log(
-        //             do_log,
-        //             index,
-        //             "Server's disconnect function hasn't been called, fixing status during drop",
-        //         );
-        //         MockWebSocketsServer::switch_connection_status(&latest_connection_status).await;
-        //     }
-        // });
-        //
-        // if !kill_flag {
-        //     if let Ok(websocket_sink) = self.websocket_sink_rx.try_recv() {
-        //         let _ = websocket_sink.send(Message::Close(None));
-        //     } else {
-        //         eprintln!(
-        //             "No WebSocket connection has been initialized in the server's session, \
-        //             Close cannot be, and what more, does't need to be signalized."
-        //         )
-        //     }
-        // }
-    }
-}
-
 #[async_trait]
 impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
     type Context = SocketAddr;
+
+    async fn connect(self: &Arc<Self>, peer: &SocketAddr) -> workflow_websocket::server::Result<()> {
+        log(
+            self.do_log,
+            self.index,
+            format!("Accepted TCP connection from {}", peer).as_str(),
+        );
+        Ok(())
+    }
 
     async fn handshake(
         self: &Arc<Self>,
@@ -99,8 +56,6 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         receiver: &mut WebSocketReceiver,
         sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<Self::Context> {
-        self.websocket_sink_tx.send(sink.clone()).unwrap();
-
         log(
             self.do_log,
             self.index,
@@ -122,23 +77,6 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         self.handle_opening_broadcasts(sink);
 
         Ok(*peer)
-    }
-
-    async fn connect(self: &Arc<Self>, peer: &SocketAddr) -> workflow_websocket::server::Result<()> {
-        log(
-            self.do_log,
-            self.index,
-            format!("Accepted TCP connection from {}", peer).as_str(),
-        );
-        Ok(())
-    }
-
-    async fn disconnect(self: &Arc<Self>, ctx: SocketAddr, _result: workflow_websocket::server::Result<()>) {
-        log(
-            self.do_log,
-            self.index,
-            format!("Disconnecting TCP connection to {}", ctx).as_str(),
-        );
     }
 
     async fn message(
@@ -198,18 +136,6 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
 }
 
 impl NodeUiProtocolWebSocketHandler {
-    fn verify_subprotocol_or_shutdown_server(initial_msg: &str)->workflow_websocket::server::Result<()>{
-        if initial_msg == NODE_UI_PROTOCOL {
-            Ok(())
-        } else if initial_msg == "kill-mock-server" {
-            todo!()
-        } else if initial_msg == "stop-mock-server" {
-            todo!()
-        } else {
-            todo!("msg was {:?}", initial_msg)
-        }
-    }
-
     fn release_fire_and_forget_messages_introducing_the_queue(&self, sink: &WebSocketSink) {
         let mut counter = 0usize;
         loop {
@@ -354,6 +280,7 @@ pub struct MockWebSocketsServer {
     port: u16,
     protocol: String,
     responses: Vec<Message>,
+    //TODO remove this eventually
     opening_broadcast_signal_rx_opt: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
@@ -403,53 +330,37 @@ impl MockWebSocketsServer {
             index
         };
         let requests_arc = Arc::new(Mutex::new(vec![]));
-        let (termination_style_tx, termination_style_rx) = unbounded();
-        let (websocket_sink_tx, websocket_sink_rx) = unbounded();
+        let counters = Arc::new(WebSocketCounters::default());
 
         let handler = NodeUiProtocolWebSocketHandler {
             requests_arc: requests_arc.clone(),
             responses_arc: Arc::new(Mutex::new(self.responses)),
-            termination_style_rx,
-            websocket_sink_tx,
-            websocket_sink_rx,
             opening_broadcasts_signal_rx_opt: Mutex::new(self.opening_broadcast_signal_rx_opt),
             do_log: self.do_log,
             index,
         };
 
-        let counters = Arc::new(WebSocketCounters::default());
         let ws_server_handle = WebSocketServer::new(Arc::new(handler), Some(counters.clone()));
         let ws_server_handle_clone = ws_server_handle.clone();
         let socket_addr = SocketAddr::new(localhost(), self.port);
+        let static_socket_addr_str: &'static str = Box::leak(socket_addr.to_string().into_boxed_str());
+        let server_task =
+            ws_server_handle_clone.listen(static_socket_addr_str, None);
+        tokio::spawn(server_task);
+
         log(
             self.do_log,
             index,
-            format!("Listening on: {}", socket_addr).as_str(),
+            format!("Started listening on: {}", socket_addr).as_str(),
         );
-        let static_socket_addr_str: &'static str = Box::leak(socket_addr.to_string().into_boxed_str());
-        let server_task = ws_server_handle_clone.listen(static_socket_addr_str, None);
-        tokio::spawn(server_task);
 
         MockWebSocketsServerStopHandle {
             index,
             log: self.do_log,
             requests_arc,
             counters,
-            server_handle: ws_server_handle,
             server_port: self.port,
-            configuration: Default::default(),
         }
-    }
-
-    async fn switch_connection_status(storage: &Arc<tokio::sync::Mutex<ConnectionStatus>>){
-        let mut current = storage.lock().await;
-        let new = current.switched();
-        let _ = mem::replace(current.deref_mut(), new);
-    }
-
-    async fn announce_killed_status(local_storage_to_drop_after: Arc<tokio::sync::Mutex<ConnectionStatus>>){
-        let mut current = local_storage_to_drop_after.lock().await;
-        let _ = mem::replace(current.deref_mut(), ConnectionStatus::ServerKilledFromOuterDirective);
     }
 }
 
@@ -513,143 +424,53 @@ pub struct MockWebSocketsServerStopHandle {
     log: bool,
     requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
     counters: Arc<WebSocketCounters>,
-    server_handle: Arc<WebSocketServer<NodeUiProtocolWebSocketHandler>>,
     server_port: u16,
-    configuration: MockWSServerStopConfig
-}
-
-#[derive(Default)]
-struct MockWSServerStopConfig{
-    time_granted_for_conn_establishment_opt: Option<Duration>,
-    min_count_of_awaited_requests_opt: Option<usize>
 }
 
 impl MockWebSocketsServerStopHandle {
-    // pub async fn stop(self, time_granted_for_conn_establishment_opt: Option<Duration>, min_count_of_awaited_requests_opt: Option<usize>) -> Vec<MockWSServerRecordedRequest> {
-    //     self.send_terminate_order(false, time_granted_for_conn_establishment_opt, min_count_of_awaited_requests_opt.unwrap_or(0)).await
-    // }
+    pub async fn retrieve_recorded_requests(&self, required_msg_count_opt: Option<usize>)->Vec<MockWSServerRecordedRequest>{
+        let recorded_requests_waiting_start = SystemTime::now();
+        let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
+        let obtain_guard = || self.requests_arc.lock().unwrap_or_else(|poison_error| poison_error.into_inner());
+        loop {
 
-    pub async fn kill(self) -> Vec<MockWSServerRecordedRequest> {
-        self.terminate_server_and_retrieve_requests().await
-    }
-
-    async fn terminate_server_and_retrieve_requests(
-        mut self,
-        // time_granted_for_conn_est_opt: Option<Duration>,
-        // awaited_count_of_handled_msgs: usize
-    ) -> Vec<MockWSServerRecordedRequest> {
-        // Unfortunately, the used library and the tokio frimewark don't allow much about controlling
-        // the spawned server to such a level that we could politely shut down the server and still
-        // not to close the connection with waving a farwell to the distant client, and ideally to
-        // join the finished task. If We want to be able to kill it from here, this is a problem.
-        // (The future with the server refused to complite immediately even when we tried calling
-        // 'abort()' on its handle. The 'stop_and_join()' method belonging to the server disappointed
-        // by its effectiveness constrained only to running a server with all connections already
-        // disconnected - an active one would keep it from reaching the directive)
-        let conn_est_start = Instant::now();
-        let conn_est_hard_limit = self.configuration.time_granted_for_conn_establishment_opt.unwrap_or(Duration::from_millis(0));
-
-        let (requests, allow_waiting) = loop {
-            let tracked_total_conns = self.counters.total_connections.load(Ordering::Relaxed);
-            let tracked_active_conns = self.counters.active_connections.load(Ordering::Relaxed);
-
-            if tracked_total_conns == 0 && tracked_active_conns == 0 {
-                if conn_est_start.elapsed() > conn_est_hard_limit {
-                    panic!("Server hasn't started in this test even though it was expected")
-                } else {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            } else {
-                let allow_waiting = tracked_active_conns > 0;
-
-                log(
-                    self.log,
-                    self.index,
-                    &format!(
-                        "Server termination order comes into while there are {} connections open", tracked_active_conns
-                    ),
-                );
-
-                let requests = self.await_all_msgs_to_be_handled(allow_waiting, self.configuration.min_count_of_awaited_requests_opt.unwrap_or(0)).await;
-
-                break (requests, allow_waiting)
-            }
-        };
-
-        if allow_waiting {
-            let disconnection_start = Instant::now();
-            let disconnection_hard_limit = Duration::from_millis(300);
-            while self.counters.active_connections.load(Ordering::Relaxed) != 0 {
-                if disconnection_start.elapsed() > disconnection_hard_limit {
-                    panic!("Websocket server disconnection is taking too much time; ")
-                } else {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+            if let Some(required_msg_count) = required_msg_count_opt {
+                let guard_len = obtain_guard().len();
+                if required_msg_count <= guard_len {
+                    if recorded_requests_waiting_start.elapsed().expect("travelling in time") >= recorded_requests_waiting_hard_limit {
+                        panic!("We waited for {} expected requests but the queue contained only {:?} after {} ms timeout", required_msg_count, *obtain_guard(), recorded_requests_waiting_hard_limit.as_millis())
+                    } else {
+                        let sleep_ms = 50;
+                        log(
+                            self.log,
+                            self.index,
+                            &format!("Sleeping {} ms before another attempt to fetch the expected requests", sleep_ms),
+                        );
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        continue
+                    }
                 }
             }
-        }
 
-        requests
-    }
-
-    async fn await_all_msgs_to_be_handled(&mut self, allow_waiting: bool, awaited_msg_count: usize)-> Vec<MockWSServerRecordedRequest>{
-        let obtain_guard = ||match self.requests_arc.lock() {
-            Ok(guard) => guard,
-            Err(poison_error) => poison_error.into_inner(),
-        };
-
-        if allow_waiting {
-            let recorded_requests_waiting_start = SystemTime::now();
-            let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
             log(
                 self.log,
                 self.index,
-                &format!("Waiting for the expected count of received requests: {}", awaited_msg_count),
+                "Retrieving recorded requests by the server",
             );
-            while obtain_guard().len() < awaited_msg_count {
-                if recorded_requests_waiting_start.elapsed().expect("travelling in time") >= recorded_requests_waiting_hard_limit {
-                    panic!("We waited for all expected requests, but they weren't received even after {} ms", recorded_requests_waiting_hard_limit.as_millis())
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await
-            }
+
+            break obtain_guard().drain(..).collect()
         }
-
-        log(self.log, self.index, "About to try joining the background thread");
-
-        self.stop_server_and_join(None).await;
-
-        log(
-            self.log,
-            self.index,
-            "Background thread joined; retrieving recording",
-        );
-
-        (*obtain_guard()).clone()
     }
-
-    async fn stop_server_and_join(&self, timeout: Option<Duration>){
-        let fut = self.server_handle.stop_and_join();
-        let _ = tokio::time::timeout(timeout.unwrap_or(Duration::from_millis(500)), fut).await.expect("Failed to join the server's thread");
-    }
-
-    // async fn send_termination_order_via_connection_attempt(&self, kill: bool){
-    //     let ws = establish_bare_ws_conn(self.server_port).await;
-    //     let msg = if kill {
-    //         "kill-mock-server"
-    //     } else {
-    //         "stop-mock-server"
-    //     };
-    //     let _ = ws.send(workflow_websocket::client::Message::Text(msg.to_string())).await.expect("failed to send the mock ws server termination directive");
-    // }
 
     pub async fn await_conn_established(&self, biased_by_other_connections_opt: Option<usize>){
         let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
         self.await_loop(|counters|(counters.active_connections.load(Ordering::Relaxed) - allowed_parallel_conn) > 0).await
     }
 
-    pub async fn await_disconnection(&self, biased_by_other_connections_opt: Option<usize>){
-        let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
-        self.await_loop(|counters|counters.active_connections.load(Ordering::Relaxed) == (0 + allowed_parallel_conn)).await
-    }
+    // pub async fn await_disconnection(&self, biased_by_other_connections_opt: Option<usize>){
+    //     let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
+    //     self.await_loop(|counters|counters.active_connections.load(Ordering::Relaxed) == (0 + allowed_parallel_conn)).await
+    // }
 
     async fn await_loop<F>(&self, test_desired_condition: F) where F: Fn(&Arc<WebSocketCounters>)->bool{
         let fut = async {
@@ -671,41 +492,9 @@ fn log(do_log: bool, index: u64, msg: &str) {
     }
 }
 
-enum TerminationStyle {
-    Stop,
-    Kill,
-}
-
-struct ConnectionStatuses{
-    initiated_connections_and_statuses: HashMap<SocketAddr, ConnectionStatus>
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum ConnectionStatus{
-    // The additional number always signifies the number of prior connections that have been
-    // established
-    Disconnected(usize),
-    Connected(usize),
-    ServerKilledFromOuterDirective
-}
-
-impl ConnectionStatus{
-    fn switched(&self)->Self{
-        match self {
-            ConnectionStatus::Disconnected(connections_already_established) => {
-                ConnectionStatus::Connected(*connections_already_established + 1)
-            },
-            ConnectionStatus::Connected(connections_already_established) => {
-                ConnectionStatus::Disconnected(*connections_already_established)
-            },
-            x => panic!("Switched doesn't suite {:?}", x)
-        }
-    }
-
-}
-
 #[cfg(test)]
 mod tests {
+    use futures_util::FutureExt;
     use super::*;
     use crate::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiChangePasswordRequest,
@@ -714,6 +503,7 @@ mod tests {
         UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
+    use crate::test_utils::utils::make_rt;
     use crate::utils::find_free_port;
 
     #[tokio::test]
@@ -731,12 +521,13 @@ mod tests {
 
         let actual_response: UiCheckPasswordResponse = connection
             .transact_with_context_id(request.clone(), 123)
+            .await
             .unwrap();
 
-        let requests = stop_handle.kill().await;
-        requests.
+        let mut requests = stop_handle.retrieve_recorded_requests(None).await;
+        let captured_request = requests.remove(0).expect_masq_ws_protocol_msg();
         let actual_message_gotten_by_the_server =
-            UiCheckPasswordRequest::fmb(requests[0].clone().unwrap())
+            UiCheckPasswordRequest::fmb(captured_request)
                 .unwrap()
                 .0;
         assert_eq!(actual_message_gotten_by_the_server, request);
@@ -851,12 +642,12 @@ mod tests {
         let _received_message_number_six: UiNewPasswordBroadcast =
             connection.skip_until_received().await.unwrap();
 
-        let requests = stop_handle.stop();
+        let requests = stop_handle.retrieve_recorded_requests(None).await;
 
         assert_eq!(
             requests
                 .into_iter()
-                .flat_map(|x| x)
+                .map(|x| x.expect_masq_ws_protocol_msg())
                 .collect::<Vec<MessageBody>>(),
             vec![
                 conversation_number_one_request.tmb(1),
@@ -867,6 +658,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[should_panic(expected = "The queue is empty; all messages are gone.")]
     async fn attempt_to_get_a_message_from_an_empty_queue_causes_a_panic() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
@@ -877,46 +669,9 @@ mod tests {
             new_password: "password".to_string(),
         };
 
-        //catch_unwind so that we have a chance to shut down the server manually, not letting its thread leak away
-        let encapsulated_panic = std::panic::AssertUnwindSafe(async {
-            connection
-                .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
-                .await
-                .unwrap();
-        })
-        .catch_unwind()
-        .await;
-
-        stop_handle.stop();
-        let panic_err = encapsulated_panic.unwrap_err();
-        let panic_message = panic_err.downcast_ref::<&str>().unwrap();
-        assert_eq!(*panic_message, "The queue is empty; all messages are gone.")
-    }
-
-    #[test]
-    fn switch_status_works(){
-        let first = ConnectionStatus::Connected(3);
-        let storage_handle = Arc::new(Mutex::new(first));
-
-        MockWebSocketsServer::switch_connection_status(&storage_handle);
-        let second = *storage_handle.lock().unwrap();
-        MockWebSocketsServer::switch_connection_status(&second);
-        let third = *storage_handle.lock().unwrap();
-
-        assert_eq!(second, ConnectionStatus::Disconnected(3));
-        assert_eq!(third, ConnectionStatus::Connected(4))
-    }
-
-    #[tokio::test]
-    async fn server_can_be_killed_from_outside(){
-        let port = find_free_port();
-        let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start().await;
-        let client = establish_ws_conn_with_handshake(port).await;
-
-        stop_handle.kill(None).await;
-
-        let res = client.send(workflow_websocket::client::Message::Text("bluh".to_string())).await;
-        assert_eq!(res, Err(Arc::new(workflow_websocket::client::Error::NotConnected)))
+        let _ = connection
+            .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
+            .await
+            .unwrap();
     }
 }
