@@ -22,7 +22,8 @@ use actix::dev::MessageResponse;
 use workflow_websocket::server::error::Error as WebsocketServerError;
 use workflow_websocket::server::{Error, Message, WebSocketConfig, WebSocketCounters, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketServerTrait, WebSocketSink};
 use workflow_websocket::server::handshake::greeting;
-use crate::test_utils::websocket_utils::{establish_bare_ws_conn, establish_ws_conn_with_handshake};
+use crate::test_utils::websockets_utils::{establish_bare_ws_conn, establish_ws_conn_with_handshake};
+use crate::websockets_handshake::verify_masq_ws_subprotocol;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -66,7 +67,7 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             Duration::from_millis(5000),
             sender,
             receiver,
-            Box::pin(Self::verify_subprotocol_or_shutdown_server),
+            Box::pin(verify_masq_ws_subprotocol),
         ).await?;
 
         log(

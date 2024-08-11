@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use async_channel::{Receiver, Sender};
 use crate::utils::localhost;
-use crate::websockets::WSClientHandshakeHandler;
+use crate::websockets_handshake::WSClientHandshakeHandler;
 use workflow_websocket::client::{Ack, Message, WebSocket};
 use workflow_websocket::client::WebSocketConfig;
 use workflow_websocket::client::ConnectOptions;

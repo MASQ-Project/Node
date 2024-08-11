@@ -8,7 +8,7 @@ use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::net::SocketAddr;
 use workflow_websocket::client::{ConnectOptions, Message, WebSocket};
-use crate::test_utils::websocket_utils::{establish_bare_ws_conn, establish_ws_conn_with_arbitrary_handshake};
+use crate::test_utils::websockets_utils::{establish_bare_ws_conn, establish_ws_conn_with_arbitrary_handshake};
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 

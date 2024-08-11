@@ -25,4 +25,4 @@ pub mod shared_schema;
 pub mod test_utils;
 pub mod ui_gateway;
 pub mod ui_traffic_converter;
-pub mod websockets;
+pub mod websockets_handshake;
