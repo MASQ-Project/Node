@@ -380,3 +380,15 @@ pub fn all_chains() -> [Chain; 4] {
         Chain::Dev,
     ]
 }
+
+pub fn transport_error_code() -> u16 {
+    if cfg!(target_os = "windows") {
+        10061
+    } else if cfg!(target_os = "macos") {
+        61
+    } else if cfg!(target_os = "linux") {
+        111
+    } else {
+        0
+    }
+}

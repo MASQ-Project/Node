@@ -260,7 +260,7 @@ impl MockBlockchainClientServer {
                         let mut requests = requests_arc.lock().unwrap();
                         requests.push(body);
                     }
-                    if responses.len() == 0 {
+                    if responses.is_empty() {
                         break;
                     }
                     let response = responses.remove(0);

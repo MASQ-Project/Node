@@ -24,7 +24,7 @@ use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, H256, U256};
+use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
 
@@ -71,10 +71,10 @@ pub fn merged_output_data(
             |((rpc_result, hash_and_amount), account)| match rpc_result {
                 Ok(_rpc_result) => {
                     // TODO: This rpc_result should be validated
-                    return ProcessedPayableFallible::Correct(PendingPayable {
+                    ProcessedPayableFallible::Correct(PendingPayable {
                         recipient_wallet: account.wallet.clone(),
                         hash: hash_and_amount.hash,
-                    });
+                    })
                 }
                 Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
                     rpc_error,
@@ -120,7 +120,7 @@ pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68]
     data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
     data[16..36].copy_from_slice(&recipient_wallet.address().0[..]);
     U256::from(amount).to_big_endian(&mut data[36..68]);
-    return data;
+    data
 }
 pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     let base_gas_limit = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain);
@@ -128,7 +128,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
         acc + if v == &0u8 { 4 } else { 68 }
     }))
     .expect("Internal error");
-    return gas_limit;
+    gas_limit
 }
 pub fn sign_transaction(
     chain: Chain,
@@ -174,7 +174,7 @@ pub fn sign_transaction_locally(
     // This wait call doesn't actually make any RPC call and signing is done locally.
     web3_batch
         .accounts()
-        .sign_transaction(transaction_parameters, &key)
+        .sign_transaction(transaction_parameters, key)
         .wait()
         .expect("Web call wasn't allowed")
 }
@@ -191,8 +191,8 @@ pub fn handle_new_transaction(
     let signed_tx = sign_transaction(
         chain,
         web3_batch.clone(),
-        recipient_wallet.clone(),
-        consuming_wallet.clone(),
+        recipient_wallet,
+        consuming_wallet,
         amount,
         nonce,
         gas_price,
@@ -263,6 +263,7 @@ pub fn sign_and_append_multiple_payments(
     hash_and_amount_list
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn send_payables_within_batch(
     logger: Logger,
     chain: Chain,
@@ -369,13 +370,14 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{
         Correct, Failed,
     };
-    use crate::blockchain::test_utils::make_tx_hash;
+    use crate::blockchain::test_utils::{make_tx_hash, transport_error_code};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
     use actix::{Actor, System};
+    use ethabi::Address;
     use jsonrpc_core::ErrorCode::ServerError;
     use jsonrpc_core::{Error, ErrorCode};
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
@@ -700,6 +702,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
         let gas_price = 123;
         let nonce = U256::from(1);
+        let os_code = transport_error_code();
 
         let result = send_payables_within_batch(
             Logger::new("test"),
@@ -717,7 +720,7 @@ mod tests {
             result,
             Err(
                 Sending {
-                    msg: "Transport error: Error(Connect, Os { code: 61, kind: ConnectionRefused, message: \"Connection refused\" })".to_string(),
+                    msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: \"Connection refused\" }})", os_code).to_string(),
                     hashes: vec![H256::from_str("424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac").unwrap()]
                 }
             )

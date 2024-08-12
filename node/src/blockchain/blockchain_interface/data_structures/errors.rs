@@ -124,10 +124,10 @@ impl Display for BlockchainAgentBuildError {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_interface::data_structures::errors::BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED;
-    use crate::blockchain::blockchain_interface::{
-        BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
+    use crate::blockchain::blockchain_interface::data_structures::errors::{
+        PayableTransactionError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
     };
+    use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainError};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::test_utils::make_wallet;
     use masq_lib::utils::{slice_of_strs_to_vec_of_strings, to_string};

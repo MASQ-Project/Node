@@ -22,6 +22,7 @@ use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::Web3;
 
 #[derive(Debug, PartialEq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum TransactionReceiptResult {
     NotPresent,
     Found(TransactionReceipt),
@@ -165,12 +166,12 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         let get_transaction_id = self.get_transaction_id(consuming_wallet.address());
         let get_gas_price = self.get_gas_price();
 
-        return Box::new(
+        Box::new(
             get_transaction_id
-                .map_err(|e| PayableTransactionError::TransactionID(e))
+                .map_err(PayableTransactionError::TransactionID)
                 .and_then(move |pending_nonce| {
                     get_gas_price
-                        .map_err(|e| PayableTransactionError::GasPriceQueryFailed(e))
+                        .map_err(PayableTransactionError::GasPriceQueryFailed)
                         .and_then(move |gas_price| {
                             send_payables_within_batch(
                                 logger,
@@ -184,7 +185,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                             )
                         })
                 }),
-        );
+        )
     }
 }
 

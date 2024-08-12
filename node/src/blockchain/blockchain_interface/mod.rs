@@ -7,12 +7,11 @@ pub mod test_utils;
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
+    BlockchainAgentBuildError, BlockchainError,
 };
 use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
-use core::panic;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use web3::types::{Address, BlockNumber};
