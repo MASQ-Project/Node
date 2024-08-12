@@ -3,8 +3,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 use async_channel::{Receiver, Sender};
+use futures_util::TryFutureExt;
 use crate::utils::localhost;
-use crate::websockets_handshake::WSClientHandshakeHandler;
+use crate::websockets_handshake::{client_connect_with_timeout, WSClientHandshakeHandler};
 use workflow_websocket::client::{Ack, Message, WebSocket};
 use workflow_websocket::client::WebSocketConfig;
 use workflow_websocket::client::ConnectOptions;
@@ -17,6 +18,9 @@ pub async fn establish_ws_conn_with_handshake(port: u16) -> WebSocket {
 
 pub async fn establish_ws_conn_with_arbitrary_handshake(port: u16, protocol: &str)-> Result<WebSocket, String>{
     let ws = establish_bare_ws_conn(port).await?;
+    while !ws.is_open(){
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     ws.send(Message::Text(protocol.to_string())).await.expect("Couldn't send the protocol for a handshake");
     Ok(ws)
 }
@@ -26,21 +30,11 @@ pub async fn establish_bare_ws_conn(port: u16)->Result<WebSocket, String>{
     let mut config = WebSocketConfig::default();
     config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
     let ws = WebSocket::new(Some(&url), Some(config)).map_err(|e|format!("Failed to establish websocket for {}", url))?;
-    connect(&ws).await?;
-    Ok(ws)
+    connect(ws).await
 }
 
-async fn connect(ws: &WebSocket) -> Result<(), String>{
-    let mut connect_options = ConnectOptions::default();
-    connect_options.block_async_connect = true;
-    connect_options.connect_timeout = Some(Duration::from_millis(2000));
-    connect_options.strategy = ConnectStrategy::Fallback;
-    match ws
-        .connect(connect_options)
-        .await {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Connecting to the websocket server failed: {}", e))
-    }
+async fn connect(ws: WebSocket) -> Result<WebSocket, String>{
+    client_connect_with_timeout(ws, Duration::from_millis(2000)).await.map_err(|e|format!("Connecting to the websocket server failed: {}", e))
 }
 
 pub async fn websocket_utils(port: u16) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {

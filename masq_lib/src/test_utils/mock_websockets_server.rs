@@ -23,7 +23,7 @@ use workflow_websocket::server::error::Error as WebsocketServerError;
 use workflow_websocket::server::{Error, Message, WebSocketConfig, WebSocketCounters, WebSocketHandler, WebSocketReceiver, WebSocketSender, WebSocketServer, WebSocketServerTrait, WebSocketSink};
 use workflow_websocket::server::handshake::greeting;
 use crate::test_utils::websockets_utils::{establish_bare_ws_conn, establish_ws_conn_with_handshake};
-use crate::websockets_handshake::verify_masq_ws_subprotocol;
+use crate::websockets_handshake::{node_greeting, verify_masq_ws_subprotocol};
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -63,11 +63,11 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             format!("Awaiting handshake msg from {}", peer).as_str(),
         );
 
-        greeting(
-            Duration::from_millis(5000),
+        node_greeting(
+            Duration::from_millis(3000),
+            *peer,
             sender,
-            receiver,
-            Box::pin(verify_masq_ws_subprotocol),
+            receiver
         ).await?;
 
         log(
