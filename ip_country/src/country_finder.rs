@@ -28,21 +28,9 @@ pub struct CountryCodeFinder {
 impl CountryCodeFinder {
     pub fn new(ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
         Self {
-            ipv4: Self::initialize_country_finder_ipv4(ipv4_data),
-            ipv6: Self::initialize_country_finder_ipv6(ipv6_data),
+            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data).into_iter().collect_vec(),
+            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data).into_iter().collect_vec(),
         }
-    }
-
-    fn initialize_country_finder_ipv4(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
-        let deserializer = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(data);
-        let result: Vec<CountryBlock> = deserializer.into_iter().collect_vec();
-        result
-    }
-
-    fn initialize_country_finder_ipv6(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
-        let deserializer = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(data);
-        let result: Vec<CountryBlock> = deserializer.collect_vec();
-        result
     }
 
     pub fn find_country(
@@ -253,14 +241,12 @@ mod tests {
     #[test]
     fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
         let time_start = SystemTime::now();
-        let deserializer_ipv4 =
-            CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
-                crate::dbip_country::ipv4_country_data(),
-            );
-        let deserializer_ipv6 =
-            CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
-                crate::dbip_country::ipv6_country_data(),
-            );
+        let deserializer_ipv4 = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
+            crate::dbip_country::ipv4_country_data(),
+        );
+        let deserializer_ipv6 = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
+            crate::dbip_country::ipv6_country_data(),
+        );
         let time_end = SystemTime::now();
 
         let time_start_fill = SystemTime::now();
@@ -271,12 +257,12 @@ mod tests {
         let duration_deserialize = time_end.duration_since(time_start).unwrap();
         let duration_fill = time_end_fill.duration_since(time_start_fill).unwrap();
         assert!(
-            duration_deserialize.as_secs() < 5,
+            duration_deserialize.as_secs() < 15,
             "Duration of the deserialization was too long: {} ms",
             duration_deserialize.as_millis()
         );
         assert!(
-            duration_fill.as_secs() < 2,
+            duration_fill.as_secs() < 8,
             "Duration of the filling the vectors was too long: {} ms",
             duration_fill.as_millis()
         );

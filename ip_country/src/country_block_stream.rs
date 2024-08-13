@@ -25,7 +25,7 @@ impl Country {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum IpRange {
     V4(Ipv4Addr, Ipv4Addr),
     V6(Ipv6Addr, Ipv6Addr),
@@ -56,10 +56,10 @@ impl IpRange {
     pub fn ordering_by_range(&self, ip_addr: IpAddr) -> Ordering {
         match (ip_addr, self) {
             (IpAddr::V4(ip), IpRange::V4(low, hi)) => {
-                Self::compare_with_range::<u32, Ipv4Addr>(ip, low.clone(), hi.clone())
+                Self::compare_with_range::<u32, Ipv4Addr>(ip, *low, *hi)
             }
             (IpAddr::V6(ip), IpRange::V6(low, hi)) => {
-                Self::compare_with_range::<u128, Ipv6Addr>(ip, low.clone(), hi.clone())
+                Self::compare_with_range::<u128, Ipv6Addr>(ip, *low, *hi)
             }
             (ip, range) => panic!("Mismatch ip ({}) and range ({:?}) versions", ip, range),
         }
@@ -85,7 +85,7 @@ impl IpRange {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CountryBlock {
     pub ip_range: IpRange,
     pub country: Country,

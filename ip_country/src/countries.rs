@@ -280,10 +280,11 @@ impl TryFrom<&str> for Country {
             None => return Err(format!("'{}' is not a valid ISO3166 country code", iso3166)),
             Some(index) => *index,
         };
-        Ok(Country::try_from(index).expect(&format!(
+        let country = Country::try_from(index).unwrap_or_else(|_| panic!(
             "Data error: ISO3166 {} maps to index {}, but there is no such Country",
             iso3166, index
-        )))
+        ));
+        Ok(country)
     }
 }
 

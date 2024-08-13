@@ -9,6 +9,12 @@ pub struct BitQueue {
     front_blank_bit_count: usize, // number of low-order bits in the front byte of the queue that are unused
 }
 
+impl Default for BitQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BitQueue {
     pub fn new() -> Self {
         let byte_queue = VecDeque::from(vec![0, 0]);
@@ -21,6 +27,10 @@ impl BitQueue {
 
     pub fn len(&self) -> usize {
         (self.byte_queue.len() * 8) - self.back_blank_bit_count - self.front_blank_bit_count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        ((self.byte_queue.len() * 8) - self.back_blank_bit_count - self.front_blank_bit_count) == 0
     }
 
     #[allow(unused_assignments)]

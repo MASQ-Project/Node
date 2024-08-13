@@ -130,6 +130,12 @@ pub struct CountryBlockSerializer {
     ipv6: VersionedIPSerializer<Ipv6Addr, u16, 8>,
 }
 
+impl Default for  CountryBlockSerializer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CountryBlockSerializer {
     pub fn new() -> Self {
         Self {
@@ -361,7 +367,9 @@ impl PlusMinusOneIP for Ipv6Addr {
     }
 }
 
-fn integer_from_ip_generic<IPType, UnsignedInt, const OCTETS_COUNT: usize>(ip: IPType) -> UnsignedInt
+fn integer_from_ip_generic<IPType, UnsignedInt, const OCTETS_COUNT: usize>(
+    ip: IPType,
+) -> UnsignedInt
 where
     IPType: IPIntoOctets<OCTETS_COUNT>,
     UnsignedInt: From<u8> + BitOrAssign + ShlAssign,
@@ -393,7 +401,6 @@ impl CountryBlockDeserializer<Ipv4Addr, u8, 4> {
     }
 }
 impl Iterator for CountryBlockDeserializer<Ipv4Addr, u8, 4> {
-
     type Item = CountryBlock;
 
     fn next(&mut self) -> Option<CountryBlock> {
@@ -413,7 +420,6 @@ impl CountryBlockDeserializer<Ipv6Addr, u16, 8> {
 }
 
 impl Iterator for CountryBlockDeserializer<Ipv6Addr, u16, 8> {
-
     type Item = CountryBlock;
 
     fn next(&mut self) -> Option<CountryBlock> {
@@ -536,13 +542,12 @@ where
         value_bit_count: usize,
     ) -> Vec<Difference> {
         (0..difference_count)
-            .map(|_| {
+            .filter_map(|_| {
                 Some(Difference {
                     index: bit_queue.take_bits(index_bit_count)? as usize,
                     value: bit_queue.take_bits(value_bit_count)?,
                 })
             })
-            .flatten()
             .collect()
     }
 }
@@ -564,12 +569,11 @@ impl<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize>
     }
 }
 
-impl<IPType: Display, SegmentNumRep, const SEGMENTS_COUNT: usize> Debug
+impl<IPType: Debug, SegmentNumRep, const SEGMENTS_COUNT: usize> Debug
     for VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        //TODO("Vojta, this is for you: use the `write!()` macro and make this custom debug impl...it should probably print only the field with the ip and its value")
-        f.write_fmt(format_args!("ip: {}", self.ip))
+        f.write_fmt(format_args!("VersionedIP {{ ip: {:?} }}", self.ip))
     }
 }
 
@@ -633,7 +637,6 @@ mod tests {
     use crate::country_block_stream::{Country, IpRange};
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use std::io::Write;
 
     fn ipv4_country_blocks() -> Vec<CountryBlock> {
         vec![
@@ -688,23 +691,16 @@ mod tests {
     }
 
     #[test]
-    fn versioned_ip_v4_is_printed() {
-        let mut w = Vec::new();
-        let ip: VersionedIP<Ipv4Addr, u8, 4> = VersionedIP::new(Ipv4Addr::new(1, 2, 3, 4));
+    fn versioned_ip_implements_debug() {
+        let ip4: VersionedIP<Ipv4Addr, u8, 4> = VersionedIP::new(Ipv4Addr::new(1, 2, 3, 4));
+        let ip6: VersionedIP<Ipv6Addr, u16, 8> =
+            VersionedIP::new(Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 8));
 
-        write!(&mut w, "{:?}", ip).unwrap();
+        let result_ip4 = format!("{:?}", ip4);
+        let result_ip6 = format!("{:?}", ip6);
 
-        assert_eq!(w, [105, 112, 58, 32, 49, 46, 50, 46, 51, 46, 52]);
-    }
-
-    #[test]
-    fn versioned_ip_v6_is_printed() {
-        let mut w = Vec::new();
-        let ip: VersionedIP<Ipv6Addr, u16, 8> = VersionedIP::new(Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 8));
-
-        write!(&mut w, "{:?}", ip).unwrap();
-
-        assert_eq!(w, [105, 112, 58, 32, 49, 58, 50, 58, 51, 58, 52, 58, 53, 58, 54, 58, 55, 58, 56]);
+        assert_eq!(result_ip4, "VersionedIP { ip: 1.2.3.4 }");
+        assert_eq!(result_ip6, "VersionedIP { ip: 1:2:3:4:5:6:7:8 }");
     }
 
     #[test]
