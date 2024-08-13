@@ -32,6 +32,7 @@ use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
     StringAssertionMethods,
 };
+use masq_lib::test_utils::websocket_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::localhost;
 use std::cell::RefCell;
@@ -50,7 +51,6 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Message, WebSocket, WebSocketConfig,
 };
-use masq_lib::test_utils::websocket_utils::establish_ws_conn_with_handshake;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {

@@ -3,14 +3,14 @@
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
 use crate::test_utils::utils::make_rt;
+use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_handshake;
+use crate::ui_gateway::MessagePath::Conversation;
+use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::net::SocketAddr;
 use workflow_websocket::client::{ConnectOptions, Message, WebSocket};
-use crate::test_utils::websockets_utils::{establish_bare_ws_conn, establish_ws_conn_with_arbitrary_handshake};
-use crate::ui_gateway::MessagePath::Conversation;
-use crate::ui_gateway::MessageTarget::ClientId;
 
 pub struct UiConnection {
     context_id: u64,
@@ -22,10 +22,10 @@ impl UiConnection {
     pub async fn new(port: u16, protocol: &str) -> Result<UiConnection, String> {
         let ws = establish_ws_conn_with_arbitrary_handshake(port, protocol).await?;
         Ok(UiConnection {
-                context_id: 0,
-                local_addr: SocketAddr::new(localhost(), port),
-                websocket: ws,
-            })
+            context_id: 0,
+            local_addr: SocketAddr::new(localhost(), port),
+            websocket: ws,
+        })
     }
     //
     // fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
@@ -70,10 +70,16 @@ impl UiConnection {
     }
 
     pub async fn send_message(&mut self, message: Message) {
-        self.websocket.send(message.into()).await.expect("TestUiConnection: sending msg failed");
+        self.websocket
+            .send(message.into())
+            .await
+            .expect("TestUiConnection: sending msg failed");
     }
 
-    async fn receive_main<T: FromMessageBody>(&mut self, context_id: Option<u64>) -> ReceiveResult<T> {
+    async fn receive_main<T: FromMessageBody>(
+        &mut self,
+        context_id: Option<u64>,
+    ) -> ReceiveResult<T> {
         let incoming_msg_json = match self.websocket.recv().await {
             Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
                 panic!("The queue is empty; all messages are gone.")

@@ -40,12 +40,11 @@ impl BroadcastHandles {
         match UiRedirect::fmb(message_body.clone()) {
             Ok((redirect, _)) => {
                 let context_id = redirect.context_id.unwrap_or(0);
-                self.redirect
-                    .send(RedirectOrder::new(
-                        redirect.port,
-                        context_id,
-                        REDIRECT_TIMEOUT_MILLIS,
-                    ))
+                self.redirect.send(RedirectOrder::new(
+                    redirect.port,
+                    context_id,
+                    REDIRECT_TIMEOUT_MILLIS,
+                ))
             }
             Err(_) => {
                 self.standard.send(message_body);

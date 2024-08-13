@@ -9,8 +9,8 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::masq_short_writeln;
+use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use std::fmt::Debug;
 use std::sync::Arc;
 

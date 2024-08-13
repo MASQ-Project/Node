@@ -166,6 +166,9 @@ mod tests {
     };
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::test_utils::websocket_utils::{
+        establish_ws_conn_with_handshake, websocket_utils,
+    };
     use masq_lib::utils::find_free_port;
     use std::time::{Duration, SystemTime};
     use tokio::sync::mpsc::error::TryRecvError;
@@ -173,7 +176,6 @@ mod tests {
     use tokio::task::JoinError;
     use workflow_websocket::client::{Ack, Message as ClientMessage};
     use workflow_websocket::server::Message as ServerMessage;
-    use masq_lib::test_utils::websocket_utils::{establish_ws_conn_with_handshake, websocket_utils};
 
     impl WSClientHandle {
         pub fn is_connection_open(&self) -> bool {
@@ -213,7 +215,7 @@ mod tests {
         assert_eq!(message_body, expected_message.tmb(1));
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, true);
-        let _ = stop_handle.stop(None,None).await;
+        let _ = stop_handle.stop(None, None).await;
         wait_for_stop(&client_listener_handle).await;
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
@@ -286,7 +288,7 @@ mod tests {
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, true);
-        let _ = stop_handle.stop(None,None).await;
+        let _ = stop_handle.stop(None, None).await;
         wait_for_stop(&client_listener_handle).await;
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);

@@ -9,12 +9,12 @@ use futures::future::join_all;
 use itertools::Itertools;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
 use masq_lib::shared_schema::{data_directory_arg, shared_app};
-use masq_lib::masq_short_writeln;
 use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTORY_DAEMON_HELP};
 #[cfg(test)]
 use std::any::Any;

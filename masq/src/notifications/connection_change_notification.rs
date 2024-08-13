@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::TerminalWriter;
-use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
 use masq_lib::masq_short_writeln;
+use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
 use std::io::Write;
 
 pub struct ConnectionChangeNotification {}

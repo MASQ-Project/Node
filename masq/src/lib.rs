@@ -9,8 +9,8 @@ pub mod communications;
 pub mod interactive_mode;
 pub mod non_interactive_clap;
 mod notifications;
-mod schema;
 pub mod run_modes;
+mod schema;
 pub mod terminal;
 #[cfg(test)]
 pub mod test_utils;

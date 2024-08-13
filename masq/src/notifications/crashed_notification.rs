@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::TerminalWriter;
-use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::masq_short_writeln;
+use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 #[cfg(target_os = "windows")]
 use masq_lib::utils::exit_process;
 #[cfg(not(target_os = "windows"))]

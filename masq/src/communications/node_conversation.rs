@@ -4,8 +4,8 @@ use crate::communications::connection_manager::OutgoingMessageType;
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -32,7 +32,7 @@ pub struct NodeConversation {
     context_id: u64,
     conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
     manager_to_conversation_rx: ManagerToConversationReceiver,
-    closing_stage: Arc<AtomicBool>
+    closing_stage: Arc<AtomicBool>,
 }
 
 impl Drop for NodeConversation {
@@ -60,13 +60,13 @@ impl NodeConversation {
         context_id: u64,
         conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
         manager_to_conversation_rx: ManagerToConversationReceiver,
-        closing_stage: Arc<AtomicBool>
+        closing_stage: Arc<AtomicBool>,
     ) -> Self {
         Self {
             context_id,
             conversations_to_manager_tx,
             manager_to_conversation_rx,
-            closing_stage
+            closing_stage,
         }
     }
 
@@ -79,8 +79,8 @@ impl NodeConversation {
             panic! ("Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead.")
         }
 
-        if self.closing_stage.load(Ordering::Relaxed){
-            return Err(ClientError::ConnectionDropped)
+        if self.closing_stage.load(Ordering::Relaxed) {
+            return Err(ClientError::ConnectionDropped);
         }
 
         match self
@@ -114,8 +114,8 @@ impl NodeConversation {
             panic! ("Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeConversation::send() instead.")
         }
 
-        if self.closing_stage.load(Ordering::Relaxed){
-            return Err(ClientError::ConnectionDropped)
+        if self.closing_stage.load(Ordering::Relaxed) {
+            return Err(ClientError::ConnectionDropped);
         }
 
         outgoing_msg.path = MessagePath::Conversation(self.context_id());
@@ -191,7 +191,12 @@ mod tests {
     ) {
         let (message_body_send_tx, message_body_send_rx) = async_channel::unbounded();
         let (message_body_receive_tx, message_body_receive_rx) = async_channel::unbounded();
-        let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx, Arc::new(AtomicBool::new(false)));
+        let subject = NodeConversation::new(
+            42,
+            message_body_send_tx,
+            message_body_receive_rx,
+            Arc::new(AtomicBool::new(false)),
+        );
         (subject, message_body_receive_tx, message_body_send_rx)
     }
 
@@ -317,7 +322,12 @@ mod tests {
     async fn transact_handles_receive_error() {
         let (message_body_send_tx, _) = async_channel::unbounded();
         let (_, message_body_receive_rx) = async_channel::unbounded();
-        let subject = NodeConversation::new(42, message_body_send_tx, message_body_receive_rx, Arc::new(AtomicBool::new(false)));
+        let subject = NodeConversation::new(
+            42,
+            message_body_send_tx,
+            message_body_receive_rx,
+            Arc::new(AtomicBool::new(false)),
+        );
 
         let result = subject
             .transact(UiShutdownRequest {}.tmb(24), 1000)

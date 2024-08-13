@@ -9,8 +9,8 @@ pub(in crate::commands::financials_command) mod restricted {
     use crate::terminal::TerminalWriter;
     use futures::future::join_all;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
-    use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use masq_lib::masq_short_writeln;
+    use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use std::fmt::{Debug, Display};
     use std::io::Write;
     use thousands::Separable;

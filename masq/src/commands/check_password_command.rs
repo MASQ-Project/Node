@@ -8,8 +8,8 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
-use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::masq_short_writeln;
+use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
