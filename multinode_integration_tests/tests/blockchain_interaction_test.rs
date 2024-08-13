@@ -3,10 +3,7 @@
 use std::ops::Add;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
-
 use log::Level;
-use serde_derive::Serialize;
-
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
 use masq_lib::test_utils::utils::{is_running_under_github_actions, LogObject, UrlHolder};
@@ -17,7 +14,7 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
-// use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
+
 use multinode_integration_tests_lib::utils::{
     config_dao,
     node_chain_specific_data_directory,
@@ -172,22 +169,3 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
         Duration::from_millis(1000),
     )
 }
-
-// #[derive(Serialize)]
-// struct LogObject {
-//     // Strings are all hexadecimal
-//     removed: bool,
-//     #[serde(rename = "logIndex")]
-//     log_index: Option<String>,
-//     #[serde(rename = "transactionIndex")]
-//     transaction_index: Option<String>,
-//     #[serde(rename = "transactionHash")]
-//     transaction_hash: Option<String>,
-//     #[serde(rename = "blockHash")]
-//     block_hash: Option<String>,
-//     #[serde(rename = "blockNumber")]
-//     block_number: Option<String>,
-//     address: String,
-//     data: String,
-//     topics: Vec<String>,
-// }

@@ -11,7 +11,7 @@ use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::utils::{
-    node_chain_specific_data_directory, open_all_file_permissions, UrlHolder,
+    node_chain_specific_data_directory, open_all_file_permissions,
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
@@ -35,6 +35,7 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
+use masq_lib::test_utils::utils::UrlHolder;
 
 #[test]
 fn verify_bill_payment() {
@@ -325,7 +326,7 @@ fn assert_balances(
 ) {
     let eth_balance = blockchain_interface
         .lower_interface()
-        .get_transaction_fee_balance(wallet.address())
+        .get_transaction_fee_balance(wallet.address()).wait()
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),
@@ -336,7 +337,7 @@ fn assert_balances(
     );
     let token_balance = blockchain_interface
         .lower_interface()
-        .get_service_fee_balance(&wallet)
+        .get_service_fee_balance(wallet.address()).wait()
         .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
     assert_eq!(
         token_balance,
