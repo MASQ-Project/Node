@@ -37,7 +37,7 @@ struct NodeUiProtocolWebSocketHandler {
     listener_stop_tx: Arc<Mutex<Option<async_channel::Sender<()>>>>,
     do_log: bool,
     index: u64,
-    test_panicking_conn_opt: Option<PanickingConn>,
+    panicking_conn_obj_opt: Option<PanickingConn>,
 }
 
 #[async_trait]
@@ -73,12 +73,9 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         self: &Arc<Self>,
         _peer: &SocketAddr,
     ) -> workflow_websocket::server::Result<()> {
-        if let Some(object) = self.test_panicking_conn_opt.as_ref() {
-            let _open_mutex = object.mutex_to_sense_panic.lock().unwrap();
-            panic!(
-                "Test '{}': Testing effects of server encountering a panicking connection",
-                object.test_name
-            )
+        if let Some(object) = self.panicking_conn_obj_opt.as_ref() {
+            let _open_mutex = object.mutex_to_sense_panic.lock().expect("Mutex already poisoned");
+            panic!("Deliberate panic for a test")
         }
         Ok(())
     }
@@ -393,7 +390,7 @@ impl MockWebSocketsServer {
             listener_stop_tx: listener_stop_tx.clone(),
             do_log: self.do_log,
             index,
-            test_panicking_conn_opt: self.test_panicking_conn_opt,
+            panicking_conn_obj_opt: self.test_panicking_conn_opt,
         };
 
         let ws_server_handle = WebSocketServer::new(Arc::new(handler), Some(counters_arc.clone()));

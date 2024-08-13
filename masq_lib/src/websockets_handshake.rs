@@ -1,22 +1,17 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::NODE_UI_PROTOCOL;
-use async_channel::RecvError;
 use async_trait::async_trait;
 use clap::builder::TypedValueParser;
-use futures_util::future::try_maybe_done;
 use futures_util::{FutureExt, SinkExt, StreamExt};
-use nix::libc::signal;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::select;
 use workflow_websocket::client::result::Result as ClientResult;
 use workflow_websocket::client::ConnectStrategy::{Fallback, Retry};
 use workflow_websocket::client::Error as ClientError;
 use workflow_websocket::client::Message as ClientMessage;
 use workflow_websocket::client::{ConnectOptions, ConnectResult, Handshake, WebSocket};
-use workflow_websocket::server::handshake::{greeting, HandshakeFn};
 use workflow_websocket::server::result::Result as ServerResult;
 use workflow_websocket::server::Message as ServerMessage;
 use workflow_websocket::server::{Error as ServerError, WebSocketReceiver, WebSocketSender};
@@ -114,11 +109,11 @@ pub fn verify_masq_ws_subprotocol(msg: &str) -> ServerResult<()> {
     }
 }
 
-// Found possibly a spot with wrong design in the connect procedure: despite the library provides
-// configuration with connect timeout, it may not work when the connection is initiated but fails
-// on the handshake and falls into an infinite loop of retries if the server always accept the TCP
+// Found possibly a spot of wrong design in the connect procedure: despite the library provides
+// configuration with connect timeout, it may not follow up if the connection is initiated but fails
+// on the handshake due to which it falls into infinite retries if the server always accept the TCP
 // connections but return an error or even panics before the handshake is completed. This is to
-// ensure it will always fall back if unsuccessful.
+// ensure it would always fall back when the time lapses even if it's encountered a blocking issue.
 pub async fn client_connect_with_timeout(
     ws: WebSocket,
     timeout: Duration,
@@ -127,7 +122,6 @@ pub async fn client_connect_with_timeout(
     let mut connect_options = ConnectOptions::default();
     connect_options.block_async_connect = true;
     connect_options.strategy = Fallback;
-    //connect_options.connect_timeout = Some(timeout.checked_add(Duration::from_millis(1000)).expect("Timeout set with an inadequate number"));
 
     let mut delay = tokio::time::sleep(timeout);
 
@@ -146,7 +140,10 @@ pub async fn client_connect_with_timeout(
 }
 
 async fn disconnect(ws: WebSocket) {
-    let _ = ws.disconnect().await;
+    //todo!("disconnect")
+    //drop(ws);
+    ws.trigger_abort().unwrap();
+   //  let _ = ws.disconnect().await;
     // if not achieved politely, dropping ws will do the job too
 }
 
@@ -185,7 +182,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::thread;
-    use tokio::io::AsyncReadExt;
+    use tokio::io::{AsyncReadExt, Interest};
     use tokio::sync::oneshot;
     use tokio::task;
     use tokio::task::JoinHandle;
@@ -401,6 +398,7 @@ mod tests {
                 .unwrap();
             let mut buffer = Vec::new();
             loop {
+
                 match tcp.read(&mut buffer).await {
                     Ok(0) => {
                         eprintln!("Nothing to read");
@@ -409,7 +407,7 @@ mod tests {
                     Err(e)
                         if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut =>
                     {
-                        eprintln!("");
+                        eprintln!("Would block");
                         tokio::time::sleep(Duration::from_millis(50)).await
                     }
                     Err(e) => {
@@ -457,7 +455,7 @@ mod tests {
             tx,
         )));
         let ws = WebSocket::new(Some(&url), Some(config)).unwrap();
-        let timeout = Duration::from_millis(20);
+        let timeout = Duration::from_millis(500);
 
         let result = rt.block_on(client_connect_with_timeout(ws, timeout, rx));
 
