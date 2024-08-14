@@ -31,7 +31,7 @@ impl WeightedPayable {
 #[derive(Debug, PartialEq, Eq)]
 pub struct AdjustmentIterationResult {
     pub decided_accounts: DecidedAccounts,
-    pub remaining_undecided_accounts: Vec<WeightedPayable>,
+    pub undecided_accounts: Vec<WeightedPayable>,
 }
 
 pub struct RecursionResults {

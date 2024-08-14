@@ -99,13 +99,12 @@ impl ServiceFeeAdjusterReal {
         if thriving_competitors.is_empty() {
             Either::Left(losing_competitors)
         } else {
-            let remaining_undecided_accounts: Vec<WeightedPayable> =
-                convert_collection(losing_competitors);
+            let undecided_accounts: Vec<WeightedPayable> = convert_collection(losing_competitors);
             let pre_processed_decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
                 convert_collection(thriving_competitors);
             Either::Right(AdjustmentIterationResult {
                 decided_accounts: SomeAccountsProcessed(pre_processed_decided_accounts),
-                remaining_undecided_accounts,
+                undecided_accounts,
             })
         }
     }
@@ -127,7 +126,7 @@ impl ServiceFeeAdjusterReal {
 
         AdjustmentIterationResult {
             decided_accounts: LowGainingAccountEliminated,
-            remaining_undecided_accounts: remaining_reverted,
+            undecided_accounts: remaining_reverted,
         }
     }
 

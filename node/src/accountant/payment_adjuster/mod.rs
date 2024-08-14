@@ -281,7 +281,7 @@ impl PaymentAdjusterReal {
             self.inner.unallocated_cw_service_fee_balance_minor(),
             &self.logger,
         );
-        let undecided_accounts = current_iteration_result.remaining_undecided_accounts;
+        let undecided_accounts = current_iteration_result.undecided_accounts;
         let decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
             current_iteration_result.decided_accounts.into();
 
@@ -2211,7 +2211,7 @@ mod tests {
             // We care only for the params captured inside the container from above
             .perform_adjustment_by_service_fee_result(AdjustmentIterationResult {
                 decided_accounts: SomeAccountsProcessed(vec![]),
-                remaining_undecided_accounts: vec![],
+                undecided_accounts: vec![],
             });
         subject.service_fee_adjuster = Box::new(service_fee_adjuster_mock);
 
