@@ -1565,6 +1565,7 @@ dependencies = [
  "csv",
  "itertools 0.13.0",
  "lazy_static",
+ "masq_lib",
 ]
 
 [[package]]
