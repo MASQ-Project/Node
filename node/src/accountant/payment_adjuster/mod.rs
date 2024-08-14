@@ -54,6 +54,7 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::ops::Add;
 use std::time::SystemTime;
 use thousands::Separable;
 use variant_count::VariantCount;
@@ -290,9 +291,29 @@ impl PaymentAdjusterReal {
             logger,
         );
 
-        let recursion_results = self.resolve_current_iteration_result(current_iteration_result);
+        let remaining_undecided_accounts = current_iteration_result.remaining_undecided_accounts;
+        let decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
+            current_iteration_result.decided_accounts.into();
+        if remaining_undecided_accounts.is_empty() {
+            return decided_accounts;
+        }
 
-        let merged = recursion_results.merge_results_from_recursion();
+        if !decided_accounts.is_empty() {
+            self.adjust_remaining_unallocated_cw_balance_down(&decided_accounts)
+        }
+
+        let merged = if self.is_cw_balance_under_limit(&remaining_undecided_accounts) {
+            // Fast return after a direct conversion into the expected type
+            Self::add_decided_accounts(
+                convert_collection(remaining_undecided_accounts),
+                decided_accounts,
+            )
+        } else {
+            Self::add_decided_accounts(
+                self.propose_possible_adjustment_recursively(remaining_undecided_accounts),
+                decided_accounts,
+            )
+        };
 
         diagnostics!(
             "\nFINAL SET OF ADJUSTED ACCOUNTS IN CURRENT ITERATION:",
@@ -302,42 +323,27 @@ impl PaymentAdjusterReal {
         merged
     }
 
-    fn resolve_current_iteration_result_2(
-        &mut self,
-        adjustment_iteration_result: AdjustmentIterationResult,
-    ) -> RecursionResults {
-        let remaining_undecided_accounts = adjustment_iteration_result.remaining_undecided_accounts;
-        let decided_accounts = adjustment_iteration_result.decided_accounts;
-        if remaining_undecided_accounts.is_empty() {
-            return match decided_accounts {
-                LowGainingAccountEliminated => RecursionResults::new(vec![], vec![]),
-                SomeAccountsProcessed(accounts) => RecursionResults::new(accounts, vec![]),
-            };
-        }
-        let here_decided_accounts = match decided_accounts {
-            LowGainingAccountEliminated => {
-                vec![]
-            }
-            SomeAccountsProcessed(accounts) => {
-                self.adjust_remaining_unallocated_cw_balance_down(&accounts);
-                accounts
-            }
-        };
-
-        let check_sum: u128 = sum_as(&remaining_undecided_accounts, |weighted_account| {
+    fn is_cw_balance_under_limit(
+        &self,
+        remaining_undecided_accounts: &Vec<WeightedPayable>,
+    ) -> bool {
+        let check_sum: u128 = sum_as(remaining_undecided_accounts, |weighted_account| {
             weighted_account.balance_minor()
         });
 
         let unallocated_cw_balance = self.inner.unallocated_cw_service_fee_balance_minor();
 
-        let down_stream_decided_accounts = if check_sum <= unallocated_cw_balance {
-            // Fast return after a direct conversion into the expected type
-            convert_collection(remaining_undecided_accounts)
-        } else {
-            self.propose_possible_adjustment_recursively(remaining_undecided_accounts)
-        };
+        check_sum <= unallocated_cw_balance
+    }
 
-        RecursionResults::new(here_decided_accounts, down_stream_decided_accounts)
+    fn add_decided_accounts(
+        accounts: Vec<AdjustedAccountBeforeFinalization>,
+        decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
+    ) -> Vec<AdjustedAccountBeforeFinalization> {
+        decided_accounts
+            .into_iter()
+            .chain(accounts.into_iter())
+            .collect()
     }
 
     fn resolve_current_iteration_result(

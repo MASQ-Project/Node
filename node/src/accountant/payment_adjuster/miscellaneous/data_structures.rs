@@ -64,6 +64,15 @@ pub enum DecidedAccounts {
     SomeAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
 }
 
+impl From<DecidedAccounts> for Vec<AdjustedAccountBeforeFinalization> {
+    fn from(decided_accounts: DecidedAccounts) -> Self {
+        match decided_accounts {
+            DecidedAccounts::LowGainingAccountEliminated => vec![],
+            DecidedAccounts::SomeAccountsProcessed(accounts) => accounts,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AdjustedAccountBeforeFinalization {
     pub original_account: PayableAccount,
