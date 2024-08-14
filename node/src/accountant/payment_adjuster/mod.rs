@@ -192,10 +192,15 @@ impl PaymentAdjusterReal {
         analyzed_accounts: Vec<AnalyzedPayableAccount>,
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
         let weighted_accounts = self.calculate_weights(analyzed_accounts);
-        let processed_accounts = self.propose_adjustments_recursively(
-            weighted_accounts,
-            TransactionAndServiceFeeAdjustmentRunner {},
-        )?;
+        diagnostics!(
+            "\nUNRESOLVED QUALIFIED ACCOUNTS IN CURRENT ITERATION:",
+            &weighted_accounts
+        );
+        let processed_accounts = if let Some(limit) = self.inner.transaction_fee_count_limit_opt() {
+            self.begin_with_adjustment_by_transaction_fee(weighted_accounts.clone(), limit)?
+        } else {
+            Either::Left(self.propose_possible_adjustment_recursively(weighted_accounts))
+        };
 
         if zero_affordable_accounts_found(&processed_accounts) {
             return Err(PaymentAdjusterError::AllAccountsEliminated);
@@ -215,6 +220,7 @@ impl PaymentAdjusterReal {
         }
     }
 
+    // TODO: GH-711: This can be removed. The code for AdjustmentRunners is now used directly
     fn propose_adjustments_recursively<AR, RT>(
         &mut self,
         unresolved_accounts: Vec<WeightedPayable>,
@@ -271,6 +277,9 @@ impl PaymentAdjusterReal {
         }
     }
 
+    // TODO: GH-711: This is the only recursive fn that is being called now.
+    // It's sibling function propose_adjustment_recursively() and it's
+    // subsequent adjustment runners can be safely removed
     fn propose_possible_adjustment_recursively(
         &mut self,
         weighed_accounts: Vec<WeightedPayable>,
@@ -320,12 +329,12 @@ impl PaymentAdjusterReal {
     }
 
     fn add_accounts(
-        accounts: Vec<AdjustedAccountBeforeFinalization>,
+        remaining_accounts: Vec<AdjustedAccountBeforeFinalization>,
         decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
         decided_accounts
             .into_iter()
-            .chain(accounts.into_iter())
+            .chain(remaining_accounts.into_iter())
             .collect()
     }
 

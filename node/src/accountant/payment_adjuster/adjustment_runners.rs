@@ -46,6 +46,7 @@ impl AdjustmentRunner for TransactionAndServiceFeeAdjustmentRunner {
     }
 }
 
+// TODO: GH-711: This could be deleted (the code is directly used)
 pub struct ServiceFeeOnlyAdjustmentRunner {}
 
 impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
