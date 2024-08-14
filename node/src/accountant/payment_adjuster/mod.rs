@@ -279,22 +279,17 @@ impl PaymentAdjusterReal {
         &mut self,
         weighed_accounts: Vec<WeightedPayable>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
-        let disqualification_arbiter = &self.disqualification_arbiter;
-        let unallocated_cw_service_fee_balance =
-            self.inner.unallocated_cw_service_fee_balance_minor();
-        let logger = &self.logger;
-
         let current_iteration_result = self.service_fee_adjuster.perform_adjustment_by_service_fee(
             weighed_accounts,
-            disqualification_arbiter,
-            unallocated_cw_service_fee_balance,
-            logger,
+            &self.disqualification_arbiter,
+            self.inner.unallocated_cw_service_fee_balance_minor(),
+            &self.logger,
         );
 
-        let remaining_undecided_accounts = current_iteration_result.remaining_undecided_accounts;
+        let undecided_accounts = current_iteration_result.remaining_undecided_accounts;
         let decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
             current_iteration_result.decided_accounts.into();
-        if remaining_undecided_accounts.is_empty() {
+        if undecided_accounts.is_empty() {
             return decided_accounts;
         }
 
@@ -302,18 +297,14 @@ impl PaymentAdjusterReal {
             self.adjust_remaining_unallocated_cw_balance_down(&decided_accounts)
         }
 
-        let merged = if self.is_cw_balance_under_limit(&remaining_undecided_accounts) {
+        let remaining_accounts = if self.is_cw_balance_under_limit(&undecided_accounts) {
             // Fast return after a direct conversion into the expected type
-            Self::add_decided_accounts(
-                convert_collection(remaining_undecided_accounts),
-                decided_accounts,
-            )
+            convert_collection(undecided_accounts)
         } else {
-            Self::add_decided_accounts(
-                self.propose_possible_adjustment_recursively(remaining_undecided_accounts),
-                decided_accounts,
-            )
+            self.propose_possible_adjustment_recursively(undecided_accounts)
         };
+
+        let merged = Self::add_decided_accounts(remaining_accounts, decided_accounts);
 
         diagnostics!(
             "\nFINAL SET OF ADJUSTED ACCOUNTS IN CURRENT ITERATION:",
