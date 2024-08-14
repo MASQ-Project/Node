@@ -16,7 +16,7 @@ mod test_utils;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::adjustment_runners::{
-    AdjustmentRunner, ServiceFeeOnlyAdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
+    AdjustmentRunner, TransactionAndServiceFeeAdjustmentRunner,
 };
 use crate::accountant::payment_adjuster::criterion_calculators::balance_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
@@ -31,10 +31,7 @@ use crate::accountant::payment_adjuster::inner::{
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     accounts_before_and_after_debug,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
-    LowGainingAccountEliminated, SomeAccountsProcessed,
-};
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, DecidedAccounts, RecursionResults, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, WeightedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
@@ -54,7 +51,6 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::ops::Add;
 use std::time::SystemTime;
 use thousands::Separable;
 use variant_count::VariantCount;
@@ -285,26 +281,22 @@ impl PaymentAdjusterReal {
             self.inner.unallocated_cw_service_fee_balance_minor(),
             &self.logger,
         );
-
         let undecided_accounts = current_iteration_result.remaining_undecided_accounts;
         let decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
             current_iteration_result.decided_accounts.into();
+
         if undecided_accounts.is_empty() {
             return decided_accounts;
         }
 
-        if !decided_accounts.is_empty() {
-            self.adjust_remaining_unallocated_cw_balance_down(&decided_accounts)
-        }
-
+        self.deduct_unallocated_cw_balance(&decided_accounts);
         let remaining_accounts = if self.is_cw_balance_under_limit(&undecided_accounts) {
             // Fast return after a direct conversion into the expected type
             convert_collection(undecided_accounts)
         } else {
             self.propose_possible_adjustment_recursively(undecided_accounts)
         };
-
-        let merged = Self::add_decided_accounts(remaining_accounts, decided_accounts);
+        let merged = Self::add_accounts(remaining_accounts, decided_accounts);
 
         diagnostics!(
             "\nFINAL SET OF ADJUSTED ACCOUNTS IN CURRENT ITERATION:",
@@ -327,7 +319,7 @@ impl PaymentAdjusterReal {
         check_sum <= unallocated_cw_balance
     }
 
-    fn add_decided_accounts(
+    fn add_accounts(
         accounts: Vec<AdjustedAccountBeforeFinalization>,
         decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
@@ -335,37 +327,6 @@ impl PaymentAdjusterReal {
             .into_iter()
             .chain(accounts.into_iter())
             .collect()
-    }
-
-    fn resolve_current_iteration_result(
-        &mut self,
-        adjustment_iteration_result: AdjustmentIterationResult,
-    ) -> RecursionResults {
-        let remaining_undecided_accounts = adjustment_iteration_result.remaining_undecided_accounts;
-        let here_decided_accounts = match adjustment_iteration_result.decided_accounts {
-            LowGainingAccountEliminated => {
-                if remaining_undecided_accounts.is_empty() {
-                    return RecursionResults::new(vec![], vec![]);
-                }
-
-                vec![]
-            }
-            SomeAccountsProcessed(decided_accounts) => {
-                if remaining_undecided_accounts.is_empty() {
-                    return RecursionResults::new(decided_accounts, vec![]);
-                }
-
-                self.adjust_remaining_unallocated_cw_balance_down(&decided_accounts);
-                decided_accounts
-            }
-        };
-
-        let down_stream_decided_accounts = self.propose_adjustments_recursively(
-            remaining_undecided_accounts,
-            ServiceFeeOnlyAdjustmentRunner {},
-        );
-
-        RecursionResults::new(here_decided_accounts, down_stream_decided_accounts)
     }
 
     fn calculate_weights(&self, accounts: Vec<AnalyzedPayableAccount>) -> Vec<WeightedPayable> {
@@ -404,10 +365,14 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
-    fn adjust_remaining_unallocated_cw_balance_down(
+    fn deduct_unallocated_cw_balance(
         &mut self,
         processed_outweighed: &[AdjustedAccountBeforeFinalization],
     ) {
+        if processed_outweighed.is_empty() {
+            return;
+        }
+
         let subtrahend_total: u128 = sum_as(processed_outweighed, |account| {
             account.proposed_adjusted_balance_minor
         });

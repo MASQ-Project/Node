@@ -40,16 +40,6 @@ pub struct RecursionResults {
 }
 
 impl RecursionResults {
-    pub fn new(
-        here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-        downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    ) -> Self {
-        Self {
-            here_decided_accounts,
-            downstream_decided_accounts,
-        }
-    }
-
     pub fn merge_results_from_recursion(self) -> Vec<AdjustedAccountBeforeFinalization> {
         self.here_decided_accounts
             .into_iter()
