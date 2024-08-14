@@ -508,7 +508,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
             self.config.blockchain_bridge_config.chain,
         );
         // initialization od CountryFinder
-        //TODO remove Option from get_node_location call
         let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
