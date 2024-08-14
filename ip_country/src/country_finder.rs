@@ -28,8 +28,12 @@ pub struct CountryCodeFinder {
 impl CountryCodeFinder {
     pub fn new(ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
         Self {
-            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data).into_iter().collect_vec(),
-            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data).into_iter().collect_vec(),
+            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data)
+                .into_iter()
+                .collect_vec(),
+            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data)
+                .into_iter()
+                .collect_vec(),
         }
     }
 

@@ -119,8 +119,8 @@ fn write_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Error, ErrorKind};
     use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
+    use std::io::{Error, ErrorKind};
 
     static PROPER_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
 1.0.0.0,1.0.0.255,AU

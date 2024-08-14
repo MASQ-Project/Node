@@ -130,7 +130,7 @@ pub struct CountryBlockSerializer {
     ipv6: VersionedIPSerializer<Ipv6Addr, u16, 8>,
 }
 
-impl Default for  CountryBlockSerializer {
+impl Default for CountryBlockSerializer {
     fn default() -> Self {
         Self::new()
     }
