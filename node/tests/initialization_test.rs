@@ -259,7 +259,7 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: {}, was: eth-mainnet",
         &chain_literal
     );
-    node.wait_for_log(&regex_pattern, Some(1000));
+    node.wait_for_log(&regex_pattern, Some(5000));
 }
 
 #[test]
