@@ -21,6 +21,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
+use node_lib::neighborhood::node_location::get_node_location;
 
 pub trait UrlHolder {
     fn url(&self) -> String;
@@ -138,12 +139,15 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
                 accepts_connections: masq_node.accepts_connections(),
                 routes_data: masq_node.routes_data(),
                 version: 0,
-                country_code: "".to_string(),
+                country_code_opt: None,
             },
             node_addr_opt: Some(masq_node.node_addr()),
             signed_gossip: PlainData::new(b""),
             signature: CryptData::new(b""),
         };
+        let ip_addr = masq_node.node_addr().ip_addr();
+        let country_code = get_node_location(Some(ip_addr));
+        agr.inner.country_code_opt = Some(country_code.unwrap().country_code);
         agr.regenerate_signed_gossip(cryptde);
         agr
     }
