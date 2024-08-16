@@ -503,7 +503,6 @@ mod tests {
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
-    use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
