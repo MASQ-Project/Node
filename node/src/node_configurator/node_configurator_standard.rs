@@ -135,7 +135,7 @@ fn collect_externals_from_multi_config(
 pub fn server_initializer_collected_params<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<GatheredParams<'a>, ConfiguratorError> {
+) -> Result<GatheredParams, ConfiguratorError> {
     let app = app_node();
 
     let (config_file_path, user_specified, data_directory, real_user) =

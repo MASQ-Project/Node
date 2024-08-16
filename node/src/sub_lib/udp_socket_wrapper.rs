@@ -2,14 +2,19 @@
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
+use async_trait::async_trait;
 use tokio::net::{UdpSocket};
 
+#[async_trait]
 pub trait UdpSocketWrapperTrait: Sync + Send {
+    // TODO: It appears that this bool is never used. It's only ever true, anyway.
     fn bind(&mut self, addr: SocketAddr) -> io::Result<bool>;
     async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
 }
 
+// TODO: A wrapper with an Option<> delegate is embarrassing. This should be a combination of
+// UdpSocketWrapperReal (with delegate: UdpSocket) and UdpSocketWrapperFactoryReal (with no delegate).
 #[derive(Default)]
 pub struct UdpSocketWrapperReal {
     delegate: Option<UdpSocket>,
@@ -21,6 +26,7 @@ impl UdpSocketWrapperReal {
     }
 }
 
+#[async_trait]
 impl UdpSocketWrapperTrait for UdpSocketWrapperReal {
     fn bind(&mut self, addr: SocketAddr) -> io::Result<bool> {
         let socket = UdpSocket::bind(&addr)?;
@@ -28,7 +34,6 @@ impl UdpSocketWrapperTrait for UdpSocketWrapperReal {
         Ok(true)
     }
 
-    // pub async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
     async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         match self.delegate {
             Some(ref mut socket) => socket.recv_from(buf),

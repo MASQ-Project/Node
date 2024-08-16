@@ -107,6 +107,7 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use async_trait::async_trait;
     use masq_lib::test_utils::utils::make_rt;
 
     #[test]
@@ -126,6 +127,7 @@ mod tests {
         send_to_results: Arc<Mutex<Vec<io::Result<usize>>>>,
     }
 
+    #[async_trait]
     impl UdpSocketWrapperTrait for UdpSocketWrapperMock {
         fn bind(&mut self, addr: SocketAddr) -> io::Result<bool> {
             let mut unwrapped_guts = self.guts.lock().unwrap();

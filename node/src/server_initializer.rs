@@ -27,8 +27,8 @@ use time::OffsetDateTime;
 use tokio::task::{JoinSet};
 
 pub struct ServerInitializerReal {
-    dns_socket_server: Box<dyn ConfiguredServer<Output = ()>>,
-    bootstrapper: Box<dyn ConfiguredServer<Output = ()>>,
+    dns_socket_server: Box<dyn ConfiguredServer>,
+    bootstrapper: Box<dyn ConfiguredServer>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     dirs_wrapper: Box<dyn DirsWrapper>,
 }

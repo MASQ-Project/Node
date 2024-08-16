@@ -4,24 +4,29 @@ use std::marker::Send;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 
+#[async_trait]
 pub trait TokioListenerWrapper: Send {
     fn bind(&mut self, addr: SocketAddr) -> io::Result<()>;
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
     fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>>;
 }
 
 pub trait ReadHalfWrapper: Send + AsyncRead {}
 
-pub trait WriteHalfWrapper: Send + AsyncWrite {}
+pub trait WriteHalfWrapper: Send + AsyncWrite + Unpin {}
 
 pub trait TokioListenerWrapperFactory {
     fn make(&self) -> Box<dyn TokioListenerWrapper>;
 }
 
+// TODO: Another embarrassing optional delegate. The optionality should be taken care of by
+// TokioListenerWrapperFactory.
 #[derive(Default)]
 pub struct TokioListenerWrapperReal {
     delegate: Option<TcpListener>,
@@ -46,6 +51,10 @@ impl TokioListenerWrapper for TokioListenerWrapperReal {
             }
             Err(e) => Err(e),
         }
+    }
+
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+        self.delegate().accept().await
     }
 
     fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {

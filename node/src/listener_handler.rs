@@ -15,14 +15,18 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use async_trait::async_trait;
 
-pub trait ListenerHandler: Send + Future {
+#[async_trait]
+pub trait ListenerHandler: Send {
     fn bind_port_and_configuration(
         &mut self,
         port: u16,
         port_configuration: PortConfiguration,
     ) -> io::Result<()>;
     fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>);
+
+    async fn handle_listeners(&mut self);
 }
 
 pub trait ListenerHandlerFactory: Send {
@@ -58,6 +62,45 @@ impl ListenerHandler for ListenerHandlerReal {
 
     fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
         self.add_stream_sub = Some(add_stream_sub);
+    }
+
+    async fn handle_listeners(&mut self) {
+        loop {
+            let result = self.listener.accept().await;
+            match result {
+                Ok((stream, socket_addr)) => {
+                    let connection_info =
+                        match self.stream_connector.split_stream(stream, &self.logger) {
+                            Some(ci) => ci,
+                            None => {
+                                error!(
+                                    self.logger,
+                                    "Connection from {} was closed before it could be accepted",
+                                    socket_addr
+                                );
+                                continue;
+                            }
+                        };
+                    self.add_stream_sub
+                        .as_ref()
+                        .expect("Internal error: StreamHandlerPool unbound")
+                        .try_send(AddStreamMsg::new(
+                            connection_info,
+                            self.port,
+                            self.port_configuration
+                                .as_ref()
+                                .expect("Internal error: port_configuration is None")
+                                .clone(),
+                        ))
+                        .expect("Internal error: StreamHandlerPool is dead");
+                }
+                Err(e) => {
+                    // TODO FIXME we should kill the entire Node if there is a fatal error in a listener_handler
+                    // TODO this could be exploitable and inefficient: if we keep getting errors, we go into a tight loop and do not return
+                    error!(self.logger, "Could not accept connection: {}", e);
+                }
+            }
+        }
     }
 }
 

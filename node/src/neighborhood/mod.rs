@@ -1232,6 +1232,7 @@ impl Neighborhood {
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
+
             .routing_engine(
                 vec![source],
                 initial_undesirability,

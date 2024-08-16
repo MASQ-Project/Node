@@ -5,7 +5,6 @@ use crate::proxy_client::resolver_wrapper::ResolverWrapper;
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};

@@ -9,6 +9,7 @@ use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::TcpStream as StdTcpStream;
 use std::time::Duration;
+use async_trait::async_trait;
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::time::{timeout_at, Instant};
@@ -22,6 +23,7 @@ pub struct ConnectionInfo {
     pub peer_addr: SocketAddr,
 }
 
+#[async_trait]
 pub trait StreamConnector: Send {
     async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> ConnectionInfo;
     fn connect_one(
@@ -37,6 +39,7 @@ pub trait StreamConnector: Send {
 #[derive(Clone)]
 pub struct StreamConnectorReal {}
 
+#[async_trait]
 impl StreamConnector for StreamConnectorReal {
     async fn connect(
         &self,

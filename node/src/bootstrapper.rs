@@ -50,10 +50,13 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
+use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
+use futures_util::stream::FuturesUnordered;
+use crate::crash_test_dummy::CrashTestDummy;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -436,21 +439,10 @@ impl BootstrapperConfig {
 
 pub struct Bootstrapper {
     listener_handler_factory: Box<dyn ListenerHandlerFactory>,
-    listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+    listener_handlers: FuturesUnordered<Box<dyn ListenerHandler>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
     config: BootstrapperConfig,
-}
-
-impl Future for Bootstrapper {
-    type Item = ();
-    type Error = ();
-
-    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).poll());
-        try_ready!(self.listener_handlers.poll());
-        Ok(Async::Ready(()))
-    }
 }
 
 impl ConfiguredByPrivilege for Bootstrapper {
@@ -466,7 +458,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             None,
         );
         self.listener_handlers =
-            FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
+            FuturesUnordered::<Box<dyn ListenerHandler>>::new();
         let port_configurations = self.config.port_configurations.clone();
         port_configurations
             .iter()
@@ -526,13 +518,18 @@ impl Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
             listener_handlers:
-                FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
+                FuturesUnordered::<Box<dyn ListenerHandler>>::new(),
             actor_system_factory: Box::new(ActorSystemFactoryReal::new(Box::new(
                 ActorSystemFactoryToolsReal::new(),
             ))),
             logger_initializer,
             config: BootstrapperConfig::new(),
         }
+    }
+
+    pub async fn listen(&mut self) {
+        CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).await;
+        self.listener_handlers.await;
     }
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
@@ -749,13 +746,11 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
-    use futures::Future;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::logger::Logger;
-    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -764,7 +759,6 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::future::Future;
     use std::io;
     use std::io::ErrorKind;
     use std::marker::Sync;
@@ -773,6 +767,9 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
+    use async_trait::async_trait;
+    use futures_util::stream::FuturesUnordered;
     use tokio;
 
     lazy_static! {
@@ -781,13 +778,13 @@ mod tests {
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
-        mocks: RefCell<Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>>,
+        mocks: RefCell<Vec<Box<dyn ListenerHandler>>>,
     }
 
     unsafe impl Sync for ListenerHandlerFactoryMock {}
 
     impl ListenerHandlerFactory for ListenerHandlerFactoryMock {
-        fn make(&self) -> Box<dyn ListenerHandler<Item = (), Error = ()>> {
+        fn make(&self) -> Box<dyn ListenerHandler> {
             self.log.log(String::from("make ()"));
             self.mocks.borrow_mut().remove(0)
         }
@@ -818,11 +815,12 @@ mod tests {
         port_configuration_parameter: Option<PortConfiguration>,
         add_stream_sub: Option<Recipient<AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
-        _listen_results: Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+        _listen_results: Vec<Box<dyn ListenerHandler>>,
         //to be able to eliminate hanging and the need of a background thread in the test
         polling_setting: PollingSetting,
     }
 
+    #[async_trait]
     impl ListenerHandler for ListenerHandlerNull {
         fn bind_port_and_configuration(
             &mut self,
@@ -845,29 +843,26 @@ mod tests {
 
             self.add_stream_sub = Some(add_stream_sub);
         }
-    }
 
-    impl Future for ListenerHandlerNull {
-        type Item = ();
-        type Error = ();
-
-        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-            self.log.lock().unwrap().log(String::from("poll (...)"));
-            let mut add_stream_msgs = self.add_stream_msgs.lock().unwrap();
-            let add_stream_sub = self.add_stream_sub.as_ref().unwrap();
-            while add_stream_msgs.len() > 0 {
-                let add_stream_msg = add_stream_msgs.remove(0);
-                add_stream_sub
-                    .try_send(add_stream_msg)
-                    .expect("StreamHandlerPool is dead");
-            }
-            if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
-                self.polling_setting.counter += 1;
-                if self.polling_setting.counter == desired_number {
-                    return Ok(Async::Ready(())); //breaking the infinite looping
+        async fn handle_listeners(&mut self) {
+            loop {
+                self.log.lock().unwrap().log(String::from("poll (...)"));
+                let mut add_stream_msgs = self.add_stream_msgs.lock().unwrap();
+                let add_stream_sub = self.add_stream_sub.as_ref().unwrap();
+                while add_stream_msgs.len() > 0 {
+                    let add_stream_msg = add_stream_msgs.remove(0);
+                    add_stream_sub
+                        .try_send(add_stream_msg)
+                        .expect("StreamHandlerPool is dead");
                 }
+                if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
+                    self.polling_setting.counter += 1;
+                    if self.polling_setting.counter == desired_number {
+                        break; //breaking the infinite looping
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await //to avoid busy waiting
             }
-            Ok(Async::NotReady)
         }
     }
 
@@ -1727,8 +1722,8 @@ mod tests {
         ]);
     }
 
-    #[test]
-    fn bootstrapper_as_future_polls_listener_handler_futures() {
+    #[tokio::test]
+    async fn bootstrapper_as_future_polls_listener_handler_futures() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1803,7 +1798,7 @@ mod tests {
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .unwrap();
 
-        CurrentThread::new().block_on(subject).unwrap();
+        subject.await.unwrap();
 
         let number_of_expected_messages = 3;
         awaiter.await_message_count(number_of_expected_messages);
@@ -2264,7 +2259,7 @@ mod tests {
 
         fn add_listener_handler(
             mut self,
-            listener_handler: Box<dyn ListenerHandler<Item = (), Error = ()>>,
+            listener_handler: Box<dyn ListenerHandler>,
         ) -> BootstrapperBuilder {
             self.listener_handler_factory.add(listener_handler);
             self
@@ -2279,9 +2274,7 @@ mod tests {
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
                 listener_handler_factory: Box::new(self.listener_handler_factory),
-                listener_handlers: FuturesUnordered::<
-                    Box<dyn ListenerHandler<Item = (), Error = ()>>,
-                >::new(),
+                listener_handlers: FuturesUnordered::<Box<dyn ListenerHandler>>::new(),
                 logger_initializer: self.log_initializer_wrapper,
                 config: self.config,
             }

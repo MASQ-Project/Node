@@ -40,8 +40,6 @@ pub struct WebSocketSupervisorReal {
     inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
 }
 
-type MessageWriter = dyn SinkExt<Message, Error = io::Error> + Unpin;
-
 struct WebSocketSupervisorInner {
     port: u16,
     next_client_id: u64,
@@ -100,9 +98,9 @@ impl WebSocketSupervisorReal {
     fn filter_clients<'a, P>(
         locked_inner: &'a mut MutexGuard<WebSocketSupervisorInner>,
         predicate: P,
-    ) -> Vec<(u64, &'a mut MessageWriter)>
+    ) -> Vec<(u64, &'a mut WebSocketSink)>
     where
-        P: FnMut(&(&u64, &mut MessageWriter)) -> bool,
+        P: FnMut(&(&u64, &mut WebSocketSink)) -> bool,
     {
         locked_inner
             .client_by_id
@@ -151,13 +149,13 @@ impl WebSocketSupervisorReal {
     }
 
     async fn send_to_clients(
-        clients: Vec<(u64, &mut MessageWriter)>,
+        clients: Vec<(u64, &mut WebSocketSink)>,
         json: String,
     ) -> Option<Vec<SendToClientWebsocketError>> {
         let errors = join_all(clients.into_iter()
             .map(move |(client_id, client)| {
                 async {
-                    let result = client.send(Message::Text(json.clone())).await;
+                    let result = client.send(Message::Text(json.clone()));
                     (client_id, result)
                 }
             })

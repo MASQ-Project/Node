@@ -14,7 +14,6 @@ use itertools::Either::{Left, Right};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
-use serde_json::Value;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -392,43 +391,44 @@ where
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        debug!(
-            self.logger,
-            "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
-            consuming_wallet,
-            self.chain.rec().contract,
-            self.chain.rec().num_chain_id,
-            gas_price
-        );
-
-        let hashes_and_paid_amounts = self.sign_and_append_multiple_payments(
-            consuming_wallet,
-            gas_price,
-            pending_nonce,
-            accounts,
-        )?;
-        let timestamp = self.batch_payable_tools.batch_wide_timestamp();
-        self.batch_payable_tools
-            .send_new_payable_fingerprints_seeds(
-                timestamp,
-                new_fingerprints_recipient,
-                &hashes_and_paid_amounts,
-            );
-
-        info!(
-            self.logger,
-            "{}",
-            self.transmission_log(accounts, gas_price)
-        );
-
-        match self.batch_payable_tools.submit_batch(&self.batch_web3) {
-            Ok(responses) => Ok(Self::merged_output_data(
-                responses,
-                hashes_and_paid_amounts,
-                accounts,
-            )),
-            Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
-        }
+        todo!()
+        // debug!(
+        //     self.logger,
+        //     "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
+        //     consuming_wallet,
+        //     self.chain.rec().contract,
+        //     self.chain.rec().num_chain_id,
+        //     gas_price
+        // );
+        //
+        // let hashes_and_paid_amounts = self.sign_and_append_multiple_payments(
+        //     consuming_wallet,
+        //     gas_price,
+        //     pending_nonce,
+        //     accounts,
+        // )?;
+        // let timestamp = self.batch_payable_tools.batch_wide_timestamp();
+        // self.batch_payable_tools
+        //     .send_new_payable_fingerprints_seeds(
+        //         timestamp,
+        //         new_fingerprints_recipient,
+        //         &hashes_and_paid_amounts,
+        //     );
+        //
+        // info!(
+        //     self.logger,
+        //     "{}",
+        //     self.transmission_log(accounts, gas_price)
+        // );
+        //
+        // match self.batch_payable_tools.submit_batch(&self.batch_web3) {
+        //     Ok(responses) => Ok(Self::merged_output_data(
+        //         responses,
+        //         hashes_and_paid_amounts,
+        //         accounts,
+        //     )),
+        //     Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
+        // }
     }
 
     fn get_transaction_fee_balance(&self, wallet: &Wallet) -> ResultForBalance {
@@ -599,29 +599,29 @@ where
             .expect("unexpected limits")
     }
 
-    fn merged_output_data(
-        responses: Vec<web3::transports::Result<Value>>,
-        hashes_and_paid_amounts: Vec<(H256, u128)>,
-        accounts: &[PayableAccount],
-    ) -> Vec<ProcessedPayableFallible> {
-        let iterator_with_all_data = responses
-            .into_iter()
-            .zip(hashes_and_paid_amounts.into_iter())
-            .zip(accounts.iter());
-        iterator_with_all_data
-            .map(|((rpc_result, (hash, _)), account)| match rpc_result {
-                Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
-                    recipient_wallet: account.wallet.clone(),
-                    hash,
-                }),
-                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
-                    rpc_error,
-                    recipient_wallet: account.wallet.clone(),
-                    hash,
-                }),
-            })
-            .collect()
-    }
+    // fn merged_output_data(
+    //     responses: Vec<web3::transports::Result<Value>>,
+    //     hashes_and_paid_amounts: Vec<(H256, u128)>,
+    //     accounts: &[PayableAccount],
+    // ) -> Vec<ProcessedPayableFallible> {
+    //     let iterator_with_all_data = responses
+    //         .into_iter()
+    //         .zip(hashes_and_paid_amounts.into_iter())
+    //         .zip(accounts.iter());
+    //     iterator_with_all_data
+    //         .map(|((rpc_result, (hash, _)), account)| match rpc_result {
+    //             Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
+    //                 recipient_wallet: account.wallet.clone(),
+    //                 hash,
+    //             }),
+    //             Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
+    //                 rpc_error,
+    //                 recipient_wallet: account.wallet.clone(),
+    //                 hash,
+    //             }),
+    //         })
+    //         .collect()
+    // }
 
     fn error_with_hashes(
         error: Error,

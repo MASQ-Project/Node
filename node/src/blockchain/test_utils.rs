@@ -6,7 +6,6 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
     ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -22,7 +21,7 @@ use std::time::SystemTime;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
-use web3::transports::{Batch, Http};
+use web3::transports::{Batch};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};

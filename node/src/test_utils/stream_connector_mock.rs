@@ -11,6 +11,7 @@ use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use async_trait::async_trait;
 use tokio::net::TcpStream;
 use tokio::prelude::Async;
 
@@ -21,6 +22,7 @@ pub struct StreamConnectorMock {
     split_stream_results: RefCell<Vec<Option<ConnectionInfo>>>,
 }
 
+#[async_trait]
 impl StreamConnector for StreamConnectorMock {
     fn connect(&self, socket_addr: SocketAddr, _logger: &Logger) -> ConnectionInfoFuture {
         self.connect_pair_params.lock().unwrap().push(socket_addr);
