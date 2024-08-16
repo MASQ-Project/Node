@@ -147,7 +147,10 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
         };
         let ip_addr = masq_node.node_addr().ip_addr();
         let country_code = get_node_location(Some(ip_addr));
-        agr.inner.country_code_opt = Some(country_code.unwrap().country_code);
+        match country_code {
+            Some(cc) => agr.inner.country_code_opt = Some(cc.country_code),
+            _ => {}
+        };
         agr.regenerate_signed_gossip(cryptde);
         agr
     }
