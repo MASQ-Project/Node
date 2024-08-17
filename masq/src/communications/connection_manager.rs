@@ -107,20 +107,19 @@ impl ConnectionManagerBootstrapper {
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
         timeout_millis: u64,
     ) -> Result<CommunicationBetweenCMAndSubordinates, ClientListenerError> {
-        let (launch_platform, connectors) =
+        let (launcher, connectors) =
             self.prepare_launch(port, terminal_interface_opt, timeout_millis);
 
-        let talker_half = (launch_platform.spawn_ws_client_listener)().await?;
+        //TODO you can have a method on launcher that can run these three following calls;
+        // before that, clone the receiver and
+        //TODO is this question mark tested?
+        let talker_half = (launcher.spawn_ws_client_listener)().await?;
 
-        let standard_broadcast_handle = (launch_platform.spawn_standard_broadcast_handler)();
+        let standard_broadcast_handle = (launcher.spawn_standard_broadcast_handler)();
 
-        (launch_platform.spawn_cms_event_loop)(talker_half, standard_broadcast_handle);
+        (launcher.spawn_cms_event_loop)(talker_half, standard_broadcast_handle);
 
-        launch_platform
-            .event_loop_ready_rx
-            .borrow_mut()
-            .recv()
-            .await;
+        launcher.event_loop_ready_rx.borrow_mut().recv().await;
 
         Ok(connectors)
     }
@@ -130,7 +129,7 @@ impl ConnectionManagerBootstrapper {
         port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
         timeout_millis: u64,
-    ) -> (LaunchPlatform, CommunicationBetweenCMAndSubordinates) {
+    ) -> (Launcher, CommunicationBetweenCMAndSubordinates) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let closing_stage = Arc::new(AtomicBool::new(false));
         let closing_stage_client_listener_clone = closing_stage.clone();
@@ -192,7 +191,7 @@ impl ConnectionManagerBootstrapper {
             },
         );
 
-        let launch_platform = LaunchPlatform::new(
+        let launch_platform = Launcher::new(
             spawn_ws_client_listener,
             spawn_standard_broadcast_handler,
             spawn_cms_event_loop,
@@ -222,14 +221,16 @@ type SpawnStandardBroadcastHandler = Box<dyn FnOnce() -> Box<dyn BroadcastHandle
 
 type SpawnCMSEventLoop = Box<dyn FnOnce(WSClientHandle, Box<dyn BroadcastHandle<MessageBody>>)>;
 
-struct LaunchPlatform {
+//TODO create a part called Spawning, containing those three...you can later call .spawn_loops(self) on it to finish the launch and take the last item of
+// launcher out, with no cloning...
+struct Launcher {
     spawn_ws_client_listener: SpawnClientListenerFuture,
     spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
     spawn_cms_event_loop: SpawnCMSEventLoop,
     event_loop_ready_rx: RefCell<UnboundedReceiver<()>>,
 }
 
-impl LaunchPlatform {
+impl Launcher {
     pub fn new(
         spawn_ws_client_listener: SpawnClientListenerFuture,
         spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
@@ -306,8 +307,12 @@ impl ConnectionManager {
         //     Ok(ui_port_opt) => ui_port_opt,
         //     // None => panic!("ConnectionManager is disconnected"),
         // };
-        let time_out = Instant::now() + Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS);
-        match tokio::time::timeout_at(time_out, request_fut).await {
+        match tokio::time::timeout(
+            Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS),
+            request_fut,
+        )
+        .await
+        {
             Ok(active_port_opt) => todo!(),
             Err(elapsed) => todo!(),
         }

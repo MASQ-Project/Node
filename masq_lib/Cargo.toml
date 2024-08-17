@@ -30,8 +30,9 @@ time = {version = "0.3.11", features = [ "formatting" ]}
 tiny-hderive = "0.3.0"
 tokio = {version = "1.37.0", features = ["rt-multi-thread"]}
 toml = "0.7.6"
-workflow-websocket = "0.11.0"
+workflow-websocket = "0.15.0"
 async-channel = "2.3.1"
+tokio-tungstenite = "0.23.1"
 url = "1.7.2"
 
 [features]

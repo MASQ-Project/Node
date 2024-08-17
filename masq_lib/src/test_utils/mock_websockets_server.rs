@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use workflow_websocket::server::error::Error as WebsocketServerError;
 use workflow_websocket::server::{
@@ -35,14 +36,14 @@ struct NodeUiProtocolWebSocketHandler {
     opening_broadcasts_signal_rx_opt: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     counters: Arc<WebSocketCounters>,
     listener_stop_tx: Arc<Mutex<Option<async_channel::Sender<()>>>>,
+    panicking_conn_obj_opt: Option<PanickingConn>,
     do_log: bool,
     index: u64,
-    panicking_conn_obj_opt: Option<PanickingConn>,
 }
 
 #[async_trait]
 impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
-    type Context = SocketAddr;
+    type Context = ();
 
     fn accept(&self, _peer: &SocketAddr) -> bool {
         // Precaution against panicking a connection and restarting it. The native design of this
@@ -74,8 +75,11 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         _peer: &SocketAddr,
     ) -> workflow_websocket::server::Result<()> {
         if let Some(object) = self.panicking_conn_obj_opt.as_ref() {
-            let _open_mutex = object.mutex_to_sense_panic.lock().expect("Mutex already poisoned");
-            panic!("Deliberate panic for a test")
+            let _open_mutex = object
+                .mutex_to_sense_panic
+                .lock()
+                .expect("Mutex already poisoned");
+            panic!("Testing internal panic")
         }
         Ok(())
     }
@@ -93,7 +97,14 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             format!("Awaiting handshake msg from {}", peer).as_str(),
         );
 
-        node_greeting(Duration::from_millis(5_000), *peer, sender, receiver).await?;
+        node_greeting(
+            Duration::from_millis(5_000),
+            *peer,
+            sender,
+            receiver,
+            |_| {},
+        )
+        .await?;
 
         log(
             self.do_log,
@@ -102,7 +113,7 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         );
         self.handle_opening_broadcasts(sink);
 
-        Ok(*peer)
+        Ok(())
     }
 
     async fn message(
@@ -402,9 +413,10 @@ impl MockWebSocketsServer {
 
         let ws_server_handle_clone = ws_server_handle.clone();
         let socket_addr = SocketAddr::new(localhost(), self.port);
-        let static_socket_addr_str: &'static str =
-            Box::leak(socket_addr.to_string().into_boxed_str());
-        let server_task = ws_server_handle_clone.listen(static_socket_addr_str, None);
+        let tcp_listener = TcpListener::bind(socket_addr)
+            .await
+            .expect("Couldn't bind socket for listener");
+        let server_task = ws_server_handle_clone.listen(tcp_listener, None);
 
         let server_background_thread_join_handle = tokio::spawn(server_task);
 
@@ -451,7 +463,7 @@ impl ProcessedIncomingMsg {
 }
 
 struct PanickingConn {
-    // We'll deliberately poison our mutex with a panic
+    // Deliberate poisoning a Mutex by a panic
     mutex_to_sense_panic: Arc<Mutex<()>>,
 }
 
@@ -474,12 +486,22 @@ pub enum MockWSServerRecordedRequest {
 }
 
 impl MockWSServerRecordedRequest {
-    pub fn expect_masq_ws_protocol_msg(self) -> MessageBody {
+    pub fn expect_masq_msg(self) -> MessageBody {
         if let Self::MASQNodeUIv2Protocol(unmarshal_result) = self {
             unmarshal_result
         } else {
             panic!(
                 "We expected a websocket message of our MASQNode-UIv2 but found {:?}",
+                self
+            )
+        }
+    }
+    pub fn expect_textual_msg(self) -> String {
+        if let Self::WSTextual { unexpected_string } = self {
+            unexpected_string
+        } else {
+            panic!(
+                "We expected a websocket message with string in an unrecognizable format but found {:?}",
                 self
             )
         }
@@ -514,7 +536,7 @@ impl MockWebSocketsServerHandle {
         loop {
             if let Some(required_msg_count) = required_msg_count_opt {
                 let guard_len = obtain_guard().len();
-                if required_msg_count <= guard_len {
+                if required_msg_count > guard_len {
                     if recorded_requests_waiting_start
                         .elapsed()
                         .expect("travelling in time")
@@ -618,7 +640,7 @@ mod tests {
             .unwrap();
 
         let mut requests = stop_handle.retrieve_recorded_requests(None).await;
-        let captured_request = requests.remove(0).expect_masq_ws_protocol_msg();
+        let captured_request = requests.remove(0).expect_masq_msg();
         let actual_message_gotten_by_the_server =
             UiCheckPasswordRequest::fmb(captured_request).unwrap().0;
         assert_eq!(actual_message_gotten_by_the_server, request);
@@ -738,7 +760,7 @@ mod tests {
         assert_eq!(
             requests
                 .into_iter()
-                .map(|x| x.expect_masq_ws_protocol_msg())
+                .map(|x| x.expect_masq_msg())
                 .collect::<Vec<MessageBody>>(),
             vec![
                 conversation_number_one_request.tmb(1),
