@@ -44,6 +44,8 @@ jobs:
         run: |
           echo "before ci/all disc diagnostics ------>"
           df -h ~
+          echo "-------diskutil----"
+          diskutil list
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
