@@ -42,9 +42,6 @@ jobs:
           key: ${{ runner.os }}-cargo
       - name: Build ${{ matrix.target.os }}
         run: |
-          echo "disk space -----"
-          df ~
-          du ~
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
@@ -54,6 +51,11 @@ jobs:
         with:
           name: Node-${{ matrix.target.name }}
           path: results
+      - name: diagnostics
+        if: failure()
+        run: |
+          echo "final disc diagnostics ------>"
+          df -h ~
   deploy_to_s3:
     needs: build
     strategy:
