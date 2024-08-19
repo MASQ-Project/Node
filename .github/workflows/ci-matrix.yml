@@ -46,6 +46,8 @@ jobs:
           df -h ~
           echo "-------diskutil----"
           diskutil list
+          echo "-------var----"
+          df -h /var
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
