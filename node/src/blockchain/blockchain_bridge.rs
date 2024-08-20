@@ -221,6 +221,8 @@ impl BlockchainBridge {
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
 
+            // TODO: GH-744: Review the implications of this
+            // TODO: Write a card?
             None => panic!("Blockchain service can not start with out a blockchain service url"),
         }
     }

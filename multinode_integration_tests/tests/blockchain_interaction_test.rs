@@ -1,8 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::ops::Add;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
 use log::Level;
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -14,16 +11,14 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
-
 use multinode_integration_tests_lib::utils::{
-    config_dao,
-    node_chain_specific_data_directory,
-    open_all_file_permissions,
-    receivable_dao,
-    // UrlHolder,
+    config_dao, node_chain_specific_data_directory, open_all_file_permissions, receivable_dao,
 };
 use node_lib::accountant::db_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
+use std::ops::Add;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
@@ -37,6 +32,7 @@ fn debtors_are_credited_once_but_not_twice() {
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     eprintln!("Setting up mock blockchain client");
     let blockchain_client_server = MBCSBuilder::new(mbcs_port)
+        .response("0x5DC", 1) // eth_blockNumber 1500
         .response(
             vec![LogObject {
                 removed: false,
@@ -63,6 +59,7 @@ fn debtors_are_credited_once_but_not_twice() {
             }],
             1,
         )
+        .run_on_docker()
         .start();
     // Start a real Node pointing at the mock blockchain client with a start block of 1000
     let node_config = NodeStartupConfigBuilder::standard()

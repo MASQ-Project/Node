@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
@@ -24,6 +24,7 @@ lazy_static! {
 
 pub struct MBCSBuilder {
     port: u16,
+    run_on_docker: bool,
     response_batch_opt: Option<Vec<String>>,
     responses: Vec<String>,
     notifier: Sender<()>,
@@ -33,10 +34,16 @@ impl MBCSBuilder {
     pub fn new(port: u16) -> Self {
         Self {
             port,
+            run_on_docker: false,
             response_batch_opt: None,
             responses: vec![],
             notifier: unbounded().0,
         }
+    }
+
+    pub fn run_on_docker(mut self) -> Self {
+        self.run_on_docker = true;
+        self
     }
 
     pub fn begin_batch(mut self) -> Self {
@@ -105,7 +112,14 @@ impl MBCSBuilder {
     pub fn start(self) -> MockBlockchainClientServer {
         let requests = Arc::new(Mutex::new(vec![]));
         let mut server = MockBlockchainClientServer {
-            port_or_local_addr: Left(self.port),
+            port_or_local_addr: if self.run_on_docker {
+                Right(SocketAddr::V4(SocketAddrV4::new(
+                    Ipv4Addr::new(172, 18, 0, 1),
+                    self.port,
+                )))
+            } else {
+                Left(self.port)
+            },
             thread_info_opt: None,
             requests_arc: requests,
             responses: self.responses,
@@ -178,8 +192,6 @@ impl MockBlockchainClientServer {
     }
 
     pub fn start(&mut self) {
-        // let addr = DockerHostSocketAddr::new(self.port_or_local_addr.unwrap_left());
-
         let addr = match self.port_or_local_addr {
             Left(port) => SocketAddr::new(localhost(), port),
             Right(addr) => addr,

@@ -3,6 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
+use masq_lib::test_utils::utils::UrlHolder;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
@@ -35,7 +36,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-use masq_lib::test_utils::utils::UrlHolder;
 
 #[test]
 fn verify_bill_payment() {
@@ -326,7 +326,8 @@ fn assert_balances(
 ) {
     let eth_balance = blockchain_interface
         .lower_interface()
-        .get_transaction_fee_balance(wallet.address()).wait()
+        .get_transaction_fee_balance(wallet.address())
+        .wait()
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),
@@ -337,7 +338,8 @@ fn assert_balances(
     );
     let token_balance = blockchain_interface
         .lower_interface()
-        .get_service_fee_balance(wallet.address()).wait()
+        .get_service_fee_balance(wallet.address())
+        .wait()
         .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
     assert_eq!(
         token_balance,

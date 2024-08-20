@@ -4,18 +4,18 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::masq_node_cluster::{DockerHostSocketAddr, MASQNodeCluster};
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::mock_blockchain_client_server::{
         MockBlockchainClientServer, CONTENT_LENGTH_DETECTOR,
     };
+    use masq_lib::utils::find_free_port;
     use serde_derive::{Deserialize, Serialize};
     use std::io::{ErrorKind, Read, Write};
     use std::net::TcpStream;
     use std::ops::Add;
     use std::thread;
     use std::time::{Duration, Instant};
-    use crate::masq_node_cluster::{DockerHostSocketAddr, MASQNodeCluster};
-    use masq_lib::utils::find_free_port;
 
     #[derive(Serialize, Deserialize)]
     struct Person {
@@ -29,6 +29,7 @@ mod tests {
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("Thank you and good night", 40)
+            .run_on_docker()
             .start();
         let mut client = connect(port);
         let chunks = vec![
@@ -60,6 +61,7 @@ mod tests {
         let _subject = MockBlockchainClientServer::builder(port)
             .response("Welcome, and thanks for coming!", 39)
             .response("Thank you and good night", 40)
+            .run_on_docker()
             .start();
         let mut client = connect(port);
         client.write (b"POST /biddle HTTP/1.1\r\nContent-Length: 5\r\n\r\nfirstPOST /biddle HTTP/1.1\r\nContent-Length: 6\r\n\r\nsecond").unwrap();
@@ -83,6 +85,7 @@ mod tests {
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
+            .run_on_docker()
             .start();
         let mut client = connect(port);
         let request = b"POST /biddle HTTP/1.1\r\n\r\nbody";
@@ -99,6 +102,7 @@ mod tests {
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
+            .run_on_docker()
             .start();
         let mut client = connect(port);
         let request = b"GET /booga\r\nContent-Length: 4\r\n\r\nbody";
@@ -115,6 +119,7 @@ mod tests {
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
+            .run_on_docker()
             .start();
         let mut client = connect(port);
         let request = b"GET /booga HTTP/2.0\r\nContent-Length: 4\r\n\r\nbody";
@@ -150,6 +155,7 @@ mod tests {
                     age: 37,
                 }),
             )
+            .run_on_docker()
             .start();
         let mut client = connect(port);
 
@@ -203,7 +209,7 @@ mod tests {
     fn mbcs_understands_real_world_request() {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
-        let addr = DockerHostSocketAddr::new(port);
+        // let addr = DockerHostSocketAddr::new(port);
         let subject = MockBlockchainClientServer::builder(port)
             .response(
                 Person {
@@ -212,7 +218,8 @@ mod tests {
                 },
                 42,
             )
-            .start_using_addr(addr);
+            .run_on_docker()
+            .start();
         let mut client = connect(port);
         let request =
             b"POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\nhost: 172.18.0.1:32768\r\ncontent-length: 308\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x59882e4a8f5d24643d4dda422922a870f1b3e664\",\"fromBlock\":\"0x3e8\",\"toBlock\":\"latest\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x00000000000000000000000027d9a2ac83b493f88ce9b4532edcf74e95b9788d\"]}],\"id\":0}";
