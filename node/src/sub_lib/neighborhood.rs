@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::gossip::Gossip_0v1;
-use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
 use crate::neighborhood::Neighborhood;
@@ -163,7 +162,6 @@ pub struct NodeDescriptor {
     pub blockchain: Chain,
     pub encryption_public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
-    pub country_code: String,
 }
 
 impl Default for NodeDescriptor {
@@ -173,15 +171,14 @@ impl Default for NodeDescriptor {
             &NodeAddr::default(),
             Chain::default(),
             &CryptDEReal::new(Chain::default()) as &dyn CryptDE,
-            "ZZ".to_string(),
         ))
     }
 }
 
 //the public key's role as a separate arg is to enable the produced descriptor to be constant and reliable in tests
-impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE, String)> for NodeDescriptor {
-    fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE, String)) -> Self {
-        let (public_key, node_addr, blockchain, cryptde, country) = tuple;
+impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE)> for NodeDescriptor {
+    fn from(tuple: (&PublicKey, &NodeAddr, Chain, &dyn CryptDE)) -> Self {
+        let (public_key, node_addr, blockchain, cryptde) = tuple;
         NodeDescriptor {
             blockchain,
             encryption_public_key: cryptde
@@ -190,7 +187,6 @@ impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE, String)> for NodeDescript
                 )
                 .expect("Internal error"),
             node_addr_opt: Some(node_addr.clone()),
-            country_code: country,
         }
     }
 }
@@ -198,14 +194,6 @@ impl From<(&PublicKey, &NodeAddr, Chain, &dyn CryptDE, String)> for NodeDescript
 impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
     fn from(tuple: (&NodeRecord, Chain, &dyn CryptDE)) -> Self {
         let (node_record, blockchain, cryptde) = tuple;
-        let ip_addr = match node_record.node_addr_opt() {
-            Some(ip) => Some(ip.ip_addr),
-            None => None,
-        };
-        let country_code = match get_node_location(ip_addr) {
-            Some(country) => country.country_code,
-            None => "ZZ".to_string(),
-        };
         NodeDescriptor {
             blockchain,
             encryption_public_key: cryptde
@@ -214,7 +202,6 @@ impl From<(&NodeRecord, Chain, &dyn CryptDE)> for NodeDescriptor {
                 )
                 .expect("Internal error"),
             node_addr_opt: node_record.node_addr_opt(),
-            country_code,
         }
     }
 }
@@ -226,23 +213,16 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
         let (cryptde, str_descriptor) = tuple;
         let (blockchain, key, str_node_addr) = NodeDescriptor::parse_url(str_descriptor)?;
         let encryption_public_key = cryptde.descriptor_fragment_to_first_contact_public_key(key)?;
-        let mut ip_addr = None;
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
             let node_addr = NodeAddr::from_str(str_node_addr)?;
-            ip_addr = Some(node_addr.ip_addr);
             Some(node_addr)
-        };
-        let country_code = match get_node_location(ip_addr) {
-            Some(country) => country.country_code,
-            None => "ZZ".to_string(),
         };
         Ok(NodeDescriptor {
             blockchain,
             encryption_public_key,
             node_addr_opt,
-            country_code,
         })
     }
 }
@@ -948,7 +928,6 @@ mod tests {
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &[1234, 2345, 3456],
                 )),
-                country_code: "AU".to_string(),
             },
         )
     }
@@ -963,7 +942,6 @@ mod tests {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
                 blockchain: Chain::EthMainnet,
                 node_addr_opt: None,
-                country_code: "ZZ".to_string(),
             },
         )
     }
@@ -1002,13 +980,7 @@ mod tests {
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
-        let result = NodeDescriptor::from((
-            &public_key,
-            &node_addr,
-            Chain::EthMainnet,
-            cryptde,
-            "ZZ".to_string(),
-        ));
+        let result = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         assert_eq!(
             result,
@@ -1016,7 +988,6 @@ mod tests {
                 encryption_public_key: public_key,
                 blockchain: Chain::EthMainnet,
                 node_addr_opt: Some(node_addr),
-                country_code: "ZZ".to_string(),
             }
         );
     }
@@ -1026,13 +997,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject = NodeDescriptor::from((
-            &public_key,
-            &node_addr,
-            Chain::EthMainnet,
-            cryptde,
-            "ZZ".to_string(),
-        ));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
 
         let result = subject.to_string(cryptde);
 
@@ -1047,13 +1012,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject = NodeDescriptor::from((
-            &public_key,
-            &node_addr,
-            Chain::EthRopsten,
-            cryptde,
-            "ZZ".to_string(),
-        ));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
 
         let result = subject.to_string(cryptde);
 
@@ -1072,13 +1031,8 @@ mod tests {
         ]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let required_number_of_characters = 43;
-        let descriptor = NodeDescriptor::from((
-            &public_key,
-            &node_addr,
-            Chain::EthMainnet,
-            cryptde,
-            "ZZ".to_string(),
-        ));
+        let descriptor =
+            NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
         let string_descriptor = descriptor.to_string(cryptde);
 
         let result = string_descriptor

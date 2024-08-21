@@ -742,7 +742,6 @@ mod tests {
             &NodeAddr::default(),
             Chain::default(),
             main_cryptde() as &dyn CryptDE,
-            "ZZ".to_string(),
         ));
         node_descriptor.node_addr_opt = None;
         bootstrapper_config.node_descriptor = node_descriptor;

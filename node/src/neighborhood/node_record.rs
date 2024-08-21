@@ -26,7 +26,7 @@ pub struct NodeRecordInner_0v1 {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
-    pub country_code: String,
+    pub country_code_opt: Option<String>,
 }
 
 impl TryFrom<GossipNodeRecord> for NodeRecordInner_0v1 {
@@ -68,7 +68,7 @@ pub struct NodeRecordInputs {
     pub accepts_connections: bool,
     pub routes_data: bool,
     pub version: u32,
-    pub location: Option<NodeLocation>,
+    pub location_opt: Option<NodeLocation>,
 }
 
 impl NodeRecord {
@@ -77,13 +77,10 @@ impl NodeRecord {
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
         node_record_inputs: NodeRecordInputs,
     ) -> NodeRecord {
-        let mut country = String::default();
-        match node_record_inputs.location.as_ref() {
-            Some(node_location) => {
-                country = node_location.country_code.clone();
-            }
-            None => {}
-        };
+        let country = node_record_inputs
+            .location_opt
+            .as_ref()
+            .map(|node_location| node_location.country_code.clone());
         let mut node_record = NodeRecord {
             metadata: NodeRecordMetadata::new(),
             inner: NodeRecordInner_0v1 {
@@ -94,12 +91,12 @@ impl NodeRecord {
                 routes_data: node_record_inputs.routes_data,
                 neighbors: BTreeSet::new(),
                 version: node_record_inputs.version,
-                country_code: country,
+                country_code_opt: country,
             },
             signed_gossip: PlainData::new(&[]),
             signature: CryptData::new(&[]),
         };
-        node_record.metadata.node_location_opt = node_record_inputs.location;
+        node_record.metadata.node_location_opt = node_record_inputs.location_opt;
         node_record.regenerate_signed_gossip(cryptde);
         node_record
     }
@@ -299,7 +296,10 @@ impl NodeRecord {
 
 impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
-        let ip_add_opt = agr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr);
+        let ip_add_opt = agr
+            .node_addr_opt
+            .as_ref()
+            .map(|node_rec| node_rec.ip_addr());
         let mut node_record = NodeRecord {
             inner: agr.inner,
             metadata: NodeRecordMetadata::new(),
@@ -324,7 +324,10 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 
     fn try_from(gnr: &GossipNodeRecord) -> Result<Self, Self::Error> {
         let inner = NodeRecordInner_0v1::try_from(gnr)?;
-        let ip_addr_opt = gnr.node_addr_opt.as_ref().map(|node_rec| node_rec.ip_addr);
+        let ip_addr_opt = gnr
+            .node_addr_opt
+            .as_ref()
+            .map(|node_rec| node_rec.ip_addr());
         let mut node_record = NodeRecord {
             inner,
             metadata: NodeRecordMetadata::new(),
@@ -626,38 +629,27 @@ mod tests {
             accepts_connections: true,
             routes_data: true,
             version: 0,
-            location: None,
+            location_opt: None,
         };
-        let node_record_data_duplicate = node_record_data.clone();
-        let node_record_data_with_neighbor = node_record_data.clone();
-        let node_record_data_mod_key = node_record_data.clone();
-        let mut node_record_data_mod_earning_wallet = node_record_data.clone();
-        let mut node_record_data_mod_rate_pack = node_record_data.clone();
-        let mut node_record_data_mod_accepts_connections = node_record_data.clone();
-        let mut node_record_data_mod_routes_data = node_record_data.clone();
-        let mut node_record_data_mod_version = node_record_data.clone();
-        let node_record_data_mod_signed_gossip = node_record_data.clone();
-        let node_record_data_mod_signature = node_record_data.clone();
-        let node_record_data_mod_node_addr = node_record_data.clone();
         let exemplar = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data,
+            node_record_data.clone(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_duplicate,
+            node_record_data.clone(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_with_neighbor,
+            node_record_data.clone(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
             main_cryptde(),
-            node_record_data_mod_key,
+            node_record_data.clone(),
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -665,7 +657,7 @@ mod tests {
         let mut mod_node_addr = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_node_addr,
+            node_record_data.clone(),
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -673,24 +665,28 @@ mod tests {
                 &[1234],
             ))
             .unwrap();
+        let mut node_record_data_mod_earning_wallet = node_record_data.clone();
         node_record_data_mod_earning_wallet.earning_wallet = make_wallet("booga");
         let mod_earning_wallet = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
             node_record_data_mod_earning_wallet,
         );
+        let mut node_record_data_mod_rate_pack = node_record_data.clone();
         node_record_data_mod_rate_pack.rate_pack = rate_pack(200);
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
             node_record_data_mod_rate_pack,
         );
+        let mut node_record_data_mod_accepts_connections = node_record_data.clone();
         node_record_data_mod_accepts_connections.accepts_connections = false;
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
             node_record_data_mod_accepts_connections,
         );
+        let mut node_record_data_mod_routes_data = node_record_data.clone();
         node_record_data_mod_routes_data.routes_data = false;
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -700,15 +696,16 @@ mod tests {
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_signed_gossip,
+            node_record_data.clone(),
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
             main_cryptde(),
-            node_record_data_mod_signature,
+            node_record_data.clone(),
         );
         mod_signature.signature = CryptData::new(&[]);
+        let mut node_record_data_mod_version = node_record_data.clone();
         node_record_data_mod_version.version = 1;
         let mod_version = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),

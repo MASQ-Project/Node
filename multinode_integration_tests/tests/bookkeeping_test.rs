@@ -24,7 +24,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .map(|_| start_real_node(&mut cluster, originating_node.node_reference()))
         .collect::<Vec<MASQRealNode>>();
 
-    //TODO creaet function wait for gossip is over to perform request
+    //TODO card #803 Create function wait_for_gossip
     thread::sleep(Duration::from_secs(10));
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);

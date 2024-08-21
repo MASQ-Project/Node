@@ -1,16 +1,25 @@
-use crate::country_block_serde::{
-    CountryBlockDeserializer, CountryBlockDeserializerIpv4, CountryBlockDeserializerIpv6,
-};
+use crate::country_block_serde::CountryBlockDeserializer;
 use crate::country_block_stream::{Country, CountryBlock};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+#[cfg(not(test))]
 lazy_static! {
     pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
         crate::dbip_country::ipv4_country_data(),
         crate::dbip_country::ipv6_country_data()
     );
 }
+
+#[cfg(test)]
+lazy_static! {
+    pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
+        crate::test_dbip_country::ipv4_country_data(),
+        crate::test_dbip_country::ipv6_country_data()
+    );
+}
+
 pub struct CountryCodeFinder {
     ipv4: Vec<CountryBlock>,
     ipv6: Vec<CountryBlock>,
@@ -19,88 +28,40 @@ pub struct CountryCodeFinder {
 impl CountryCodeFinder {
     pub fn new(ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
         Self {
-            ipv4: Self::initialize_country_finder_ipv4(ipv4_data),
-            ipv6: Self::initialize_country_finder_ipv6(ipv6_data),
+            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data)
+                .into_iter()
+                .collect_vec(),
+            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data)
+                .into_iter()
+                .collect_vec(),
         }
-    }
-
-    fn initialize_country_finder_ipv4(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
-        //TODO write two tests - one for deserializer and one for loop to fill up the vec
-        let mut deserializer = CountryBlockDeserializerIpv4::new(data);
-        let mut result: Vec<CountryBlock> = vec![];
-        loop {
-            match deserializer.next() {
-                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
-                Some(country_block) => {
-                    result.push(country_block);
-                }
-            }
-        }
-        result
-    }
-
-    fn initialize_country_finder_ipv6(data: (Vec<u64>, usize)) -> Vec<CountryBlock> {
-        let mut deserializer = CountryBlockDeserializerIpv6::new(data);
-        let mut result: Vec<CountryBlock> = vec![];
-        loop {
-            match deserializer.next() {
-                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
-                Some(country_block) => {
-                    result.push(country_block);
-                }
-            }
-        }
-        result
     }
 
     pub fn find_country(
         country_code_block: &CountryCodeFinder,
         ip_addr: IpAddr,
     ) -> Option<Country> {
-        match ip_addr {
-            IpAddr::V4(ipv4_addr) => Self::find_country_ipv4(&country_code_block.ipv4, ipv4_addr),
-            IpAddr::V6(ipv6_addr) => Self::find_country_ipv6(&country_code_block.ipv6, ipv6_addr),
+        let country_finder: &Vec<CountryBlock> = match ip_addr {
+            IpAddr::V4(_) => &country_code_block.ipv4,
+            IpAddr::V6(_) => &country_code_block.ipv6,
+        };
+        let block_index =
+            country_finder.binary_search_by(|block| block.ip_range.ordering_by_range(ip_addr));
+        let country = match block_index {
+            Ok(index) => country_finder[index].country.clone(),
+            _ => Country::try_from("ZZ").expect("expected Country"),
+        };
+        match country.iso3166.as_str() {
+            "ZZ" => None,
+            _ => Some(country),
         }
-    }
-
-    fn find_country_ipv4(country_finder: &Vec<CountryBlock>, ip: Ipv4Addr) -> Option<Country> {
-        let ip_addr = IpAddr::V4(ip);
-        let block_index = country_finder.binary_search_by(|block| block.ip_range.in_range(ip_addr));
-        let country = match block_index {
-            Ok(index) => Some(country_finder[index].country.clone()),
-            _ => None,
-        };
-        let country = match country {
-            Some(country_inner) => match country_inner.iso3166.as_str() {
-                "ZZ" => None,
-                _ => Some(country_inner),
-            },
-            None => None,
-        };
-        country
-    }
-
-    fn find_country_ipv6(country_finder: &Vec<CountryBlock>, ip: Ipv6Addr) -> Option<Country> {
-        let ip_addr = IpAddr::V6(ip);
-        let block_index = country_finder.binary_search_by(|block| block.ip_range.in_range(ip_addr));
-        let country = match block_index {
-            Ok(index) => Some(country_finder[index].country.clone()),
-            _ => None,
-        };
-        let country = match country {
-            Some(country_inner) => match country_inner.iso3166.as_str() {
-                "ZZ" => None,
-                _ => Some(country_inner),
-            },
-            None => None,
-        };
-        country
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::country_block_serde::CountryBlockDeserializer;
     use lazy_static::lazy_static;
     use std::str::FromStr;
     use std::time::SystemTime;
@@ -110,7 +71,7 @@ mod tests {
             CountryCodeFinder::new(ipv4_country_data(), ipv6_country_data());
     }
 
-    pub(crate) fn ipv4_country_data() -> (Vec<u64>, usize) {
+    pub fn ipv4_country_data() -> (Vec<u64>, usize) {
         (
             vec![
                 0x0080000300801003,
@@ -123,7 +84,7 @@ mod tests {
         )
     }
 
-    pub(crate) fn ipv6_country_data() -> (Vec<u64>, usize) {
+    pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         (
             vec![
                 0x3000040000400007,
@@ -161,23 +122,26 @@ mod tests {
             &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("1.0.6.15").unwrap(),
         );
-        //crate::country_finder::COUNTRY_CODE_FINDER.ipv4.remove(COUNTRY_CODE_FINDER.ipv4.len() - 1);
+
         assert_eq!(result, Some(Country::try_from("AU").unwrap()))
     }
 
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
-        let timestart = SystemTime::now();
+        let time_start = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER_TEST,
             IpAddr::from_str("0.0.5.0").unwrap(),
         );
-        let timeend = SystemTime::now();
+        let time_end = SystemTime::now();
 
         assert_eq!(result, None);
-        let duration = timeend.duration_since(timestart).unwrap().as_secs();
-        println!("duration: {}", duration);
-        assert!(duration <= 5);
+        let duration = time_end.duration_since(time_start).unwrap();
+        assert!(
+            duration.as_secs() < 1,
+            "Duration of the search was too long: {} ms",
+            duration.as_millis()
+        );
     }
 
     #[test]
@@ -208,11 +172,13 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(result.free_world, true);
+        assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
     }
 
     #[test]
-    fn real_test_ipv4_with_cz_isp() {
+    fn real_test_ipv4_with_cz_ip() {
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
@@ -225,77 +191,84 @@ mod tests {
     }
 
     #[test]
-    fn real_test_ipv4_with_sk_isp() {
-        let timestart = SystemTime::now();
+    fn real_test_ipv4_with_sk_ip() {
+        let _ = CountryCodeFinder::find_country(
+            &COUNTRY_CODE_FINDER,
+            IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
+        )
+        .unwrap();
+        let time_start = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
         .unwrap();
-        let timeend = SystemTime::now();
+        let time_end = SystemTime::now();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
         assert_eq!(result.name, "Slovakia".to_string());
-        let duration = timeend.duration_since(timestart).unwrap().as_secs();
-        println!("duration: {}", duration);
-        assert!(duration <= 5);
+        let duration = time_end.duration_since(time_start).unwrap();
+        assert!(
+            duration.as_secs() < 1,
+            "Duration of the search was too long: {} ms",
+            duration.as_millis()
+        );
     }
 
     #[test]
     fn real_test_ipv6_with_google() {
-        let timestart = SystemTime::now();
+        let _ = CountryCodeFinder::find_country(
+            &COUNTRY_CODE_FINDER,
+            IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
+        )
+        .unwrap();
+        let time_start = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
         .unwrap();
-        let timeend = SystemTime::now();
+        let time_end = SystemTime::now();
 
+        assert_eq!(result.free_world, true);
+        assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
-        let duration = timeend.duration_since(timestart).unwrap().as_secs();
-        println!("duration: {}", duration);
-        assert!(duration <= 5);
+        let duration = time_end.duration_since(time_start).unwrap();
+        assert!(
+            duration.as_secs() < 1,
+            "Duration of the search was too long: {} ms",
+            duration.as_millis()
+        );
     }
 
     #[test]
     fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
-        let mut result_ipv4: Vec<CountryBlock> = vec![];
-        let mut result_ipv6: Vec<CountryBlock> = vec![];
-        let timestart = SystemTime::now();
-        let mut deserializer_ipv4 =
-            CountryBlockDeserializerIpv4::new(crate::dbip_country::ipv4_country_data());
-        let mut deserializer_ipv6 =
-            CountryBlockDeserializerIpv6::new(crate::dbip_country::ipv6_country_data());
-        let timeend = SystemTime::now();
+        let time_start = SystemTime::now();
+        let deserializer_ipv4 = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
+            crate::dbip_country::ipv4_country_data(),
+        );
+        let deserializer_ipv6 = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
+            crate::dbip_country::ipv6_country_data(),
+        );
+        let time_end = SystemTime::now();
 
-        let timestart_fill = SystemTime::now();
-        loop {
-            match deserializer_ipv4.next() {
-                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
-                Some(country_block) => {
-                    result_ipv4.push(country_block);
-                }
-            }
-        }
-        loop {
-            match deserializer_ipv6.next() {
-                None => break, // this line isn't really testable, since the deserializer will produce CountryBlocks for every possible address
-                Some(country_block) => {
-                    result_ipv6.push(country_block);
-                }
-            }
-        }
-        let timeend_fill = SystemTime::now();
+        let time_start_fill = SystemTime::now();
+        let _ = deserializer_ipv4.collect_vec();
+        let _ = deserializer_ipv6.collect_vec();
+        let time_end_fill = SystemTime::now();
 
-        let duration = timeend.duration_since(timestart).unwrap().as_secs();
-        let duration_fill = timeend_fill
-            .duration_since(timestart_fill)
-            .unwrap()
-            .as_secs();
-        println!("duration deserialize: {}", duration);
-        assert!(duration < 8);
-        println!("duration fill_vec: {}", duration_fill);
-        assert!(duration_fill < 8);
+        let duration_deserialize = time_end.duration_since(time_start).unwrap();
+        let duration_fill = time_end_fill.duration_since(time_start_fill).unwrap();
+        assert!(
+            duration_deserialize.as_secs() < 15,
+            "Duration of the deserialization was too long: {} ms",
+            duration_deserialize.as_millis()
+        );
+        assert!(
+            duration_fill.as_secs() < 8,
+            "Duration of the filling the vectors was too long: {} ms",
+            duration_fill.as_millis()
+        );
     }
 }
