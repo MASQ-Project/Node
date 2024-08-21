@@ -119,12 +119,12 @@ fn write_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Error, ErrorKind};
     use std::cmp::min;
     use std::io;
+    use std::io::BufRead;
     use std::io::Read;
     use std::io::Write;
-    use std::io::BufRead;
+    use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
 
     #[allow(unused)]
