@@ -55,7 +55,7 @@ jobs:
         if: failure()
         run: |
           echo "final disc diagnostics ------>"
-          df -h ~
+          df -h /Users/runner/work/Node/Node/node/target/release
   deploy_to_s3:
     needs: build
     strategy:
