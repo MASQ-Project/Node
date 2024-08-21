@@ -42,7 +42,6 @@ jobs:
           key: ${{ runner.os }}-cargo
       - name: Build ${{ matrix.target.os }}
         run: |
-          nonexistent
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
