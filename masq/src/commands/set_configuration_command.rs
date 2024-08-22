@@ -3,6 +3,7 @@ use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
+use masq_lib::shared_schema::exit_location_arg;
 use masq_lib::shared_schema::gas_price_arg;
 use masq_lib::shared_schema::min_hops_arg;
 use masq_lib::short_writeln;
@@ -70,6 +71,15 @@ pub fn set_configuration_subcommand() -> App<'static, 'static> {
         .about(SET_CONFIGURATION_ABOUT)
         .arg(set_configurationify(gas_price_arg()))
         .arg(set_configurationify(min_hops_arg()))
+        .arg(set_configurationify(exit_location_arg()))
+        .arg(
+            Arg::with_name("fallback-routing")
+                .help("Set weather you want to fallback on non-blocking routing for desired Exit Location.")
+                .long("fallback-routing")
+                .value_name("FALLBACK-ROUTING")
+                .default_value("false")
+
+        )
         .arg(
             Arg::with_name("start-block")
                 .help(START_BLOCK_HELP)
