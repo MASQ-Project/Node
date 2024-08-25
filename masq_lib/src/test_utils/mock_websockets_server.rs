@@ -4,7 +4,7 @@ use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use crate::websockets_handshake::node_greeting;
+use crate::websockets_handshake::node_server_greeting;
 use actix::dev::MessageResponse;
 use async_trait::async_trait;
 use itertools::Either;
@@ -97,14 +97,7 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
             format!("Awaiting handshake msg from {}", peer).as_str(),
         );
 
-        node_greeting(
-            Duration::from_millis(5_000),
-            *peer,
-            sender,
-            receiver,
-            |_| {},
-        )
-        .await?;
+        node_server_greeting(Duration::from_millis(5_000), *peer, sender, receiver).await?;
 
         log(
             self.do_log,
@@ -568,16 +561,19 @@ impl MockWebSocketsServerHandle {
 
     pub async fn await_conn_established(&self, biased_by_other_connections_opt: Option<usize>) {
         let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
-        self.await_loop(|counters| {
+        let condition = |counters: &Arc<WebSocketCounters>| {
             (counters.active_connections.load(Ordering::Relaxed) - allowed_parallel_conn) > 0
-        })
-        .await
+        };
+        self.await_loop(condition).await
     }
 
-    // pub async fn await_disconnection(&self, biased_by_other_connections_opt: Option<usize>){
-    //     let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
-    //     self.await_loop(|counters|counters.active_connections.load(Ordering::Relaxed) == (0 + allowed_parallel_conn)).await
-    // }
+    pub async fn await_conn_disconnected(&self, biased_by_other_connections_opt: Option<usize>) {
+        let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
+        let condition = |counters: &Arc<WebSocketCounters>| {
+            counters.active_connections.load(Ordering::Relaxed) == (0 + allowed_parallel_conn)
+        };
+        self.await_loop(condition).await
+    }
 
     async fn await_loop<F>(&self, test_desired_condition: F)
     where

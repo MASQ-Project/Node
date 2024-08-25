@@ -79,13 +79,12 @@ impl ClientHandshakeProcedure for ClientHandshakeProcedureReal {
 
         let fut = async {
             match receiver.recv().await {
-                Ok(ClientMessage::Text(msg))
-                    if msg.contains("Node: new WS conn to client 127.0.0.1:") =>
-                {
-                    Ok(())
-                }
+                Ok(ClientMessage::Text(msg)) if msg.contains("Node -> client 127.0.0.1:") => Ok(()),
                 Ok(ClientMessage::Close) => Err(ClientError::NegotiationFailure),
-                Ok(x) => Err(ClientError::Custom(format!("Unexpected response on handshake from server: {:?}", x))),
+                Ok(x) => Err(ClientError::Custom(format!(
+                    "Unexpected response on handshake from server: {:?}",
+                    x
+                ))),
                 Err(_) => Err(ClientError::ReceiveChannel),
             }
         };
@@ -122,45 +121,60 @@ impl Handshake for MASQWSClientHandshakeHandler {
     }
 }
 
-pub async fn node_greeting<'ws, L>(
+pub async fn node_server_greeting<'ws>(
     timeout_duration: Duration,
     peer_addr: SocketAddr,
     sender: &'ws mut WebSocketSender,
     receiver: &'ws mut WebSocketReceiver,
-    log_msg: L,
-) -> ServerResult<()>
-where
-    L: Fn(&str),
-{
+) -> ServerResult<()> {
     let fut = async {
         let msg = receiver.next().fuse().await;
-        if let Some(Ok(ServerMessage::Text(text))) = msg {
+        let matches = if let Some(Ok(ServerMessage::Text(text))) = msg {
             if text == NODE_UI_PROTOCOL {
-                match sender
-                    .send(ServerMessage::Text(format!(
-                        "Node: new WS conn to client {:?}",
-                        peer_addr
-                    )))
-                    .await
-                {
-                    Ok(()) => Ok(()),
-                    Err(e) => todo!(),
-                }
+                true
             } else {
-                todo!()
+                false
             }
         } else {
-            match sender.send(ServerMessage::Close(None)).await {
-                Ok(()) => (),
-                Err(e) => todo!(),
-            };
-            Err(ServerError::MalformedHandshake)
-        }
+            false
+        };
+
+        respond_to_handshake_request(matches, peer_addr, sender).await
     };
 
     match tokio::time::timeout(timeout_duration, fut).await {
-        Ok(_) => Ok(()),
-        Err(e) => todo!(),
+        Ok(res) => res,
+        Err(_) => Err(ServerError::Other(format!(
+            "Handshake timeout after {} ms",
+            timeout_duration.as_millis()
+        ))),
+    }
+}
+
+async fn respond_to_handshake_request(
+    protocol_matches: bool,
+    peer_addr: SocketAddr,
+    sender: &mut WebSocketSender,
+) -> ServerResult<()> {
+    if protocol_matches {
+        match sender
+            .send(ServerMessage::Text(format!("Node -> client {}", peer_addr)))
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) => Err(ServerError::Other(format!(
+                "SendError for confirmation to client {}: {}",
+                peer_addr, e
+            ))),
+        }
+    } else {
+        match sender.send(ServerMessage::Close(None)).await {
+            Ok(()) => Err(ServerError::MalformedHandshake),
+            Err(e) => Err(ServerError::Other(format!(
+                "SendError for refusal to client {}: {}",
+                peer_addr, e
+            ))),
+        }
     }
 }
 
@@ -176,7 +190,7 @@ pub struct WSClientConnector {
 
 impl WSClientConnector {
     pub fn new(port: u16) -> WSClientConnector {
-        let url = format!("ws://{}:{}", localhost(), port);
+        let url = Self::ws_url(port);
         Self {
             url,
             prepare_handshake_procedure: Box::new(move |tx| {
@@ -191,22 +205,19 @@ impl WSClientConnector {
         }
     }
 
-    // Found possibly a spot of wrong design in the connect procedure: despite the library provides
-    // configuration with connect timeout, it may not follow up if the connection is initiated but
-    // fails on the handshake due to which it falls into infinite retries if the server always
-    // accept the TCP connections but return an error or even panics before the handshake is
-    // completed. This is to ensure it would always fall back when the time lapses even if it's
-    // encountered a blocking issue.
+    // Found possibly a spot of wrong design in the connect procedure: despite the library
+    // provides configuration with connect timeout, it may not follow up if the connection
+    // is initiated but fails on the handshake due to which it falls into infinite retries.
+    // It is when the server always accepts the TCP connections but returns an error or
+    // even panics before the handshake completes. This function ensures it would always
+    // fall back when the time lapses even if it's stuck in loops or on a blocking issue.
     pub async fn connect_with_timeout(self) -> ClientResult<WebSocket> {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut ws_config = WebSocketConfig::default();
         ws_config.handshake = Some((self.prepare_handshake_procedure)(tx));
 
-        let ws: WebSocket = match WebSocket::new(Some(&self.url), Some(ws_config)) {
-            Ok(ws) => ws,
-            Err(e) => todo!(),
-        };
+        let ws: WebSocket = WebSocket::new(Some(&self.url), Some(ws_config))?;
 
         let mut connect_options = ConnectOptions::default();
         connect_options.block_async_connect = true;
@@ -226,15 +237,19 @@ impl WSClientConnector {
             }
 
             _ = delay => {
-                Self::disconnect(ws);
+                Self::disconnect(ws).await;
                 Err(ClientError::Custom(format!("WS connect: global timeout after {} ms", self.global_timeout.as_millis())))
             }
         }
     }
 
-    fn disconnect(ws: WebSocket) {
-        // TODO can I somehow implement this disconnect()?
-        // let _ = ws.disconnect().await; o
+    async fn disconnect(ws: WebSocket) {
+        if ws.is_connected() {
+            let _ = ws.disconnect().await;
+            while ws.is_connected() {
+                tokio::time::sleep(Duration::from_millis(20)).await
+            }
+        }
     }
 
     async fn asserted_connect(
@@ -247,17 +262,23 @@ impl WSClientConnector {
         match res {
             // None is expected because we use 'true' for block_async_connect
             Ok(None) => (),
-            //   tokio::time::sleep(Duration::from_millis(150)).await; ,
-            Ok(Some(_)) => todo!("unreachable"),
+            Ok(Some(_)) => {
+                unreachable!("block_async_connect for WS should be set but apparently wasn't")
+            }
             Err(e) => return Err(e),
         }
 
         // We're still operating under the global timeout
-        // TODO untestable?
         match handshake_result_rx.recv().await {
             Some(res) => res,
-            None => todo!(),
+            None => Err(ClientError::Custom(
+                "Handshake verification channel closed".to_string(),
+            )),
         }
+    }
+
+    fn ws_url(port: u16) -> String {
+        format!("ws://{}:{}", localhost(), port)
     }
 }
 
@@ -266,6 +287,7 @@ mod tests {
     use super::*;
     use crate::messages::NODE_UI_PROTOCOL;
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use crate::test_utils::websockets_utils::establish_ws_conn_with_handshake;
     use crate::utils::{find_free_port, localhost};
     use crate::websockets_handshake::MASQWSClientHandshakeHandler;
     use crate::websockets_handshake::WS_CLIENT_CONNECT_TIMEOUT_MS;
@@ -276,6 +298,7 @@ mod tests {
     use tokio::net::{TcpListener, TcpStream};
     use tokio::task::JoinHandle;
     use tokio_tungstenite::tungstenite::protocol::Role;
+    use tokio_tungstenite::WebSocketStream;
 
     #[test]
     fn constants_are_correct() {
@@ -285,11 +308,17 @@ mod tests {
     }
 
     #[test]
-    fn timeouts_are_set_properly(){
+    fn timeouts_are_set_properly() {
         let result = WSClientConnector::new(123);
 
-        assert_eq!(result.connect_timeout.as_millis(), Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS).as_millis());
-        assert_eq!(result.global_timeout.as_millis(), Duration::from_millis(WS_CLIENT_GLOBAL_TIMEOUT_MS).as_millis())
+        assert_eq!(
+            result.connect_timeout.as_millis(),
+            Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS).as_millis()
+        );
+        assert_eq!(
+            result.global_timeout.as_millis(),
+            Duration::from_millis(WS_CLIENT_GLOBAL_TIMEOUT_MS).as_millis()
+        )
     }
 
     #[tokio::test]
@@ -335,10 +364,10 @@ mod tests {
                         panic!("Server's receiving this error: {}", e);
                     }
                     //Receiving the client hello Http request
-                    Ok(data_len) if data_len < 100=> {
+                    Ok(data_len) if data_len < 100 => {
                         panic!("We read only this {}", String::from_utf8_lossy(&buffer))
                     }
-                    _ => continue
+                    _ => continue,
                 }
             }
         });
@@ -347,14 +376,22 @@ mod tests {
         connector.connect_timeout = Duration::from_millis(4_000);
         // This should work as an ultimate constraint
         connector.global_timeout = Duration::from_millis(20);
+        let before = Instant::now();
 
         let result = connector.connect_with_timeout().await;
 
+        let after = Instant::now();
         match result {
-            Err(ClientError::Custom(msg)) if msg.contains("WS connect: global timeout after 20 ms") => {},
-            Err(e) => panic!("Expected ClientError::Custom with connection timeout msg but got: {:?}", e),
+            Err(ClientError::Custom(msg))
+                if msg.contains("WS connect: global timeout after 20 ms") => {}
+            Err(e) => panic!(
+                "Expected ClientError::Custom with connection timeout msg but got: {:?}",
+                e
+            ),
             Ok(_) => panic!("Expected connect timeout but got Ok()"),
         }
+        let elapsed = after.checked_duration_since(before).unwrap();
+        assert!(Duration::from_millis(100) > elapsed)
     }
 
     #[tokio::test]
@@ -401,6 +438,71 @@ mod tests {
         assert!(exec_time_ms < 10_000);
     }
 
+    #[tokio::test]
+    async fn connect_with_timeout_cannot_establish_local_ws_object() {
+        let mut connector = WSClientConnector::new(12345);
+        let bad_url = "X-files://new-protocols.com";
+        connector.url = bad_url.to_string();
+
+        let result = connector.connect_with_timeout().await;
+
+        match result {
+            Err(ClientError::AddressSchema(msg)) if msg == bad_url => (),
+            Err(e) => panic!("Expected AddressSchema err but got {:?}", e),
+            Ok(_) => panic!("Expected AddressSchema err but got Ok()"),
+        }
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "internal error: entered unreachable code: block_async_connect for WS should be set but apparently wasn't"
+    )]
+    async fn asserted_connect_is_not_meant_for_none_blocking_mode() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let url = WSClientConnector::ws_url(12345);
+        let ws = WebSocket::new(Some(&url), None).unwrap();
+        let mut connect_options = ConnectOptions::default();
+        connect_options.block_async_connect = false;
+
+        let _ = WSClientConnector::asserted_connect(&ws, connect_options, rx).await;
+    }
+
+    #[tokio::test]
+    async fn asserted_connect_with_handshake_result_rx_returning_err() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let server_handle = server.start().await;
+        let (_, rx) = tokio::sync::mpsc::unbounded_channel();
+        let url = WSClientConnector::ws_url(port);
+        let ws = WebSocket::new(Some(&url), None).unwrap();
+        let mut connect_options = ConnectOptions::default();
+        connect_options.block_async_connect = true;
+
+        let result = WSClientConnector::asserted_connect(&ws, connect_options, rx).await;
+
+        let err = match result {
+            Err(ClientError::Custom(msg)) if msg == "Handshake verification channel closed" => (),
+            Err(e) => panic!(
+                "Expected Custom(Handshake verification channel closed) but got {:?}",
+                e
+            ),
+            Ok(_) => panic!("Expected Custom(Handshake verification channel closed) but got Ok"),
+        };
+    }
+
+    #[tokio::test]
+    async fn disconnects_can_disconnect() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let server_handle = server.start().await;
+        let ws = establish_ws_conn_with_handshake(port).await;
+        server_handle.await_conn_established(None).await;
+
+        WSClientConnector::disconnect(ws).await;
+
+        server_handle.await_conn_disconnected(None).await
+    }
+
     #[derive(Default)]
     struct ClientHandshakeProcedureMock {
         do_handshake_params: Arc<Mutex<Vec<(Duration, String)>>>,
@@ -435,18 +537,26 @@ mod tests {
         }
     }
 
-    macro_rules! check_expected_client_result {
-        ($tested_result: expr, $expected: pat, $additional_pass_condition: expr) => {
-            if let $expected = $tested_result{
+    macro_rules! check_expected_result {
+        ($tested_result: expr, $expected: pat, $additional_pass_condition: expr) => {{
+            let passed = if let $expected = $tested_result {
                 $additional_pass_condition
             } else {
-                panic!("Expected {:?} (with additional conn {:?}) but got {:?}", stringify!($expected), stringify!($additional_pass_condition), $tested_result)
+                false
+            };
+            if !passed {
+                panic!(
+                    "Expected {:?} (with additional conn {:?}) but got {:?}",
+                    stringify!($expected),
+                    stringify!($additional_pass_condition),
+                    $tested_result
+                )
             }
-        };
+        }};
     }
 
-    fn assert_negotiation_failure(sentinel_res: ClientResult<()>){
-        check_expected_client_result!(sentinel_res, Err(ClientError::NegotiationFailure), ())
+    fn assert_negotiation_failure(sentinel_res: ClientResult<()>) {
+        check_expected_result!(sentinel_res, Err(ClientError::NegotiationFailure), true)
     }
 
     #[tokio::test]
@@ -461,7 +571,11 @@ mod tests {
 
         assert_negotiation_failure(sentinel_res);
         let actual_res = handshake_res_rx.recv().await.unwrap();
-        check_expected_client_result!(actual_res, Err(ClientError::Custom(msg)), msg.contains("Handshake timeout"));
+        check_expected_result!(
+            actual_res,
+            Err(ClientError::Custom(ref msg)),
+            msg.contains("Handshake timeout")
+        );
     }
 
     #[tokio::test]
@@ -479,7 +593,7 @@ mod tests {
 
         assert_negotiation_failure(sentinel_res);
         let actual_res = handshake_res_rx.recv().await.unwrap();
-        check_expected_client_result!(actual_res, Err(ClientError::ChannelSend), ());
+        check_expected_result!(actual_res, Err(ClientError::ChannelSend), true);
     }
 
     #[tokio::test]
@@ -497,7 +611,7 @@ mod tests {
 
         assert_negotiation_failure(sentinel_res);
         let actual_res = handshake_res_rx.recv().await.unwrap();
-        check_expected_client_result!(actual_res, Err(ClientError::ReceiveChannel), ());
+        check_expected_result!(actual_res, Err(ClientError::ReceiveChannel), true);
     }
 
     #[tokio::test]
@@ -509,7 +623,7 @@ mod tests {
 
         assert_negotiation_failure(sentinel_res);
         let actual_res = handshake_res_rx.recv().await.unwrap();
-        check_expected_client_result!(actual_res, Err(ClientError::NegotiationFailure), ());
+        check_expected_result!(actual_res, Err(ClientError::NegotiationFailure), true);
         let sent_msg = server_join_handle.await.unwrap();
         assert_eq!(sent_msg, ClientMessage::Text(NODE_UI_PROTOCOL.to_string()))
     }
@@ -588,7 +702,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_greetings_happy_path() {
+    async fn server_greeting_happy_path() {
         let closure_with_client_future = |client_addr, tcp_listener: TcpListener| async move {
             let (tcp, _) = tcp_listener.accept().await.unwrap();
             let (mut sender, mut receiver) =
@@ -603,18 +717,23 @@ mod tests {
                 .unwrap();
             let response = receiver.next().await.unwrap().unwrap();
             let expected_response = tokio_tungstenite::tungstenite::Message::Text(format!(
-                "Node: new WS conn to client {:?}",
+                "Node -> client {:?}",
                 client_addr
             ));
             assert_eq!(response, expected_response);
         };
-        let expected_server_result = Ok(());
+        let assert_expected_server_result = |result| check_expected_result!(result, Ok(()), true);
 
-        test_server_greeting(closure_with_client_future, expected_server_result).await
+        test_server_greeting(
+            None,
+            closure_with_client_future,
+            assert_expected_server_result,
+        )
+        .await
     }
 
     #[tokio::test]
-    async fn server_greetings_unexpected_msg_type_received_from_client() {
+    async fn server_greeting_unexpected_msg_type_received_from_client() {
         let peer_port = find_free_port();
         let timeout = Duration::from_millis(1_500);
         let client_addr = SocketAddr::new(localhost(), peer_port);
@@ -634,21 +753,138 @@ mod tests {
             let expected_response = tokio_tungstenite::tungstenite::Message::Close(None);
             assert_eq!(response, expected_response);
         };
-        let expected_server_result = Err(ServerError::MalformedHandshake);
+        let assert_expected_server_result =
+            |result| check_expected_result!(result, Err(ServerError::MalformedHandshake), true);
 
-        test_server_greeting(closure_with_client_future, expected_server_result).await
+        test_server_greeting(
+            None,
+            closure_with_client_future,
+            assert_expected_server_result,
+        )
+        .await
     }
 
-    async fn test_server_greeting<C, F>(
-        closure_with_client_future: C,
-        expected_server_result: ServerResult<()>,
+    #[tokio::test]
+    async fn server_greeting_protocol_mismatch() {
+        let closure_with_client_future = |client_addr, tcp_listener: TcpListener| async move {
+            let (tcp, _) = tcp_listener.accept().await.unwrap();
+            let (mut sender, mut receiver) =
+                tokio_tungstenite::WebSocketStream::from_raw_socket(tcp, Role::Client, None)
+                    .await
+                    .split();
+            sender
+                .send(tokio_tungstenite::tungstenite::Message::Text(format!(
+                    "abc{}123",
+                    NODE_UI_PROTOCOL
+                )))
+                .await
+                .unwrap();
+            let response = receiver.next().await.unwrap().unwrap();
+            let expected_response = tokio_tungstenite::tungstenite::Message::Close(None);
+            assert_eq!(response, expected_response);
+        };
+        let assert_expected_server_result =
+            |result| check_expected_result!(result, Err(ServerError::MalformedHandshake), true);
+
+        test_server_greeting(
+            None,
+            closure_with_client_future,
+            assert_expected_server_result,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn server_greeting_timeout() {
+        let peer_port = find_free_port();
+        let timeout = Duration::from_millis(20);
+        let client_addr = SocketAddr::new(localhost(), peer_port);
+        let closure_with_client_future = |client_addr, tcp_listener: TcpListener| async move {
+            let (tcp, _) = tcp_listener.accept().await.unwrap();
+            let (_sender, _receiver) =
+                tokio_tungstenite::WebSocketStream::from_raw_socket(tcp, Role::Client, None)
+                    .await
+                    .split();
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        let assert_expected_server_result = |result| {
+            check_expected_result!(
+                result,
+                Err(ServerError::Other(ref msg)),
+                msg.contains("Handshake timeout after 20 ms")
+            )
+        };
+        let before = Instant::now();
+
+        test_server_greeting(
+            Some(timeout),
+            closure_with_client_future,
+            assert_expected_server_result,
+        )
+        .await;
+
+        let after = Instant::now();
+        let elapsed = after.checked_duration_since(before).unwrap();
+        assert!(elapsed < Duration::from_millis(100))
+    }
+
+    #[tokio::test]
+    async fn server_cannot_send_positive_response() {
+        let port = find_free_port();
+        let expected_err_msg = format!("SendError for confirmation to client 127.0.0.1:{}: WebSocket protocol error: Sending after closing is not allowed", port);
+        let protocol_matches = true;
+        test_server_fails_sending_response(protocol_matches, port, &expected_err_msg).await
+    }
+
+    #[tokio::test]
+    async fn server_cannot_send_negative_response() {
+        let port = find_free_port();
+        let expected_err_msg = format!("SendError for refusal to client 127.0.0.1:{}: WebSocket protocol error: Sending after closing is not allowed", port);
+        let protocol_matches = false;
+        test_server_fails_sending_response(protocol_matches, port, &expected_err_msg).await
+    }
+
+    async fn test_server_fails_sending_response(
+        protocol_matches: bool,
+        port: u16,
+        expected_err_msg: &str,
+    ) {
+        let peer_addr = SocketAddr::new(localhost(), port);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let listener_join_handle = tokio::task::spawn(async move {
+            let listener = TcpListener::bind(peer_addr).await.unwrap();
+            tx.send(()).unwrap();
+            let (tcp, _) = listener.accept().await.unwrap();
+        });
+        rx.recv().await;
+        let tcp = TcpStream::connect(peer_addr).await.unwrap();
+        let (mut sender, _) = WebSocketStream::from_raw_socket(tcp, Role::Client, None)
+            .await
+            .split();
+        sender.close().await.unwrap();
+
+        let result = respond_to_handshake_request(protocol_matches, peer_addr, &mut sender).await;
+
+        check_expected_result!(
+            result,
+            Err(ServerError::Other(ref msg)),
+            msg.contains(expected_err_msg)
+        );
+        listener_join_handle.await.unwrap()
+    }
+
+    async fn test_server_greeting<C1, C2, F>(
+        timeout_opt: Option<Duration>,
+        closure_with_client_future: C1,
+        assert_expected_server_result: C2,
     ) where
-        C: Fn(SocketAddr, TcpListener) -> F,
+        C1: Fn(SocketAddr, TcpListener) -> F,
+        C2: Fn(ServerResult<()>),
         F: Future<Output = ()> + Send + 'static,
     {
         let test_global_timeout = Duration::from_millis(5_000);
         let peer_port = find_free_port();
-        let timeout = Duration::from_millis(1_500);
+        let timeout = timeout_opt.unwrap_or(Duration::from_millis(3_000));
         let client_addr = SocketAddr::new(localhost(), peer_port);
         let tcp_listener = TcpListener::bind(client_addr).await.unwrap();
         let client_future: F = closure_with_client_future(client_addr, tcp_listener);
@@ -660,16 +896,9 @@ mod tests {
                 .await
                 .split();
 
-        let result = node_greeting(timeout, client_addr, &mut sender, &mut receiver, |_| {}).await;
+        let result = node_server_greeting(timeout, client_addr, &mut sender, &mut receiver).await;
 
-        if matches!(result, ref expected_server_result) {
-            ()
-        } else {
-            panic!(
-                "Expected {:?} in greeting from server but got {:?}",
-                expected_server_result, result
-            )
-        };
+        assert_expected_server_result(result);
         while !client_join_handle.is_finished() {
             tokio::time::sleep(Duration::from_millis(10)).await
         }
@@ -683,16 +912,4 @@ mod tests {
             Err(_) => panic!("Expected Ok at the client but got {:?}", client_finished),
         }
     }
-
-    #[tokio::test]
-    #[should_panic(expected = "blah")]
-    async fn asserted_connect_is_not_meant_for_none_blocking_mode(){
-        let (tx,mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let ws = WebSocket::new(None, None).unwrap();
-        let mut connect_options = ConnectOptions::default();
-        connect_options.block_async_connect = true;
-
-        let _ = WSClientConnector::asserted_connect(&ws, connect_options, rx).await;
-    }
-
 }
