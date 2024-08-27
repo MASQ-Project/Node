@@ -43,7 +43,7 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
 
     let write_error = server_write_error_rx
         .recv_timeout(Duration::from_secs(60))
-        .unwrap(); // TODO: GH-800 We are failing on this timeout
+        .unwrap();
     assert_eq!(write_error.kind(), io::ErrorKind::BrokenPipe);
     join_handle.join().unwrap();
 }

@@ -61,7 +61,6 @@ impl StreamEstablisher {
             payload.target_port,
             &self.logger,
         )?;
-        // TODO: GH-800: Change it to a tokio channel instead of a crossbeam channel
         let (shutdown_signal_tx, shutdown_signal_rx) = tokio::sync::mpsc::unbounded_channel();
 
         self.spawn_stream_reader(
