@@ -29,6 +29,7 @@ flexi_logger = { version = "0.28.1", features = [ "compress" ] }
 futures-util = "0.3.30"
 heck = "0.5.0"
 hickory-dns = "0.24.0"
+hickory-proto = "0.24.1"
 hickory-resolver = "0.24.1"
 http = "1.1.0"
 indoc = "2.0.5"
