@@ -9,12 +9,12 @@ use futures::future::join_all;
 use itertools::Itertools;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
 use masq_lib::shared_schema::{data_directory_arg, shared_app};
-use masq_lib::short_writeln;
 use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTORY_DAEMON_HELP};
 #[cfg(test)]
 use std::any::Any;
@@ -67,7 +67,7 @@ impl Command for SetupCommand {
                 Ok(())
             }
             Err(CommandError::Payload(err, msg)) if err == SETUP_ERROR => {
-                short_writeln!(stderr, "{}", msg);
+                masq_short_writeln!(stderr, "{}", msg);
                 Ok(())
             }
             Err(e) => Err(e),
@@ -111,7 +111,7 @@ impl SetupCommand {
         stdout: &TerminalWriter,
         _stderr: &TerminalWriter,
     ) {
-        short_writeln!(stdout, "\nDaemon setup has changed:\n");
+        masq_short_writeln!(stdout, "\nDaemon setup has changed:\n");
         Self::dump_setup(UiSetupInner::from(response), stdout).await;
     }
 
@@ -130,7 +130,7 @@ impl SetupCommand {
                 .partial_cmp(&b.name)
                 .expect("String comparison failed")
         });
-        short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
+        masq_short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
         let chain_and_data_dir =
             |p: &UiSetupResponseValue| (p.name.to_owned(), (p.value.clone(), p.status));
         let chain = inner
@@ -147,7 +147,7 @@ impl SetupCommand {
             .expect("data-directory is missing in setup cluster!");
 
         join_all(inner.values.into_iter().map(|value| async move {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
                 value.name,
@@ -156,22 +156,22 @@ impl SetupCommand {
             );
         }))
         .await;
-        short_writeln!(stdout);
+        masq_short_writeln!(stdout);
         if !inner.errors.is_empty() {
-            short_writeln!(stdout, "ERRORS:");
+            masq_short_writeln!(stdout, "ERRORS:");
             join_all(
                 inner
                     .errors
                     .into_iter()
                     .map(|(parameter, reason)| async move {
-                        short_writeln!(stdout, "{:29} {}", parameter, reason)
+                        masq_short_writeln!(stdout, "{:29} {}", parameter, reason)
                     }),
             )
             .await;
-            short_writeln!(stdout);
+            masq_short_writeln!(stdout);
         }
         if inner.running {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
@@ -179,7 +179,7 @@ impl SetupCommand {
         if chain.1 .1 != UiSetupResponseValueStatus::Default
             || data_directory.1 .1 != UiSetupResponseValueStatus::Default
         {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "NOTE: your data directory was modified to match the chain parameter.\n"
             );
@@ -191,9 +191,8 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{
-        make_terminal_writer, CommandContextMock, TermInterfaceMock, TestStreamFactory,
-    };
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
+    use crate::test_utils::mocks::{make_terminal_writer, CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{
@@ -262,6 +261,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -329,6 +329,7 @@ scans                         off                                               
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -361,38 +362,37 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         stream_handles.assert_empty_stderr();
     }
 
-    #[test]
-    fn handle_broadcast_works() {
-        todo!("fix me")
-        //         let message = UiSetupBroadcast {
-        //             running: false,
-        //             values: vec![
-        //                 UiSetupResponseValue::new("chain", "eth-mainnet", Set),
-        //                 UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
-        //                 UiSetupResponseValue::new("clandestine-port", "8534", DefaultStatus),
-        //                 UiSetupResponseValue::new("data-directory", "/home/booga/eth-mainnet", Set),
-        //             ],
-        //             errors: vec![("ip".to_string(), "No sir, I don't like it.".to_string())],
-        //         };
-        //         let (stream_factory, handle) = TestStreamFactory::new();
-        //         let (mut stdout, _) = stream_factory.make();
-        //         let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
-        //
-        //         SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
-        //
-        //         assert_eq! (handle.stdout_so_far(),
-        // "\n\
-        // Daemon setup has changed:\n\
-        // \n\
-        // NAME                          VALUE                                                            STATUS\n\
-        // chain                         eth-mainnet                                                      Set\n\
-        // clandestine-port              8534                                                             Default\n\
-        // data-directory                /home/booga/eth-mainnet                                          Set\n\
-        // neighborhood-mode             zero-hop                                                         Configured\n\
-        // \n\
-        // ERRORS:
-        // ip                            No sir, I don't like it.\n\
-        // \nNOTE: your data directory was modified to match the chain parameter.\n\n");
+    #[tokio::test]
+    async fn handle_broadcast_works() {
+        let message = UiSetupBroadcast {
+            running: false,
+            values: vec![
+                UiSetupResponseValue::new("chain", "eth-mainnet", Set),
+                UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
+                UiSetupResponseValue::new("clandestine-port", "8534", DefaultStatus),
+                UiSetupResponseValue::new("data-directory", "/home/booga/eth-mainnet", Set),
+            ],
+            errors: vec![("ip".to_string(), "No sir, I don't like it.".to_string())],
+        };
+        let (stdout, mut stdout_handle) = make_terminal_writer();
+        let (stderr, mut stderr_handle) = make_terminal_writer();
+
+        SetupCommand::handle_broadcast(message, &stdout, &stderr).await;
+
+        assert_eq! (stdout_handle.drain_test_output(),
+        "\n\
+        Daemon setup has changed:\n\
+        \n\
+        NAME                          VALUE                                                            STATUS\n\
+        chain                         eth-mainnet                                                      Set\n\
+        clandestine-port              8534                                                             Default\n\
+        data-directory                /home/booga/eth-mainnet                                          Set\n\
+        neighborhood-mode             zero-hop                                                         Configured\n\
+        \n\
+        ERRORS:\n\
+        ip                            No sir, I don't like it.\n\
+        \nNOTE: your data directory was modified to match the chain parameter.\n\n");
+        stderr_handle.assert_is_empty()
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -509,7 +509,6 @@ NAME                          VALUE                                             
             ],
             errors: vec![],
         };
-        let (stream_factory, handle) = TestStreamFactory::new();
         let (stdout, mut stdout_handle) = make_terminal_writer();
 
         SetupCommand::dump_setup(UiSetupInner::from(message), &stdout).await;

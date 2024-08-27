@@ -16,6 +16,7 @@ use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use crate::sub_lib::channel_wrappers::{FuturesChannelFactoryReal, SenderWrapper};
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,

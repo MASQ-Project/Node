@@ -2,7 +2,6 @@
 use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
-use hickory_proto::op::ResponseCode;
 use hickory_resolver::proto::op::OpCode;
 use hickory_resolver::proto::rr::{DNSClass, RecordType};
 use masq_lib::logger::Logger;
@@ -12,6 +11,7 @@ use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
+use hickory_proto::op::ResponseCode;
 
 const HEADER_BYTES: usize = 12;
 const UNKNOWN: &str = "<unknown>";
@@ -188,6 +188,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
     use std::time::Instant;
+    use hickory_proto::op::ResponseCode;
 
     #[test]
     fn constants_have_correct_values() {

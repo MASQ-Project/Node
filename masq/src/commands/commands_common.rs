@@ -6,16 +6,15 @@ use crate::commands::commands_common::CommandError::{
 };
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
+use futures::future::join_all;
 use masq_lib::intentionally_blank;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
-use masq_lib::short_writeln;
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::io::Write;
-use std::pin::Pin;
-use std::sync::Arc;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
@@ -67,14 +66,14 @@ pub trait Command: Debug {
     }
 }
 
-pub fn send_non_conversational_msg<I>(
+pub async fn send_non_conversational_msg<I>(
     input: I,
     context: &dyn CommandContext,
 ) -> Result<(), CommandError>
 where
     I: ToMessageBody,
 {
-    match context.send_one_way(input.tmb(0)) {
+    match context.send_one_way(input.tmb(0)).await {
         Ok(_) => Ok(()),
         Err(e) => Err(e.into()),
     }
@@ -90,7 +89,7 @@ where
     I: ToMessageBody,
     O: FromMessageBody,
 {
-    let message: MessageBody = match context.transact(input.tmb(0), timeout_millis) {
+    let message: MessageBody = match context.transact(input.tmb(0), timeout_millis).await {
         Ok(ntum) => ntum,
         Err(e) => return Err(e.into()),
     };
@@ -98,7 +97,7 @@ where
         Ok((r, _)) => r,
         Err(e) => {
             //TODO do I want to flush it here?
-            short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
+            masq_short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
             return Err(UnexpectedResponse(e));
         }
     };
@@ -117,20 +116,6 @@ impl From<ContextError> for CommandError {
     }
 }
 
-pub(in crate::commands) async fn dump_parameter_line(
-    stdout: &TerminalWriter,
-    name: &str,
-    value: &str,
-) {
-    short_writeln!(
-        stdout,
-        "{:width$} {}",
-        name,
-        value,
-        width = STANDARD_COLUMN_WIDTH
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,10 +123,12 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
+    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -205,12 +192,13 @@ mod tests {
         };
         let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
         let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
-        let (stderr, mut flush_handle) = term_interface.stderr();
+        let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

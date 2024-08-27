@@ -6,7 +6,7 @@
 // use ctrlc;
 // use masq_lib::command::StdStreams;
 // use masq_lib::constants::MASQ_PROMPT;
-// use masq_lib::short_writeln;
+// use masq_lib::masq_short_writeln;
 // use masq_lib::utils::ExpectValue;
 // use std::io::{stderr, stdin, stdout, Read, Write};
 // use std::sync::atomic::{AtomicBool, Ordering};
@@ -149,7 +149,7 @@
 //         } else {
 //             &mut writers.stderr
 //         };
-//         short_writeln!(handle, "***user's command line here***");
+//         masq_short_writeln!(handle, "***user's command line here***");
 //         lock
 //     }
 // }
@@ -176,7 +176,7 @@
 // impl Drop for IntegrationTestWriter<'_> {
 //     fn drop(&mut self) {
 //         if self.ultimate_drop_behavior {
-//             short_writeln!(Self::provide_correct_handle(self.stderr), "")
+//             masq_short_writeln!(Self::provide_correct_handle(self.stderr), "")
 //         }
 //     }
 // }
@@ -197,7 +197,7 @@
 //
 //     #[test]
 //     fn integration_test_terminal_provides_synchronization() {
-//         let (tx_cb, rx_cb) = unbounded();
+//         let (tx_cb, rx_cb) =unbounded_channel();
 //         let mut terminal_interface = IntegrationTestTerminal::default();
 //         let lock = Arc::new(Mutex::new(()));
 //         let console = IntegrationTestTerminalConsole {

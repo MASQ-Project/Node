@@ -50,7 +50,6 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -750,7 +749,7 @@ mod tests {
     use log::LevelFilter;
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::logger::Logger;
+    use masq_lib::logger::{Logger, TEST_LOG_RECIPIENT_GUARD};
     use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;

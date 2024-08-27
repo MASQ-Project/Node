@@ -27,7 +27,7 @@ impl BigDataServer {
     ) -> BigDataServer {
         let listener = TcpListener::bind(socket_addr).unwrap();
         let local_addr = listener.local_addr().unwrap();
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded_channel();
         thread::spawn(move || {
             let mut buf = [0u8; CHUNK_SIZE];
             loop {

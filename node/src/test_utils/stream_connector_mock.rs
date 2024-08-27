@@ -1,19 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::stream_connector::ConnectionInfo;
-use crate::sub_lib::stream_connector::ConnectionInfoFuture;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-use futures::future::result;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::task::Poll;
 use async_trait::async_trait;
 use tokio::net::TcpStream;
-use tokio::prelude::Async;
 
 #[derive(Default)]
 pub struct StreamConnectorMock {
@@ -24,10 +22,10 @@ pub struct StreamConnectorMock {
 
 #[async_trait]
 impl StreamConnector for StreamConnectorMock {
-    fn connect(&self, socket_addr: SocketAddr, _logger: &Logger) -> ConnectionInfoFuture {
+    fn connect(&self, socket_addr: SocketAddr, _logger: &Logger) -> Result<ConnectionInfo, tokio::io::Error> {
         self.connect_pair_params.lock().unwrap().push(socket_addr);
         let connection_info_result = self.connect_pair_results.borrow_mut().remove(0);
-        Box::new(result(connection_info_result))
+        connection_info_result
     }
 
     fn connect_one(
@@ -45,8 +43,8 @@ impl StreamConnector for StreamConnectorMock {
     }
 }
 
-type StreamConnectorMockRead = (Vec<u8>, Result<Async<usize>, io::Error>);
-type StreamConnectorMockWrite = Result<Async<usize>, io::Error>;
+type StreamConnectorMockRead = (Vec<u8>, Poll<Result<usize, io::Error>>);
+type StreamConnectorMockWrite = Poll<Result<usize, io::Error>>;
 
 impl StreamConnectorMock {
     pub fn new() -> StreamConnectorMock {

@@ -6,3 +6,4 @@ pub mod logging;
 pub mod mock_websockets_server;
 pub mod ui_connection;
 pub mod utils;
+pub mod websockets_utils;

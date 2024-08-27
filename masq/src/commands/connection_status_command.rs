@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
-use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
@@ -54,18 +54,18 @@ impl Command for ConnectionStatusCommand {
                     UiConnectionStage::ConnectedToNeighbor => CONNECTED_TO_NEIGHBOR_MSG,
                     UiConnectionStage::RouteFound => ROUTE_FOUND_MSG,
                 };
-                short_writeln!(stdout, "\n{}\n", stdout_msg);
+                masq_short_writeln!(stdout, "\n{}\n", stdout_msg);
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
+                masq_short_writeln!(
                     stderr,
                     "MASQNode is not running; therefore connection status cannot be displayed."
                 );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(stderr, "Connection status retrieval failed: {:?}", e);
+                masq_short_writeln!(stderr, "Connection status retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -92,6 +92,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::commands::commands_common::CommandError::ConnectionProblem;
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
@@ -132,6 +133,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -189,6 +191,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

@@ -16,8 +16,8 @@ use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
 use masq_lib::implement_as_any;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
-use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
 
@@ -228,31 +228,31 @@ impl GenerateWalletsCommand {
     async fn process_response(
         response: UiGenerateWalletsResponse,
         stdout: &TerminalWriter,
-        stderr: &TerminalWriter,
+        _stderr: &TerminalWriter,
     ) {
         if let Some(mnemonic_phrase) = response.mnemonic_phrase_opt {
-            short_writeln!(
+            masq_short_writeln!(
                 stdout,
                 "Copy this phrase down and keep it safe; you'll need it to restore your wallet:"
             );
-            short_writeln!(stdout, "'{}'", mnemonic_phrase.join(" "));
+            masq_short_writeln!(stdout, "'{}'", mnemonic_phrase.join(" "));
         }
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Address of     consuming wallet: {}",
             response.consuming_wallet_address
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Private key of consuming wallet: {}",
             response.consuming_wallet_private_key
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Address of       earning wallet: {}",
             response.earning_wallet_address
         );
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Private key of   earning wallet: {}",
             response.earning_wallet_private_key
@@ -356,6 +356,9 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::terminal::test_utils::{
+        allow_in_test_spawned_task_to_finish, wait_for_write_to_finish,
+    };
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
@@ -939,6 +942,7 @@ mod tests {
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
+        allow_in_test_spawned_task_to_finish().await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_flushed_strings(),
@@ -970,6 +974,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
         GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
+        drop(stdout_flush_handle);
+        drop(stderr_flush_handle);
+        allow_in_test_spawned_task_to_finish().await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_all_in_one(),
@@ -1016,6 +1023,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

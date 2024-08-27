@@ -3,11 +3,14 @@
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
 use crate::test_utils::utils::make_rt;
-use crate::ui_gateway::{MessagePath, MessageTarget, NodeToUiMessage};
+use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_handshake;
+use crate::ui_gateway::MessagePath::Conversation;
+use crate::ui_gateway::MessageTarget::ClientId;
+use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use std::net::{SocketAddr};
-use workflow_websocket::client::{WebSocket, ConnectOptions, Message};
+use std::net::SocketAddr;
+use workflow_websocket::client::{ConnectOptions, Message, WebSocket};
 
 pub struct UiConnection {
     context_id: u64,
@@ -17,18 +20,12 @@ pub struct UiConnection {
 
 impl UiConnection {
     pub async fn new(port: u16, protocol: &str) -> Result<UiConnection, String> {
-        let ws = match WebSocket::new(Some(format!("ws://localhost:{}", port).as_str()), None) {
-            Err(e) => return Err(format!("{:?}", e)),
-            Ok(ws) => ws,
-        };
-        match ws.connect(ConnectOptions::default()).await {
-            Err(e) => Err(format!("{:?}", e)),
-            Ok(_) => Ok(UiConnection {
-                context_id: 0,
-                local_addr: SocketAddr::new(localhost(), port),
-                websocket: ws,
-            }),
-        }
+        let ws = establish_ws_conn_with_arbitrary_handshake(port, protocol).await?;
+        Ok(UiConnection {
+            context_id: 0,
+            local_addr: SocketAddr::new(localhost(), port),
+            websocket: ws,
+        })
     }
     //
     // fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
@@ -52,11 +49,6 @@ impl UiConnection {
     //         .unwrap()
     // }
 
-    // pub fn new(port: u16, protocol: &str) -> UiConnection {
-    //     let future = Self::make(port, protocol);
-    //     make_rt().block_on(future).unwrap()
-    // }
-
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
@@ -64,7 +56,7 @@ impl UiConnection {
     pub async fn send<T: ToMessageBody>(&mut self, payload: T) {
         let context_id = self.context_id;
         self.context_id += 1;
-        self.send_with_context_id(payload, context_id).await;
+        self.send_with_context_id(payload, context_id).await
     }
 
     pub async fn send_with_context_id<T: ToMessageBody>(&mut self, payload: T, context_id: u64) {
@@ -74,48 +66,37 @@ impl UiConnection {
     }
 
     pub async fn send_string(&mut self, string: String) {
-        self.send_message(Message::Text(string)).await;
+        self.send_message(Message::Text(string)).await
     }
 
     pub async fn send_message(&mut self, message: Message) {
-        self.websocket.send(message.into()).await.unwrap();
+        self.websocket
+            .send(message.into())
+            .await
+            .expect("TestUiConnection: sending msg failed");
     }
 
-    async fn receive_main<T: FromMessageBody>(&mut self, context_id: Option<u64>) -> ReceiveResult<T> {
-        let mut ignores_remaining = 10;
-        let mut check_ignores = || {
-            ignores_remaining -= 1;
-            if ignores_remaining == 0 {
-                panic!("Can't ignore that many Opens and Closes");
+    async fn receive_main<T: FromMessageBody>(
+        &mut self,
+        context_id: Option<u64>,
+    ) -> ReceiveResult<T> {
+        let incoming_msg_json = match self.websocket.recv().await {
+            Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
+                panic!("The queue is empty; all messages are gone.")
             }
-        };
-        let incoming_msg_json = loop {
-            match self.websocket.recv().await.unwrap() {
-                Message::Open => {
-                    eprintln!("Discarding Open message");
-                    check_ignores();
-                },
-                Message::Close => {
-                    eprintln!("Discarding Close message");
-                    check_ignores();
-                },
-                Message::Binary(bytes) if bytes == b"EMPTY QUEUE" => {
-                    panic!("The queue is empty; all messages are gone.")
-                },
-                Message::Text(json) => break json,
-                unexpected_msg => panic!(
-                    "We received an unexpected message from the MockWebSocketServer: {:?}",
-                    unexpected_msg
-                ),
-            };
+            Ok(Message::Text(json)) => json,
+            x => panic!(
+                "We received an unexpected message from the MockWebSocketServer: {:?}",
+                x
+            ),
         };
 
-        let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, MessageTarget::ClientId(0))
+        let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
             .unwrap_or_else(|_| panic!("Deserialization problem with: {}: ", &incoming_msg_json));
         if let Some(testing_id) = context_id {
             match incoming_msg.body.path {
-                MessagePath::Conversation(id) if id == testing_id => (),
-                MessagePath::Conversation(id) if id != testing_id => panic!(
+                Conversation(id) if id == testing_id => (),
+                Conversation(id) if id != testing_id => panic!(
                     "Context ID of the request and the response don't match; message: \
          {:?}, request id: {}, response id: {}",
                     incoming_msg, testing_id, id
@@ -142,16 +123,11 @@ impl UiConnection {
     }
 
     async fn await_message<T: FromMessageBody>(&mut self) -> Result<T, (u64, String)> {
-eprintln! ("Beginning loop");
         loop {
-eprintln! ("...loop...");
             match self.receive_main::<T>(None).await {
                 Correct(msg) => break Ok(msg),
                 TransactionError(e) => break Err(e),
-                MarshalError(e) => {
-                    eprintln!("Awaiting message; got a MarshalError: {:?}", e);
-                    continue
-                },
+                MarshalError(_) => continue,
             }
         }
     }

@@ -10,8 +10,8 @@ use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
 use masq_lib::implement_as_any;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
-use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
@@ -132,7 +132,7 @@ impl Command for RecoverWalletsCommand {
         };
         let _: UiRecoverWalletsResponse =
             transaction(input, context, &stderr, STANDARD_COMMAND_TIMEOUT_MILLIS).await?;
-        short_writeln!(stdout, "Wallets were successfully recovered");
+        masq_short_writeln!(stdout, "Wallets were successfully recovered");
         Ok(())
     }
 
@@ -260,6 +260,7 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
@@ -523,6 +524,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -569,6 +571,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

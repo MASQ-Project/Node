@@ -1,8 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_cli_lib::terminal::integration_test_utils::{
-    MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
-};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -79,17 +76,18 @@ impl MasqProcess {
     }
 
     pub fn start_interactive(self, port: u16, fake_terminal: bool) -> StopHandle {
-        if fake_terminal {
-            std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
-        };
-        let mut command = Command::new(executable_path(executable_name("masq")));
-        let command = command.arg("--ui-port").arg(port.to_string());
-        eprintln!("About to start masq using {:?}", command);
-        let child = child_from_command(command);
-        StopHandle {
-            name: "masq".to_string(),
-            child,
-        }
+        todo!()
+        // if fake_terminal {
+        //     std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
+        // };
+        // let mut command = Command::new(executable_path(executable_name("masq")));
+        // let command = command.arg("--ui-port").arg(port.to_string());
+        // eprintln!("About to start masq using {:?}", command);
+        // let child = child_from_command(command);
+        // StopHandle {
+        //     name: "masq".to_string(),
+        //     child,
+        // }
     }
 }
 

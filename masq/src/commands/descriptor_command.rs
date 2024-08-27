@@ -9,8 +9,8 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
-use masq_lib::short_writeln;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -40,9 +40,9 @@ impl Command for DescriptorCommand {
             Ok(response) => {
                 match response.node_descriptor_opt {
                     Some(node_descriptor) => {
-                        short_writeln!(stdout, "{}", node_descriptor)
+                        masq_short_writeln!(stdout, "{}", node_descriptor)
                     }
-                    None => short_writeln!(
+                    None => masq_short_writeln!(
                         stdout,
                         "Node descriptor is not yet available; try again later"
                     ),
@@ -50,14 +50,14 @@ impl Command for DescriptorCommand {
                 Ok(())
             }
             Err(Payload(code, message)) if code == NODE_NOT_RUNNING_ERROR => {
-                short_writeln!(
+                masq_short_writeln!(
                     stderr,
                     "MASQNode is not running; therefore its descriptor cannot be displayed."
                 );
                 Err(Payload(code, message))
             }
             Err(e) => {
-                short_writeln!(stderr, "Descriptor retrieval failed: {:?}", e);
+                masq_short_writeln!(stderr, "Descriptor retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -83,9 +83,11 @@ mod tests {
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
+    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -122,6 +124,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -152,6 +155,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -181,6 +185,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -211,6 +216,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_in_test_spawned_task_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -222,7 +228,7 @@ mod tests {
         );
         stream_handles.assert_empty_stdout();
         assert_eq!(
-            stream_handles.stdout_all_in_one(),
+            stream_handles.stderr_all_in_one(),
             "Descriptor retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
     }

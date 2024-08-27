@@ -49,11 +49,11 @@ impl From<ClientError> for ContextError {
     }
 }
 
-#[async_trait]
-pub trait CommandContext: Send {
-    fn active_port(&self) -> Option<u16>;
-    fn send_one_way(&self, message: MessageBody) -> Result<(), ContextError>;
-    fn transact(
+#[async_trait(?Send)]
+pub trait CommandContext {
+    async fn active_port(&self) -> Option<u16>;
+    async fn send_one_way(&self, message: MessageBody) -> Result<(), ContextError>;
+    async fn transact(
         &self,
         message: MessageBody,
         timeout_millis: u64,
@@ -71,26 +71,29 @@ impl Debug for CommandContextReal {
     }
 }
 
+#[async_trait(?Send)]
 impl CommandContext for CommandContextReal {
-    fn active_port(&self) -> Option<u16> {
-        self.connection.active_ui_port()
+    async fn active_port(&self) -> Option<u16> {
+        self.connection.active_ui_port().await
     }
 
-    fn send_one_way(&self, outgoing_message: MessageBody) -> Result<(), ContextError> {
-        let conversation = self.connection.start_conversation();
-        match conversation.send(outgoing_message) {
+    async fn send_one_way(&self, outgoing_message: MessageBody) -> Result<(), ContextError> {
+        let mut conversation = self.connection.start_conversation().await;
+        match conversation.send(outgoing_message).await {
             Ok(_) => Ok(()),
             Err(e) => Err(e.into()),
         }
     }
 
-    fn transact(
+    async fn transact(
         &self,
         outgoing_message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError> {
-        let conversation = self.connection.start_conversation();
-        let incoming_message_result = conversation.transact(outgoing_message, timeout_millis);
+        let mut conversation = self.connection.start_conversation().await;
+        let incoming_message_result = conversation
+            .transact(outgoing_message, timeout_millis)
+            .await;
         let incoming_message = match incoming_message_result {
             Err(e) => return Err(e.into()),
             Ok(message) => match message.payload {
@@ -202,8 +205,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(subject.active_port(), Some(port));
-        handle.stop();
+        assert_eq!(subject.active_port().await, Some(port));
+        handle.stop(None, None).await;
     }
 
     #[test]
@@ -275,10 +278,12 @@ mod tests {
             .await
             .unwrap();
 
-        let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
+        let response = subject
+            .transact(UiSetupRequest { values: vec![] }.tmb(1), 1000)
+            .await;
 
         assert_eq!(response, Err(PayloadError(101, "booga".to_string())));
-        stop_handle.stop();
+        stop_handle.stop(None, None).await;
     }
 
     #[tokio::test]
@@ -293,13 +298,15 @@ mod tests {
             .await
             .unwrap();
 
-        let response = subject.transact(UiSetupRequest { values: vec![] }.tmb(1), 1000);
+        let response = subject
+            .transact(UiSetupRequest { values: vec![] }.tmb(1), 1000)
+            .await;
 
         match response {
             Err(ConnectionDropped(_)) => (),
             x => panic!("Expected ConnectionDropped; got {:?} instead", x),
         }
-        stop_handle.stop();
+        stop_handle.stop(None, None).await;
     }
 
     #[test]

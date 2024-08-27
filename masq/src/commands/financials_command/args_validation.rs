@@ -4,8 +4,8 @@ use crate::terminal::TerminalWriter;
 use clap::builder::{ArgPredicate, ValueRange};
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{RangeQuery, TopRecordsOrdering};
-use masq_lib::short_writeln;
 use num::ToPrimitive;
 use regex::{Captures, Regex};
 use std::fmt::Debug;
@@ -361,7 +361,7 @@ impl TwoRanges {
     ) where
         R: ToPrimitive,
     {
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "Specific {} query: {} - {} sec old, {} - {} MASQ\n",
             table_type,

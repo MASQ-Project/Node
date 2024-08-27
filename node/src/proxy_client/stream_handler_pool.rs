@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::task;
+use crate::sub_lib::channel_wrappers::SenderWrapper;
 
 pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
@@ -187,7 +188,7 @@ impl StreamHandlerPoolReal {
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
 
-        Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
+        Self::perform_write(payload.sequenced_packet, sender_wrapper.dup()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
             if last_data {
                 match inner.stream_writer_channels.remove(&stream_key) {
@@ -383,7 +384,7 @@ impl StreamHandlerPoolReal {
         sequenced_packet: SequencedPacket,
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
     ) -> Result<(), String> {
-        match sender_wrapper.unbounded_send(sequenced_packet).await {
+        match sender_wrapper.send(sequenced_packet).await {
             Ok(_) => Ok(()),
             Err(_) => Err("Could not queue write to stream; channel full".to_string()),
         }
@@ -534,7 +535,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::task::Poll;
     use std::thread;
-    use tokio;
+    use hickory_resolver::error::ResolveErrorKind;
+    use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 
     struct StreamEstablisherFactoryMock {
         make_results: RefCell<Vec<StreamEstablisher>>,

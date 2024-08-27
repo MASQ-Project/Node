@@ -9,8 +9,8 @@ pub(in crate::commands::financials_command) mod restricted {
     use crate::terminal::TerminalWriter;
     use futures::future::join_all;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
+    use masq_lib::masq_short_writeln;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
-    use masq_lib::short_writeln;
     use std::fmt::{Debug, Display};
     use std::io::Write;
     use thousands::Separable;
@@ -47,7 +47,7 @@ pub(in crate::commands::financials_command) mod restricted {
     }
 
     pub async fn financial_status_totals_title(stdout: &TerminalWriter, is_gwei: bool) {
-        short_writeln!(
+        masq_short_writeln!(
             stdout,
             "\nFinancial status totals in {}\n",
             &gwei_or_masq_balance(is_gwei)[9..13]
@@ -56,7 +56,7 @@ pub(in crate::commands::financials_command) mod restricted {
 
     pub async fn main_title_for_tops_opt(fin_com: &FinancialsCommand, stdout: &TerminalWriter) {
         if let Some(tr_config) = fin_com.top_records_opt.as_ref() {
-            short_writeln!(stdout, "Up to {} top accounts\n", tr_config.count)
+            masq_short_writeln!(stdout, "Up to {} top accounts\n", tr_config.count)
         }
     }
 
@@ -68,7 +68,7 @@ pub(in crate::commands::financials_command) mod restricted {
                 .expect("empty string instead of name");
             first.to_uppercase().chain(letter_iterator).collect()
         }
-        short_writeln!(stdout, "{}\n", capitalize(account_type))
+        masq_short_writeln!(stdout, "{}\n", capitalize(account_type))
     }
 
     pub async fn render_accounts_generic<A: StringValuesFormattableAccount>(
@@ -107,9 +107,9 @@ pub(in crate::commands::financials_command) mod restricted {
 
     pub async fn triple_or_single_blank_line(stdout: &TerminalWriter, leading_dump: bool) {
         if leading_dump {
-            short_writeln!(stdout)
+            masq_short_writeln!(stdout)
         } else {
-            short_writeln!(stdout, "\n\n")
+            masq_short_writeln!(stdout, "\n\n")
         }
     }
 
@@ -117,7 +117,7 @@ pub(in crate::commands::financials_command) mod restricted {
         let mut headings_widths = widths_of_str_values(headings);
         headings_widths[1] = WALLET_ADDRESS_LENGTH;
         write_column_formatted(stdout, &zip_them(headings, &headings_widths));
-        short_writeln!(stdout, "\nNo records found",)
+        masq_short_writeln!(stdout, "\nNo records found",)
     }
 
     pub fn prepare_metadata(is_gwei: bool) -> (ProcessAccountsMetadata, ProcessAccountsMetadata) {
@@ -208,7 +208,7 @@ pub(in crate::commands::financials_command) mod restricted {
                 }),
         )
         .await;
-        short_writeln!(stdout, "")
+        masq_short_writeln!(stdout, "")
     }
 
     pub(super) fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {

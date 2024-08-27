@@ -9,7 +9,7 @@ pub mod test_utils;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
-    dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::financials_command::args_validation::{
     financials_subcommand, NonZeroU16, TwoRanges,
@@ -21,14 +21,15 @@ use crate::commands::financials_command::pretty_print_utils::restricted::{
     render_accounts_generic, subtitle_for_tops, triple_or_single_blank_line,
     StringValuesFormattableAccount,
 };
+use crate::commands::parameter_columns_formatting::dump_parameter_line;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::ArgMatches;
+use masq_lib::masq_short_writeln;
 use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, TopRecordsOrdering,
     UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse,
 };
-use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
 use std::io::{Stderr, Write};
@@ -66,7 +67,7 @@ impl Command for FinancialsCommand {
                     .await
             }
             Err(e) => {
-                short_writeln!(stderr, "Financials retrieval failed: {:?}", e);
+                masq_short_writeln!(stderr, "Financials retrieval failed: {:?}", e);
                 Err(e)
             }
         }
@@ -80,6 +81,7 @@ macro_rules! dump_statistics_lines {
        $(dump_parameter_line(
                 $stdout,
                 $parameter_name,
+                None,
                 &process_gwei_into_requested_format($stats.$gwei, $gwei_flag),
             )
        );+

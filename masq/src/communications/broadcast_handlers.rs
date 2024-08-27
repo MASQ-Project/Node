@@ -7,7 +7,6 @@ use crate::notifications::connection_change_notification::ConnectionChangeNotifi
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
 use async_trait::async_trait;
-use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
     UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
@@ -15,14 +14,14 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, intentionally_blank, short_writeln};
+use masq_lib::{declare_as_any, implement_as_any, intentionally_blank, masq_short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -38,29 +37,25 @@ impl BroadcastHandles {
     }
 
     pub fn handle_broadcast(&self, message_body: MessageBody) {
-        todo!()
-        // match UiRedirect::fmb(message_body.clone()) {
-        //     Ok((redirect, _)) => {
-        //         let context_id = redirect.context_id.unwrap_or(0);
-        //         self.redirect_order_tx
-        //             .send(RedirectOrder::new(
-        //                 redirect.port,
-        //                 context_id,
-        //                 REDIRECT_TIMEOUT_MILLIS,
-        //             ))
-        //             .expect("ConnectionManagerThread is dead");
-        //     }
-        //     Err(_) => {
-        //         self.next_handle.send(message_body);
-        //     }
-        // };
+        match UiRedirect::fmb(message_body.clone()) {
+            Ok((redirect, _)) => {
+                let context_id = redirect.context_id.unwrap_or(0);
+                self.redirect.send(RedirectOrder::new(
+                    redirect.port,
+                    context_id,
+                    REDIRECT_TIMEOUT_MILLIS,
+                ))
+            }
+            Err(_) => {
+                self.standard.send(message_body);
+            }
+        };
     }
 
     pub fn notify<Broadcast>(&self, notification: Broadcast)
     where
         Broadcast: ToMessageBody,
     {
-        todo!();
         self.standard.send(notification.tmb(0))
     }
 }
@@ -70,6 +65,7 @@ pub trait BroadcastHandle<Message>: Send {
     declare_as_any!();
 }
 
+#[derive(Default)]
 pub struct BroadcastHandleInactive;
 
 impl BroadcastHandle<MessageBody> for BroadcastHandleInactive {
@@ -78,7 +74,7 @@ impl BroadcastHandle<MessageBody> for BroadcastHandleInactive {
 }
 
 pub struct StandardBroadcastHandle {
-    message_tx: Sender<MessageBody>,
+    message_tx: UnboundedSender<MessageBody>,
 }
 
 impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
@@ -106,7 +102,7 @@ impl Default for StandardBroadcastHandlerFactoryReal {
 
 impl StandardBroadcastHandlerFactoryReal {
     pub fn new() -> Self {
-        todo!()
+        StandardBroadcastHandlerFactoryReal {}
     }
 }
 
@@ -115,7 +111,7 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
-        todo!()
+        Box::new(StandardBroadcastHandlerReal::new(terminal_interface_opt))
     }
 }
 
@@ -131,19 +127,21 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
         match self.interactive_mode_dependencies_opt.take() {
             Some(mut term_interface) => {
-                let (message_tx, message_rx) = unbounded();
+                let (message_tx, mut message_rx) = unbounded_channel();
                 tokio::task::spawn(async move {
                     let mut flag = true;
                     while flag {
-                        flag =
-                            Self::handle_message_body(message_rx.recv(), term_interface.as_mut())
-                                .await;
+                        flag = Self::handle_message_body(
+                            message_rx.recv().await,
+                            term_interface.as_mut(),
+                        )
+                        .await;
                     }
                 });
 
                 Box::new(StandardBroadcastHandle { message_tx })
             }
-            None => todo!(),
+            None => Box::new(BroadcastHandleInactive::default()),
         }
     }
 }
@@ -158,14 +156,14 @@ impl StandardBroadcastHandlerReal {
     }
 
     async fn handle_message_body(
-        message_body_result: Result<MessageBody, RecvError>,
+        message_body_result: Option<MessageBody>,
         terminal_interface: &mut dyn WTermInterfaceImplementingSend,
     ) -> bool {
         let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
         let (stderr, _stderr_flush_handle) = terminal_interface.stderr();
         match message_body_result {
-            Err(_) => false, // Receiver died; masq is going down
-            Ok(message_body) => {
+            None => false, // Receiver died; masq is going down
+            Some(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
                     handle_ui_log_broadcast(body, &stdout, &stderr).await
                 } else if let Ok((body, _)) = UiSetupBroadcast::fmb(message_body.clone()) {
@@ -190,6 +188,7 @@ impl StandardBroadcastHandlerReal {
     }
 }
 
+#[derive(Default)]
 pub struct BroadcastHandlerNull {}
 
 impl BroadcastHandler<MessageBody> for BroadcastHandlerNull {
@@ -203,7 +202,7 @@ async fn handle_node_is_dead_while_f_f_on_the_way_broadcast(
     _stdout: &TerminalWriter,
     stderr: &TerminalWriter,
 ) {
-    short_writeln!(
+    masq_short_writeln!(
         stderr,
         "\nCannot handle {} request: Node is not running.\n",
         body.opcode
@@ -215,7 +214,7 @@ async fn handle_unrecognized_broadcast(
     stdout: &TerminalWriter,
     _stderr: &TerminalWriter,
 ) {
-    short_writeln!(
+    masq_short_writeln!(
         stdout,
         "Discarding unrecognized broadcast with opcode '{}'\n",
         message_body.opcode
@@ -227,7 +226,7 @@ async fn handle_ui_log_broadcast(
     stdout: &TerminalWriter,
     _stderr: &TerminalWriter,
 ) {
-    short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg)
+    masq_short_writeln!(stdout, "\n\n>>  {:?}: {}\n", body.log_level, body.msg)
 }
 
 pub struct RedirectBroadcastHandle {
@@ -297,8 +296,7 @@ impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
 mod tests {
     use super::*;
     use crate::terminal::async_streams::AsyncStdStreams;
-    use crate::test_utils::mocks::{StdoutBlender, TermInterfaceMock, TestStreamFactory};
-    use crossbeam_channel::{bounded, unbounded, Receiver};
+    use crate::test_utils::mocks::TermInterfaceMock;
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
@@ -430,7 +428,7 @@ mod tests {
         .tmb(0);
 
         let result = StandardBroadcastHandlerReal::handle_message_body(
-            Ok(message_body),
+            Some(message_body),
             &mut term_interface,
         )
         .await;
@@ -680,7 +678,7 @@ Cannot handle crash request: Node is not running.
         U: Debug + PartialEq + Clone,
     {
         todo!()
-        // let (tx, rx) = unbounded();
+        // let (tx, rx) =unbounded_channel();
         // let mut stdout = StdoutBlender::new(tx);
         // let stdout_clone = stdout.clone();
         // let stdout_second_clone = stdout.clone();

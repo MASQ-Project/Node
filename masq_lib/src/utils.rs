@@ -539,13 +539,11 @@ where
 
 #[macro_export]
 macro_rules! short_writeln {
-    ($term_interface: expr) => (
-             $term_interface.writeln("").await
+    ($dst:expr) => (
+         writeln!($dst).expect("writeln failed")
     );
-    ( $term_interface: expr, $($arg:tt)*) => {
-         {
-             $term_interface.writeln(&format!($($arg)*)).await
-         };
+    ( $form: expr, $($arg:tt)*) => {
+         writeln!($form, $($arg)*).expect("writeln failed")
     };
 }
 
@@ -904,8 +902,8 @@ mod tests {
         assert_eq!(result, Ok(0xFEDCBA9876543210ABCDEF))
     }
 
-    #[test]
-    fn short_writeln_write_text_properly() {
+    #[tokio::test]
+    async fn short_writeln_write_text_properly() {
         let mut buffer = Vec::new();
         let mut string_buffer = String::new();
         short_writeln!(buffer, "This is the first line");
@@ -913,20 +911,20 @@ mod tests {
             string_buffer,
             "{}\n{}",
             "This is another line",
-            "Will this work?"
+            "Can I compose things together?"
         );
         short_writeln!(string_buffer);
 
         assert_eq!(buffer.as_slice(), "This is the first line\n".as_bytes());
         assert_eq!(
             string_buffer,
-            "This is another line\nWill this work?\n\n".to_string()
+            "This is another line\nCan I compose things together?\n\n".to_string()
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "writeln failed")]
-    fn short_writeln_panic_politely_with_a_message() {
+    async fn short_writeln_panic_politely_with_a_message() {
         let path = current_dir().unwrap();
         let path = path.join("tests").join("short_writeln");
         let _ = create_dir_all(&path);

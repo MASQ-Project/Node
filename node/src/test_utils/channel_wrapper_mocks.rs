@@ -1,13 +1,11 @@
 use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
-use futures::sync::mpsc::SendError;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
-use tokio::prelude::Async;
+use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>);
 
@@ -34,23 +32,24 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
 
 #[derive(Default)]
 pub struct ReceiverWrapperMock<T> {
-    pub poll_results: Vec<Poll<Result<Option<T>, ()>>>,
+    pub recv_results: Vec<Option<T>>,
+    pub try_recv_results: Vec<Result<T, TryRecvError>>,
 }
 
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
-    fn poll(&mut self) -> Result<Async<Option<T>>, ()> {
-        if !self.poll_results.is_empty() {
-            self.poll_results.remove(0)
-        } else {
-            panic!("ReceiverWrapper tried to remove from pull_results but there were none");
-        }
+    async fn recv(&mut self) -> Option<T> {
+        self.recv_results.remove(0)
+    }
+    fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        self.try_recv_results.remove(0)
     }
 }
 
 impl<T> ReceiverWrapperMock<T> {
     pub fn new() -> Self {
         Self {
-            poll_results: vec![],
+            recv_results: vec![],
+            try_recv_results: vec![],
         }
     }
 }
@@ -63,7 +62,7 @@ pub struct SenderWrapperMock<T> {
 }
 
 impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T> {
-    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>> {
+    fn send(&self, data: T) -> Result<(), SendError<T>> {
         self.unbounded_send_params.lock().unwrap().push(data);
         if self.unbounded_send_results.borrow().is_empty() {
             Ok(())
@@ -76,7 +75,7 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
         self.peer_addr_result
     }
 
-    fn clone(&self) -> Box<dyn SenderWrapper<T>> {
+    fn dup(&self) -> Box<dyn SenderWrapper<T>> {
         Box::new(SenderWrapperMock {
             peer_addr_result: self.peer_addr_result,
             unbounded_send_params: self.unbounded_send_params.clone(),

@@ -9,6 +9,7 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.13.3"
+async-channel = "2.3.1"
 async-trait = "0.1.80"
 base64 = { version = "0.22.1", features = [ "alloc" ] }
 clap = {version = "4.5.6", features = [ "string", "color", "cargo" ]}
@@ -29,9 +30,9 @@ serde_derive = "1.0.203"
 serde_json = "1.0.117"
 time = {version = "0.3.36", features = [ "formatting" ]}
 tiny-hderive = "0.3.0"
-tokio = "1.38.0"
+tokio = {version = "1.38.0", features = ["rt-multi-thread"]}
 toml = "0.8.14"
-workflow-websocket = "0.12.1"
+workflow-websocket = "0.15.0"
 url = "2.5.0"
 
 [features]

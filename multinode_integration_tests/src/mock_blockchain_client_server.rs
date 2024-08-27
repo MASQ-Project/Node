@@ -37,7 +37,7 @@ impl MBCSBuilder {
             port,
             response_batch_opt: None,
             responses: vec![],
-            notifier: unbounded().0,
+            notifier: unbounded_channel().0,
         }
     }
 
@@ -176,7 +176,7 @@ impl MockBlockchainClientServer {
         self.port_or_local_addr = Right(listener.local_addr().unwrap());
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
-        let (stopper_tx, stopper_rx) = unbounded();
+        let (stopper_tx, stopper_rx) = unbounded_channel();
         let notifier = self.notifier.clone();
         let join_handle = thread::spawn(move || {
             let conn = loop {
@@ -503,7 +503,7 @@ mod tests {
     fn mbcs_works_for_responses_and_errors_both_inside_a_batch_and_outside() {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
-        let (notifier, notified) = unbounded();
+        let (notifier, notified) = unbounded_channel();
         let subject = MockBlockchainClientServer::builder(port)
             .notifier(notifier)
             .begin_batch()

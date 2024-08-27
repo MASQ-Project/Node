@@ -12,7 +12,6 @@ use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
 use lazy_static::lazy_static;
-use log::{log, Level};
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
 use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
@@ -191,8 +190,8 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
 
-        // Info level is not shown within the log
-        log!(Level::Info, "{}", logger::Logger::log_file_heading());
+        // Log level is not shown within the log
+        log::info!("{}", logger::Logger::log_file_heading());
 
         unsafe {
             // This resets the format function after specialized formatting for the log heading is used.

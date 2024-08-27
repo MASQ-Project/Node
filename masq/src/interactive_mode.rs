@@ -4,7 +4,7 @@ use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
 use crate::schema::app;
 use masq_lib::command::StdStreams;
-use masq_lib::short_writeln;
+use masq_lib::masq_short_writeln;
 use masq_lib::utils::ExpectValue;
 use std::io::Write;
 
@@ -95,11 +95,11 @@ pub fn go_interactive(
 // ) -> InteractiveEvent {
 //     let _lock = terminal_interface.lock();
 //     match arg {
-//         "help" => short_writeln!(&mut stdout, "{}", app().render_help()),
-//         "version" => short_writeln!(&mut stdout, "{}", app().render_version()),
+//         "help" => masq_short_writeln!(&mut stdout, "{}", app().render_help()),
+//         "version" => masq_short_writeln!(&mut stdout, "{}", app().render_version()),
 //         _ => unreachable!("should have been treated before"),
 //     }
-//     short_writeln!(stdout, "");
+//     masq_short_writeln!(stdout, "");
 //     InteractiveEvent::Continue
 // }
 //
@@ -122,12 +122,12 @@ pub fn go_interactive(
 //     match event_with_message {
 //         Break => {
 //             let _lock = terminal_interface.lock_ultimately(streams, false);
-//             short_writeln!(streams.stdout, "\nTerminated");
+//             masq_short_writeln!(streams.stdout, "\nTerminated");
 //             Break
 //         }
 //         Continue => {
 //             let _lock = terminal_interface.lock();
-//             short_writeln!(
+//             masq_short_writeln!(
 //                 streams.stdout,
 //                 "Received a signal interpretable as continue"
 //             );
@@ -135,12 +135,12 @@ pub fn go_interactive(
 //         }
 //         Error(e) => {
 //             let _lock = terminal_interface.lock_ultimately(streams, true);
-//             short_writeln!(streams.stderr, "{}", e.expectv("Some(String)"));
+//             masq_short_writeln!(streams.stderr, "{}", e.expectv("Some(String)"));
 //             Error(None)
 //         }
 //         EoF => {
 //             let _lock = terminal_interface.lock();
-//             short_writeln!(streams.stdout, "\nTerminated\n");
+//             masq_short_writeln!(streams.stdout, "\nTerminated\n");
 //             EoF
 //         }
 //         _ => unreachable!("was to be matched elsewhere"),
