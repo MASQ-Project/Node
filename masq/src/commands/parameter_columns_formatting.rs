@@ -1,9 +1,9 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::commands::commands_common::STANDARD_COLUMN_WIDTH;
+use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
 use futures::future::join_all;
-use crate::masq_short_writeln;
 
 pub async fn dump_parameter_line(
     stdout: &TerminalWriter,

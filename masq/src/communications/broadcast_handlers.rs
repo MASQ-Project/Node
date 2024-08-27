@@ -3,6 +3,7 @@
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
+use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
@@ -22,7 +23,6 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use crate::masq_short_writeln;
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,

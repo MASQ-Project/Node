@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use async_channel::Receiver as WSReceiver;
+use async_trait::async_trait;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use async_trait::async_trait;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use workflow_websocket::client::{Error, Result as ClientResult};
@@ -74,8 +74,9 @@ impl ClientListener {
 // }
 
 #[async_trait]
-pub trait WSClientHandle: Send{
+pub trait WSClientHandle: Send {
     async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>>;
+    async fn disconnect(&self) -> ClientResult<()>;
     fn close_talker_half(&self) -> bool;
     fn dismiss_event_loop(&self);
     #[cfg(test)]
@@ -84,8 +85,7 @@ pub trait WSClientHandle: Send{
     fn is_event_loop_spinning(&self) -> bool;
 }
 
-
-pub struct WSClientHandleReal{
+pub struct WSClientHandleReal {
     websocket: WebSocket,
     listener_event_loop_join_handle: JoinHandle<()>,
 }
@@ -97,9 +97,13 @@ impl Drop for WSClientHandleReal {
 }
 
 #[async_trait]
-impl WSClientHandle for WSClientHandleReal{
+impl WSClientHandle for WSClientHandleReal {
     async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
-        self.websocket.send(msg).await.map(|_|())
+        self.websocket.send(msg).await.map(|_| ())
+    }
+
+    async fn disconnect(&self) -> ClientResult<()> {
+        self.websocket.disconnect().await
     }
 
     fn close_talker_half(&self) -> bool {
@@ -111,9 +115,8 @@ impl WSClientHandle for WSClientHandleReal{
     }
 
     #[cfg(test)]
-    fn is_connection_open(&self) -> bool{
-        todo!()
-        // self.websocket.is_open()
+    fn is_connection_open(&self) -> bool {
+        self.websocket.is_connected()
     }
 
     #[cfg(test)]
@@ -122,7 +125,7 @@ impl WSClientHandle for WSClientHandleReal{
     }
 }
 
-impl WSClientHandleReal{
+impl WSClientHandleReal {
     pub fn new(websocket: WebSocket, listener_event_loop_join_handle: JoinHandle<()>) -> Self {
         Self {
             websocket,
@@ -151,9 +154,7 @@ impl ClientListenerEventLoop {
     }
 
     pub fn spawn(self) -> JoinHandle<()> {
-        let future = async move { self.loop_guts().await };
-
-        tokio::task::spawn(future)
+        tokio::task::spawn(self.loop_guts())
     }
 
     async fn loop_guts(self) {
@@ -207,7 +208,6 @@ impl ClientListenerEventLoop {
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
     use super::*;
     use async_channel::{unbounded, Sender};
     use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
@@ -217,15 +217,17 @@ mod tests {
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils,
+        establish_ws_conn_with_handshake, websocket_utils, websocket_utils_without_handshake,
     };
     use masq_lib::utils::{find_free_port, localhost};
+    use std::net::SocketAddr;
     use std::time::{Duration, SystemTime};
     use tokio::net::TcpListener;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::unbounded_channel;
     use tokio::task::JoinError;
     use tokio_tungstenite::tungstenite::protocol::Role;
+    use tokio_tungstenite::{accept_async, accept_async_with_config};
     use workflow_websocket::client::{Ack, Message as ClientMessage};
     use workflow_websocket::server::Message as ServerMessage;
 
@@ -261,31 +263,38 @@ mod tests {
 
     #[tokio::test]
     async fn processes_incoming_close_correctly() {
-       // todo!("you must rewrite this, including what happens with the loop - should be released")
         let port = find_free_port();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let server_join_handle = tokio::task::spawn(async {
-            let listener = TcpListener::bind(SocketAddr::new(localhost(), port)).await.unwrap();
+        let server_join_handle = tokio::task::spawn(async move {
+            let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
+                .await
+                .unwrap();
             tx.send(()).unwrap();
             let (tcp, _) = listener.accept().await.unwrap();
-            let (mut write, read) = tokio_tungstenite::WebSocketStream::from_raw_socket(tcp,Role::Server, None).await.split();
-            write.send(tokio_tungstenite::tungstenite::Message::Close(None)).await.unwrap();
+            let (mut write, read) = accept_async(tcp).await.unwrap().split();
+            write
+                .send(tokio_tungstenite::tungstenite::Message::Close(None))
+                .await
+                .unwrap();
         });
         rx.recv().await.unwrap();
-        let (websocket, listener_half, talker_half) = websocket_utils(port).await;
+        let (websocket, listener_half, talker_half) = websocket_utils_without_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(Arc::new(AtomicBool::new(false)), message_body_tx)
             .await;
-        let message =
+
+        let conn_closed_announcement = message_body_rx.recv().await.unwrap();
+        let probe =
             ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
+        let send_error = client_listener_handle.send(probe).await.unwrap_err();
 
-        client_listener_handle.send(message).await.unwrap();
-        let error = message_body_rx.recv().await.unwrap().err().unwrap();
-
-        assert_eq!(error, ClientListenerError::Closed);
-        // wait_for_stop(client_listener_handle.as_ref()).await;
+        assert_eq!(conn_closed_announcement, Err(ClientListenerError::Closed));
+        match send_error.as_ref() {
+            Error::NotConnected => (),
+            x => panic!("We expected Err(NotConnected) but got {:?}", x),
+        };
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
         server_join_handle.await.unwrap();

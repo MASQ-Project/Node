@@ -13,6 +13,7 @@ use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, RedirectBroadcastHandleFactory,
     StandardBroadcastHandlerFactory,
 };
+use crate::communications::client_listener_thread::WSClientHandle;
 use crate::communications::connection_manager::{ConnectionManagerBootstrapper, RedirectOrder};
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
@@ -48,8 +49,10 @@ use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use workflow_websocket::client::{Ack, ConnectOptions, ConnectStrategy, Error, Message, Result as ClientResult, WebSocket, WebSocketConfig};
-use crate::communications::client_listener_thread::WSClientHandle;
+use workflow_websocket::client::{
+    Ack, ConnectOptions, ConnectStrategy, Error, Message, Result as ClientResult, WebSocket,
+    WebSocketConfig,
+};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -514,13 +517,19 @@ impl MockCommand {
 // }
 
 #[derive(Default)]
-pub struct WSClientHandleMock{
-
+pub struct WSClientHandleMock {
+    send_params: Arc<Mutex<Vec<Message>>>,
+    send_results: Mutex<Vec<std::result::Result<(), Arc<Error>>>>,
 }
 
 #[async_trait]
-impl WSClientHandle for WSClientHandleMock{
+impl WSClientHandle for WSClientHandleMock {
     async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
+        self.send_params.lock().unwrap().push(msg);
+        self.send_results.lock().unwrap().remove(0)
+    }
+
+    async fn disconnect(&self) -> ClientResult<()> {
         todo!()
     }
 
@@ -538,6 +547,18 @@ impl WSClientHandle for WSClientHandleMock{
 
     fn is_event_loop_spinning(&self) -> bool {
         unimplemented!("is_event_loop_spinning() makes sense only at the real version")
+    }
+}
+
+impl WSClientHandleMock {
+    pub fn send_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
+        self.send_params = params.clone();
+        self
+    }
+
+    pub fn send_result(mut self, result: std::result::Result<(), Arc<Error>>) -> Self {
+        self.send_results.lock().unwrap().push(result);
+        self
     }
 }
 

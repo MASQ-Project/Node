@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::TerminalWriter;
 use crate::masq_short_writeln;
+use crate::terminal::TerminalWriter;
 use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
 use std::io::Write;
 

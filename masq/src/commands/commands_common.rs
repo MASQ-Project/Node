@@ -4,11 +4,11 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Reception, Transmission, UnexpectedResponse,
 };
+use crate::masq_short_writeln;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use futures::future::join_all;
 use masq_lib::intentionally_blank;
-use crate::masq_short_writeln;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;

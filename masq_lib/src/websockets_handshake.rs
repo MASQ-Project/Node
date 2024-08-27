@@ -73,8 +73,8 @@ impl ClientHandshakeProcedure for ClientHandshakeProcedureReal {
         receiver: &async_channel::Receiver<ClientMessage>,
     ) -> ClientResult<()> {
         match sender.send(ClientMessage::Text(protocol.to_string())).await {
-            Err(_) => return Err(ClientError::ChannelSend),
             Ok(_) => (),
+            Err(_) => return Err(ClientError::ChannelSend),
         }
 
         let fut = async {
@@ -181,16 +181,16 @@ async fn respond_to_handshake_request(
 pub type PrepareHandshakeProcedure =
     Box<dyn FnOnce(HandshakeResultTx) -> Arc<dyn Handshake> + Send>;
 
-pub struct WSClientConnector {
+pub struct WSClientConnInitiator {
     url: String,
     pub prepare_handshake_procedure: PrepareHandshakeProcedure,
     pub global_timeout: Duration,
     pub connect_timeout: Duration,
 }
 
-impl WSClientConnector {
-    pub fn new(port: u16) -> WSClientConnector {
-        let url = Self::ws_url(port);
+impl WSClientConnInitiator {
+    pub fn new(port: u16) -> WSClientConnInitiator {
+        let url = ws_url(port);
         Self {
             url,
             prepare_handshake_procedure: Box::new(move |tx| {
@@ -217,7 +217,7 @@ impl WSClientConnector {
         let mut ws_config = WebSocketConfig::default();
         ws_config.handshake = Some((self.prepare_handshake_procedure)(tx));
 
-        let ws: WebSocket = WebSocket::new(Some(&self.url), Some(ws_config))?;
+        let ws = WebSocket::new(Some(&self.url), Some(ws_config))?;
 
         let mut connect_options = ConnectOptions::default();
         connect_options.block_async_connect = true;
@@ -276,10 +276,10 @@ impl WSClientConnector {
             )),
         }
     }
+}
 
-    fn ws_url(port: u16) -> String {
-        format!("ws://{}:{}", localhost(), port)
-    }
+pub fn ws_url(port: u16) -> String {
+    format!("ws://{}:{}", localhost(), port)
 }
 
 #[cfg(test)]
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn timeouts_are_set_properly() {
-        let result = WSClientConnector::new(123);
+        let result = WSClientConnInitiator::new(123);
 
         assert_eq!(
             result.connect_timeout.as_millis(),
@@ -326,7 +326,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let server_handle = server.start().await;
-        let mut connector = WSClientConnector::new(port);
+        let mut connector = WSClientConnInitiator::new(port);
         connector.connect_timeout = Duration::from_millis(5_000);
         connector.global_timeout = Duration::from_millis(6_000);
 
@@ -371,7 +371,7 @@ mod tests {
                 }
             }
         });
-        let mut connector = WSClientConnector::new(port);
+        let mut connector = WSClientConnInitiator::new(port);
         // We'd receive a different error due to this limit
         connector.connect_timeout = Duration::from_millis(4_000);
         // This should work as an ultimate constraint
@@ -404,7 +404,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let server_handle = server.start().await;
-        let mut connector = WSClientConnector::new(port);
+        let mut connector = WSClientConnInitiator::new(port);
         connector.prepare_handshake_procedure = Box::new(|tx| -> Arc<dyn Handshake> {
             let mut handler = MASQWSClientHandshakeHandler::new(
                 Duration::from_millis(60_000),
@@ -440,7 +440,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_with_timeout_cannot_establish_local_ws_object() {
-        let mut connector = WSClientConnector::new(12345);
+        let mut connector = WSClientConnInitiator::new(12345);
         let bad_url = "X-files://new-protocols.com";
         connector.url = bad_url.to_string();
 
@@ -459,12 +459,12 @@ mod tests {
     )]
     async fn asserted_connect_is_not_meant_for_none_blocking_mode() {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let url = WSClientConnector::ws_url(12345);
+        let url = WSClientConnInitiator::ws_url(12345);
         let ws = WebSocket::new(Some(&url), None).unwrap();
         let mut connect_options = ConnectOptions::default();
         connect_options.block_async_connect = false;
 
-        let _ = WSClientConnector::asserted_connect(&ws, connect_options, rx).await;
+        let _ = WSClientConnInitiator::asserted_connect(&ws, connect_options, rx).await;
     }
 
     #[tokio::test]
@@ -473,12 +473,12 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let server_handle = server.start().await;
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
-        let url = WSClientConnector::ws_url(port);
+        let url = WSClientConnInitiator::ws_url(port);
         let ws = WebSocket::new(Some(&url), None).unwrap();
         let mut connect_options = ConnectOptions::default();
         connect_options.block_async_connect = true;
 
-        let result = WSClientConnector::asserted_connect(&ws, connect_options, rx).await;
+        let result = WSClientConnInitiator::asserted_connect(&ws, connect_options, rx).await;
 
         let err = match result {
             Err(ClientError::Custom(msg)) if msg == "Handshake verification channel closed" => (),
@@ -498,7 +498,7 @@ mod tests {
         let ws = establish_ws_conn_with_handshake(port).await;
         server_handle.await_conn_established(None).await;
 
-        WSClientConnector::disconnect(ws).await;
+        WSClientConnInitiator::disconnect(ws).await;
 
         server_handle.await_conn_disconnected(None).await
     }

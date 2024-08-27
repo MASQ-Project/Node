@@ -2,9 +2,9 @@
 
 use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
+use crate::masq_short_writeln;
 use crate::schema::app;
 use masq_lib::command::StdStreams;
-use crate::masq_short_writeln;
 use masq_lib::utils::ExpectValue;
 use std::io::Write;
 

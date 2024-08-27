@@ -5,11 +5,11 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::masq_short_writeln;
 use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use crate::masq_short_writeln;
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use std::fmt::Debug;
 use std::sync::Arc;

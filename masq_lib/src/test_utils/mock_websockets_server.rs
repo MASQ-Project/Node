@@ -36,7 +36,7 @@ struct NodeUiProtocolWebSocketHandler {
     counters: Arc<WebSocketCounters>,
     listener_stop_tx: Arc<Mutex<Option<async_channel::Sender<()>>>>,
     panicking_conn_obj_opt: Option<PanickingConn>,
-    logger: MWSSLogger
+    logger: MWSSLogger,
 }
 
 #[async_trait]
@@ -68,14 +68,13 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         receiver: &mut WebSocketReceiver,
         sink: &WebSocketSink,
     ) -> workflow_websocket::server::Result<Self::Context> {
-        self.logger.
-        log(format!("Awaiting handshake msg from {}", peer).as_str());
+        self.logger
+            .log(format!("Awaiting handshake msg from {}", peer).as_str());
 
         node_server_greeting(Duration::from_millis(5_000), *peer, sender, receiver).await?;
 
-        self.logger.log(
-            "Checking for exposed, initial fire-and-forget messages to push them off",
-        );
+        self.logger
+            .log("Checking for exposed, initial fire-and-forget messages to push them off");
 
         self.handle_opening_broadcasts(sink);
 
@@ -104,9 +103,8 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
                         self.handle_conversational_incoming_message(sink)
                     }
                     MessagePath::FireAndForget => {
-                        self.logger.log(
-                            "Responding to FireAndForget message by forgetting",
-                        );
+                        self.logger
+                            .log("Responding to FireAndForget message by forgetting");
                     }
                 }
 
@@ -118,9 +116,8 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
                 Ok(())
             }
             IncomingMsgResolution::UnrecognizedMsgErr(unexpected_impulse_from_test) => {
-                self.logger.log(
-                    "Going to panic: Unrecognizable form of a text message",
-                );
+                self.logger
+                    .log("Going to panic: Unrecognizable form of a text message");
                 panic!(
                     "Unrecognizable incoming message received; you should refrain from sending some \
                     meaningless garbage to the test server: {:?}",
@@ -128,7 +125,9 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
                         .expect("panic expected but the cached data to be print can not be found")
                 )
             }
-            IncomingMsgResolution::ServerNativeInstruction(polite_instruction_to_server) => Err(polite_instruction_to_server),
+            IncomingMsgResolution::ServerNativeInstruction(polite_instruction_to_server) => {
+                Err(polite_instruction_to_server)
+            }
         }
     }
 }
@@ -148,9 +147,8 @@ impl NodeUiProtocolWebSocketHandler {
                             MessagePath::FireAndForget => {
                                 let f_f_message = temporarily_owned_possible_f_f.clone();
                                 sink.send(f_f_message).unwrap();
-                                self.logger.log(
-                                    "Sending a fire-and-forget message to the UI",
-                                );
+                                self.logger
+                                    .log("Sending a fire-and-forget message to the UI");
                                 true
                             }
                             _ => false,
@@ -182,9 +180,10 @@ impl NodeUiProtocolWebSocketHandler {
         processing_is_going_wrong: bool,
         request_to_be_recorded: MockWSServerRecordedRequest,
     ) -> Option<MockWSServerRecordedRequest> {
-        self.logger.log(
-            &format!("Recording incoming message: {:?}", request_to_be_recorded),
-        );
+        self.logger.log(&format!(
+            "Recording incoming message: {:?}",
+            request_to_be_recorded
+        ));
 
         let cash_for_panic_opt = if processing_is_going_wrong {
             Some(request_to_be_recorded.clone())
@@ -220,9 +219,10 @@ impl NodeUiProtocolWebSocketHandler {
                 MockWSServerRecordedRequest::WSNonTextual(incoming.clone()),
             )),
             msg => {
-                self.logger.log(
-                    &format!("Received unexpected message {:?} - discarding", msg),
-                );
+                self.logger.log(&format!(
+                    "Received unexpected message {:?} - discarding",
+                    msg
+                ));
                 let result = UnrecognizedMessageErr::new(format!("{:?}", msg));
                 Err(ProcessedIncomingMsg::new(
                     IncomingMsgResolution::UnrecognizedMsgErr(result),
@@ -240,7 +240,9 @@ impl NodeUiProtocolWebSocketHandler {
                 MockWSServerRecordedRequest::MASQNodeUIv2Protocol(msg.body.clone()),
             ),
             Err(e) => ProcessedIncomingMsg::new(
-                IncomingMsgResolution::UnrecognizedMsgErr(UnrecognizedMessageErr::new(e.to_string())),
+                IncomingMsgResolution::UnrecognizedMsgErr(UnrecognizedMessageErr::new(
+                    e.to_string(),
+                )),
                 MockWSServerRecordedRequest::WSTextual {
                     unexpected_string: msg_text,
                 },
@@ -252,9 +254,8 @@ impl NodeUiProtocolWebSocketHandler {
         let mut temporary_access_to_responses = self.responses_arc.lock().unwrap();
         if temporary_access_to_responses.len() != 0 {
             let owned_msg = temporary_access_to_responses.remove(0);
-            self.logger.log(
-                &format!("Responding with preset Message: {:?}", owned_msg),
-            );
+            self.logger
+                .log(&format!("Responding with preset Message: {:?}", owned_msg));
             sink.send(owned_msg).unwrap()
         } else {
             self.logger.log("No more messages to send back");
@@ -278,7 +279,7 @@ impl NodeUiProtocolWebSocketHandler {
         }
     }
 
-    fn check_connection_not_restarted(&self)-> bool{
+    fn check_connection_not_restarted(&self) -> bool {
         // The native design of this server is loose on panics, it catches them and throws away. It
         // could panic and restart the connection. We wouldn't notice from outside so we regard
         // a single connection as a universal goal in a test. (If a need for repeated connections
@@ -370,7 +371,7 @@ impl MockWebSocketsServer {
             counters: counters_arc.clone(),
             listener_stop_tx: listener_stop_tx.clone(),
             panicking_conn_obj_opt: self.test_panicking_conn_opt,
-            logger: logger.clone()
+            logger: logger.clone(),
         };
 
         let ws_server_handle = WebSocketServer::new(Arc::new(handler), Some(counters_arc.clone()));
@@ -389,9 +390,7 @@ impl MockWebSocketsServer {
 
         let server_background_thread_join_handle = tokio::spawn(server_task);
 
-        logger.log(
-            &format!("Started listening on: {}", socket_addr)
-        );
+        logger.log(&format!("Started listening on: {}", socket_addr));
 
         MockWebSocketsServerHandle {
             logger,
@@ -404,10 +403,10 @@ impl MockWebSocketsServer {
 }
 
 #[derive(Debug)]
-enum IncomingMsgResolution{
+enum IncomingMsgResolution {
     MASQProtocolMsg(MessageBody),
     UnrecognizedMsgErr(UnrecognizedMessageErr),
-    ServerNativeInstruction(WebsocketServerError)
+    ServerNativeInstruction(WebsocketServerError),
 }
 
 #[derive(Debug)]
@@ -428,7 +427,10 @@ impl ProcessedIncomingMsg {
     }
 
     fn received_data_is_wrong_and_fatal(&self) -> bool {
-        matches!(self.resolution, IncomingMsgResolution::UnrecognizedMsgErr(..))
+        matches!(
+            self.resolution,
+            IncomingMsgResolution::UnrecognizedMsgErr(..)
+        )
     }
 }
 
@@ -471,7 +473,7 @@ impl MockWSServerRecordedRequest {
             )
         }
     }
-    pub fn expect_non_textual_msg(self) -> Message{
+    pub fn expect_non_textual_msg(self) -> Message {
         if let Self::WSNonTextual(ws_msg) = self {
             ws_msg
         } else {
@@ -519,18 +521,18 @@ impl MockWebSocketsServerHandle {
                         panic!("We waited for {} expected requests but the queue contained only {:?} after {} ms timeout", required_msg_count, *obtain_guard(), recorded_requests_waiting_hard_limit.as_millis())
                     } else {
                         let sleep_ms = 50;
-                        self.logger.log(
-                            &format!("Sleeping {} ms before another attempt to fetch the expected requests", sleep_ms),
-                        );
+                        self.logger.log(&format!(
+                            "Sleeping {} ms before another attempt to fetch the expected requests",
+                            sleep_ms
+                        ));
                         tokio::time::sleep(Duration::from_millis(50)).await;
                         continue;
                     }
                 }
             }
 
-            self.logger.log(
-                "Retrieving recorded requests by the server",
-            );
+            self.logger
+                .log("Retrieving recorded requests by the server");
 
             break obtain_guard().drain(..).collect();
         }
@@ -578,24 +580,21 @@ struct PanickingConn {
 #[derive(Clone)]
 struct MWSSLogger {
     do_log: bool,
-    server_idx: u64
+    server_idx: u64,
 }
 
 impl MWSSLogger {
-    fn new(do_log: bool)->Self{
-        let server_idx= {
+    fn new(do_log: bool) -> Self {
+        let server_idx = {
             let mut guard = MWSS_INDEX.lock().unwrap();
             let index = *guard;
             *guard += 1;
             index
         };
-        Self{
-            do_log,
-            server_idx
-        }
+        Self { do_log, server_idx }
     }
 
-    fn log(&self, msg: &str){
+    fn log(&self, msg: &str) {
         if self.do_log {
             eprintln!("MockWebSocketsServer {}: {}", self.server_idx, msg);
         }

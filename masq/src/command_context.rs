@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sets_active_port_correctly_initially() {
+    async fn is_created_correctly_initially() {
         running_test();
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
@@ -206,6 +206,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(subject.active_port().await, Some(port));
+        assert_eq!(subject.connection.is_closing(), false)
     }
 
     #[test]

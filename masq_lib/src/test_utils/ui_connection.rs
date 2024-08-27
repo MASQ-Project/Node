@@ -16,7 +16,7 @@ pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
     websocket: WebSocket,
-    open_msg_received: bool
+    open_msg_received: bool,
 }
 
 impl UiConnection {
@@ -82,14 +82,16 @@ impl UiConnection {
         &mut self,
         context_id: Option<u64>,
     ) -> ReceiveResult<T> {
-        let incoming_msg_json =
-        loop {
+        let incoming_msg_json = loop {
             match self.websocket.recv().await {
                 Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
                     panic!("The queue is empty; all messages are gone.")
                 }
                 Ok(Message::Text(json)) => break json,
-                Ok(Message::Open) if !self.open_msg_received => {self.open_msg_received = true; continue}
+                Ok(Message::Open) if !self.open_msg_received => {
+                    self.open_msg_received = true;
+                    continue;
+                }
                 x => panic!(
                     "We received an unexpected message from the MockWebSocketServer: {:?}",
                     x
