@@ -3,7 +3,7 @@
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
 use crate::test_utils::utils::make_rt;
-use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_handshake;
+use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_protocol;
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::NodeToUiMessage;
@@ -16,15 +16,17 @@ pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
     websocket: WebSocket,
+    open_msg_received: bool
 }
 
 impl UiConnection {
-    pub async fn new(port: u16, protocol: &str) -> Result<UiConnection, String> {
-        let ws = establish_ws_conn_with_arbitrary_handshake(port, protocol).await?;
+    pub async fn new(port: u16, protocol: &'static str) -> Result<UiConnection, String> {
+        let ws = establish_ws_conn_with_arbitrary_protocol(port, protocol).await?;
         Ok(UiConnection {
             context_id: 0,
             local_addr: SocketAddr::new(localhost(), port),
             websocket: ws,
+            open_msg_received: false,
         })
     }
     //
@@ -80,15 +82,19 @@ impl UiConnection {
         &mut self,
         context_id: Option<u64>,
     ) -> ReceiveResult<T> {
-        let incoming_msg_json = match self.websocket.recv().await {
-            Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
-                panic!("The queue is empty; all messages are gone.")
+        let incoming_msg_json =
+        loop {
+            match self.websocket.recv().await {
+                Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
+                    panic!("The queue is empty; all messages are gone.")
+                }
+                Ok(Message::Text(json)) => break json,
+                Ok(Message::Open) if !self.open_msg_received => {self.open_msg_received = true; continue}
+                x => panic!(
+                    "We received an unexpected message from the MockWebSocketServer: {:?}",
+                    x
+                ),
             }
-            Ok(Message::Text(json)) => json,
-            x => panic!(
-                "We received an unexpected message from the MockWebSocketServer: {:?}",
-                x
-            ),
         };
 
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))

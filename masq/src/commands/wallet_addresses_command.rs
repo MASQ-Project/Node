@@ -8,10 +8,11 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
-use masq_lib::{implement_as_any, masq_short_writeln};
+use masq_lib::{implement_as_any};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
+use crate::masq_short_writeln;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {

@@ -4,7 +4,7 @@
 // use linefeed::{ReadResult, Signal};
 // use masq_lib::command::StdStreams;
 // use masq_lib::constants::MASQ_PROMPT;
-// use masq_lib::masq_short_writeln;
+// use crate::masq_short_writeln;
 // use std::error::Error;
 // use std::fmt::Debug;
 // use std::io::Write;

@@ -9,7 +9,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,

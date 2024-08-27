@@ -5,7 +5,7 @@ use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use std::default::Default;
 use std::fmt::Debug;
