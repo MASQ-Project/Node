@@ -30,11 +30,11 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
+use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
-use actix::{Actor, Message};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
@@ -47,11 +47,6 @@ use trust_dns_resolver::config::ResolverConfig;
 use trust_dns_resolver::config::ResolverOpts;
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
-
-#[derive(Message)]
-struct StopListeningForThisStream {
-    stream_key: StreamKey,
-}
 
 pub struct ProxyClient {
     dns_servers: Vec<SocketAddr>,
