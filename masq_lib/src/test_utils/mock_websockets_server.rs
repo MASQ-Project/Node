@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
+use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use workflow_websocket::server::error::Error as WebsocketServerError;
 use workflow_websocket::server::{
@@ -402,9 +403,10 @@ impl MockWebSocketsServer {
 
         let ws_server_handle_clone = ws_server_handle.clone();
         let socket_addr = SocketAddr::new(localhost(), self.port);
-        let static_socket_addr_str: &'static str =
-            Box::leak(socket_addr.to_string().into_boxed_str());
-        let server_task = ws_server_handle_clone.listen(static_socket_addr_str, None);
+        let listener = TcpListener::bind(socket_addr)
+            .await
+            .unwrap_or_else(|e| panic!("Could not create listener for {}: {:?}", socket_addr, e));
+        let server_task = ws_server_handle_clone.listen(listener, None);
 
         let server_background_thread_join_handle = tokio::spawn(server_task);
 
@@ -592,12 +594,7 @@ mod tests {
         UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
-    use crate::test_utils::utils::{make_multi_thread_rt, make_rt};
     use crate::utils::find_free_port;
-    use futures_util::FutureExt;
-    use std::error::Error;
-    use std::panic::resume_unwind;
-    use tokio::select;
 
     #[tokio::test]
     async fn conversational_communication_happy_path_with_full_assertion() {

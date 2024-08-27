@@ -384,6 +384,7 @@ mod tests {
 
     #[test]
     fn connect_timeouts_without_blocking() {
+        todo!("This appears to loop forever in its current incarnation");
         let port = find_free_port();
         let listening_socket = SocketAddr::new(localhost(), port);
         let rt = make_multi_thread_rt();

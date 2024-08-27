@@ -323,7 +323,6 @@ impl Logger {
     }
 }
 
-#[cfg(not(feature = "no_test_share"))]
 lazy_static! {
     pub static ref TEST_LOG_RECIPIENT_GUARD: Mutex<()> = Mutex::new(());
 }
