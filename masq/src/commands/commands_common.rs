@@ -8,7 +8,7 @@ use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use futures::future::join_all;
 use masq_lib::intentionally_blank;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;

@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::implement_as_any;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };

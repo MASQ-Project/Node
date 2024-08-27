@@ -10,7 +10,7 @@ use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
 use masq_lib::implement_as_any;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 #[cfg(test)]
 use std::any::Any;

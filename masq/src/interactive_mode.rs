@@ -4,7 +4,7 @@ use crate::command_factory::CommandFactory;
 use crate::command_processor::CommandProcessor;
 use crate::schema::app;
 use masq_lib::command::StdStreams;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::utils::ExpectValue;
 use std::io::Write;
 

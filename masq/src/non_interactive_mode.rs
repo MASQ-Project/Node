@@ -22,7 +22,7 @@
 // };
 // use async_trait::async_trait;
 // use itertools::Either;
-// use masq_lib::masq_short_writeln;
+// use crate::masq_short_writeln;
 // use masq_lib::test_utils::fake_stream_holder::AsyncByteArrayWriter;
 // use masq_lib::ui_gateway::MessageBody;
 // use masq_lib::ui_traffic_converter::TrafficConversionError;

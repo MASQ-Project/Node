@@ -4,7 +4,7 @@ use crate::terminal::TerminalWriter;
 use clap::builder::{ArgPredicate, ValueRange};
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
 use masq_lib::constants::{GWEI_IN_MASQ, MASQ_TOTAL_SUPPLY};
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{RangeQuery, TopRecordsOrdering};
 use num::ToPrimitive;
 use regex::{Captures, Regex};

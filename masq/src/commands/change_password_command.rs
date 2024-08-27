@@ -10,12 +10,13 @@ use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
-use masq_lib::{implement_as_any, masq_short_writeln};
+use masq_lib::{implement_as_any};
 #[cfg(test)]
 use std::any::Any;
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
+use crate::masq_short_writeln;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {

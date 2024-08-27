@@ -1,7 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#![cfg(test)]
-
 use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
@@ -473,6 +471,16 @@ impl MockWSServerRecordedRequest {
             )
         }
     }
+    pub fn expect_non_textual_msg(self) -> Message{
+        if let Self::WSNonTextual(ws_msg) = self {
+            ws_msg
+        } else {
+            panic!(
+                "We expected a generic websocket message but found {:?}",
+                self
+            )
+        }
+    }
 }
 
 pub type ServerJoinHandle = JoinHandle<workflow_websocket::server::result::Result<()>>;
@@ -594,6 +602,7 @@ impl MWSSLogger {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::messages::{

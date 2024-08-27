@@ -32,7 +32,7 @@ use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
     StringAssertionMethods,
 };
-use masq_lib::test_utils::websocket_utils::establish_ws_conn_with_handshake;
+use masq_lib::test_utils::websockets_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::localhost;
 use std::cell::RefCell;
@@ -48,9 +48,8 @@ use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use workflow_websocket::client::{
-    Ack, ConnectOptions, ConnectStrategy, Message, WebSocket, WebSocketConfig,
-};
+use workflow_websocket::client::{Ack, ConnectOptions, ConnectStrategy, Error, Message, Result as ClientResult, WebSocket, WebSocketConfig};
+use crate::communications::client_listener_thread::WSClientHandle;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -513,6 +512,34 @@ impl MockCommand {
 //         Ok(())
 //     }
 // }
+
+#[derive(Default)]
+pub struct WSClientHandleMock{
+
+}
+
+#[async_trait]
+impl WSClientHandle for WSClientHandleMock{
+    async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
+        todo!()
+    }
+
+    fn close_talker_half(&self) -> bool {
+        todo!()
+    }
+
+    fn dismiss_event_loop(&self) {
+        todo!()
+    }
+
+    fn is_connection_open(&self) -> bool {
+        unimplemented!("is_connection_open() makes sense only at the real version")
+    }
+
+    fn is_event_loop_spinning(&self) -> bool {
+        unimplemented!("is_event_loop_spinning() makes sense only at the real version")
+    }
+}
 
 #[derive(Default)]
 pub struct StandardBroadcastHandlerMock {

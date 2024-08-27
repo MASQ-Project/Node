@@ -2581,7 +2581,8 @@ dependencies = [
  "thousands",
  "time 0.3.30",
  "tokio",
- "workflow-websocket 0.11.0",
+ "tokio-tungstenite 0.23.1",
+ "workflow-websocket 0.17.0",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@ use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::masq_short_writeln;
+use crate::masq_short_writeln;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
 use masq_lib::utils::localhost;
 use std::fmt::Debug;

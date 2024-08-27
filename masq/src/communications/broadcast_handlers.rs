@@ -14,7 +14,7 @@ use masq_lib::messages::{
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, intentionally_blank, masq_short_writeln};
+use masq_lib::{declare_as_any, implement_as_any, intentionally_blank};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
@@ -22,6 +22,7 @@ use std::io::Write;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use crate::masq_short_writeln;
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
