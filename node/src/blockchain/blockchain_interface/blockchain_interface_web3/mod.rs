@@ -678,12 +678,16 @@ mod tests {
     fn blockchain_interface_web3_can_build_blockchain_agent() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
+            // gas_price
             .response("0x3B9ACA00".to_string(), 0) // 1000000000
+            // transaction_fee_balance
             .response("0xFFF0".to_string(), 0) // 65520
+            // masq_balance
             .response(
-                "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
+                "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), // 65535
                 0,
             )
+            // transaction_id
             .response("0x23".to_string(), 1)
             .start();
         let chain = Chain::PolyMainnet;
@@ -698,7 +702,7 @@ mod tests {
             .wait()
             .unwrap();
 
-        let expected_gas_price_gwei = 1;
+        let expected_gas_price_gwei = 2;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(result.pending_transaction_id(), transaction_id);
         assert_eq!(

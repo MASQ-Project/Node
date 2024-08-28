@@ -238,10 +238,6 @@ impl Scanner<QualifiedPayablesMessage, SentPayables> for PayableScanner {
 
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> Option<NodeToUiMessage> {
         let (sent_payables, err_opt) = separate_errors(&message, logger);
-
-        eprintln!("finish_scan");
-        // todo!("finish_scan run");
-
         debug!(
             logger,
             "{}",

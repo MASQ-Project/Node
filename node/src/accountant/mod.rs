@@ -3441,25 +3441,27 @@ mod tests {
         init_test_logging();
         let port = find_free_port();
         let pending_tx_hash_1 =
-            H256::from_str("3fc5df85fbeb442627911796d88def92161855cded99509404e60ef8d8b171d8")
+            H256::from_str("d89f74084be2601c816fb85b8eac6541437223ad4851d12e9eb3d6f74570b8ae")
                 .unwrap();
         let pending_tx_hash_2 =
-            H256::from_str("3deab5514f9c38cad0fb3f31bc8090caa4cbca8243394dedd69402f8ac5fd678")
+            H256::from_str("05981aa8d6c8ca1661f56a42e6e0c1aa56c9c9d0ecf26755b4388826aad55811")
                 .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            // Blockchain Agent
+            // Blockchain Agent Gas Price
             .response("0x3B9ACA00".to_string(), 0) // 1000000000
+            // Blockchain Agent transaction fee balance
             .response("0xFFF0".to_string(), 0) // 65520
+            // Blockchain Agent masq balance
             .response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
-            .response("0x2".to_string(), 1)
-            // tx_id
+            // Blockchain Agent tx_id
             .response("0x2".to_string(), 1)
             // gas_price
-            .response("0xFFF0".to_string(), 1)
+            .response("0x3B9ACA00".to_string(), 1)
             // Submit payments to blockchain
+            .response("0xFFF0".to_string(), 1)
             .begin_batch()
             .raw_response(
                 ReceiptResponseBuilder::default()
@@ -3779,16 +3781,16 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-                "WARN: Accountant: Broken transactions 0x3fc5df85fbeb442627911796d88def92161855cded995094\
-                04e60ef8d8b171d8 marked as an error. You should take over the care of those to make sure \
+                "WARN: Accountant: Broken transactions 0xd89f74084be2601c816fb85b8eac6541437223ad4\
+                851d12e9eb3d6f74570b8ae marked as an error. You should take over the care of those to make sure \
                 your debts are going to be settled properly. At the moment, there is no automated process \
                 fixing that without your assistance");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction 0x3deab5514f9c38cad0fb3f31bc\
-            8090caa4cbca8243394dedd69402f8ac5fd678 has been added to the blockchain; detected locally at \
+        log_handler.exists_log_matching("INFO: Accountant: Transaction 0x05981aa8d6c8ca1661f56a42e6e\
+        0c1aa56c9c9d0ecf26755b4388826aad55811 has been added to the blockchain; detected locally at \
             attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing(
-            "INFO: Accountant: Transactions 0x3deab5514f9c38cad0fb3f31bc8090caa4cbca824\
-                3394dedd69402f8ac5fd678 completed their confirmation process succeeding",
+            "INFO: Accountant: Transactions 0x05981aa8d6c8ca1661f56a42e6e0c1aa56c9c9d0e\
+            cf26755b4388826aad55811 completed their confirmation process succeeding",
         );
     }
 

@@ -65,7 +65,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99998043204000000000",
+        "99998381140000000000",
         "472000000000000000000000000",
     );
     let payment_thresholds = PaymentThresholds {
@@ -190,7 +190,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99998043204000000000",
+        "99998381140000000000",
         "472000000000000000000000000",
     );
 
@@ -236,7 +236,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99997886466000000000",
+        "99995074522000000000",
         "471999999700000000000000000",
     );
 
@@ -332,7 +332,7 @@ fn assert_balances(
     assert_eq!(
         format!("{}", eth_balance),
         String::from(expected_eth_balance),
-        "Actual EthBalance {} doesn't much with expected {}",
+        "Actual EthBalance {} doesn't match with expected {}",
         eth_balance,
         expected_eth_balance
     );

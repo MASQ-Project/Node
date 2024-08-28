@@ -84,7 +84,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
-        assert_eq!(blockchain_agent.agreed_fee_per_computation_unit(), 1);
+        assert_eq!(blockchain_agent.agreed_fee_per_computation_unit(), 2);
     }
 
     #[test]

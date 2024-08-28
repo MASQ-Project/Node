@@ -9,7 +9,9 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 };
 use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
+use crate::blockchain::blockchain_interface_utils::{
+    convert_wei_to_gwei, send_payables_within_batch,
+};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
@@ -172,13 +174,14 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                 .and_then(move |pending_nonce| {
                     get_gas_price
                         .map_err(PayableTransactionError::GasPriceQueryFailed)
-                        .and_then(move |gas_price| {
+                        .and_then(move |gas_price_wei| {
+                            let gas_price = convert_wei_to_gwei(gas_price_wei);
                             send_payables_within_batch(
                                 logger,
                                 chain,
                                 web3_batch,
                                 consuming_wallet,
-                                gas_price.as_u64(),
+                                gas_price,
                                 pending_nonce,
                                 fingerprints_recipient,
                                 affordable_accounts,

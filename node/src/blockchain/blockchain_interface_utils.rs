@@ -332,7 +332,7 @@ pub fn calculate_fallback_start_block_number(start_block_number: u64, max_block_
 }
 
 pub fn convert_wei_to_gwei(wei: U256) -> u64 {
-    (wei / U256::from(GWEI_UNIT)).as_u64()
+    (wei / U256::from(GWEI_UNIT)).as_u64() + 1
 }
 
 pub fn create_blockchain_agent_web3(

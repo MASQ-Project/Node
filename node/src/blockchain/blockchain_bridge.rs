@@ -711,7 +711,7 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .agreed_fee_per_computation_unit(),
-            9
+            10
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual
@@ -723,7 +723,7 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .estimated_transaction_fee_total(1),
-            659952
+            733280
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
@@ -867,7 +867,7 @@ mod tests {
                 payment_procedure_result: Ok(vec![Correct(PendingPayable {
                     recipient_wallet: accounts[0].wallet.clone(),
                     hash: H256::from_str(
-                        "0a580dab961444d16ec567f8deaa9d4ac81fa44b41e248485e743b25d04e88a8"
+                        "43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
                     )
                     .unwrap()
                 })]),
@@ -883,7 +883,7 @@ mod tests {
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
             vec![HashAndAmount {
                 hash: H256::from_str(
-                    "0a580dab961444d16ec567f8deaa9d4ac81fa44b41e248485e743b25d04e88a8"
+                    "43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
                 )
                 .unwrap(),
                 amount: accounts[0].balance_wei
@@ -963,7 +963,7 @@ mod tests {
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
             vec![HashAndAmount {
                 hash: H256::from_str(
-                    "0a580dab961444d16ec567f8deaa9d4ac81fa44b41e248485e743b25d04e88a8"
+                    "43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
                 )
                 .unwrap(),
                 amount: accounts[0].balance_wei
@@ -978,7 +978,7 @@ mod tests {
                     context_id: 4321
                 }),
                 msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x0a580dab961444d16ec567f8deaa9d4ac81fa44b41e248485e743b25d04e88a8"
+                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
                 )
             }
         );
