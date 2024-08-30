@@ -37,10 +37,7 @@ impl CountryCodeFinder {
         }
     }
 
-    pub fn find_country(
-        &self,
-        ip_addr: IpAddr,
-    ) -> Option<Country> {
+    pub fn find_country(&self, ip_addr: IpAddr) -> Option<Country> {
         let country_blocks: &[CountryBlock] = match ip_addr {
             IpAddr::V4(_) => self.ipv4.as_slice(),
             IpAddr::V6(_) => self.ipv6.as_slice(),
@@ -62,10 +59,10 @@ impl CountryCodeFinder {
 mod tests {
     use super::*;
     use crate::country_block_serde::CountryBlockDeserializer;
+    use crate::dbip_country;
     use lazy_static::lazy_static;
     use std::str::FromStr;
     use std::time::SystemTime;
-    use crate::dbip_country;
 
     lazy_static! {
         static ref COUNTRY_CODE_FINDER_TEST: CountryCodeFinder =
@@ -171,10 +168,11 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_google() {
-        let result = FULL_COUNTRY_CODE_FINDER.find_country(
-            IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
-        )
-        .unwrap();
+        let result = FULL_COUNTRY_CODE_FINDER
+            .find_country(
+                IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
+            )
+            .unwrap();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
@@ -280,13 +278,19 @@ mod tests {
 
     #[test]
     fn check_ipv4_ipv6_country_blocks_length() {
-        let _result = FULL_COUNTRY_CODE_FINDER.find_country(
-            IpAddr::from_str("142.250.191.132").unwrap(),
-        ).unwrap();
+        let _result = FULL_COUNTRY_CODE_FINDER
+            .find_country(IpAddr::from_str("142.250.191.132").unwrap())
+            .unwrap();
         let country_block_len_ipv4 = FULL_COUNTRY_CODE_FINDER.ipv4.len();
         let country_block_len_ipv6 = FULL_COUNTRY_CODE_FINDER.ipv6.len();
 
-        assert_eq!(country_block_len_ipv4, dbip_country::ipv4_country_block_count());
-        assert_eq!(country_block_len_ipv6, dbip_country::ipv6_country_block_count());
+        assert_eq!(
+            country_block_len_ipv4,
+            dbip_country::ipv4_country_block_count()
+        );
+        assert_eq!(
+            country_block_len_ipv6,
+            dbip_country::ipv6_country_block_count()
+        );
     }
 }

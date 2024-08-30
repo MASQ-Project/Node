@@ -62,8 +62,18 @@ fn generate_rust_code(
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
-    generate_country_data("ipv4_country", final_ipv4.bit_queue, output, final_ipv4.block_count)?;
-    generate_country_data("ipv6_country", final_ipv6.bit_queue, output, final_ipv6.block_count)?;
+    generate_country_data(
+        "ipv4_country",
+        final_ipv4.bit_queue,
+        output,
+        final_ipv4.block_count,
+    )?;
+    generate_country_data(
+        "ipv6_country",
+        final_ipv6.bit_queue,
+        output,
+        final_ipv6.block_count,
+    )?;
     Ok(())
 }
 
@@ -199,7 +209,7 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
 }
 
 pub fn ipv4_country_block_count() -> usize {
-        5
+        11
 }
 
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
@@ -217,7 +227,7 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
 }
 
 pub fn ipv6_country_block_count() -> usize {
-        24
+        20
 }
 "#
             .to_string()
@@ -250,8 +260,8 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
-pub fn ipv4_country_data_blocks() -> usize {
-        4
+pub fn ipv4_country_block_count() -> usize {
+        9
 }
 
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
@@ -268,8 +278,8 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     )
 }
 
-pub fn ipv6_country_data_blocks() -> usize {
-        24
+pub fn ipv6_country_block_count() -> usize {
+        20
 }
 
             *** DO NOT USE THIS CODE ***

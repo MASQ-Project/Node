@@ -130,7 +130,7 @@ type Ipv6Serializer = VersionedIPSerializer<Ipv6Addr, u16, 8>;
 
 pub struct FinalBitQueue {
     pub bit_queue: BitQueue,
-    pub block_count: usize
+    pub block_count: usize,
 }
 
 pub struct CountryBlockSerializer {
@@ -186,13 +186,16 @@ impl CountryBlockSerializer {
         let block_count_ipv4 = self.ipv4.block_count;
         let bit_queue_ipv6 = self.ipv6.bit_queue;
         let block_count_ipv6 = self.ipv6.block_count;
-        (FinalBitQueue {
-            bit_queue: bit_queue_ipv4,
-            block_count: block_count_ipv4
-        }, FinalBitQueue {
-            bit_queue: bit_queue_ipv6,
-            block_count: block_count_ipv6
-        })
+        (
+            FinalBitQueue {
+                bit_queue: bit_queue_ipv4,
+                block_count: block_count_ipv4,
+            },
+            FinalBitQueue {
+                bit_queue: bit_queue_ipv6,
+                block_count: block_count_ipv6,
+            },
+        )
     }
 }
 
@@ -745,7 +748,7 @@ mod tests {
         subject.add(country_blocks.remove(0));
         subject.add(country_blocks.remove(0));
 
-        let (final_ipv4, _) =  subject.finish();
+        let (final_ipv4, _) = subject.finish();
         let mut bit_queue = final_ipv4.bit_queue;
         {
             let (
