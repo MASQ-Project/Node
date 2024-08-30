@@ -1,9 +1,10 @@
 use crate::bit_queue::BitQueue;
-use crate::country_block_serde::CountryBlockSerializer;
+use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::country_block_stream::CountryBlock;
 use std::io;
 
 const COUNTRY_BLOCK_BIT_SIZE: usize = 64;
+
 #[allow(unused_must_use)]
 pub fn ip_country(
     _args: Vec<String>,
@@ -28,8 +29,8 @@ pub fn ip_country(
             Err(e) => Some(format!("Line {}: {}", idx + 1, e)),
         })
         .collect::<Vec<String>>();
-    let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
-    if let Err(error) = generate_rust_code(ipv4_bit_queue, ipv6_bit_queue, stdout) {
+    let (final_ipv4, final_ipv6) = serializer.finish();
+    if let Err(error) = generate_rust_code(final_ipv4, final_ipv6, stdout) {
         errors.push(format!("Error generating Rust code: {:?}", error))
     }
     if errors.is_empty() {
@@ -56,13 +57,13 @@ pub fn ip_country(
 }
 
 fn generate_rust_code(
-    ipv4_bit_queue: BitQueue,
-    ipv6_bit_queue: BitQueue,
+    final_ipv4: FinalBitQueue,
+    final_ipv6: FinalBitQueue,
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
-    generate_country_data("ipv4_country_data", ipv4_bit_queue, output)?;
-    generate_country_data("ipv6_country_data", ipv6_bit_queue, output)?;
+    generate_country_data("ipv4_country", final_ipv4.bit_queue, output, final_ipv4.block_count)?;
+    generate_country_data("ipv6_country", final_ipv6.bit_queue, output, final_ipv6.block_count)?;
     Ok(())
 }
 
@@ -70,16 +71,15 @@ fn generate_country_data(
     name: &str,
     mut bit_queue: BitQueue,
     output: &mut dyn io::Write,
+    block_count: usize,
 ) -> Result<(), io::Error> {
-    let mut iterator = 0usize;
     let bit_queue_len = bit_queue.len();
     writeln!(output)?;
-    writeln!(output, "pub fn {}() -> (Vec<u64>, usize) {{", name)?;
+    writeln!(output, "pub fn {}_data() -> (Vec<u64>, usize) {{", name)?;
     writeln!(output, "    (")?;
     write!(output, "        vec![")?;
     let mut values_written = 0usize;
     while bit_queue.len() >= COUNTRY_BLOCK_BIT_SIZE {
-        iterator += 1;
         write_value(
             &mut bit_queue,
             COUNTRY_BLOCK_BIT_SIZE,
@@ -88,7 +88,6 @@ fn generate_country_data(
         )?;
     }
     if !bit_queue.is_empty() {
-        iterator += 1;
         let bit_count = bit_queue.len();
         write_value(&mut bit_queue, bit_count, &mut values_written, output)?;
     }
@@ -96,8 +95,8 @@ fn generate_country_data(
     writeln!(output, "        {}", bit_queue_len)?;
     writeln!(output, "    )")?;
     writeln!(output, "}}")?;
-    writeln!(output, "\npub fn {}_blocks() -> usize {{", name)?;
-    writeln!(output, "        {}", iterator)?;
+    writeln!(output, "\npub fn {}_block_count() -> usize {{", name)?;
+    writeln!(output, "        {}", block_count)?;
     writeln!(output, "}}")?;
     Ok(())
 }
@@ -199,7 +198,7 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
-pub fn ipv4_country_data_blocks() -> usize {
+pub fn ipv4_country_block_count() -> usize {
         5
 }
 
@@ -217,7 +216,7 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     )
 }
 
-pub fn ipv6_country_data_blocks() -> usize {
+pub fn ipv6_country_block_count() -> usize {
         24
 }
 "#

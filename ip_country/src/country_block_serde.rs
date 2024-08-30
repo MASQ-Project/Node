@@ -128,6 +128,11 @@ CountryBlock {
 type Ipv4Serializer = VersionedIPSerializer<Ipv4Addr, u8, 4>;
 type Ipv6Serializer = VersionedIPSerializer<Ipv6Addr, u16, 8>;
 
+pub struct FinalBitQueue {
+    pub bit_queue: BitQueue,
+    pub block_count: usize
+}
+
 pub struct CountryBlockSerializer {
     ipv4: Ipv4Serializer,
     ipv6: Ipv6Serializer,
@@ -164,7 +169,7 @@ impl CountryBlockSerializer {
         }
     }
 
-    pub fn finish(mut self) -> (BitQueue, BitQueue) {
+    pub fn finish(mut self) -> (FinalBitQueue, FinalBitQueue) {
         let last_ipv4 = Ipv4Addr::new(0xFF, 0xFF, 0xFF, 0xFF);
         let last_ipv6 = Ipv6Addr::new(
             0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
@@ -177,13 +182,24 @@ impl CountryBlockSerializer {
             self.ipv6
                 .add_ip(Ipv6Addr::plus_one_ip(self.ipv6.prev_end.ip), last_ipv6, 0);
         }
-        (self.ipv4.bit_queue, self.ipv6.bit_queue)
+        let bit_queue_ipv4 = self.ipv4.bit_queue;
+        let block_count_ipv4 = self.ipv4.block_count;
+        let bit_queue_ipv6 = self.ipv6.bit_queue;
+        let block_count_ipv6 = self.ipv6.block_count;
+        (FinalBitQueue {
+            bit_queue: bit_queue_ipv4,
+            block_count: block_count_ipv4
+        }, FinalBitQueue {
+            bit_queue: bit_queue_ipv6,
+            block_count: block_count_ipv6
+        })
     }
 }
 
 struct VersionedIPSerializer<IPType: Debug, SegmentNumRep: Debug, const SEGMENTS_COUNT: usize> {
     prev_start: VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>,
     prev_end: VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>,
+    block_count: usize,
     bit_queue: BitQueue,
 }
 
@@ -243,6 +259,7 @@ where
         self.bit_queue.add_bits(country_index as u64, 9);
         self.prev_start.ip = start;
         self.prev_end.ip = end;
+        self.block_count += 1;
     }
 }
 
@@ -263,6 +280,7 @@ where
         Self {
             prev_start,
             prev_end,
+            block_count: 0,
             bit_queue,
         }
     }
@@ -727,7 +745,8 @@ mod tests {
         subject.add(country_blocks.remove(0));
         subject.add(country_blocks.remove(0));
 
-        let (mut bit_queue, _) = subject.finish();
+        let (final_ipv4, _) =  subject.finish();
+        let mut bit_queue = final_ipv4.bit_queue;
         {
             let (
                 difference_count_minus_one,
@@ -901,7 +920,8 @@ mod tests {
         ipv4_country_blocks()
             .into_iter()
             .for_each(|country_block| serializer.add(country_block));
-        let mut bit_queue = serializer.finish().0;
+        let (final_ipv4, _) = serializer.finish();
+        let mut bit_queue = final_ipv4.bit_queue;
         let bit_queue_len = bit_queue.len();
         let mut bit_data: Vec<u64> = vec![];
         while bit_queue.len() >= 64 {
@@ -980,7 +1000,8 @@ mod tests {
             ),
             country: Country::try_from("CZ").unwrap().clone(),
         });
-        let mut bitqueue = subject.finish().0;
+        let (final_ipv4, _) = subject.finish();
+        let mut bitqueue = final_ipv4.bit_queue;
         let len = bitqueue.len();
         let mut vec_64 = vec![];
         while bitqueue.len() >= 64 {
@@ -1018,7 +1039,8 @@ mod tests {
         subject.add(country_blocks.remove(0));
         subject.add(country_blocks.remove(0));
 
-        let (_, mut bit_queue) = subject.finish();
+        let (_, final_ipv6) = subject.finish();
+        let mut bit_queue = final_ipv6.bit_queue;
         {
             let (
                 difference_count_minus_one,
@@ -1272,7 +1294,8 @@ mod tests {
         ipv6_country_blocks()
             .into_iter()
             .for_each(|country_block| serializer.add(country_block));
-        let mut bit_queue = serializer.finish().1;
+        let (_, final_ipv6) = serializer.finish();
+        let mut bit_queue = final_ipv6.bit_queue;
         let bit_queue_len = bit_queue.len();
         let mut bit_data: Vec<u64> = vec![];
         while bit_queue.len() >= 64 {
@@ -1351,7 +1374,8 @@ mod tests {
             ),
             country: Country::try_from("CZ").unwrap().clone(),
         });
-        let mut bitqueue = subject.finish().1;
+        let (_, final_ipv6) = subject.finish();
+        let mut bitqueue = final_ipv6.bit_queue;
         let len = bitqueue.len();
         let mut vec_64 = vec![];
         while bitqueue.len() >= 64 {
