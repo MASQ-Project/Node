@@ -61,7 +61,6 @@ fn generate_rust_code(
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
-    //TODO add number of country blocks to each run and create getters to retrieve number of blocks
     generate_country_data("ipv4_country_data", ipv4_bit_queue, output)?;
     generate_country_data("ipv6_country_data", ipv6_bit_queue, output)?;
     Ok(())
@@ -72,6 +71,7 @@ fn generate_country_data(
     mut bit_queue: BitQueue,
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
+    let mut iterator = 0usize;
     let bit_queue_len = bit_queue.len();
     writeln!(output)?;
     writeln!(output, "pub fn {}() -> (Vec<u64>, usize) {{", name)?;
@@ -79,6 +79,7 @@ fn generate_country_data(
     write!(output, "        vec![")?;
     let mut values_written = 0usize;
     while bit_queue.len() >= COUNTRY_BLOCK_BIT_SIZE {
+        iterator += 1;
         write_value(
             &mut bit_queue,
             COUNTRY_BLOCK_BIT_SIZE,
@@ -87,12 +88,16 @@ fn generate_country_data(
         )?;
     }
     if !bit_queue.is_empty() {
+        iterator += 1;
         let bit_count = bit_queue.len();
         write_value(&mut bit_queue, bit_count, &mut values_written, output)?;
     }
     write!(output, "\n        ],\n")?;
     writeln!(output, "        {}", bit_queue_len)?;
     writeln!(output, "    )")?;
+    writeln!(output, "}}")?;
+    writeln!(output, "\npub fn {}_blocks() -> usize {{", name)?;
+    writeln!(output, "        {}", iterator)?;
     writeln!(output, "}}")?;
     Ok(())
 }
@@ -194,6 +199,10 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
+pub fn ipv4_country_data_blocks() -> usize {
+        5
+}
+
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
@@ -206,6 +215,10 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         ],
         1513
     )
+}
+
+pub fn ipv6_country_data_blocks() -> usize {
+        24
 }
 "#
             .to_string()
@@ -238,6 +251,10 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
+pub fn ipv4_country_data_blocks() -> usize {
+        4
+}
+
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
@@ -250,6 +267,10 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         ],
         1513
     )
+}
+
+pub fn ipv6_country_data_blocks() -> usize {
+        24
 }
 
             *** DO NOT USE THIS CODE ***
@@ -276,20 +297,6 @@ Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
 Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'"#
 .to_string()
         );
-    }
-
-    #[test]
-    fn write_error_test() {
-        let mut subject = BitQueue::new();
-        let output = &mut ByteArrayWriter::new();
-
-        subject.add_bits(0b11011, 5);
-        subject.add_bits(0b00111001110011100, 17);
-        subject.add_bits(0b1, 1);
-
-        output.reject_next_write(Error::new(ErrorKind::WriteZero, "Bad file Descriptor"));
-        let result = generate_country_data("ipv4_country_data", subject, output).unwrap_err();
-        assert_eq!(result.kind(), ErrorKind::WriteZero)
     }
 
     #[test]

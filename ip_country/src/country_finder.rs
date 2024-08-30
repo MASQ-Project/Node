@@ -21,8 +21,8 @@ lazy_static! {
 }
 
 pub struct CountryCodeFinder {
-    ipv4: Vec<CountryBlock>,
-    ipv6: Vec<CountryBlock>,
+    pub ipv4: Vec<CountryBlock>,
+    pub ipv6: Vec<CountryBlock>,
 }
 
 impl CountryCodeFinder {
@@ -41,7 +41,7 @@ impl CountryCodeFinder {
         country_code_block: &CountryCodeFinder,
         ip_addr: IpAddr,
     ) -> Option<Country> {
-        let country_finder: &Vec<CountryBlock> = match ip_addr {
+        let country_finder: &[CountryBlock] = match ip_addr {
             IpAddr::V4(_) => &country_code_block.ipv4,
             IpAddr::V6(_) => &country_code_block.ipv6,
         };
@@ -69,6 +69,10 @@ mod tests {
     lazy_static! {
         static ref COUNTRY_CODE_FINDER_TEST: CountryCodeFinder =
             CountryCodeFinder::new(ipv4_country_data(), ipv6_country_data());
+        static ref FULL_COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
+            crate::dbip_country::ipv4_country_data(),
+            crate::dbip_country::ipv6_country_data()
+        );
     }
 
     pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -167,7 +171,7 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_google() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
         )
         .unwrap();
@@ -180,7 +184,7 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_cz_ip() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
         )
         .unwrap();
@@ -193,18 +197,19 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_sk_ip() {
         let _ = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
         .unwrap();
         let time_start = SystemTime::now();
+
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
         .unwrap();
-        let time_end = SystemTime::now();
 
+        let time_end = SystemTime::now();
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
         assert_eq!(result.name, "Slovakia".to_string());
@@ -219,18 +224,19 @@ mod tests {
     #[test]
     fn real_test_ipv6_with_google() {
         let _ = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
         .unwrap();
         let time_start = SystemTime::now();
+
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
         .unwrap();
-        let time_end = SystemTime::now();
 
+        let time_end = SystemTime::now();
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
@@ -243,21 +249,21 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
+    fn country_blocks_for_ipv4_and_ipv6_are_deserialized_filled_into_vecs() {
         let time_start = SystemTime::now();
+
         let deserializer_ipv4 = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
             crate::dbip_country::ipv4_country_data(),
         );
         let deserializer_ipv6 = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
             crate::dbip_country::ipv6_country_data(),
         );
-        let time_end = SystemTime::now();
 
+        let time_end = SystemTime::now();
         let time_start_fill = SystemTime::now();
         let _ = deserializer_ipv4.collect_vec();
         let _ = deserializer_ipv6.collect_vec();
         let time_end_fill = SystemTime::now();
-
         let duration_deserialize = time_end.duration_since(time_start).unwrap();
         let duration_fill = time_end_fill.duration_since(time_start_fill).unwrap();
         assert!(
