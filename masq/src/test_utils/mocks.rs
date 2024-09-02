@@ -14,9 +14,7 @@ use crate::communications::broadcast_handlers::{
     StandardBroadcastHandlerFactory,
 };
 use crate::communications::client_listener_thread::WSClientHandle;
-use crate::communications::connection_manager::{
-    CloseSignalling, ConnectionManagerBootstrapper, RedirectOrder,
-};
+use crate::communications::connection_manager::{BroadcastReceiver, CloseSignalling, ConnectionManagerBootstrapper, RedirectOrder};
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
@@ -592,7 +590,7 @@ pub struct StandardBroadcastHandlerFactoryMock {
         Mutex<
             Vec<(
                 Option<Box<dyn WTermInterfaceImplementingSend>>,
-                CloseSignalling,
+                BroadcastReceiver<()>,
             )>,
         >,
     >,
@@ -603,7 +601,7 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
     fn make(
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
-        close_sig: CloseSignalling,
+        close_sig: BroadcastReceiver<()>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         self.make_params
             .lock()

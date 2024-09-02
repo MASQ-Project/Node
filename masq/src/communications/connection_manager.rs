@@ -31,7 +31,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError as BroadcastRecvError;
-use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
@@ -133,8 +132,9 @@ impl ConnectionManagerBootstrapper {
         let close_sync_flag = Arc::new(AtomicBool::new(false));
         let (async_close_signal_tx, async_close_signal_rx) = tokio::sync::broadcast::channel(10);
         let close_sig = CloseSignalling::new(async_close_signal_rx, close_sync_flag.clone());
-        let close_sig_client_listener = close_sig.clone();
-        let close_sig_standard_broadcast_handler = close_sig.clone();
+        let close_sig_client_listener = close_sig.dup_receiver();
+        //TODO how should I test that all these channels are interconnected?
+        let close_sig_standard_broadcast_handler = close_sig.dup_receiver();
 
         // TODO does this future have to be in the closure?
         let spawn_ws_client_listener: SpawnClientListenerFuture = Box::new(move || {
@@ -360,7 +360,7 @@ impl ConnectionManager {
 async fn make_client_listener(
     port: u16,
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-    close_sig: CloseSignalling,
+    close_sig: BroadcastReceiver<()>,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
     let conn_initiator = WSClientConnInitiator::new(port);
@@ -598,7 +598,7 @@ impl ConnectionsEventLoop {
         let talker_half = match make_client_listener(
             redirect_order.port,
             listener_to_manager_tx,
-            inner.close_sig.clone(),
+            inner.close_sig.async_signal.resubscribe(),
             redirect_order.timeout_millis,
         )
         .await
@@ -674,7 +674,7 @@ impl ConnectionsEventLoop {
         match make_client_listener(
             inner.active_port.expect("Active port disappeared!"),
             listener_to_manager_tx,
-            inner.close_sig.clone(),
+            inner.close_sig.dup_receiver(),
             FALLBACK_TIMEOUT_MILLIS,
         )
         .await
@@ -734,15 +734,16 @@ pub struct CloseSignaler {
 }
 
 impl CloseSignaler {
-    fn new(async_signal: tokio::sync::broadcast::Sender<()>, sync_flag: Arc<AtomicBool>) -> Self {
+    fn new(async_signal: BroadcastSender<()>, sync_flag: Arc<AtomicBool>) -> Self {
         Self {
             async_signal,
             sync_flag,
         }
     }
 
-    fn signalize_close(&self) {
-        todo!()
+    pub fn signalize_close(&self) {
+        self.sync_flag.store(true, Ordering::Relaxed);
+        let _ = self.async_signal.send(());
     }
 
     #[cfg(test)]
@@ -750,6 +751,8 @@ impl CloseSignaler {
         self.sync_flag.load(Ordering::Relaxed)
     }
 }
+
+pub type BroadcastReceiver<T> = tokio::sync::broadcast::Receiver<T>;
 
 pub struct CloseSignalling {
     async_signal: BroadcastReceiver<()>,
@@ -760,14 +763,10 @@ impl CloseSignalling {
     pub fn new(async_signal: BroadcastReceiver<()>, sync_flag: Arc<AtomicBool>) -> Self {
         todo!()
     }
-    pub fn try_provide_receiver(
-        &mut self,
-    ) -> Option<impl Future<Output = Result<(), BroadcastRecvError>> + '_> {
-        if self.sync_flag.load(Ordering::Relaxed) {
-            None
-        } else {
-            Some(self.async_signal.recv())
-        }
+    pub fn dup_receiver(
+        &self,
+    ) -> BroadcastReceiver<()> {
+        self.async_signal.resubscribe()
     }
 
     pub fn sync_state(&self) -> &Arc<AtomicBool> {
@@ -777,13 +776,17 @@ impl CloseSignalling {
 
 #[cfg(test)]
 impl CloseSignalling {
-    pub fn make_for_test() -> (BroadcastSender<()>, CloseSignalling) {
+    pub fn make_for_test() -> (CloseSignaler, CloseSignalling) {
         let (tx, rx) = tokio::sync::broadcast::channel(10);
+        let sync_flag = Arc::new(AtomicBool::new(false));
         let close_sig = CloseSignalling {
             async_signal: rx,
-            sync_flag: Arc::new(AtomicBool::new(false)),
+            sync_flag: sync_flag.clone(),
         };
-        (tx, close_sig)
+
+        let signaler = CloseSignaler::new(tx, sync_flag);
+
+        (signaler, close_sig)
     }
 }
 
@@ -1012,7 +1015,7 @@ mod tests {
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let client_listener_handle =
-            make_client_listener(port, listener_to_manager_tx.clone(), close_sig, 4_000)
+            make_client_listener(port, listener_to_manager_tx.clone(), close_sig.async_signal, 4_000)
                 .await
                 .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
@@ -1581,7 +1584,7 @@ mod tests {
         let (_, close_sig) = CloseSignalling::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let client_listener_handle =
-            make_client_listener(port, listener_to_manager_tx.clone(), close_sig, 4_000)
+            make_client_listener(port, listener_to_manager_tx.clone(), close_sig.async_signal, 4_000)
                 .await
                 .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
@@ -1739,6 +1742,18 @@ mod tests {
             Ok(Err(NodeConversationTermination::Fatal))
         ); // innocent bystander
         assert_eq!(inner.conversations_waiting.is_empty(), true);
+    }
+
+    #[tokio::test]
+    async fn close_signaler_signalizes_properly(){
+        let (tx, mut rx) = tokio::sync::broadcast::channel(10);
+        let sync_flag = Arc::new(AtomicBool::new(false));
+        let subject = CloseSignaler::new(tx, sync_flag.clone());
+
+        subject.signalize_close();
+
+        rx.recv().await.unwrap();
+        assert_eq!(sync_flag.load(Ordering::Relaxed), true)
     }
 
     #[tokio::test]
