@@ -392,3 +392,11 @@ pub fn transport_error_code() -> u16 {
         0
     }
 }
+
+pub fn transport_error_message() -> String {
+    if cfg!(target_os = "windows") {
+        "No connection could be made because the target machine actively refused it.".to_string()
+    } else {
+        "Connection refused".to_string()
+    }
+}

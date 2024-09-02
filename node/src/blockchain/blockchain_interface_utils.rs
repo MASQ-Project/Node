@@ -370,7 +370,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{
         Correct, Failed,
     };
-    use crate::blockchain::test_utils::{make_tx_hash, transport_error_code};
+    use crate::blockchain::test_utils::{make_tx_hash, transport_error_code, transport_error_message};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
@@ -703,6 +703,7 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(1);
         let os_code = transport_error_code();
+        let os_msg = transport_error_message();
 
         let result = send_payables_within_batch(
             Logger::new("test"),
@@ -720,7 +721,7 @@ mod tests {
             result,
             Err(
                 Sending {
-                    msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: \"Connection refused\" }})", os_code).to_string(),
+                    msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
                     hashes: vec![H256::from_str("424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac").unwrap()]
                 }
             )
