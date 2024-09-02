@@ -32,8 +32,6 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-// pub type ProcessedPayableFallible = Result<PendingPayable, RpcPayablesFailure>;
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct RpcPayableFailure {
     pub rpc_error: Error,

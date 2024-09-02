@@ -1827,130 +1827,115 @@ mod tests {
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
     }
 
-    // fn success_handler(
-    //     _bcb: &mut BlockchainBridge,
-    //     _msg: RetrieveTransactions,
-    // ) -> Result<(), String> {
-    //     Ok(())
-    // }
-    //
-    // fn failure_handler(
-    //     _bcb: &mut BlockchainBridge,
-    //     _msg: RetrieveTransactions,
-    // ) -> Result<(), String> {
-    //     Err("My tummy hurts".to_string())
-    // }
+    #[test]
+    fn handle_scan_future_handles_success() {
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let start_block = 2000;
+        let wallet = make_wallet("somewallet");
+        let persistent_config = PersistentConfigurationMock::default()
+            .start_block_result(Ok(start_block))
+            .max_block_count_result(Ok(None));
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: wallet.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
+        let blockchain_transaction = BlockchainTransaction {
+            block_number: start_block,
+            from: wallet,
+            wei_amount: 20_000,
+        };
+        let retrieved_blockchain_transactions = RetrievedBlockchainTransactions {
+            new_start_block: start_block,
+            transactions: vec![blockchain_transaction],
+        };
+        let mut subject = BlockchainBridge::new(
+            Box::new(
+                BlockchainInterfaceMock::default()
+                    .retrieve_transactions_result(Ok(retrieved_blockchain_transactions)),
+            ),
+            Box::new(persistent_config),
+            false,
+        );
+        let system = System::new("test");
+        let accountant_addr = accountant
+            .system_stop_conditions(match_every_type_id!(ScanError))
+            .start();
+        subject.received_payments_subs_opt = Some(accountant_addr.clone().recipient());
+        subject.scan_error_subs_opt = Some(accountant_addr.recipient());
+        subject.handle_scan_future(
+            BlockchainBridge::handle_retrieve_transactions,
+            ScanType::Receivables,
+            retrieve_transactions,
+        );
 
-    // TODO: GH-744: Change this to handle_scan_future
-    // #[test]
-    // fn handle_scan_handles_success() {
-    //     let (accountant, _, accountant_recording_arc) = make_recorder();
-    //     let mut subject = BlockchainBridge::new(
-    //         Box::new(BlockchainInterfaceMock::default()),
-    //         Box::new(PersistentConfigurationMock::new()),
-    //         false,
-    //     );
-    //     let system = System::new("test");
-    //     subject.scan_error_subs_opt = Some(accountant.start().recipient());
-    //     let retrieve_transactions = RetrieveTransactions {
-    //         recipient: make_wallet("somewallet"),
-    //         response_skeleton_opt: Some(ResponseSkeleton {
-    //             client_id: 1234,
-    //             context_id: 4321,
-    //         }),
-    //     };
-    //
-    //     subject.handle_scan(
-    //         success_handler,
-    //         ScanType::Receivables,
-    //         retrieve_transactions,
-    //     );
-    //
-    //     System::current().stop();
-    //     system.run();
-    //     let accountant_recording = accountant_recording_arc.lock().unwrap();
-    //     assert_eq!(accountant_recording.len(), 0);
-    // }
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let msg_opt = accountant_recording.get_record_opt::<ScanError>(0);
+        assert_eq!(msg_opt, None, "We didnt expect a scan error: {:?}", msg_opt);
+    }
 
-    // #[test]
-    // fn handle_scan_handles_failure_without_skeleton() {
-    //     init_test_logging();
-    //     let (accountant, _, accountant_recording_arc) = make_recorder();
-    //     let mut subject = BlockchainBridge::new(
-    //         Box::new(BlockchainInterfaceMock::default()),
-    //         Box::new(PersistentConfigurationMock::new()),
-    //         false,
-    //     );
-    //     let system = System::new("test");
-    //     subject.scan_error_subs_opt = Some(accountant.start().recipient());
-    //     let retrieve_transactions = RetrieveTransactions {
-    //         recipient: make_wallet("somewallet"),
-    //         response_skeleton_opt: None,
-    //     };
-    //
-    //     subject.handle_scan(
-    //         failure_handler,
-    //         ScanType::Receivables,
-    //         retrieve_transactions,
-    //     );
-    //
-    //     System::current().stop();
-    //     system.run();
-    //     let accountant_recording = accountant_recording_arc.lock().unwrap();
-    //     let message = accountant_recording.get_record::<ScanError>(0);
-    //     assert_eq!(
-    //         message,
-    //         &ScanError {
-    //             scan_type: ScanType::Receivables,
-    //             response_skeleton_opt: None,
-    //             msg: "My tummy hurts".to_string()
-    //         }
-    //     );
-    //     assert_eq!(accountant_recording.len(), 1);
-    //     TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: My tummy hurts");
-    // }
+    #[test]
+    fn handle_scan_future_handles_failure() {
+        assert_handle_scan_future_handles_failure(RetrieveTransactions {
+            recipient: make_wallet("somewallet"),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        });
 
-    // #[test]
-    // fn handle_scan_handles_failure_with_skeleton() {
-    //     init_test_logging();
-    //     let (accountant, _, accountant_recording_arc) = make_recorder();
-    //     let mut subject = BlockchainBridge::new(
-    //         Box::new(BlockchainInterfaceMock::default()),
-    //         Box::new(PersistentConfigurationMock::new()),
-    //         false,
-    //     );
-    //     let system = System::new("test");
-    //     subject.scan_error_subs_opt = Some(accountant.start().recipient());
-    //     let retrieve_transactions = RetrieveTransactions {
-    //         recipient: make_wallet("somewallet"),
-    //         response_skeleton_opt: Some(ResponseSkeleton {
-    //             client_id: 1234,
-    //             context_id: 4321,
-    //         }),
-    //     };
-    //
-    //     subject.handle_scan(
-    //         failure_handler,
-    //         ScanType::Receivables,
-    //         retrieve_transactions,
-    //     );
-    //
-    //     System::current().stop();
-    //     system.run();
-    //     let accountant_recording = accountant_recording_arc.lock().unwrap();
-    //     assert_eq!(
-    //         accountant_recording.get_record::<ScanError>(0),
-    //         &ScanError {
-    //             scan_type: ScanType::Receivables,
-    //             response_skeleton_opt: Some(ResponseSkeleton {
-    //                 client_id: 1234,
-    //                 context_id: 4321
-    //             }),
-    //             msg: "My tummy hurts".to_string()
-    //         }
-    //     );
-    //     TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: My tummy hurts");
-    // }
+        assert_handle_scan_future_handles_failure(RetrieveTransactions {
+            recipient: make_wallet("somewallet"),
+            response_skeleton_opt: None,
+        });
+    }
+
+    fn assert_handle_scan_future_handles_failure(msg: RetrieveTransactions) {
+        init_test_logging();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let start_block = 2000;
+        let persistent_config = PersistentConfigurationMock::default()
+            .start_block_result(Ok(start_block))
+            .max_block_count_result(Ok(None));
+        let mut subject = BlockchainBridge::new(
+            Box::new(
+                BlockchainInterfaceMock::default().retrieve_transactions_result(Err(
+                    BlockchainError::QueryFailed("My tummy hurts".to_string()),
+                )),
+            ),
+            Box::new(persistent_config),
+            false,
+        );
+        let system = System::new("test");
+        let accountant_addr = accountant
+            .system_stop_conditions(match_every_type_id!(ScanError))
+            .start();
+        subject.received_payments_subs_opt = Some(accountant_addr.clone().recipient());
+        subject.scan_error_subs_opt = Some(accountant_addr.recipient());
+
+        subject.handle_scan_future(
+            BlockchainBridge::handle_retrieve_transactions,
+            ScanType::Receivables,
+            msg.clone(),
+        );
+
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let message = accountant_recording.get_record::<ScanError>(1);
+        assert_eq!(
+            message,
+            &ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: msg.response_skeleton_opt,
+                msg: "Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"My tummy hurts\\\")\")".to_string()
+            }
+        );
+        assert_eq!(accountant_recording.len(), 2);
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"My tummy hurts\\\")\")");
+    }
 
     #[test]
     #[should_panic(

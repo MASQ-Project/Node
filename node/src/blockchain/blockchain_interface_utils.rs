@@ -370,7 +370,9 @@ mod tests {
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::{
         Correct, Failed,
     };
-    use crate::blockchain::test_utils::{make_tx_hash, transport_error_code, transport_error_message};
+    use crate::blockchain::test_utils::{
+        make_tx_hash, transport_error_code, transport_error_message,
+    };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
