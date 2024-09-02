@@ -363,6 +363,13 @@ impl AsyncByteArrayWriter {
     pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
         self.inner_arc.clone()
     }
+    pub fn is_empty(&self) -> bool {
+        let lock = self.inner_arc.lock().unwrap();
+        match lock.flush_separated_writes_opt.as_ref() {
+            Some(flushes) => flushes.is_empty(),
+            None => lock.byte_array.is_empty(),
+        }
+    }
     pub fn get_bytes(&self) -> Vec<u8> {
         self.inner_arc.lock().unwrap().byte_array.clone()
     }

@@ -30,6 +30,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast::error::RecvError as BroadcastRecvError;
+use tokio::sync::broadcast::Receiver as BroadcastReceiver;
+use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -127,16 +130,18 @@ impl ConnectionManagerBootstrapper {
         timeout_millis: u64,
     ) -> (Launcher, ConnManagerLinksToSubordinates) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let closing_stage = Arc::new(AtomicBool::new(false));
-        let closing_stage_client_listener_clone = closing_stage.clone();
-        let closing_stage_connection_manager_clone = closing_stage.clone();
+        let close_sync_flag = Arc::new(AtomicBool::new(false));
+        let (async_close_signal_tx, async_close_signal_rx) = tokio::sync::broadcast::channel(10);
+        let close_sig = CloseSignalling::new(async_close_signal_rx, close_sync_flag.clone());
+        let close_sig_client_listener = close_sig.clone();
+        let close_sig_standard_broadcast_handler = close_sig.clone();
 
         // TODO does this future have to be in the closure?
         let spawn_ws_client_listener: SpawnClientListenerFuture = Box::new(move || {
             Box::pin(make_client_listener(
                 port,
                 listener_to_manager_tx,
-                closing_stage_client_listener_clone,
+                close_sig_client_listener,
                 timeout_millis,
             ))
         });
@@ -144,7 +149,8 @@ impl ConnectionManagerBootstrapper {
         let spawn_standard_broadcast_handler = {
             let mut standard_broadcast_handler = self
                 .standard_broadcast_handler_factory
-                .make(terminal_interface_opt);
+                //TODO include closing stage flag
+                .make(terminal_interface_opt, close_sig_standard_broadcast_handler);
             Box::new(move || standard_broadcast_handler.spawn())
         };
 
@@ -181,7 +187,7 @@ impl ConnectionManagerBootstrapper {
                     redirect_order_rx,
                     redirect_response_tx,
                     active_port_response_tx,
-                    closing_stage,
+                    close_sig,
                 };
 
                 let _join_handle = ConnectionsEventLoop::spawn(inner, event_loop_ready_tx);
@@ -204,7 +210,7 @@ impl ConnectionManagerBootstrapper {
 
         let connection_manager_internal_communications = ConnManagerLinksToSubordinates {
             communication_channels: connection_manager_connectors,
-            closing_stage: closing_stage_connection_manager_clone,
+            close_signaler: CloseSignaler::new(async_close_signal_tx, close_sync_flag),
         };
 
         (launch_platform, connection_manager_internal_communications)
@@ -250,7 +256,7 @@ impl Launcher {
 
 pub struct ConnManagerLinksToSubordinates {
     communication_channels: ConnectionManagerConnectors,
-    closing_stage: Arc<AtomicBool>,
+    close_signaler: CloseSignaler,
 }
 
 pub struct ConnectionManagerConnectors {
@@ -290,14 +296,14 @@ impl ConnectionManagerConnectors {
 
 pub struct ConnectionManager {
     communication_channels: ConnectionManagerConnectors,
-    closing_stage: Arc<AtomicBool>,
+    closing_signaler: CloseSignaler,
 }
 
 impl ConnectionManager {
     pub fn new(internal_communication: ConnManagerLinksToSubordinates) -> Self {
         Self {
             communication_channels: internal_communication.communication_channels,
-            closing_stage: internal_communication.closing_stage,
+            closing_signaler: internal_communication.close_signaler,
         }
     }
 
@@ -338,7 +344,7 @@ impl ConnectionManager {
     }
 
     pub fn close(&self) {
-        self.closing_stage.store(true, Ordering::Relaxed);
+        self.closing_signaler.signalize_close();
         self.communication_channels
             .demand_tx
             .send(Demand::Close)
@@ -347,14 +353,14 @@ impl ConnectionManager {
 
     #[cfg(test)]
     pub fn is_closing(&self) -> bool {
-        self.closing_stage.load(Ordering::Relaxed)
+        self.closing_signaler.is_closing()
     }
 }
 
 async fn make_client_listener(
     port: u16,
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-    closing_stage: Arc<AtomicBool>,
+    close_sig: CloseSignalling,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
     let conn_initiator = WSClientConnInitiator::new(port);
@@ -385,7 +391,7 @@ async fn make_client_listener(
 
     let mut client_listener = ClientListener::new(ws);
     let talker_half = client_listener
-        .start(closing_stage, listener_to_manager_tx)
+        .start(close_sig, listener_to_manager_tx)
         .await;
 
     Ok(talker_half)
@@ -409,7 +415,7 @@ struct CmsManagerInner {
     redirect_order_rx: UnboundedReceiver<RedirectOrder>,
     redirect_response_tx: UnboundedSender<Result<(), ClientListenerError>>,
     active_port_response_tx: UnboundedSender<Option<u16>>,
-    closing_stage: Arc<AtomicBool>,
+    close_sig: CloseSignalling,
 }
 
 pub struct ConnectionsEventLoop {}
@@ -425,7 +431,7 @@ impl ConnectionsEventLoop {
 
             loop {
                 match (
-                    inner.closing_stage.load(Ordering::Relaxed),
+                    inner.close_sig.sync_state().load(Ordering::Relaxed),
                     inner.active_port,
                 ) {
                     (true, _) => break,
@@ -471,7 +477,7 @@ impl ConnectionsEventLoop {
             context_id,
             inner.conversations_to_manager_tx.clone(),
             manager_to_conversation_rx,
-            inner.closing_stage.clone(),
+            inner.close_sig.sync_state().clone(),
         );
         inner
             .conversations
@@ -592,7 +598,7 @@ impl ConnectionsEventLoop {
         let talker_half = match make_client_listener(
             redirect_order.port,
             listener_to_manager_tx,
-            inner.closing_stage.clone(),
+            inner.close_sig.clone(),
             redirect_order.timeout_millis,
         )
         .await
@@ -668,7 +674,7 @@ impl ConnectionsEventLoop {
         match make_client_listener(
             inner.active_port.expect("Active port disappeared!"),
             listener_to_manager_tx,
-            inner.closing_stage.clone(),
+            inner.close_sig.clone(),
             FALLBACK_TIMEOUT_MILLIS,
         )
         .await
@@ -722,6 +728,74 @@ impl ConnectionsEventLoop {
     }
 }
 
+pub struct CloseSignaler {
+    async_signal: BroadcastSender<()>,
+    sync_flag: Arc<AtomicBool>,
+}
+
+impl CloseSignaler {
+    fn new(async_signal: tokio::sync::broadcast::Sender<()>, sync_flag: Arc<AtomicBool>) -> Self {
+        Self {
+            async_signal,
+            sync_flag,
+        }
+    }
+
+    fn signalize_close(&self) {
+        todo!()
+    }
+
+    #[cfg(test)]
+    fn is_closing(&self) -> bool {
+        self.sync_flag.load(Ordering::Relaxed)
+    }
+}
+
+pub struct CloseSignalling {
+    async_signal: BroadcastReceiver<()>,
+    sync_flag: Arc<AtomicBool>,
+}
+
+impl CloseSignalling {
+    pub fn new(async_signal: BroadcastReceiver<()>, sync_flag: Arc<AtomicBool>) -> Self {
+        todo!()
+    }
+    pub fn try_provide_receiver(
+        &mut self,
+    ) -> Option<impl Future<Output = Result<(), BroadcastRecvError>> + '_> {
+        if self.sync_flag.load(Ordering::Relaxed) {
+            None
+        } else {
+            Some(self.async_signal.recv())
+        }
+    }
+
+    pub fn sync_state(&self) -> &Arc<AtomicBool> {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+impl CloseSignalling {
+    pub fn make_for_test() -> (BroadcastSender<()>, CloseSignalling) {
+        let (tx, rx) = tokio::sync::broadcast::channel(10);
+        let close_sig = CloseSignalling {
+            async_signal: rx,
+            sync_flag: Arc::new(AtomicBool::new(false)),
+        };
+        (tx, close_sig)
+    }
+}
+
+impl Clone for CloseSignalling {
+    fn clone(&self) -> Self {
+        CloseSignalling {
+            async_signal: self.async_signal.resubscribe(),
+            sync_flag: self.sync_flag.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,6 +833,7 @@ mod tests {
     use tokio::runtime::Runtime;
     use tokio::select;
     use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
+    use tokio::task::JoinError;
 
     #[test]
     fn constants_have_correct_values() {
@@ -779,9 +854,14 @@ mod tests {
         }
     }
 
+    #[async_trait(?Send)]
     impl<Message: Send> BroadcastHandle<Message> for BroadcastHandleMock<Message> {
         fn send(&self, message: Message) -> () {
             self.send_params.lock().unwrap().push(message);
+        }
+
+        async fn wait_to_finish(&self) -> Result<(), JoinError> {
+            todo!()
         }
     }
 
@@ -928,16 +1008,13 @@ mod tests {
             .queue_string("irrelevant")
             .queue_string("irrelevant");
         let stop_handle = server.start().await;
+        let (_, close_sig) = CloseSignalling::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = make_client_listener(
-            port,
-            listener_to_manager_tx.clone(),
-            Arc::new(AtomicBool::new(false)),
-            4_000,
-        )
-        .await
-        .unwrap();
+        let client_listener_handle =
+            make_client_listener(port, listener_to_manager_tx.clone(), close_sig, 4_000)
+                .await
+                .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (conversation_return_tx, mut conversation_return_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
@@ -1501,15 +1578,12 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
+        let (_, close_sig) = CloseSignalling::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = make_client_listener(
-            port,
-            listener_to_manager_tx.clone(),
-            Arc::new(AtomicBool::new(false)),
-            4_000,
-        )
-        .await
-        .unwrap();
+        let client_listener_handle =
+            make_client_listener(port, listener_to_manager_tx.clone(), close_sig, 4_000)
+                .await
+                .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (_listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
@@ -1684,7 +1758,7 @@ mod tests {
 
         subject.close();
 
-        assert_eq!(subject.closing_stage.load(Ordering::Relaxed), true);
+        assert_eq!(subject.closing_signaler.is_closing(), true);
         let result = conversation1
             .transact(UiShutdownRequest {}.tmb(0), 1000)
             .await;
@@ -1724,7 +1798,7 @@ mod tests {
             redirect_order_rx: unbounded_channel().1,
             redirect_response_tx: unbounded_channel().0,
             active_port_response_tx: unbounded_channel().0,
-            closing_stage: Arc::new(AtomicBool::new(false)),
+            close_sig: CloseSignalling::make_for_test().1,
         }
     }
 

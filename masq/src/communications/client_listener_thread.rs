@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::communications::connection_manager::CloseSignalling;
 use async_channel::Receiver as WSReceiver;
 use async_trait::async_trait;
 use masq_lib::ui_gateway::MessageBody;
@@ -7,6 +8,8 @@ use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast::Receiver as BroadcastReceiver;
+use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use workflow_websocket::client::{Error, Result as ClientResult};
@@ -42,11 +45,11 @@ impl ClientListener {
 
     pub async fn start(
         self,
-        is_closing: Arc<AtomicBool>,
+        close_sig: CloseSignalling,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     ) -> Box<dyn WSClientHandle> {
         let listener_half = self.websocket.receiver_rx().clone();
-        let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
+        let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig);
         let task_handle = event_loop.spawn();
         Box::new(WSClientHandleReal::new(self.websocket, task_handle))
     }
@@ -137,19 +140,19 @@ impl WSClientHandleReal {
 struct ClientListenerEventLoop {
     listener_half: WSReceiver<Message>,
     message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-    is_closing: Arc<AtomicBool>,
+    close_sig: CloseSignalling,
 }
 
 impl ClientListenerEventLoop {
     pub fn new(
         listener_half: WSReceiver<Message>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-        is_closing: Arc<AtomicBool>,
+        close_sig: CloseSignalling,
     ) -> Self {
         Self {
             listener_half,
             message_body_tx,
-            is_closing,
+            close_sig,
         }
     }
 
@@ -157,49 +160,61 @@ impl ClientListenerEventLoop {
         tokio::task::spawn(self.loop_guts())
     }
 
-    async fn loop_guts(self) {
+    async fn loop_guts(mut self) {
         loop {
-            let received_ws_message = self.listener_half.recv().await;
-            let is_closing = self.is_closing.load(Ordering::Relaxed);
+            let ws_msg_rcv = self.listener_half.recv();
+            let close_sig = match self.close_sig.try_provide_receiver() {
+                Some(recv) => recv,
+                None => todo!(),
+            };
 
-            match (received_ws_message, is_closing) {
-                (_, true) => break,
-                (Ok(Message::Text(string)), _) => {
-                    match UiTrafficConverter::new_unmarshal(&string) {
-                        Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
-                            Ok(_) => (),
-                            Err(_) => break,
-                        },
-                        Err(_) => match self
-                            .message_body_tx
-                            .send(Err(ClientListenerError::UnexpectedPacket))
-                        {
-                            Ok(_) => (),
-                            Err(_) => break,
-                        },
-                    }
+            tokio::select! {
+                biased;
+
+                _ = close_sig => {
+                    todo!()
                 }
-                (Ok(Message::Open), _) => {
-                    // Dropping, it doesn't say anything but what we already know
-                }
-                (Ok(Message::Close), _) => {
-                    let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
-                    break;
-                }
-                (Ok(_unexpected), _) => {
-                    match self
-                        .message_body_tx
-                        .send(Err(ClientListenerError::UnexpectedPacket))
-                    {
-                        Ok(_) => (),
-                        Err(_) => break,
-                    }
-                }
-                (Err(error), _) => {
-                    let _ = self
-                        .message_body_tx
-                        .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
-                    break;
+
+                msg = ws_msg_rcv => {
+                      match msg {
+                        Ok(Message::Text(string)) => {
+                            match UiTrafficConverter::new_unmarshal(&string) {
+                                Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
+                                    Ok(_) => (),
+                                    Err(_) => break,
+                                },
+                                Err(_) => match self
+                                    .message_body_tx
+                                    .send(Err(ClientListenerError::UnexpectedPacket))
+                                {
+                                    Ok(_) => (),
+                                    Err(_) => break,
+                                },
+                            }
+                        }
+                        Ok(Message::Open) => {
+                            // Dropping, it doesn't say anything but what we already know
+                        }
+                        Ok(Message::Close) => {
+                            let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
+                            break;
+                        }
+                        Ok(_unexpected) => {
+                            match self
+                                .message_body_tx
+                                .send(Err(ClientListenerError::UnexpectedPacket))
+                            {
+                                Ok(_) => (),
+                                Err(_) => break,
+                            }
+                        }
+                        Err(error) => {
+                            let _ = self
+                                .message_body_tx
+                                .send(Err(ClientListenerError::Broken(format!("{:?}", error))));
+                            break;
+                        }
+                     }
                 }
             }
         }
@@ -248,10 +263,9 @@ mod tests {
         //let websocket = establish_ws_conn_with_handshake(port);
         let (websocket, talker_half, _) = websocket_utils(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
-            .start(Arc::new(AtomicBool::new(false)), message_body_tx)
-            .await;
+        let client_listener_handle = subject.start(close_sig, message_body_tx).await;
         stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let message_body = message_body_rx.recv().await.unwrap().unwrap();
@@ -280,10 +294,9 @@ mod tests {
         rx.recv().await.unwrap();
         let (websocket, listener_half, talker_half) = websocket_utils_without_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
-            .start(Arc::new(AtomicBool::new(false)), message_body_tx)
-            .await;
+        let client_listener_handle = subject.start(close_sig, message_body_tx).await;
 
         let conn_closed_announcement = message_body_rx.recv().await.unwrap();
         let probe =
@@ -308,10 +321,9 @@ mod tests {
         let (websocket, listener_half, talker_half) = websocket_utils(port).await;
         let listener_half_clone = listener_half.clone();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
-            .start(Arc::new(AtomicBool::new(false)), message_body_tx)
-            .await;
+        let client_listener_handle = subject.start(close_sig, message_body_tx).await;
         assert!(talker_half.close());
 
         let error = message_body_rx.recv().await.unwrap().unwrap_err();
@@ -330,10 +342,9 @@ mod tests {
         let stop_handle = server.start().await;
         let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
-            .start(Arc::new(AtomicBool::new(false)), message_body_tx)
-            .await;
+        let client_listener_handle = subject.start(close_sig, message_body_tx).await;
         stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
@@ -350,10 +361,9 @@ mod tests {
         let stop_handle = server.start().await;
         let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
-            .start(Arc::new(AtomicBool::new(false)), message_body_tx)
-            .await;
+        let client_listener_handle = subject.start(close_sig, message_body_tx).await;
         stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
@@ -390,47 +400,48 @@ mod tests {
 
     #[tokio::test]
     async fn no_new_received_message_is_processed_at_closing_stage() {
-        let port = find_free_port();
-        let server = MockWebSocketsServer::new(port)
-            .queue_response(
-                UiDescriptorResponse {
-                    node_descriptor_opt: None,
-                }
-                .tmb(1234),
-            )
-            .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
-        let stop_handle = server.start().await;
-        let (websocket, talker_half, listener_half) = websocket_utils(port).await;
-        let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let is_closing = Arc::new(AtomicBool::new(false));
-        let is_closing_cloned = is_closing.clone();
-        let subject = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
-        let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
-        let client_handle = WSClientHandleReal::new(websocket, join_handle);
-        let count_before = Arc::strong_count(&is_closing_cloned);
-        stimulate_queued_response_from_server(&client_handle).await;
-        let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();
-        let (received_message, context_id) = UiDescriptorResponse::fmb(received_msg_body).unwrap();
-
-        is_closing_cloned.store(true, Ordering::Relaxed);
-        stimulate_queued_response_from_server(&client_handle).await;
-
-        assert_eq!(count_before, 2);
-        assert_eq!(
-            received_message,
-            UiDescriptorResponse {
-                node_descriptor_opt: None
-            }
-        );
-        assert_eq!(context_id, 1234);
-        while Arc::strong_count(&is_closing_cloned) > 1 {
-            tokio::time::sleep(Duration::from_millis(10)).await
-        }
-        let second_msg_attempt = message_body_rx.try_recv();
-        assert_eq!(second_msg_attempt, Err(TryRecvError::Disconnected));
-        while client_handle.is_event_loop_spinning() {
-            tokio::time::sleep(Duration::from_millis(10)).await
-        }
+        todo!("this one of the crucial tests")
+        // let port = find_free_port();
+        // let server = MockWebSocketsServer::new(port)
+        //     .queue_response(
+        //         UiDescriptorResponse {
+        //             node_descriptor_opt: None,
+        //         }
+        //         .tmb(1234),
+        //     )
+        //     .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
+        // let stop_handle = server.start().await;
+        // let (websocket, talker_half, listener_half) = websocket_utils(port).await;
+        // let (message_body_tx, mut message_body_rx) = unbounded_channel();
+        // let is_closing = Arc::new(AtomicBool::new(false));
+        // let is_closing_cloned = is_closing.clone();
+        // let subject = ClientListenerEventLoop::new(listener_half, message_body_tx, is_closing);
+        // let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
+        // let client_handle = WSClientHandleReal::new(websocket, join_handle);
+        // let count_before = Arc::strong_count(&is_closing_cloned);
+        // stimulate_queued_response_from_server(&client_handle).await;
+        // let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();
+        // let (received_message, context_id) = UiDescriptorResponse::fmb(received_msg_body).unwrap();
+        //
+        // is_closing_cloned.store(true, Ordering::Relaxed);
+        // stimulate_queued_response_from_server(&client_handle).await;
+        //
+        // assert_eq!(count_before, 2);
+        // assert_eq!(
+        //     received_message,
+        //     UiDescriptorResponse {
+        //         node_descriptor_opt: None
+        //     }
+        // );
+        // assert_eq!(context_id, 1234);
+        // while Arc::strong_count(&is_closing_cloned) > 1 {
+        //     tokio::time::sleep(Duration::from_millis(10)).await
+        // }
+        // let second_msg_attempt = message_body_rx.try_recv();
+        // assert_eq!(second_msg_attempt, Err(TryRecvError::Disconnected));
+        // while client_handle.is_event_loop_spinning() {
+        //     tokio::time::sleep(Duration::from_millis(10)).await
+        // }
     }
 
     #[tokio::test]

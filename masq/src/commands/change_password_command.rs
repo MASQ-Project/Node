@@ -67,7 +67,7 @@ impl ChangePasswordCommand {
         stdout: &TerminalWriter,
         _stderr: &TerminalWriter,
     ) {
-        masq_short_writeln!(stdout, "\nThe Node's database password has changed.\n\n");
+        masq_short_writeln!(stdout, "\nThe Node's database password has changed.\n");
     }
 }
 

@@ -14,7 +14,9 @@ use crate::communications::broadcast_handlers::{
     StandardBroadcastHandlerFactory,
 };
 use crate::communications::client_listener_thread::WSClientHandle;
-use crate::communications::connection_manager::{ConnectionManagerBootstrapper, RedirectOrder};
+use crate::communications::connection_manager::{
+    CloseSignalling, ConnectionManagerBootstrapper, RedirectOrder,
+};
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
@@ -25,6 +27,7 @@ use crate::terminal::{
 };
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
+use ctrlc::Error::System;
 use itertools::Either;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
@@ -42,9 +45,10 @@ use std::future::Future;
 use std::io::{stdout, Read, Write};
 use std::ops::Not;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
@@ -581,9 +585,17 @@ impl StandardBroadcastHandlerMock {
     }
 }
 
+//TODO DO I need this guy???
 #[derive(Default)]
 pub struct StandardBroadcastHandlerFactoryMock {
-    make_params: Arc<Mutex<Vec<Option<Box<dyn WTermInterfaceImplementingSend>>>>>,
+    make_params: Arc<
+        Mutex<
+            Vec<(
+                Option<Box<dyn WTermInterfaceImplementingSend>>,
+                CloseSignalling,
+            )>,
+        >,
+    >,
     make_results: Arc<Mutex<Vec<Box<dyn BroadcastHandler<MessageBody>>>>>,
 }
 
@@ -591,14 +603,17 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
     fn make(
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        close_sig: CloseSignalling,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         self.make_params
             .lock()
             .unwrap()
-            .push(terminal_interface_opt);
+            .push((terminal_interface_opt, close_sig));
         self.make_results.lock().unwrap().remove(0)
     }
 }
+
+// TODO missing params assert method
 
 impl StandardBroadcastHandlerFactoryMock {
     pub fn make_result(self, result: Box<dyn BroadcastHandler<MessageBody>>) -> Self {
@@ -871,6 +886,14 @@ impl AsyncTestStreamHandles {
         Self::assert_empty_stream(&self.stderr, "stderr")
     }
 
+    pub async fn wait_until_stdout_is_not_empty(&self) {
+        Self::wait_until_is_not_empty(&self.stdout, 3000, "stdout").await
+    }
+
+    pub async fn wait_until_stderr_is_not_empty(&self) {
+        Self::wait_until_is_not_empty(&self.stderr, 3000, "stderr").await
+    }
+
     fn join_flushed(strings: Vec<String>) -> String {
         strings.into_iter().collect::<String>()
     }
@@ -886,6 +909,33 @@ impl AsyncTestStreamHandles {
             stream_name,
             received
         )
+    }
+
+    async fn wait_until_is_not_empty(
+        handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
+        hard_limit_ms: u64,
+        stream_name: &str,
+    ) {
+        let start = SystemTime::now();
+        let hard_limit = Duration::from_millis(hard_limit_ms);
+        while Self::check_is_empty(handle) {
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            if start.elapsed().unwrap() >= hard_limit {
+                panic!(
+                    "Waited for {} while we didn't find any output written in {}",
+                    hard_limit_ms, stream_name
+                )
+            }
+        }
+    }
+
+    fn check_is_empty(handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>) -> bool {
+        match handle {
+            Either::Left(async_byte_array) => async_byte_array.is_empty(),
+            Either::Right(naked_string_containers) => {
+                naked_string_containers.lock().unwrap().is_empty()
+            }
+        }
     }
 
     fn drain_flushed_strings(
