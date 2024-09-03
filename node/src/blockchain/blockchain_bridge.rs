@@ -41,6 +41,7 @@ use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
+use std::string::ToString;
 use std::time::SystemTime;
 use ethabi::Hash;
 use web3::types::{BlockNumber, H256};
@@ -49,6 +50,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
+pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
 
 pub struct BlockchainBridge {
     blockchain_interface: Box<dyn BlockchainInterface>,
@@ -220,10 +222,8 @@ impl BlockchainBridge {
                 // probably want to make BlockchainInterfaceInitializer a collaborator that's a part of the actor
                 BlockchainInterfaceInitializer {}.initialize_interface(&url, chain)
             }
-
-            // TODO: GH-744: Review the implications of this
-            // TODO: Write a card?
-            None => panic!("Blockchain service can not start with out a blockchain service url"),
+            None => BlockchainInterfaceInitializer {}
+                .initialize_interface(DEFAULT_BLOCKCHAIN_SERVICE_URL, chain),
         }
     }
 
@@ -586,6 +586,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "BLOCKCHAINBRIDGE");
+        assert_eq!(DEFAULT_BLOCKCHAIN_SERVICE_URL, "https://0.0.0.0");
     }
 
     fn stub_bi() -> Box<dyn BlockchainInterface> {
@@ -615,9 +616,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Blockchain service can not start with out a blockchain service url")]
-    fn blockchain_interface_null_as_result_of_missing_blockchain_service_url() {
-        let _result = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
+    fn blockchain_interface_is_constructed_with_missing_blockchain_service_url() {
+        let subject = BlockchainBridge::initialize_blockchain_interface(None, TEST_DEFAULT_CHAIN);
+
+        let chain = subject.get_chain();
+
+        assert_eq!(chain, TEST_DEFAULT_CHAIN);
     }
 
     #[test]
