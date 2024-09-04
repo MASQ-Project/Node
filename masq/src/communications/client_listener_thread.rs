@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 use workflow_websocket::client::{Error, Result as ClientResult};
 use workflow_websocket::client::{Message, WebSocket};
 
@@ -51,7 +51,7 @@ impl ClientListener {
         let listener_half = self.websocket.receiver_rx().clone();
         let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig);
         let task_handle = event_loop.spawn();
-        Box::new(WSClientHandleReal::new(self.websocket, task_handle))
+        Box::new(WSClientHandleReal::new(self.websocket, task_handle.abort_handle()))
     }
 }
 
@@ -69,7 +69,7 @@ pub trait WSClientHandle: Send {
 
 pub struct WSClientHandleReal {
     websocket: WebSocket,
-    listener_event_loop_join_handle: JoinHandle<()>,
+    listener_event_loop_abort_handle: AbortHandle,
 }
 
 impl Drop for WSClientHandleReal {
@@ -93,7 +93,7 @@ impl WSClientHandle for WSClientHandleReal {
     }
 
     fn dismiss_event_loop(&self) {
-        self.listener_event_loop_join_handle.abort()
+        self.listener_event_loop_abort_handle.abort()
     }
 
     #[cfg(test)]
@@ -103,15 +103,15 @@ impl WSClientHandle for WSClientHandleReal {
 
     #[cfg(test)]
     fn is_event_loop_spinning(&self) -> bool {
-        !self.listener_event_loop_join_handle.is_finished()
+        !self.listener_event_loop_abort_handle.is_finished()
     }
 }
 
 impl WSClientHandleReal {
-    pub fn new(websocket: WebSocket, listener_event_loop_join_handle: JoinHandle<()>) -> Self {
+    pub fn new(websocket: WebSocket, listener_event_loop_abort_handle: AbortHandle) -> Self {
         Self {
             websocket,
-            listener_event_loop_join_handle,
+            listener_event_loop_abort_handle,
         }
     }
 }
@@ -148,7 +148,7 @@ impl ClientListenerEventLoop {
                 biased;
 
                 _ = close_sig => {
-                    todo!()
+                    break
                 }
 
                 msg = ws_msg_rcv => {
@@ -364,7 +364,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let client_handle = WSClientHandleReal::new(websocket, join_handle);
+        let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
         let count_before = Arc::strong_count(&ref_counting_object);
 
         drop(client_handle);
@@ -392,7 +392,7 @@ mod tests {
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig.dup_receiver());
         let mut join_handle = tokio::task::spawn(async { subject.loop_guts().await });
-        let client_handle = WSClientHandleReal::new(websocket, join_handle);
+        let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
         stimulate_queued_response_from_server(&client_handle).await;
         let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();
         let (received_message, context_id) = UiDescriptorResponse::fmb(received_msg_body).unwrap();
@@ -408,6 +408,8 @@ mod tests {
                 panic!("Waited on the listener's task to finish within {} ms, but it didn't", timeout.as_millis())
             }
         }
+        // Checking that spawn didn't finish by panicking
+        join_handle.await.unwrap();
         assert_eq!(
             received_message,
             UiDescriptorResponse {
@@ -431,7 +433,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let subject = WSClientHandleReal::new(websocket, meaningless_event_loop_join_handle);
+        let subject = WSClientHandleReal::new(websocket, meaningless_event_loop_join_handle.abort_handle());
         let is_closed_before = subject.websocket.sender_tx().is_closed();
 
         let closed_successfully = subject.close_talker_half();

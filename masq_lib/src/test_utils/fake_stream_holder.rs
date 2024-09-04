@@ -411,8 +411,8 @@ impl AsyncByteArrayReader {
         }
     }
 
-    pub fn reading_attempted(&self) -> bool {
-        todo!()
+    pub fn reading_attempts(&self) -> usize {
+        self.byte_array_reader_inner.lock().unwrap().byte_arrays.len()
     }
 
     pub fn reject_next_write(&mut self, error: Error) {

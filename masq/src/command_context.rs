@@ -14,6 +14,7 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 use tokio::runtime::Runtime;
+use masq_lib::arbitrary_id_stamp_in_trait;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -59,6 +60,7 @@ pub trait CommandContext {
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError>;
     fn close(&self);
+    arbitrary_id_stamp_in_trait!();
 }
 
 pub struct CommandContextReal {

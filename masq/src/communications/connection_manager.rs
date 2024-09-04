@@ -19,9 +19,7 @@ use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCras
 use masq_lib::messages::{UiRedirect, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use masq_lib::utils::localhost;
 use masq_lib::websockets_handshake::WSClientConnInitiator;
-use nix::libc::sleep;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -30,11 +28,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast::error::RecvError as BroadcastRecvError;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
 use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, WebSocket, WebSocketConfig,
 };
@@ -149,7 +145,6 @@ impl ConnectionManagerBootstrapper {
         let spawn_standard_broadcast_handler = {
             let mut standard_broadcast_handler = self
                 .standard_broadcast_handler_factory
-                //TODO include closing stage flag
                 .make(terminal_interface_opt, close_sig_standard_broadcast_handler);
             Box::new(move || standard_broadcast_handler.spawn())
         };
@@ -317,6 +312,7 @@ impl ConnectionManager {
         // (Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS))
         // {
         //     Ok(ui_port_opt) => ui_port_opt,
+        // Err(RecvTimeoutError::Timeout) => panic!("ConnectionManager is not responding"),
         //     // None => panic!("ConnectionManager is disconnected"),
         // };
         match tokio::time::timeout(
@@ -325,7 +321,8 @@ impl ConnectionManager {
         )
         .await
         {
-            Ok(active_port_opt) => todo!(),
+            Ok(Some(active_port_opt)) => active_port_opt,
+            Ok(None) => todo!(),
             Err(elapsed) => todo!(),
         }
     }
@@ -761,7 +758,10 @@ pub struct CloseSignalling {
 
 impl CloseSignalling {
     pub fn new(async_signal: BroadcastReceiver<()>, sync_flag: Arc<AtomicBool>) -> Self {
-        todo!()
+        Self{
+            async_signal,
+            sync_flag,
+        }
     }
     pub fn dup_receiver(
         &self,
@@ -770,7 +770,7 @@ impl CloseSignalling {
     }
 
     pub fn sync_state(&self) -> &Arc<AtomicBool> {
-        todo!()
+        &self.sync_flag
     }
 }
 

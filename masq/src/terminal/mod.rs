@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::thread::panicking;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-
+use masq_lib::arbitrary_id_stamp_in_trait;
+use masq_lib::intentionally_blank;
 pub mod async_streams;
 pub mod interactive_terminal_interface;
 mod liso_wrappers;
@@ -69,6 +70,7 @@ pub trait WTermInterfaceImplementingSend: WTermInterface + Send {}
 pub trait WTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle);
     fn stderr(&self) -> (TerminalWriter, FlushHandle);
+    arbitrary_id_stamp_in_trait!();
 }
 
 pub trait WTermInterfaceDup: WTermInterface {
