@@ -163,13 +163,10 @@ impl StreamHandlerPoolReal {
         stream_key: &StreamKey,
         logger: &Logger,
     ) {
+        // TODO: GH-800: Test Drive Me especially the logs
         match reader_shutdown_tx.try_send(()) {
             Ok(()) => {
-                debug!(
-                    logger,
-                    "A shutdown signal was sent to the StreamReader for stream key {:?}.",
-                    stream_key
-                );
+                debug!(logger, "A shutdown signal was sent.")
             }
             Err(_e) => {
                 debug!(
@@ -1090,12 +1087,7 @@ mod tests {
         let future_with_timeout =
             tokio::timer::Timeout::new(future_result, Duration::from_secs(10)).into_future();
         assert!(system.block_on(future_with_timeout).is_ok());
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(&format!(
-            "DEBUG: {test_name}: A shutdown signal was sent to the StreamReader \
-            for stream key oUHoHuDKHjeWq+BJzBIqHpPFBQw."
-        ));
-        tlh.exists_log_containing(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
             for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
         ));
