@@ -483,7 +483,7 @@ impl StreamHandlerPoolReal {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
-                Some(stream_senders) => {
+                Some(mut stream_senders) => {
                     debug!(
                         Logger::new("TEST"),
                         "clean_up_dead_streams() removed the stream key"
@@ -499,11 +499,11 @@ impl StreamHandlerPoolReal {
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
-                    Self::send_shutdown_signal_to_stream_reader(
-                        stream_senders.reader_shutdown_tx,
-                        &stream_key,
-                        &inner.logger,
-                    );
+                    // TODO: GH-800: Perhaps you want the function that you created over here
+                    if let Err(_e) = stream_senders.reader_shutdown_tx.try_send(()) {
+                        debug!(inner.logger, "Unable to send a shutdown signal to the StreamReader for stream key {:?}. The channel is already gone.", stream_key)
+                    };
+                    // Test should have a fake server, and the (read and write should be different) server
                     debug!(
                         inner.logger,
                         "Killed StreamWriter and StreamReader for the stream key {:?} to {} and sent server-drop report",
