@@ -163,6 +163,7 @@ impl StreamHandlerPoolReal {
     ) {
         match reader_shutdown_tx.try_send(()) {
             Ok(()) => {
+                // todo!("Ok");
                 debug!(
                     logger,
                     "A shutdown signal was sent to the StreamReader for stream key {:?}.",
@@ -244,6 +245,7 @@ impl StreamHandlerPoolReal {
             if last_data {
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
+                        // todo!("stop for write_and_tend");
                         debug!(
                             inner.logger,
                             "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
@@ -764,9 +766,11 @@ mod tests {
     #[test]
     fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
+        let test_name = "write_failure_for_nonexistent_stream_generates_termination_message";
         let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let (reader_shutdown_tx, reader_shutdown_rx) = unbounded();
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: StreamKey::make_meaningless_stream_key(),
@@ -803,18 +807,24 @@ mod tests {
                 100,
                 200,
             );
-            subject.inner.lock().unwrap().stream_writer_channels.insert(
-                client_request_payload.stream_key,
-                StreamSenders {
-                    writer_data: Box::new(tx_to_write),
-                    reader_shutdown_tx: unbounded().0,
-                },
-            );
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                inner.stream_writer_channels.insert(
+                    client_request_payload.stream_key,
+                    StreamSenders {
+                        writer_data: Box::new(tx_to_write),
+                        reader_shutdown_tx,
+                    },
+                );
+                inner.logger = Logger::new(test_name);
+            }
 
             run_process_package_in_actix(subject, package);
         });
         proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        let received = reader_shutdown_rx.try_recv();
+        assert_eq!(received, Ok(()));
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
@@ -825,6 +835,10 @@ mod tests {
                 data: vec![],
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: A shutdown signal was sent to the StreamReader \
+            for stream key AAAAAAAAAAAAAAAAAAAAAAAAAAA."
+        ));
     }
 
     #[test]
