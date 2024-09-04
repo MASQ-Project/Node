@@ -846,6 +846,8 @@ mod tests {
     #[test]
     fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
         let cryptde = main_cryptde();
+        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
+        let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -870,6 +872,13 @@ mod tests {
                 client_request_payload.into(),
                 0,
             );
+            // TODO: GH-800: Apparently, we can remove both lookup_ip mock functions
+            let resolver = ResolverWrapperMock::new()
+                .lookup_ip_parameters(&lookup_ip_parameters)
+                .lookup_ip_success(vec![
+                    IpAddr::from_str("2.3.4.5").unwrap(),
+                    IpAddr::from_str("3.4.5.6").unwrap(),
+                ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
             let reader = ReadHalfWrapperMock {
@@ -887,7 +896,7 @@ mod tests {
                 shutdown_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
-                Box::new(ResolverWrapperMock::new()),
+                Box::new(resolver),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client_opt.unwrap().clone(),
@@ -924,6 +933,10 @@ mod tests {
         });
 
         proxy_client_awaiter.await_message_count(1);
+        assert_eq!(
+            expected_lookup_ip_parameters.lock().unwrap().deref(),
+            &(vec![] as Vec<String>)
+        );
         assert_eq!(
             expected_write_parameters.lock().unwrap().remove(0),
             b"These are the times".to_vec()
