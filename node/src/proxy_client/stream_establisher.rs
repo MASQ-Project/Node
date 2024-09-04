@@ -80,7 +80,7 @@ impl StreamEstablisher {
 
         let stream_senders = StreamSenders {
             writer_data: tx_to_write.clone(),
-            reader_shutdown: shutdown_signal_tx,
+            reader_shutdown_tx: shutdown_signal_tx,
         };
 
         self.stream_adder_tx

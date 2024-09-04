@@ -44,7 +44,7 @@ pub struct StreamHandlerPoolReal {
 #[derive(Debug)]
 pub struct StreamSenders {
     pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
-    pub reader_shutdown: Sender<()>,
+    pub reader_shutdown_tx: Sender<()>,
 }
 
 struct StreamHandlerPoolRealInner {
@@ -156,6 +156,30 @@ impl StreamHandlerPoolReal {
         };
     }
 
+    fn send_shutdown_signal_to_stream_reader(
+        reader_shutdown_tx: Sender<()>,
+        stream_key: &StreamKey,
+        logger: &Logger,
+    ) {
+        match reader_shutdown_tx.try_send(()) {
+            Ok(()) => {
+                debug!(
+                    logger,
+                    "A shutdown signal was sent to the StreamReader for stream key {:?}.",
+                    stream_key
+                );
+            }
+            Err(_e) => {
+                debug!(
+                    logger,
+                    "Unable to send a shutdown signal to the StreamReader for \
+                    stream key {:?}. The channel is already gone.",
+                    stream_key
+                );
+            }
+        }
+    }
+
     fn clean_up_bad_stream(
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
@@ -167,17 +191,17 @@ impl StreamHandlerPoolReal {
             inner.logger,
             "Couldn't process request from CORES package: {}", error
         );
-        if let Some(sender_wrapper) = inner.stream_writer_channels.remove(stream_key) {
-            debug!(
-                Logger::new("TEST"),
-                "clean_up_bad_stream() removed the stream key"
-            );
+        if let Some(stream_senders) = inner.stream_writer_channels.remove(stream_key) {
             debug!(
                 inner.logger,
                 "Removing stream writer for {}",
-                sender_wrapper.writer_data.peer_addr()
+                stream_senders.writer_data.peer_addr()
             );
-            // TODO: GH-800: Send a shutdown signal to the Reader
+            Self::send_shutdown_signal_to_stream_reader(
+                stream_senders.reader_shutdown_tx,
+                stream_key,
+                &inner.logger,
+            )
         }
         Self::send_terminating_package(
             stream_key,
@@ -195,7 +219,6 @@ impl StreamHandlerPoolReal {
         let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
-        let test_logger = Logger::new("TEST");
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
@@ -218,9 +241,7 @@ impl StreamHandlerPoolReal {
                     ),
                 }
             }
-            debug!(test_logger, "Stop right before last_data check!");
             if last_data {
-                debug!(test_logger, "last_data = true");
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
                         debug!(
@@ -229,23 +250,13 @@ impl StreamHandlerPoolReal {
                             stream_key,
                             stream_senders.writer_data.peer_addr()
                         );
-                        // TODO: GH-800: Maybe you want to use a refactored code here
-                        match stream_senders.reader_shutdown.send(()) {
-                            Ok(()) => {
-                                debug!(test_logger, "A shutdown signal was sent.")
-                            }
-                            Err(_e) => {
-                                debug!(
-                                    inner.logger,
-                                    "Unable to send a shutdown signal to the StreamReader for \
-                                    stream key {:?}. The channel is already gone.",
-                                    stream_key
-                                );
-                            }
-                        }
+                        Self::send_shutdown_signal_to_stream_reader(
+                            stream_senders.reader_shutdown_tx,
+                            &stream_key,
+                            &inner.logger,
+                        )
                     }
                     None => {
-                        eprintln!("Failed to Remove stream key: {:?}", stream_key);
                         debug!(
                             inner.logger,
                             "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
@@ -484,7 +495,7 @@ impl StreamHandlerPoolReal {
                         })
                         .expect("ProxyClient is dead");
                     // TODO: GH-800: Maybe you want the refactored code here too
-                    if let Err(_e) = stream_senders.reader_shutdown.send(()) {
+                    if let Err(_e) = stream_senders.reader_shutdown_tx.send(()) {
                         debug!(inner.logger, "Unable to send a shutdown signal to the StreamReader for stream key {:?}. The channel is already gone.", stream_key)
                     };
                     // Test should have a fake server, and the (read and write should be different) server
@@ -735,7 +746,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: tx_to_write,
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown_tx: unbounded().0,
                 },
             );
 
@@ -796,7 +807,7 @@ mod tests {
                 client_request_payload.stream_key,
                 StreamSenders {
                     writer_data: Box::new(tx_to_write),
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown_tx: unbounded().0,
                 },
             );
 
@@ -959,7 +970,7 @@ mod tests {
                     stream_key,
                     StreamSenders {
                         writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown: shutdown_tx,
+                        reader_shutdown_tx: shutdown_tx,
                     },
                 );
                 inner.establisher_factory = Box::new(StreamEstablisherFactoryReal {
@@ -1031,7 +1042,7 @@ mod tests {
                     stream_key,
                     StreamSenders {
                         writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown: shutdown_tx,
+                        reader_shutdown_tx: shutdown_tx,
                     },
                 );
             }
@@ -1092,7 +1103,7 @@ mod tests {
                     stream_key,
                     StreamSenders {
                         writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown: broken_shutdown_channel_tx,
+                        reader_shutdown_tx: broken_shutdown_channel_tx,
                     },
                 );
             }
@@ -1852,7 +1863,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(sender_wrapper),
-                    reader_shutdown: unbounded().0,
+                    reader_shutdown_tx: unbounded().0,
                 },
             );
 
@@ -1955,7 +1966,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                    reader_shutdown: shutdown_tx,
+                    reader_shutdown_tx: shutdown_tx,
                 },
             );
         }
@@ -2007,7 +2018,7 @@ mod tests {
                 stream_key,
                 StreamSenders {
                     writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                    reader_shutdown: broken_shutdown_channel_tx,
+                    reader_shutdown_tx: broken_shutdown_channel_tx,
                 },
             );
         }
@@ -2076,7 +2087,7 @@ mod tests {
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 first_writer_data_tx,
             )),
-            reader_shutdown: first_shutdown_tx,
+            reader_shutdown_tx: first_shutdown_tx,
         };
         let (second_writer_data_tx, _second_writer_data_rx) = futures::sync::mpsc::unbounded();
         let (second_shutdown_tx, _second_shutdown_rx) = unbounded();
@@ -2086,7 +2097,7 @@ mod tests {
                 SocketAddr::from_str("2.3.4.5:6789").unwrap(),
                 second_writer_data_tx,
             )),
-            reader_shutdown: second_shutdown_tx,
+            reader_shutdown_tx: second_shutdown_tx,
         };
         stream_adder_tx
             .send((first_stream_key.clone(), first_stream_senders))

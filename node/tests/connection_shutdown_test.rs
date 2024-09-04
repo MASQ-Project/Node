@@ -2,15 +2,13 @@
 
 pub mod utils;
 
-use crate::utils::CommandConfig;
 use crossbeam_channel::{unbounded, Sender};
 use masq_lib::utils::find_free_port;
-use node_lib::test_utils::read_until_timeout;
 use std::io::{Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::net::{Shutdown, SocketAddr};
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{io, thread};
 
 // 'node' below must not be named '_' alone or disappear, or the MASQNode will be immediately reclaimed.
