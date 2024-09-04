@@ -13,10 +13,10 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
+use actix::{Message, Recipient};
 use crossbeam_channel::{unbounded, Receiver};
-use futures::future;
 use futures::future::Future;
+use futures::{future, Sink};
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::io;
@@ -26,7 +26,8 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
@@ -192,7 +193,7 @@ impl StreamHandlerPoolReal {
             inner.logger,
             "Couldn't process request from CORES package: {}", error
         );
-        if let Some(stream_senders) = inner.stream_writer_channels.remove(stream_key) {
+        if let Some(mut stream_senders) = inner.stream_writer_channels.remove(stream_key) {
             debug!(
                 inner.logger,
                 "Removing stream writer for {}",
@@ -247,7 +248,7 @@ impl StreamHandlerPoolReal {
             if last_data {
                 debug!(test_logger, "last_data = true");
                 match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(stream_senders) => {
+                    Some(mut stream_senders) => {
                         debug!(
                             inner.logger,
                             "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
@@ -499,8 +500,7 @@ impl StreamHandlerPoolReal {
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
-                    // TODO: GH-800: Perhaps you want the function that you created over here
-                    if let Err(_e) = stream_senders.reader_shutdown_tx.try_send(()) {
+                    if let Err(e) = stream_senders.reader_shutdown_tx.try_send(()) {
                         debug!(inner.logger, "Unable to send a shutdown signal to the StreamReader for stream key {:?}. The channel is already gone.", stream_key)
                     };
                     // Test should have a fake server, and the (read and write should be different) server
@@ -578,6 +578,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
@@ -596,11 +597,14 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_proxy_client_subs_from_recorder, make_recorder};
+    use crate::test_utils::recorder_stop_conditions::StopCondition;
+    use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::{Actor, System};
-    use futures::Stream;
+    use core::any::TypeId;
+    use futures::{Poll, Stream};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -609,11 +613,12 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::IpAddr;
     use std::net::SocketAddr;
-    use std::ops::Deref;
+    use std::ops::{Add, Deref};
+    use std::ptr::addr_of;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+    use std::{sync, thread};
     use tokio;
     use tokio::prelude::Async;
     use tokio::sync::mpsc::unbounded_channel;
@@ -940,8 +945,8 @@ mod tests {
     fn while_housekeeping_the_shutdown_signal_is_sent() {
         init_test_logging();
         let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
-        let (shutdown_tx, shutdown_rx) = unbounded_channel();
-        let (stream_adder_tx, _stream_adder_rx) = unbounded();
+        let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
+        let (stream_adder_tx, stream_adder_rx) = unbounded();
         let mut system = System::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key("I should die");
         let client_request_payload = ClientRequestPayload_0v1 {
@@ -965,7 +970,7 @@ mod tests {
         );
         let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
         let peer_actors = peer_actors_builder().build();
-        let subject = StreamHandlerPoolReal::new(
+        let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
             main_cryptde(),
             peer_actors.accountant.report_exit_service_provided.clone(),
@@ -1016,7 +1021,7 @@ mod tests {
         init_test_logging();
         let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
         let mut system = System::new(test_name);
-        let (shutdown_tx, shutdown_rx) = unbounded_channel();
+        let (shutdown_tx, mut shutdown_rx) = unbounded_channel();
         let stream_key = StreamKey::make_meaningful_stream_key("I should die");
         let client_request_payload = ClientRequestPayload_0v1 {
             stream_key,
@@ -1039,7 +1044,7 @@ mod tests {
         );
         let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
         let peer_actors = peer_actors_builder().build();
-        let subject = StreamHandlerPoolReal::new(
+        let mut subject = StreamHandlerPoolReal::new(
             Box::new(ResolverWrapperMock::new()),
             main_cryptde(),
             peer_actors.accountant.report_exit_service_provided.clone(),
@@ -1111,7 +1116,7 @@ mod tests {
             );
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let peer_actors = peer_actors_builder().build();
-            let subject = StreamHandlerPoolReal::new(
+            let mut subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
                 main_cryptde(),
                 peer_actors.accountant.report_exit_service_provided.clone(),
@@ -2103,8 +2108,8 @@ mod tests {
             subject.inner.lock().unwrap().logger = Logger::new(test_name);
         }
         let first_stream_key = StreamKey::make_meaningful_stream_key("first_stream_key");
-        let (first_writer_data_tx, _first_writer_data_rx) = futures::sync::mpsc::unbounded();
-        let (first_shutdown_tx, _first_shutdown_rx) = unbounded_channel();
+        let (first_writer_data_tx, first_writer_data_rx) = futures::sync::mpsc::unbounded();
+        let (first_shutdown_tx, first_shutdown_rx) = unbounded_channel();
         let first_stream_senders = StreamSenders {
             writer_data: Box::new(SenderWrapperReal::new(
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -2112,8 +2117,8 @@ mod tests {
             )),
             reader_shutdown_tx: first_shutdown_tx,
         };
-        let (second_writer_data_tx, _second_writer_data_rx) = futures::sync::mpsc::unbounded();
-        let (second_shutdown_tx, _second_shutdown_rx) = unbounded_channel();
+        let (second_writer_data_tx, second_writer_data_rx) = futures::sync::mpsc::unbounded();
+        let (second_shutdown_tx, second_shutdown_rx) = unbounded_channel();
         let second_stream_key = StreamKey::make_meaningful_stream_key("second_stream_key");
         let second_stream_senders = StreamSenders {
             writer_data: Box::new(SenderWrapperReal::new(
