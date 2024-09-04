@@ -6,7 +6,7 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
-use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use crossbeam_channel::{Receiver, Sender};
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
