@@ -752,7 +752,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'base-sepolia', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -851,7 +851,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'base-sepolia', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]

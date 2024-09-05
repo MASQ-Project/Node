@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
+    BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER,
+    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT,
+    LOWEST_USABLE_INSECURE_PORT, POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -256,6 +256,7 @@ pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
+        BASE_SEPOLIA_FULL_IDENTIFIER,
         POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
@@ -670,11 +671,11 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::common_validators::validate_non_zero_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
+    use std::collections::HashSet;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1141,12 +1142,33 @@ mod tests {
 
     #[test]
     fn official_chain_names_are_reliable() {
-        let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyAmoy);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
-        assert_eq!(iterator.next(), None)
+        let expected_supported_chains = [
+            Chain::PolyMainnet,
+            Chain::EthMainnet,
+            Chain::BaseSepolia,
+            Chain::PolyAmoy,
+            Chain::EthRopsten,
+            Chain::Dev,
+        ]
+        .into_iter()
+        .collect::<HashSet<Chain>>();
+
+        let chain_names_recognizable_by_clap = official_chain_names();
+
+        let chains_from_clap = chain_names_recognizable_by_clap
+            .into_iter()
+            .map(|chain_name| Chain::from(*chain_name))
+            .collect::<HashSet<Chain>>();
+        let differences = chains_from_clap
+            .symmetric_difference(&expected_supported_chains)
+            .collect::<Vec<&Chain>>();
+        assert!(
+            differences.is_empty(),
+            "There are differences in the Clap schema in the collection of supported chains, \
+        between the expected values {:?} and actual {:?}, specifically {:?}",
+            expected_supported_chains,
+            chains_from_clap,
+            differences
+        );
     }
 }

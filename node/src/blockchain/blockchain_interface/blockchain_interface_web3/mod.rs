@@ -579,7 +579,7 @@ where
     fn web3_gas_limit_const_part(chain: Chain) -> u64 {
         match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
+            Chain::PolyMainnet | Chain::PolyAmoy | Chain::BaseSepolia => 70_000,
         }
     }
 
@@ -1629,6 +1629,10 @@ mod tests {
             70_000
         );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
+        assert_eq!(
+            Subject::web3_gas_limit_const_part(Chain::BaseSepolia),
+            70_000
+        );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 
@@ -1842,6 +1846,7 @@ mod tests {
         let gas_price = match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 110,
             Chain::PolyMainnet | Chain::PolyAmoy => 55,
+            Chain::BaseSepolia => todo!(),
         };
         let payment_size_wei = 1_000_000_000_000;
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
