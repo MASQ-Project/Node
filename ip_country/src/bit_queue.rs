@@ -30,7 +30,7 @@ impl BitQueue {
     }
 
     pub fn is_empty(&self) -> bool {
-        ((self.byte_queue.len() * 8) - self.back_blank_bit_count - self.front_blank_bit_count) == 0
+        self.len() == 0
     }
 
     #[allow(unused_assignments)]

@@ -21,8 +21,8 @@ lazy_static! {
 }
 
 pub struct CountryCodeFinder {
-    ipv4: Vec<CountryBlock>,
-    ipv6: Vec<CountryBlock>,
+    pub ipv4: Vec<CountryBlock>,
+    pub ipv6: Vec<CountryBlock>,
 }
 
 impl CountryCodeFinder {
@@ -37,18 +37,15 @@ impl CountryCodeFinder {
         }
     }
 
-    pub fn find_country(
-        country_code_block: &CountryCodeFinder,
-        ip_addr: IpAddr,
-    ) -> Option<Country> {
-        let country_finder: &Vec<CountryBlock> = match ip_addr {
-            IpAddr::V4(_) => &country_code_block.ipv4,
-            IpAddr::V6(_) => &country_code_block.ipv6,
+    pub fn find_country(&self, ip_addr: IpAddr) -> Option<Country> {
+        let country_blocks: &[CountryBlock] = match ip_addr {
+            IpAddr::V4(_) => self.ipv4.as_slice(),
+            IpAddr::V6(_) => self.ipv6.as_slice(),
         };
         let block_index =
-            country_finder.binary_search_by(|block| block.ip_range.ordering_by_range(ip_addr));
+            country_blocks.binary_search_by(|block| block.ip_range.ordering_by_range(ip_addr));
         let country = match block_index {
-            Ok(index) => country_finder[index].country.clone(),
+            Ok(index) => country_blocks[index].country.clone(),
             _ => Country::try_from("ZZ").expect("expected Country"),
         };
         match country.iso3166.as_str() {
@@ -62,6 +59,7 @@ impl CountryCodeFinder {
 mod tests {
     use super::*;
     use crate::country_block_serde::CountryBlockDeserializer;
+    use crate::dbip_country;
     use lazy_static::lazy_static;
     use std::str::FromStr;
     use std::time::SystemTime;
@@ -69,6 +67,10 @@ mod tests {
     lazy_static! {
         static ref COUNTRY_CODE_FINDER_TEST: CountryCodeFinder =
             CountryCodeFinder::new(ipv4_country_data(), ipv6_country_data());
+        static ref FULL_COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
+            crate::dbip_country::ipv4_country_data(),
+            crate::dbip_country::ipv6_country_data()
+        );
     }
 
     pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -166,11 +168,11 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_google() {
-        let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
-            IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
-        )
-        .unwrap();
+        let result = FULL_COUNTRY_CODE_FINDER
+            .find_country(
+                IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
+            )
+            .unwrap();
 
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
@@ -180,7 +182,7 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_cz_ip() {
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
         )
         .unwrap();
@@ -193,18 +195,19 @@ mod tests {
     #[test]
     fn real_test_ipv4_with_sk_ip() {
         let _ = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
         .unwrap();
         let time_start = SystemTime::now();
+
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
         )
         .unwrap();
-        let time_end = SystemTime::now();
 
+        let time_end = SystemTime::now();
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
         assert_eq!(result.name, "Slovakia".to_string());
@@ -219,18 +222,19 @@ mod tests {
     #[test]
     fn real_test_ipv6_with_google() {
         let _ = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
         .unwrap();
         let time_start = SystemTime::now();
+
         let result = CountryCodeFinder::find_country(
-            &COUNTRY_CODE_FINDER,
+            &FULL_COUNTRY_CODE_FINDER,
             IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
         )
         .unwrap();
-        let time_end = SystemTime::now();
 
+        let time_end = SystemTime::now();
         assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
@@ -243,21 +247,21 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_country_blocks_ipv4_and_ipv6_adn_fill_vecs() {
+    fn country_blocks_for_ipv4_and_ipv6_are_deserialized_filled_into_vecs() {
         let time_start = SystemTime::now();
+
         let deserializer_ipv4 = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
             crate::dbip_country::ipv4_country_data(),
         );
         let deserializer_ipv6 = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
             crate::dbip_country::ipv6_country_data(),
         );
-        let time_end = SystemTime::now();
 
+        let time_end = SystemTime::now();
         let time_start_fill = SystemTime::now();
         let _ = deserializer_ipv4.collect_vec();
         let _ = deserializer_ipv6.collect_vec();
         let time_end_fill = SystemTime::now();
-
         let duration_deserialize = time_end.duration_since(time_start).unwrap();
         let duration_fill = time_end_fill.duration_since(time_start_fill).unwrap();
         assert!(
@@ -269,6 +273,24 @@ mod tests {
             duration_fill.as_secs() < 8,
             "Duration of the filling the vectors was too long: {} ms",
             duration_fill.as_millis()
+        );
+    }
+
+    #[test]
+    fn check_ipv4_ipv6_country_blocks_length() {
+        let _result = FULL_COUNTRY_CODE_FINDER
+            .find_country(IpAddr::from_str("142.250.191.132").unwrap())
+            .unwrap();
+        let country_block_len_ipv4 = FULL_COUNTRY_CODE_FINDER.ipv4.len();
+        let country_block_len_ipv6 = FULL_COUNTRY_CODE_FINDER.ipv6.len();
+
+        assert_eq!(
+            country_block_len_ipv4,
+            dbip_country::ipv4_country_block_count()
+        );
+        assert_eq!(
+            country_block_len_ipv6,
+            dbip_country::ipv6_country_block_count()
         );
     }
 }

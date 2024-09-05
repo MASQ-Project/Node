@@ -11,6 +11,10 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
+pub fn ipv4_country_data_blocks() -> usize {
+        7
+}
+
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
@@ -19,4 +23,8 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         ],
         302
     )
+}
+
+pub fn ipv6_country_data_blocks() -> usize {
+        5
 }

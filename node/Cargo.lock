@@ -2045,6 +2045,7 @@ dependencies = [
  "ethereum-types",
  "ethsign-crypto",
  "futures",
+ "ip_country",
  "itertools 0.10.3",
  "lazy_static",
  "log 0.4.18",

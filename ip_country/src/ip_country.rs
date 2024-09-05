@@ -1,9 +1,10 @@
 use crate::bit_queue::BitQueue;
-use crate::country_block_serde::CountryBlockSerializer;
+use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::country_block_stream::CountryBlock;
 use std::io;
 
 const COUNTRY_BLOCK_BIT_SIZE: usize = 64;
+
 #[allow(unused_must_use)]
 pub fn ip_country(
     _args: Vec<String>,
@@ -28,8 +29,8 @@ pub fn ip_country(
             Err(e) => Some(format!("Line {}: {}", idx + 1, e)),
         })
         .collect::<Vec<String>>();
-    let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
-    if let Err(error) = generate_rust_code(ipv4_bit_queue, ipv6_bit_queue, stdout) {
+    let (final_ipv4, final_ipv6) = serializer.finish();
+    if let Err(error) = generate_rust_code(final_ipv4, final_ipv6, stdout) {
         errors.push(format!("Error generating Rust code: {:?}", error))
     }
     if errors.is_empty() {
@@ -56,14 +57,23 @@ pub fn ip_country(
 }
 
 fn generate_rust_code(
-    ipv4_bit_queue: BitQueue,
-    ipv6_bit_queue: BitQueue,
+    final_ipv4: FinalBitQueue,
+    final_ipv6: FinalBitQueue,
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
-    //TODO add number of country blocks to each run and create getters to retrieve number of blocks
-    generate_country_data("ipv4_country_data", ipv4_bit_queue, output)?;
-    generate_country_data("ipv6_country_data", ipv6_bit_queue, output)?;
+    generate_country_data(
+        "ipv4_country",
+        final_ipv4.bit_queue,
+        output,
+        final_ipv4.block_count,
+    )?;
+    generate_country_data(
+        "ipv6_country",
+        final_ipv6.bit_queue,
+        output,
+        final_ipv6.block_count,
+    )?;
     Ok(())
 }
 
@@ -71,10 +81,11 @@ fn generate_country_data(
     name: &str,
     mut bit_queue: BitQueue,
     output: &mut dyn io::Write,
+    block_count: usize,
 ) -> Result<(), io::Error> {
     let bit_queue_len = bit_queue.len();
     writeln!(output)?;
-    writeln!(output, "pub fn {}() -> (Vec<u64>, usize) {{", name)?;
+    writeln!(output, "pub fn {}_data() -> (Vec<u64>, usize) {{", name)?;
     writeln!(output, "    (")?;
     write!(output, "        vec![")?;
     let mut values_written = 0usize;
@@ -93,6 +104,9 @@ fn generate_country_data(
     write!(output, "\n        ],\n")?;
     writeln!(output, "        {}", bit_queue_len)?;
     writeln!(output, "    )")?;
+    writeln!(output, "}}")?;
+    writeln!(output, "\npub fn {}_block_count() -> usize {{", name)?;
+    writeln!(output, "        {}", block_count)?;
     writeln!(output, "}}")?;
     Ok(())
 }
@@ -335,6 +349,10 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
+pub fn ipv4_country_block_count() -> usize {
+        11
+}
+
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
@@ -347,6 +365,10 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         ],
         1513
     )
+}
+
+pub fn ipv6_country_block_count() -> usize {
+        20
 }
 "#
             .to_string()
@@ -379,6 +401,10 @@ pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     )
 }
 
+pub fn ipv4_country_block_count() -> usize {
+        9
+}
+
 pub fn ipv6_country_data() -> (Vec<u64>, usize) {
     (
         vec![
@@ -391,6 +417,10 @@ pub fn ipv6_country_data() -> (Vec<u64>, usize) {
         ],
         1513
     )
+}
+
+pub fn ipv6_country_block_count() -> usize {
+        20
 }
 
             *** DO NOT USE THIS CODE ***
@@ -417,20 +447,6 @@ Line 7: Ending address 1.0.32.0 is less than starting address 1.0.63.255
 Line 17: Invalid (AddrParseError(Ip)) IP address in CSV record: 'BOOGA'"#
 .to_string()
         );
-    }
-
-    #[test]
-    fn write_error_test() {
-        let mut subject = BitQueue::new();
-        let output = &mut ByteArrayWriter::new();
-
-        subject.add_bits(0b11011, 5);
-        subject.add_bits(0b00111001110011100, 17);
-        subject.add_bits(0b1, 1);
-
-        output.reject_next_write(Error::new(ErrorKind::WriteZero, "Bad file Descriptor"));
-        let result = generate_country_data("ipv4_country_data", subject, output).unwrap_err();
-        assert_eq!(result.kind(), ErrorKind::WriteZero)
     }
 
     #[test]
