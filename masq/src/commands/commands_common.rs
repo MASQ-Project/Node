@@ -8,7 +8,7 @@ use crate::masq_short_writeln;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use futures::future::join_all;
-use masq_lib::intentionally_blank;
+use masq_lib::{declare_as_any, intentionally_blank};
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
 use std::any::Any;
@@ -32,7 +32,7 @@ pub enum CommandError {
 impl Display for CommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let msg = match self {
-            ConnectionProblem(s) => format!("Connection problem: {}", s),
+            ConnectionProblem(s) => format!("Can't connect to Daemon or Node: \"{}\". Probably this means the Daemon isn't running.\n", s),
             Transmission(s) => format!("Transmission problem: {}", s),
             Reception(s) => format!("Reception problem: {}", s),
             UnexpectedResponse(e) => format!("{}", e),
@@ -61,9 +61,7 @@ pub trait Command: Debug {
         term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError>;
 
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
+    declare_as_any!();
 }
 
 pub async fn send_non_conversational_msg<I>(
@@ -238,7 +236,7 @@ mod tests {
     fn command_error_displays_properly() {
         assert_eq!(
             format!("{}", ConnectionProblem("string".to_string())),
-            "Connection problem: string".to_string()
+            "Can't connect to Daemon or Node: \"string\". Probably this means the Daemon isn't running.\n".to_string()
         );
         assert_eq!(
             format!("{}", Transmission("string".to_string())),

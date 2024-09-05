@@ -8,7 +8,7 @@ pub trait TerminalInterfaceFactory {
     fn make(
         &self,
         is_interactive: bool,
-        streams_factory: Box<dyn AsyncStdStreamsFactory>,
+        streams_factory: &dyn AsyncStdStreamsFactory,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>;
 }
 
@@ -19,7 +19,7 @@ impl TerminalInterfaceFactory for TerminalInterfaceFactoryReal {
     fn make(
         &self,
         is_interactive: bool,
-        streams_factory: Box<dyn AsyncStdStreamsFactory>,
+        streams_factory: &dyn AsyncStdStreamsFactory,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
         todo!()
     }

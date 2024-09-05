@@ -1,34 +1,33 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context_factory::{CommandContextFactory, CommandContextFactoryReal};
-use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
-use crate::command_factory::{CommandFactory, CommandFactoryReal};
+use crate::command_factory::CommandFactoryError::{UnrecognizedSubcommand};
+use crate::command_factory::{CommandFactory};
+use crate::command_factory_factory::{CommandFactoryFactory, CommandFactoryFactoryReal};
 use crate::command_processor::{
     CommandExecutionHelperFactory, CommandExecutionHelperFactoryReal, CommandProcessor,
     CommandProcessorFactory,
 };
+use crate::commands::commands_common::CommandError;
 use crate::communications::broadcast_handlers::{
-    BroadcastHandle, BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal,
+    BroadcastHandle, BroadcastHandler,
 };
-use crate::non_interactive_clap::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
-use crate::terminal::async_streams::{
-    AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal,
-};
+use crate::non_interactive_clap::{InitialArgsParser, InitialArgsParserReal};
+use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal};
 use crate::terminal::terminal_interface_factory::{
     TerminalInterfaceFactory, TerminalInterfaceFactoryReal,
 };
-use crate::terminal::{RWTermInterface, TerminalWriter, WTermInterface};
+use crate::terminal::{RWTermInterface, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
 use std::io::Write;
 use std::ops::Not;
 use std::sync::Arc;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use crate::command_factory_factory::{CommandFactoryFactory, CommandFactoryFactoryReal};
-use crate::commands::commands_common::CommandError;
+use crate::{write_async_stream_and_flush};
 
 pub struct Main {
-    std_streams_factory_opt: Option<Box<dyn AsyncStdStreamsFactory>>,
+    std_streams_factory: Box<dyn AsyncStdStreamsFactory>,
     initial_args_parser: Box<dyn InitialArgsParser>,
     term_interface_factory: Box<dyn TerminalInterfaceFactory>,
     command_factory_factory: Box<dyn CommandFactoryFactory>,
@@ -45,43 +44,33 @@ impl Default for Main {
 
 impl Main {
     pub async fn go(&mut self, args: &[String]) -> u8 {
-        let std_streams_factory = self.acquire_stream_factory();
-        let incidental_streams = std_streams_factory.make();
+        let std_streams_factory = &self.std_streams_factory;
+        let mut incidental_streams = std_streams_factory.make();
         let initialization_args = self
             .initial_args_parser
             .parse_initialization_args(args, &incidental_streams);
         let initial_subcommand_opt = Self::extract_subcommand(args);
         let term_interface = self
             .term_interface_factory
-            .make(initial_subcommand_opt.is_none(), std_streams_factory);
+            .make(initial_subcommand_opt.is_none(), std_streams_factory.as_ref());
 
         match self
             .jump_on_in_new_shift(
                 initialization_args.ui_port,
+                &mut incidental_streams,
                 term_interface,
                 initial_subcommand_opt.as_deref(),
             )
             .await
         {
             Ok(_) => 0,
-            Err(_) => {
-                // let mut streams = self.std_streams_factory.make();
-                //         streams.stderr.write(format!(
-                //             "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon \
-                //             isn't running.\n",
-                //             error
-                //         ).as_bytes()).await.expect("Error writing failed");
-                //         return Self::bool_into_numeric_code(false);
-
-                //self.write_err()
-                1
-            }
+            Err(_) => 1
         }
     }
 
     pub fn new() -> Self {
         Self {
-            std_streams_factory_opt: Some(Box::new(AsyncStdStreamsFactoryReal::default())),
+            std_streams_factory: Box::new(AsyncStdStreamsFactoryReal::default()),
             initial_args_parser: Box::new(InitialArgsParserReal::default()),
             term_interface_factory: Box::new(TerminalInterfaceFactoryReal::default()),
             command_factory_factory: Box::new(CommandFactoryFactoryReal::default()),
@@ -91,15 +80,10 @@ impl Main {
         }
     }
 
-    pub fn acquire_stream_factory(&mut self) -> Box<dyn AsyncStdStreamsFactory> {
-        self.std_streams_factory_opt
-            .take()
-            .expect("Streams factory wasn't properly initialized")
-    }
-
     async fn jump_on_in_new_shift(
         &mut self,
         ui_port: u16,
+        incidental_streams: &mut AsyncStdStreams,
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         initial_subcommand_opt: Option<&[String]>,
     ) -> Result<(), ()> {
@@ -118,9 +102,11 @@ impl Main {
             .await
         {
             Ok(processor) => processor,
-            Err(error) => {
-                todo!()
+            Err(e) => {
+                write_async_stream_and_flush!(&mut incidental_streams.stderr, "Processor initialization failed: {}", e);
+                return Err(())
             }
+
         };
 
         let result = command_processor
@@ -130,10 +116,6 @@ impl Main {
         command_processor.close();
 
         result
-    }
-
-    fn write_err(&self, stderr: &mut (dyn AsyncWrite + Send + Unpin), msg: &str) {
-        todo!()
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
@@ -155,14 +137,6 @@ impl Main {
             .find(|(_index, (left, right))| both_do_not_start_with_two_dashes(left, right))
             .map(|(index, _)| args.iter().skip(index + 1).cloned().collect())
     }
-
-    fn bool_into_numeric_code(bool_flag: bool) -> u8 {
-        if bool_flag {
-            0
-        } else {
-            1
-        }
-    }
 }
 
 #[cfg(test)]
@@ -174,14 +148,20 @@ mod tests {
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
+    use crate::run_modes::tests::StreamType::{Stderr, Stdout};
     use crate::terminal::{ReadError, ReadInput, WTermInterfaceImplementingSend};
-    use crate::test_utils::mocks::{make_async_std_streams, make_terminal_writer, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles, CommandContextFactoryMock, CommandContextMock, CommandExecutionHelperFactoryMock, CommandExecutionHelperMock, CommandFactoryFactoryMock, CommandFactoryMock, CommandProcessorMock, InitialArgsParserMock, MockCommand, StdinMock, StdinMockBuilder, TermInterfaceMock, TerminalInterfaceFactoryMock};
+    use crate::test_utils::mocks::{
+        make_async_std_streams, make_terminal_writer, AsyncStdStreamsFactoryMock,
+        AsyncTestStreamHandles, CommandContextFactoryMock, CommandContextMock,
+        CommandExecutionHelperFactoryMock, CommandExecutionHelperMock, CommandFactoryFactoryMock,
+        CommandFactoryMock, CommandProcessorMock, InitialArgsParserMock, MockCommand, StdinMock,
+        StdinMockBuilder, TermInterfaceMock, TerminalInterfaceFactoryMock,
+    };
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
-    use crate::run_modes::tests::StreamType::{Stdout, Stderr};
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -210,8 +190,8 @@ mod tests {
         let command_factory = CommandFactoryMock::default()
             .make_params(&c_make_params_arc)
             .make_result(Ok(Box::new(command)));
-        let command_factory_factory = CommandFactoryFactoryMock::default()
-            .make_result(Box::new(command_factory));
+        let command_factory_factory =
+            CommandFactoryFactoryMock::default().make_result(Box::new(command_factory));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context = CommandContextMock::default().close_params(&close_params_arc);
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
@@ -222,9 +202,10 @@ mod tests {
         let command_execution_helper = CommandExecutionHelperMock::default()
             .execute_command_params(&execute_command_params_arc)
             .execute_command_result(Ok(()));
-        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default().make_result(Box::new(command_execution_helper));
+        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
+            .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(command_factory_factory),
@@ -279,7 +260,8 @@ mod tests {
             ]
         );
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
-        let (command, captured_command_context_id, captured_terminal_interface_id) = execute_command_params.remove(0);
+        let (command, captured_command_context_id, captured_terminal_interface_id) =
+            execute_command_params.remove(0);
         assert!(execute_command_params.is_empty());
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
@@ -295,12 +277,16 @@ mod tests {
         );
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(*transact_params, vec![(UiShutdownRequest {}.tmb(1), 1000)]);
-        term_interface_stream_handles.wait_until_stdout_is_not_empty().await;
+        term_interface_stream_handles
+            .await_stdout_is_not_empty()
+            .await;
         assert_eq!(
             term_interface_stream_handles.stdout_all_in_one(),
             "MockCommand output"
         );
-        term_interface_stream_handles.wait_until_stderr_is_not_empty().await;
+        term_interface_stream_handles
+            .await_stderr_is_not_empty()
+            .await;
         assert_eq!(
             term_interface_stream_handles.stderr_all_in_one(),
             "MockCommand error"
@@ -329,8 +315,8 @@ mod tests {
         let command_factory = CommandFactoryMock::default()
             .make_params(&c_make_params_arc)
             .make_result(Err(UnrecognizedSubcommand("booga".to_string())));
-        let command_factory_factory = CommandFactoryFactoryMock::default()
-            .make_result(Box::new(command_factory));
+        let command_factory_factory =
+            CommandFactoryFactoryMock::default().make_result(Box::new(command_factory));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandContextMock::default().close_params(&close_params_arc);
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
@@ -341,7 +327,7 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(command_factory_factory),
@@ -366,14 +352,16 @@ mod tests {
             &processor_aspiring_std_stream_handles,
             &term_interface_stream_handles,
             None,
-            Some(BareStreamsFromStreamFactoryAssertionMatrix {
-                write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "glum glum" }.into(),
-            }),
+            None,
             None,
             Some(ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &term_interface_stream_handles,
-                    write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "Unrecognized command: 'booga'\n" }.into()
+                    write_streams: OnePieceWriteStreamsAssertion {
+                        stdout: "",
+                        stderr: "Unrecognized command: 'booga'\n",
+                    }
+                    .into(),
                 },
                 read_attempts_opt: None,
             }),
@@ -450,8 +438,8 @@ mod tests {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
         let command_factory =
             CommandFactoryMock::default().make_result(Ok(Box::new(command.clone())));
-        let command_factory_factory = CommandFactoryFactoryMock::default()
-            .make_result(Box::new(command_factory));
+        let command_factory_factory =
+            CommandFactoryFactoryMock::default().make_result(Box::new(command_factory));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -474,7 +462,7 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(command_factory_factory),
@@ -495,14 +483,16 @@ mod tests {
             &processor_aspiring_std_stream_handles,
             &term_interface_stream_handles,
             broadcast_handler_term_interface_opt.as_deref(),
-            Some(BareStreamsFromStreamFactoryAssertionMatrix {
-                write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "grrrrrr"}.into(),
-            }),
+            None,
             None,
             Some(ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &term_interface_stream_handles,
-                    write_streams: OnePieceWriteStreamsAssertion { stdout: "", stderr: "Transmission problem: Booga!\n"}.into()
+                    write_streams: OnePieceWriteStreamsAssertion {
+                        stdout: "",
+                        stderr: "Transmission problem: Booga!\n",
+                    }
+                    .into(),
                 },
                 read_attempts_opt: None,
             }),
@@ -511,7 +501,8 @@ mod tests {
         .assert()
         .await;
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
-        let (dyn_command, captured_command_context_id, captured_term_interface_id) = execute_command_params.remove(0);
+        let (dyn_command, captured_command_context_id, captured_term_interface_id) =
+            execute_command_params.remove(0);
         let actual_command = dyn_command.as_any().downcast_ref::<MockCommand>().unwrap();
         assert_eq!(actual_command.message, command.message);
         assert!(execute_command_params.is_empty());
@@ -536,7 +527,7 @@ mod tests {
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default();
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(CommandFactoryFactoryMock::default()),
@@ -558,18 +549,15 @@ mod tests {
             &term_interface_stream_handles,
             broadcast_handler_term_interface_opt.as_deref(),
             Some(BareStreamsFromStreamFactoryAssertionMatrix {
-                write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "grrrghghghghrrr"}.into(),
+                write_streams: OnePieceWriteStreamsAssertion {
+                    stdout: "",
+                    stderr: "Processor initialization failed: Can't connect to Daemon or Node: \
+                    \"booga\". Probably this means the Daemon isn't running.\n",
+                }
+                .into(),
             }),
             None,
-            Some(ProcessorTerminalInterfaceAssertionMatrix {
-                standard_assertions: TerminalInterfaceAssertionMatrix {
-                    term_interface_stream_handles: &term_interface_stream_handles,
-                    write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "\
-                    Can't connect to Daemon or Node \
-            (ConnectionProblem(\"booga\")). Probably this means the Daemon isn't running.\n"}.into()
-                },
-                read_attempts_opt: None,
-            }),
+            None,
             None,
         )
         .assert()
@@ -606,7 +594,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn noninteractive_mode_works_when_special_ui_port_is_required() {
+    async fn non_interactive_mode_works_when_special_ui_port_is_required() {
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -621,8 +609,8 @@ mod tests {
         let command_factory = CommandFactoryMock::default()
             .make_params(&c_make_params_arc)
             .make_result(Ok(Box::new(SetupCommand::new(&[]).unwrap())));
-        let command_factory_factory = CommandFactoryFactoryMock::default()
-            .make_result(Box::new(command_factory));
+        let command_factory_factory =
+            CommandFactoryFactoryMock::default().make_result(Box::new(command_factory));
         let command_context = CommandContextMock::default();
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
@@ -635,7 +623,7 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserReal::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(command_factory_factory),
@@ -673,12 +661,10 @@ mod tests {
         .assert()
         .await;
         let mut command_execution_params = command_execution_params_arc.lock().unwrap();
-        let (command, captured_command_context_id, captured_term_interface_id) = command_execution_params.remove(0);
+        let (command, captured_command_context_id, captured_term_interface_id) =
+            command_execution_params.remove(0);
         assert_eq!(
-            *command
-                .as_any()
-                .downcast_ref::<SetupCommand>()
-                .unwrap(),
+            *command.as_any().downcast_ref::<SetupCommand>().unwrap(),
             SetupCommand { values: vec![] }
         );
         assert!(command_execution_params.is_empty())
@@ -783,8 +769,8 @@ mod tests {
             .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
             .make_result(Ok(Box::new(FakeCommand::new("start command"))));
-        let command_factory_factory = CommandFactoryFactoryMock::default()
-            .make_result(Box::new(command_factory));
+        let command_factory_factory =
+            CommandFactoryFactoryMock::default().make_result(Box::new(command_factory));
         let command_context = CommandContextMock::new();
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
@@ -799,7 +785,7 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(command_factory_factory),
@@ -839,12 +825,21 @@ mod tests {
             Some(ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &term_interface_stream_handles,
-                    write_streams: FlushesWriteStreamsAssertion{ stdout: vec!["setup command", "start command"], stderr: vec![] }.into()},
+                    write_streams: FlushesWriteStreamsAssertion {
+                        stdout: vec!["setup command", "start command"],
+                        stderr: vec![],
+                    }
+                    .into(),
+                },
                 read_attempts_opt: Some(3),
             }),
             Some(TerminalInterfaceAssertionMatrix {
                 term_interface_stream_handles: &term_interface_stream_handles,
-                write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "" }.into(),
+                write_streams: OnePieceWriteStreamsAssertion {
+                    stdout: "",
+                    stderr: "",
+                }
+                .into(),
             }),
         )
         .assert()
@@ -879,7 +874,7 @@ mod tests {
             .make_result(Ok(Box::new(command_context)));
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default();
         let mut subject = Main {
-            std_streams_factory_opt: Some(Box::new(std_streams_factory)),
+            std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_factory: Box::new(CommandFactoryFactoryMock::default()),
@@ -912,13 +907,21 @@ mod tests {
             Some(ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &term_interface_stream_handles,
-                    write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr:
-                    "ConnectionRefused\n"}.into()},
+                    write_streams: OnePieceWriteStreamsAssertion {
+                        stdout: "",
+                        stderr: "ConnectionRefused\n",
+                    }
+                    .into(),
+                },
                 read_attempts_opt: Some(1), // TODO does this work?
             }),
             Some(TerminalInterfaceAssertionMatrix {
                 term_interface_stream_handles: &term_interface_stream_handles,
-                write_streams: OnePieceWriteStreamsAssertion{ stdout: "", stderr: "" }.into(),
+                write_streams: OnePieceWriteStreamsAssertion {
+                    stdout: "",
+                    stderr: "",
+                }
+                .into(),
             }),
         )
         .assert()
@@ -928,8 +931,10 @@ mod tests {
     }
 
     struct StdStreamsAssertionMatrix<'test> {
-        processor_std_streams: AssertionUnit<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
-        incidental_std_streams: AssertionUnit<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
+        processor_std_streams:
+            AssertionUnit<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
+        incidental_std_streams:
+            AssertionUnit<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
         processor_term_interface:
             AssertionUnit<'test, ProcessorTerminalInterfaceAssertionMatrix<'test>>,
         broadcast_handler_term_interface: BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>,
@@ -955,20 +960,22 @@ mod tests {
     #[derive(Debug)]
     enum StreamType {
         Stdout,
-        Stderr
+        Stderr,
     }
 
-    trait AssertionValuesWithTestableExpectedStreamOutputEmptiness{
-        fn is_empty_stdout_output_expected(&self)->bool;
-        fn is_empty_stderr_output_expected(&self)->bool;
+    trait AssertionValuesWithTestableExpectedStreamOutputEmptiness {
+        fn is_empty_stdout_output_expected(&self) -> bool;
+        fn is_empty_stderr_output_expected(&self) -> bool;
     }
 
-    struct OnePieceWriteStreamsAssertion<'test>{
+    struct OnePieceWriteStreamsAssertion<'test> {
         stdout: &'test str,
-        stderr: &'test str
+        stderr: &'test str,
     }
 
-    impl AssertionValuesWithTestableExpectedStreamOutputEmptiness for OnePieceWriteStreamsAssertion<'_>{
+    impl AssertionValuesWithTestableExpectedStreamOutputEmptiness
+        for OnePieceWriteStreamsAssertion<'_>
+    {
         fn is_empty_stdout_output_expected(&self) -> bool {
             self.stdout.is_empty()
         }
@@ -978,12 +985,12 @@ mod tests {
         }
     }
 
-    struct FlushesWriteStreamsAssertion<'test>{
+    struct FlushesWriteStreamsAssertion<'test> {
         stdout: Vec<&'test str>,
-        stderr: Vec<&'test str>
+        stderr: Vec<&'test str>,
     }
 
-    impl AssertionValuesWithTestableExpectedStreamOutputEmptiness for FlushesWriteStreamsAssertion<'_>{
+    impl AssertionValuesWithTestableExpectedStreamOutputEmptiness for FlushesWriteStreamsAssertion<'_> {
         fn is_empty_stdout_output_expected(&self) -> bool {
             self.stdout.is_empty()
         }
@@ -994,18 +1001,20 @@ mod tests {
     }
 
     struct WriteStreamsAssertion<'test> {
-        one_piece_or_distinct_flushes: Either<OnePieceWriteStreamsAssertion<'test>,FlushesWriteStreamsAssertion<'test>>
-        // expected_stdout: EitherOnePieceOrFlushedStrings<'test>,
-        // expected_stderr: EitherOnePieceOrFlushedStrings<'test>,
+        one_piece_or_distinct_flushes:
+            Either<OnePieceWriteStreamsAssertion<'test>, FlushesWriteStreamsAssertion<'test>>, // expected_stdout: EitherOnePieceOrFlushedStrings<'test>,
+                                                                                               // expected_stderr: EitherOnePieceOrFlushedStrings<'test>,
     }
 
-    impl <'test> From<OnePieceWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test>{
+    impl<'test> From<OnePieceWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test> {
         fn from(assertion: OnePieceWriteStreamsAssertion<'test>) -> Self {
-            WriteStreamsAssertion{ one_piece_or_distinct_flushes: Either::Left(assertion) }
+            WriteStreamsAssertion {
+                one_piece_or_distinct_flushes: Either::Left(assertion),
+            }
         }
     }
 
-    impl <'test> From<FlushesWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test>{
+    impl<'test> From<FlushesWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test> {
         fn from(value: FlushesWriteStreamsAssertion<'test>) -> Self {
             todo!()
         }
@@ -1091,15 +1100,16 @@ mod tests {
                     BroadcastHandlerTerminalInterfaceAssertionMatrix {
                         w_term_interface_opt: broadcast_handler_term_interface_opt,
                         expected_std_streams_usage_opt:
-                        expected_data_on_broadcast_handler_term_interface_opt,
+                            expected_data_on_broadcast_handler_term_interface_opt,
                     },
             }
         }
 
         async fn assert(self) {
             let processor_aspiring_streams = self.processor_std_streams;
-            let expected_writes =
-                Self::prepare_assertion_values_of_simple_streams(processor_aspiring_streams.assertions_opt);
+            let expected_writes = Self::prepare_assertion_values_of_simple_streams(
+                processor_aspiring_streams.assertions_opt,
+            );
             assert_stream_writes(processor_aspiring_streams.handles, expected_writes).await;
             assert_stream_reads(processor_aspiring_streams.handles, None);
 
@@ -1118,10 +1128,7 @@ mod tests {
                     ),
                     None => Self::null_expected(),
                 };
-            assert_stream_writes(
-                processor_term_interface.handles,
-                expected_writes
-            ).await;
+            assert_stream_writes(processor_term_interface.handles, expected_writes).await;
             assert_stream_reads(processor_term_interface.handles, expected_read_attempts_opt);
 
             let broadcast_term_interface = self.broadcast_handler_term_interface;
@@ -1134,12 +1141,9 @@ mod tests {
 
         fn prepare_assertion_values_of_simple_streams(
             matrix_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
-        ) -> WriteStreamsAssertion
-         {
+        ) -> WriteStreamsAssertion {
             match matrix_opt {
-                Some(assertion_values) => (
-                   assertion_values.write_streams
-                ),
+                Some(assertion_values) => (assertion_values.write_streams),
                 None => {
                     let (write_streams, _) = Self::null_expected();
                     write_streams
@@ -1147,12 +1151,15 @@ mod tests {
             }
         }
 
-        fn null_expected() -> (
-            WriteStreamsAssertion<'test>,
-            Option<usize>,
-        ) {
+        fn null_expected() -> (WriteStreamsAssertion<'test>, Option<usize>) {
             (
-                OnePieceWriteStreamsAssertion{ stdout: "", stderr: "" }.into(), None)
+                OnePieceWriteStreamsAssertion {
+                    stdout: "",
+                    stderr: "",
+                }
+                .into(),
+                None,
+            )
         }
     }
 
@@ -1197,31 +1204,35 @@ mod tests {
                     original_stream_handles,
                     &one_piece,
                     |original_stream_handles| original_stream_handles.stdout_all_in_one(),
-                    |one_piece|one_piece.stdout.to_string(),
-                ).await;
+                    |one_piece| one_piece.stdout.to_string(),
+                )
+                .await;
                 assert_single_write_stream(
                     Stderr,
                     original_stream_handles,
                     &one_piece,
                     |original_stream_handles| original_stream_handles.stderr_all_in_one(),
-                    |one_piece|one_piece.stderr.to_string(),
-                ).await
-            },
+                    |one_piece| one_piece.stderr.to_string(),
+                )
+                .await
+            }
             Either::Right(flushes) => {
                 assert_single_write_stream(
                     Stdout,
                     original_stream_handles,
                     &flushes,
                     |original_stream_handles| original_stream_handles.stdout_flushed_strings(),
-                    |flushes|owned_strings(&flushes.stdout),
-                ).await;
+                    |flushes| owned_strings(&flushes.stdout),
+                )
+                .await;
                 assert_single_write_stream(
                     Stderr,
                     original_stream_handles,
                     &flushes,
                     |original_stream_handles| original_stream_handles.stderr_flushed_strings(),
-                    |flushes|owned_strings(&flushes.stderr),
-                ).await
+                    |flushes| owned_strings(&flushes.stderr),
+                )
+                .await
             }
         }
     }
@@ -1234,20 +1245,41 @@ mod tests {
         expected_value_extractor: Fn2,
     ) where
         ExpectedValue: Debug + PartialEq,
-        Fn1: Fn(&AsyncTestStreamHandles)-> ExpectedValue,
-        Fn2: Fn(&AssertionValues)-> ExpectedValue,
-        AssertionValues: AssertionValuesWithTestableExpectedStreamOutputEmptiness
+        Fn1: Fn(&AsyncTestStreamHandles) -> ExpectedValue,
+        Fn2: Fn(&AssertionValues) -> ExpectedValue,
+        AssertionValues: AssertionValuesWithTestableExpectedStreamOutputEmptiness,
     {
-        let should_we_try_awaiting_some_data = match std_stream {
+        let is_emptiness_expected = match std_stream {
             Stdout => preliminarily_examinable_assertion.is_empty_stdout_output_expected(),
-            Stderr => preliminarily_examinable_assertion.is_empty_stderr_output_expected()
+            Stderr => preliminarily_examinable_assertion.is_empty_stderr_output_expected(),
         };
 
-        match should_we_try_awaiting_some_data {
-            false => (),
-            true => match std_stream {
-                Stdout => original_stream_handles.wait_until_stdout_is_not_empty().await,
-                Stderr => original_stream_handles.wait_until_stderr_is_not_empty().await
+        match is_emptiness_expected {
+            true => (),
+            false => {
+                let expected_value_debug = || {
+                    format!(
+                        "{:?}",
+                        expected_value_extractor(preliminarily_examinable_assertion)
+                    )
+                };
+
+                match std_stream {
+                    Stdout => {
+                        original_stream_handles
+                            .await_stdout_is_not_empty_or_panic_with_expected(
+                                &expected_value_debug(),
+                            )
+                            .await
+                    }
+                    Stderr => {
+                        original_stream_handles
+                            .await_stderr_is_not_empty_or_panic_with_expected(
+                                &expected_value_debug(),
+                            )
+                            .await
+                    }
+                }
             }
         }
 
@@ -1304,10 +1336,18 @@ mod tests {
     ) {
         match expected_read_attempts_opt {
             Some(expected) => {
-                let actual = original_stream_handles.stdin_opt.as_ref().unwrap().reading_attempts();
-                assert_eq!(actual, expected, "Expected read attempts ({}) don't match the actual count {}", expected, actual)
+                let actual = original_stream_handles
+                    .stdin_opt
+                    .as_ref()
+                    .unwrap()
+                    .reading_attempts();
+                assert_eq!(
+                    actual, expected,
+                    "Expected read attempts ({}) don't match the actual count {}",
+                    expected, actual
+                )
             }
-            None => ()
+            None => (),
         }
     }
 }

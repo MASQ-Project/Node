@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::sync::Mutex;
 use lazy_static::lazy_static;
+use std::sync::Mutex;
 
 //The issues we are to solve might look as follows:
 
@@ -82,7 +82,8 @@ macro_rules! arbitrary_id_stamp_in_trait_impl {
             // Preventing unnecessary writing more code in tests, this puts in a sentinel
             // with a new unique ID which is certainly not looked for in any of those
             // running tests.
-            self.arbitrary_id_stamp_opt.unwrap_or(ArbitraryIdStamp::new())
+            self.arbitrary_id_stamp_opt
+                .unwrap_or(ArbitraryIdStamp::new())
         }
     };
 }
@@ -97,7 +98,6 @@ macro_rules! set_arbitrary_id_stamp_in_mock_impl {
     };
 }
 
-
 #[cfg(test)]
 mod example {
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -107,9 +107,9 @@ mod example {
     // This is the trait object that requires some specific identification - the id stamp
     // is going to help there
     use super::*;
+    use crate::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use std::cell::RefCell;
     use std::sync::Arc;
-    use crate::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     pub(in crate::test_utils) trait FirstTrait {
         fn whatever_method(&self) -> String;

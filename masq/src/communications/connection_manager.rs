@@ -758,14 +758,12 @@ pub struct CloseSignalling {
 
 impl CloseSignalling {
     pub fn new(async_signal: BroadcastReceiver<()>, sync_flag: Arc<AtomicBool>) -> Self {
-        Self{
+        Self {
             async_signal,
             sync_flag,
         }
     }
-    pub fn dup_receiver(
-        &self,
-    ) -> BroadcastReceiver<()> {
+    pub fn dup_receiver(&self) -> BroadcastReceiver<()> {
         self.async_signal.resubscribe()
     }
 
@@ -1014,10 +1012,14 @@ mod tests {
         let (_, close_sig) = CloseSignalling::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle =
-            make_client_listener(port, listener_to_manager_tx.clone(), close_sig.async_signal, 4_000)
-                .await
-                .unwrap();
+        let client_listener_handle = make_client_listener(
+            port,
+            listener_to_manager_tx.clone(),
+            close_sig.async_signal,
+            4_000,
+        )
+        .await
+        .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (conversation_return_tx, mut conversation_return_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
@@ -1583,10 +1585,14 @@ mod tests {
         let stop_handle = server.start().await;
         let (_, close_sig) = CloseSignalling::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle =
-            make_client_listener(port, listener_to_manager_tx.clone(), close_sig.async_signal, 4_000)
-                .await
-                .unwrap();
+        let client_listener_handle = make_client_listener(
+            port,
+            listener_to_manager_tx.clone(),
+            close_sig.async_signal,
+            4_000,
+        )
+        .await
+        .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (_listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
@@ -1745,7 +1751,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn close_signaler_signalizes_properly(){
+    async fn close_signaler_signalizes_properly() {
         let (tx, mut rx) = tokio::sync::broadcast::channel(10);
         let sync_flag = Arc::new(AtomicBool::new(false));
         let subject = CloseSignaler::new(tx, sync_flag.clone());

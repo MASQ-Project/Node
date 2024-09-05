@@ -2,14 +2,14 @@
 
 use crate::command_factory::CommandFactory;
 
-pub trait CommandFactoryFactory{
-    fn make(&self)->Box<dyn CommandFactory>;
+pub trait CommandFactoryFactory {
+    fn make(&self) -> Box<dyn CommandFactory>;
 }
 
 #[derive(Default)]
-pub struct CommandFactoryFactoryReal{}
+pub struct CommandFactoryFactoryReal {}
 
-impl CommandFactoryFactory for CommandFactoryFactoryReal{
+impl CommandFactoryFactory for CommandFactoryFactoryReal {
     fn make(&self) -> Box<dyn CommandFactory> {
         todo!()
     }

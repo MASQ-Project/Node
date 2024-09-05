@@ -4,9 +4,12 @@ use crate::command_context::CommandContextReal;
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::CommandFactory;
+use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
+use crate::command_factory_factory::CommandFactoryFactory;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
+use crate::masq_short_writeln;
 use crate::terminal::{FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
@@ -15,9 +18,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
-use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
-use crate::command_factory_factory::CommandFactoryFactory;
-use crate::masq_short_writeln;
 
 pub struct CommandProcessorFactory {
     bootstrapper: ConnectionManagerBootstrapper,
@@ -35,13 +35,13 @@ impl CommandProcessorFactory {
         //TODO is CommandError proper?
         let background_term_interface_opt = match &term_interface {
             Either::Left(write_only) => None,
-            Either::Right(read_write) => todo!()
+            Either::Right(read_write) => todo!(),
         };
 
-        let command_context = match command_context_factory.make(ui_port, background_term_interface_opt).await{
-            Ok(cc) => cc,
-            Err(e) => todo!()
-        };
+        let command_context =
+            command_context_factory
+            .make(ui_port, background_term_interface_opt)
+            .await?;
         // let command_context = match CommandContextReal::new(ui_port, background_term_interface_opt, &self.bootstrapper).await {
         //     Ok(context) => Ok(context),
         //     Err(ContextError::ConnectionRefused(s)) => Err(CommandError::ConnectionProblem(s)),
@@ -53,8 +53,13 @@ impl CommandProcessorFactory {
         let command_factory = command_factory_factory.make();
 
         match term_interface {
-            Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(command_context, command_factory, command_execution_helper, write_only_ti))),
-            Either::Right(read_write_ti) => todo!()
+            Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(
+                command_context,
+                command_factory,
+                command_execution_helper,
+                write_only_ti,
+            ))),
+            Either::Right(read_write_ti) => todo!(),
         }
     }
 }
@@ -73,15 +78,9 @@ impl CommandProcessorFactory {
 
 #[async_trait(?Send)]
 pub trait CommandProcessor: ProcessorProvidingCommonComponents {
-    async fn process(
-        &mut self,
-        initial_subcommand_opt: Option<&[String]>,
-    ) -> Result<(), ()>;
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()>;
 
-    async fn handle_command_common(
-        &mut self,
-        command_parts: &[String],
-    ) -> Result<(), ()> {
+    async fn handle_command_common(&mut self, command_parts: &[String]) -> Result<(), ()> {
         let components = self.components();
         let term_interface = components.term_interface.as_ref();
         let command_factory = components.command_factory.as_ref();
@@ -92,7 +91,7 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
             Ok(c) => c,
             Err(UnrecognizedSubcommand(msg)) => {
                 masq_short_writeln!(stderr, "Unrecognized command: '{}'", msg);
-                return Err(())
+                return Err(());
             }
             Err(CommandSyntax(msg)) => {
                 //masq_short_writeln!(stderr, "Wrong command syntax: '{}'", msg);
@@ -100,14 +99,14 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
             }
         };
 
-        let res = command_execution_helper.execute_command(command, command_context, term_interface);
+        let res =
+            command_execution_helper.execute_command(command, command_context, term_interface);
 
         match res {
             Ok(_) => Ok(()),
             Err(e) => {
-                todo!()
-                //masq_short_writeln!(stderr, "{}", e);
-                //Err(())
+                masq_short_writeln!(stderr, "{}", e);
+                Err(())
             }
         }
     }
@@ -120,10 +119,10 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
 }
 
 pub trait ProcessorProvidingCommonComponents {
-    fn components(&mut self)-> &mut CommandProcessorCommon;
+    fn components(&mut self) -> &mut CommandProcessorCommon;
 }
 
-pub struct CommandProcessorCommon{
+pub struct CommandProcessorCommon {
     term_interface: Box<dyn WTermInterface>,
     command_context: Box<dyn CommandContext>,
     command_factory: Box<dyn CommandFactory>,
@@ -131,16 +130,14 @@ pub struct CommandProcessorCommon{
 }
 
 pub struct CommandProcessorNonInteractive {
-    command_processor_common: CommandProcessorCommon
+    command_processor_common: CommandProcessorCommon,
 }
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorNonInteractive {
-    async fn process(
-        &mut self,
-        initial_subcommand_opt: Option<&[String]>,
-    ) -> Result<(), ()> {
-        let command_args = initial_subcommand_opt.expect("Missing command args in non-interactive mode");
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
+        let command_args =
+            initial_subcommand_opt.expect("Missing command args in non-interactive mode");
         self.handle_command_common(command_args).await
     }
 
@@ -168,33 +165,28 @@ impl CommandProcessorNonInteractive {
         command_context: Box<dyn CommandContext>,
         command_factory: Box<dyn CommandFactory>,
         command_execution_helper: Box<dyn CommandExecutionHelper>,
-        term_interface: Box<dyn WTermInterface>
-    )->Self{
-
-        let command_processor_common = CommandProcessorCommon{
+        term_interface: Box<dyn WTermInterface>,
+    ) -> Self {
+        let command_processor_common = CommandProcessorCommon {
             term_interface,
             command_context,
             command_factory,
             command_execution_helper,
         };
         Self {
-            command_processor_common
+            command_processor_common,
         }
     }
 }
 
 pub struct CommandProcessorInteractive {
     context: Box<dyn CommandContext>,
-    command_execution_helper: Box<dyn CommandExecutionHelper>
-
+    command_execution_helper: Box<dyn CommandExecutionHelper>,
 }
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorInteractive {
-    async fn process(
-        &mut self,
-        initial_subcommand_opt: Option<&[String]>,
-    ) -> Result<(), ()> {
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
         // if let Some(synchronizer) = self.context.terminal_interface_opt.clone() {
         //     let _lock = synchronizer.lock();
         //     return command.execute(&mut self.context);
@@ -252,18 +244,23 @@ pub trait CommandExecutionHelper {
 
 pub struct CommandExecutionHelperReal {}
 
-impl CommandExecutionHelper for CommandExecutionHelperReal{
-    fn execute_command(&self, command: Box<dyn Command>, context: &dyn CommandContext, term_interface: &dyn WTermInterface) -> Result<(), CommandError> {
+impl CommandExecutionHelper for CommandExecutionHelperReal {
+    fn execute_command(
+        &self,
+        command: Box<dyn Command>,
+        context: &dyn CommandContext,
+        term_interface: &dyn WTermInterface,
+    ) -> Result<(), CommandError> {
         todo!()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::command_context_factory::CommandContextFactoryReal;
+    use crate::command_factory_factory::CommandFactoryFactoryReal;
     use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handlers::{
         BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal,
@@ -280,7 +277,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use tokio::sync::mpsc::UnboundedSender;
-    use crate::command_factory_factory::CommandFactoryFactoryReal;
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();

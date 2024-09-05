@@ -2,7 +2,9 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::connection_manager::{BroadcastReceiver, CloseSignalling, RedirectOrder, REDIRECT_TIMEOUT_MILLIS};
+use crate::communications::connection_manager::{
+    BroadcastReceiver, CloseSignalling, RedirectOrder, REDIRECT_TIMEOUT_MILLIS,
+};
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
@@ -361,9 +363,11 @@ mod tests {
     async fn broadcast_of_setup_triggers_correct_handler() {
         let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let subject = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let message = UiSetupBroadcast {
             running: true,
             values: vec![
@@ -380,7 +384,7 @@ mod tests {
 
         subject.send(message);
 
-        streams_handle.wait_until_stdout_is_not_empty().await;
+        streams_handle.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         let expected_stdout = "\n\
 Daemon setup has changed:
@@ -400,9 +404,11 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_ui_log_was_successful() {
         let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let subject = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let message = masq_lib::messages::UiLogBroadcast {
             msg: "Empty. No Nodes to report to; continuing".to_string(),
             log_level: SerializableLogLevel::Info,
@@ -411,7 +417,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.wait_until_stdout_is_not_empty().await;
+        streams_handle.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
             Stdout(&streams_handle),
@@ -424,9 +430,11 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_crashed_triggers_correct_handler() {
         let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let subject = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -435,7 +443,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.wait_until_stdout_is_not_empty().await;
+        streams_handle.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
             Stdout(&streams_handle),
@@ -458,7 +466,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.wait_until_stdout_is_not_empty().await;
+        streams_handle.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         subject.wait_to_finish().await.unwrap();
         assert_homogeneous_output_made_via_single_flush(
@@ -472,9 +480,11 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let subject = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -482,7 +492,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.wait_until_stderr_is_not_empty().await;
+        streams_handle.await_stderr_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
             Stderr(&streams_handle),
@@ -495,9 +505,11 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn ui_connection_change_broadcast_is_handled_properly() {
         let (terminal_interface, stream_handles) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let subject = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let message = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::ConnectedToNeighbor,
         }
@@ -505,7 +517,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        stream_handles.wait_until_stdout_is_not_empty().await;
+        stream_handles.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
             Stdout(&stream_handles),
@@ -518,9 +530,11 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (terminal_interface, stream_handles) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let subject = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,
@@ -542,7 +556,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(bad_message);
 
-        stream_handles.wait_until_stderr_is_not_empty().await;
+        stream_handles.await_stderr_is_not_empty().await;
         assert_homogeneous_output_made_via_single_flush(
             Stderr(&stream_handles),
             "Discarding unrecognized broadcast with opcode 'unrecognized'\n\n",
@@ -551,7 +565,7 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(good_message);
 
-        stream_handles.wait_until_stdout_is_not_empty().await;
+        stream_handles.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         subject.wait_to_finish().await.unwrap();
         let stdout = stream_handles.stdout_all_in_one();
@@ -568,12 +582,14 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_handler_event_loop_terminates_immediately_at_close() {
         let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let broadcast_handle =
-            StandardBroadcastHandlerReal::new(Some(Box::new(terminal_interface)), close_sig.dup_receiver())
-                .spawn();
+        let broadcast_handle = StandardBroadcastHandlerReal::new(
+            Some(Box::new(terminal_interface)),
+            close_sig.dup_receiver(),
+        )
+        .spawn();
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
         broadcast_handle.send(example_broadcast);
-        streams_handle.wait_until_stdout_is_not_empty().await;
+        streams_handle.await_stdout_is_not_empty().await;
         // Taking advantage of the knowledge that the TermInterface contains and Arc, and therefore
         // if the background loop finishes the objects having been being used in this spawned task
         // are dropped and the count of the references on this Arc will decrement

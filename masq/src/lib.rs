@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod command_context_factory;
 pub mod command_context;
-pub mod command_factory_factory;
+pub mod command_context_factory;
 pub mod command_factory;
+pub mod command_factory_factory;
 pub mod command_processor;
 pub mod commands;
 pub mod communications;

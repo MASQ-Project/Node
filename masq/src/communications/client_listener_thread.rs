@@ -51,7 +51,10 @@ impl ClientListener {
         let listener_half = self.websocket.receiver_rx().clone();
         let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig);
         let task_handle = event_loop.spawn();
-        Box::new(WSClientHandleReal::new(self.websocket, task_handle.abort_handle()))
+        Box::new(WSClientHandleReal::new(
+            self.websocket,
+            task_handle.abort_handle(),
+        ))
     }
 }
 
@@ -242,7 +245,9 @@ mod tests {
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject.start(close_sig.dup_receiver(), message_body_tx).await;
+        let client_listener_handle = subject
+            .start(close_sig.dup_receiver(), message_body_tx)
+            .await;
         stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let message_body = message_body_rx.recv().await.unwrap().unwrap();
@@ -273,7 +278,9 @@ mod tests {
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject.start(close_sig.dup_receiver(), message_body_tx).await;
+        let client_listener_handle = subject
+            .start(close_sig.dup_receiver(), message_body_tx)
+            .await;
 
         let conn_closed_announcement = message_body_rx.recv().await.unwrap();
         let probe =
@@ -300,7 +307,9 @@ mod tests {
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject.start(close_sig.dup_receiver(), message_body_tx).await;
+        let client_listener_handle = subject
+            .start(close_sig.dup_receiver(), message_body_tx)
+            .await;
         assert!(talker_half.close());
 
         let error = message_body_rx.recv().await.unwrap().unwrap_err();
@@ -321,7 +330,9 @@ mod tests {
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject.start(close_sig.dup_receiver(), message_body_tx).await;
+        let client_listener_handle = subject
+            .start(close_sig.dup_receiver(), message_body_tx)
+            .await;
         stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
@@ -340,7 +351,9 @@ mod tests {
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = CloseSignalling::make_for_test();
         let mut subject = ClientListener::new(websocket);
-        let client_listener_handle = subject.start(close_sig.dup_receiver(), message_body_tx).await;
+        let client_listener_handle = subject
+            .start(close_sig.dup_receiver(), message_body_tx)
+            .await;
         stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
@@ -390,7 +403,8 @@ mod tests {
         let (websocket, talker_half, listener_half) = websocket_utils(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig.dup_receiver());
+        let subject =
+            ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig.dup_receiver());
         let mut join_handle = tokio::task::spawn(async { subject.loop_guts().await });
         let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
         stimulate_queued_response_from_server(&client_handle).await;
@@ -405,7 +419,10 @@ mod tests {
         while client_handle.is_event_loop_spinning() {
             tokio::time::sleep(Duration::from_millis(20)).await;
             if start.elapsed() >= timeout {
-                panic!("Waited on the listener's task to finish within {} ms, but it didn't", timeout.as_millis())
+                panic!(
+                    "Waited on the listener's task to finish within {} ms, but it didn't",
+                    timeout.as_millis()
+                )
             }
         }
         // Checking that spawn didn't finish by panicking
@@ -419,7 +436,6 @@ mod tests {
         assert_eq!(context_id, 1234);
         let second_msg_attempt = message_body_rx.try_recv();
         assert_eq!(second_msg_attempt, Err(TryRecvError::Disconnected));
-
     }
 
     #[tokio::test]
@@ -433,7 +449,8 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let subject = WSClientHandleReal::new(websocket, meaningless_event_loop_join_handle.abort_handle());
+        let subject =
+            WSClientHandleReal::new(websocket, meaningless_event_loop_join_handle.abort_handle());
         let is_closed_before = subject.websocket.sender_tx().is_closed();
 
         let closed_successfully = subject.close_talker_half();
