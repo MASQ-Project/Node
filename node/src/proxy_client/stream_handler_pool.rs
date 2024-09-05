@@ -171,6 +171,7 @@ impl StreamHandlerPoolReal {
                 );
             }
             Err(_e) => {
+                // todo!("ERR");
                 debug!(
                     logger,
                     "Unable to send a shutdown signal to the StreamReader for \
@@ -245,7 +246,6 @@ impl StreamHandlerPoolReal {
             if last_data {
                 match inner.stream_writer_channels.remove(&stream_key) {
                     Some(stream_senders) => {
-                        // todo!("stop for write_and_tend");
                         debug!(
                             inner.logger,
                             "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
@@ -481,10 +481,6 @@ impl StreamHandlerPoolReal {
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
                 Some(stream_senders) => {
-                    debug!(
-                        Logger::new("TEST"),
-                        "clean_up_dead_streams() removed the stream key"
-                    );
                     inner
                         .proxy_client_subs
                         .inbound_server_data
@@ -496,11 +492,11 @@ impl StreamHandlerPoolReal {
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
-                    // TODO: GH-800: Maybe you want the refactored code here too
-                    if let Err(_e) = stream_senders.reader_shutdown_tx.send(()) {
-                        debug!(inner.logger, "Unable to send a shutdown signal to the StreamReader for stream key {:?}. The channel is already gone.", stream_key)
-                    };
-                    // Test should have a fake server, and the (read and write should be different) server
+                    Self::send_shutdown_signal_to_stream_reader(
+                        stream_senders.reader_shutdown_tx,
+                        &stream_key,
+                        &inner.logger,
+                    );
                     debug!(
                         inner.logger,
                         "Killed StreamWriter and StreamReader for the stream key {:?} to {} and sent server-drop report",
