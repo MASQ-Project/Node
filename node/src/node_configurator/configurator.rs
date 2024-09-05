@@ -741,7 +741,9 @@ impl Configurator {
 
         match password {
             None => {
-                if "gas-price" == &msg.name {
+                if "exit-location" == &msg.name {
+                    Self::set_exit_location(msg.value, persistent_config)?;
+                } else if "gas-price" == &msg.name {
                     Self::set_gas_price(msg.value, persistent_config)?;
                 } else if "start-block" == &msg.name {
                     Self::set_start_block(msg.value, persistent_config)?;
@@ -765,6 +767,13 @@ impl Configurator {
         };
 
         Ok(UiSetConfigurationResponse {}.tmb(context_id))
+    }
+
+    fn set_exit_location(
+        country_codes: String,
+        _config: &mut Box<dyn PersistentConfiguration>,
+    ) -> Result<(), (u64, String)> {
+        todo!(format!("implement me, country_codes: {}", country_codes));
     }
 
     fn set_gas_price(
@@ -1173,6 +1182,30 @@ mod tests {
             "WARN: Configurator: Failed to change password: \
             The database already has a password. You may only change it",
         );
+    }
+
+    #[test]
+    fn handle_exit_location_handles_error() {
+        init_test_logging();
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_exit_location_result(Err(PersistentConfigError::NotPresent));
+        let mut subject = make_subject(Some(persistent_config));
+        let msg = UiCheckPasswordRequest {
+            db_password_opt: None,
+        };
+
+        let result = subject.handle_set_exit_location(msg, 4321);
+
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "exitLocation".to_string(),
+                path: MessagePath::Conversation(4321),
+                payload: Err((CONFIGURATOR_READ_ERROR, "NotPresent".to_string()))
+            }
+        );
+        TestLogHandler::new()
+            .exists_log_containing("WARN: Configurator: Failed to set Exit Location: NotPresent");
     }
 
     #[test]

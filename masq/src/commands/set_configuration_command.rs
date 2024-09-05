@@ -74,11 +74,11 @@ pub fn set_configuration_subcommand() -> App<'static, 'static> {
         .arg(set_configurationify(exit_location_arg()))
         .arg(
             Arg::with_name("fallback-routing")
-                .help("Set weather you want to fallback on non-blocking routing for desired Exit Location.")
+                .help("Set whether you want to fallback on non-blocking routing for desired Exit Location.")
                 .long("fallback-routing")
                 .value_name("FALLBACK-ROUTING")
                 .default_value("false")
-
+                .required(false)
         )
         .arg(
             Arg::with_name("start-block")

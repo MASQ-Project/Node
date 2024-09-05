@@ -31,6 +31,7 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
+pub const EXIT_LOCATION_HELP: &str = "TODO";
 pub const DATA_DIRECTORY_HELP: &str =
     "Directory in which the Node will store its persistent state, including at least its database \
     and by default its configuration file as well.\nNote: any existing database in the data directory \
@@ -314,7 +315,7 @@ pub fn exit_location_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("exit-location")
         .long("exit-location")
         .value_name("EXIT-LOCATION")
-        .possible_values(&["AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ", "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM", "BT", "BO", "BQ", "BA", "BW", "BV", "BR", "IO", "BN", "BG", "BF", "BI", "CV", "KH", "CM", "CA", "KY", "CF", "TD", "CL", "CN", "CX", "CC", "CO", "KM", "CD", "CG", "CK", "CR", "CI", "HR", "CU", "CW", "CY", "CZ", "DK", "DJ", "DM", "DO", "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FK", "FO", "FJ", "FI", "FR", "GF", "PF", "TF", "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU", "GT", "GG", "GN", "GW", "GY", "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN", "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM", "JP", "JE", "JO", "KZ", "KE", "KI", "KP", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY", "LI", "LT", "LU", "MO", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT", "MX", "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NC", "NZ", "NI", "NE", "NG", "NU", "NF", "MK", "MP", "NO", "OM", "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH", "PN", "PL", "PT", "PR", "QA", "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC", "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO", "ZA", "GS", "SS", "ES", "LK", "SD", "SR", "SJ", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL", "TG", "TK", "TO", "TT", "TN", "TR", "TM", "TC", "TV", "UG", "UA", "AE", "GB", "UM", "US", "UY", "UZ", "VU", "VE", "VN", "VG", "VI", "WF", "EH", "YE", "ZM", "ZW", "XK"])
+        .validator(common_validators::common_parameter_with_separate_string_u64_value_pairs)
         .help(EXIT_LOCATION_HELP)
 }
 
@@ -359,6 +360,16 @@ fn common_parameter_with_separate_u64_values<'a>(name: &'a str, help: &'a str) -
         .max_values(1)
         .validator(common_validators::validate_separate_u64_values)
         .help(help)
+}
+
+fn exit_location_parameter<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("exit-location")
+        .long("exit-location")
+        .value_name("EXIT-LOCATION")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_parameter_with_separate_string_u64_value_pairs)
+        .help(EXIT_LOCATION_HELP)
 }
 
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
@@ -479,6 +490,11 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .possible_values(&["on", "off"])
             .help(SCANS_HELP),
     )
+    //TODO test drive following parser
+    .arg(common_parameter_with_separate_string_u64_value_pairs(
+        "exit-location",
+        EXIT_LOCATION_HELP,
+    ))
     .arg(common_parameter_with_separate_u64_values(
         "scan-intervals",
         SCAN_INTERVALS_HELP,
@@ -529,6 +545,10 @@ pub mod common_validators {
             Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
             _ => Err(clandestine_port),
         }
+    }
+
+    pub fn validate_parameter_with_separate_string_u64_value_pairs() -> Result<(), Vec<>> {
+        todo!("implement me");
     }
 
     pub fn validate_private_key(key: String) -> Result<(), String> {
@@ -618,6 +638,8 @@ pub mod common_validators {
     }
 
     pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
+        //TODO consider separate the validator of numbers from this validator an use this validator to validate only sequential separation
+        // of values and then use additional validator, one for numbers and second for country codes with priority `CZ:1` or `SK:2`
         values_with_delimiters.split('|').try_for_each(|segment| {
             segment
                 .parse::<u64>()
@@ -719,6 +741,10 @@ mod tests {
              make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
+        );
+        assert_eq!(
+            EXIT_LOCATION_HELP,
+            "Country Code HELP."
         );
         assert_eq!(
             DATA_DIRECTORY_HELP,
