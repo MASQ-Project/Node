@@ -3571,6 +3571,7 @@ mod tests {
         init_test_logging();
         let system = System::new("proxy_server_receives_response_from_hopper");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -3611,20 +3612,32 @@ mod tests {
             0,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
-        let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher)
+            .proxy_server(proxy_server)
+            .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(first_expired_cores_package).unwrap();
-        subject_addr.try_send(second_expired_cores_package).unwrap(); // should generate log because stream key is now unknown
+        subject_addr.try_send(second_expired_cores_package).unwrap(); // should shedule a new message
 
         System::current().stop();
         system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
-        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
-        assert_eq!(record.last_data, true);
-        assert_eq!(record.data, b"16 bytes of data".to_vec());
-        TestLogHandler::new().exists_log_containing(&format!("WARN: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
+        let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        let scheduled_msg =
+            proxy_server_recording.get_record::<MessageScheduler<StreamKeyPurge>>(0);
+        assert_eq!(transmit_data_msg.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(transmit_data_msg.last_data, true);
+        assert_eq!(transmit_data_msg.data, b"16 bytes of data".to_vec());
+        assert_eq!(
+            scheduled_msg,
+            &MessageScheduler {
+                scheduled_msg: StreamKeyPurge { stream_key },
+                delay: Duration::from_secs(5)
+            }
+        )
     }
 
     #[test]
