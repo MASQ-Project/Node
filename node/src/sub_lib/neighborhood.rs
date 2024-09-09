@@ -380,6 +380,12 @@ pub enum Hops {
     SixHops = 6,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExitLocation {
+    pub country_code: String,
+    pub priority: usize,
+}
+
 impl FromStr for Hops {
     type Err = String;
 
