@@ -2,7 +2,7 @@
 
 use crate::constants::{
     BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER,
-    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT,
+    ETH_MAINNET_FULL_IDENTIFIER, ETH_SEPOLIA_FULL_IDENTIFIER, HIGHEST_USABLE_PORT,
     LOWEST_USABLE_INSECURE_PORT, POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
@@ -12,7 +12,7 @@ use lazy_static::lazy_static;
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://sepolia.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -65,7 +65,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
      masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://eth-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -219,8 +219,8 @@ lazy_static! {
        DEFAULT_GAS_PRICE);
 }
 
-// These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
-// to from multiple places.
+// These Args are needed in more than one clap schema. To avoid code duplication, they're defined
+// here and referred to from multiple places.
 pub fn chain_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("chain")
         .long("chain")
@@ -258,7 +258,7 @@ pub fn official_chain_names() -> &'static [&'static str] {
         ETH_MAINNET_FULL_IDENTIFIER,
         BASE_SEPOLIA_FULL_IDENTIFIER,
         POLYGON_AMOY_FULL_IDENTIFIER,
-        ETH_ROPSTEN_FULL_IDENTIFIER,
+        ETH_SEPOLIA_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
 }
@@ -683,7 +683,7 @@ mod tests {
             BLOCKCHAIN_SERVICE_HELP,
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
-             https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://sepolia.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
              https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
         assert_eq!(
@@ -759,7 +759,7 @@ mod tests {
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
                   masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://eth-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -1147,7 +1147,7 @@ mod tests {
             Chain::EthMainnet,
             Chain::BaseSepolia,
             Chain::PolyAmoy,
-            Chain::EthRopsten,
+            Chain::EthSepolia,
             Chain::Dev,
         ]
         .into_iter()

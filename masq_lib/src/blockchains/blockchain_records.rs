@@ -4,7 +4,7 @@ use crate::blockchains::chains::Chain;
 use crate::constants::{
     BASE_SEPOLIA_CONTRACT_CREATION_BLOCK, BASE_SEPOLIA_FULL_IDENTIFIER, DEV_CHAIN_FULL_IDENTIFIER,
     ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_CONTRACT_CREATION_BLOCK, ETH_ROPSTEN_FULL_IDENTIFIER,
+    ETH_SEPOLIA_CONTRACT_CREATION_BLOCK, ETH_SEPOLIA_FULL_IDENTIFIER,
     MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_AMOY_CONTRACT_CREATION_BLOCK,
     POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     POLYGON_MAINNET_FULL_IDENTIFIER,
@@ -41,11 +41,11 @@ pub const CHAINS: [BlockchainRecord; 6] = [
         contract_creation_block: POLYGON_AMOY_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
-        self_id: Chain::EthRopsten,
-        num_chain_id: 3,
-        literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
-        contract: ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-        contract_creation_block: ETH_ROPSTEN_CONTRACT_CREATION_BLOCK,
+        self_id: Chain::EthSepolia,
+        num_chain_id: 11155111,
+        literal_identifier: ETH_SEPOLIA_FULL_IDENTIFIER,
+        contract: ETH_SEPOLIA_TESTNET_CONTRACT_ADDRESS,
+        contract_creation_block: ETH_SEPOLIA_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::Dev,
@@ -81,10 +81,9 @@ const POLYGON_AMOY_TESTNET_CONTRACT_ADDRESS: Address = H160([
     0xf4, 0x7a, 0x81, 0x93,
 ]);
 
-// SHRD (Ropsten)
-const ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = H160([
-    0x38, 0x4d, 0xec, 0x25, 0xe0, 0x3f, 0x94, 0x93, 0x17, 0x67, 0xce, 0x4c, 0x35, 0x56, 0x16, 0x84,
-    0x68, 0xba, 0x24, 0xc3,
+const ETH_SEPOLIA_TESTNET_CONTRACT_ADDRESS: Address = H160([
+    0x57, 0x43, 0x38, 0xFF, 0xb9, 0x47, 0x1C, 0x7a, 0x26, 0x0e, 0x33, 0x84, 0x78, 0x40, 0x9E, 0xd0,
+    0xF8, 0x90, 0x0e, 0xa5,
 ]);
 
 const BASE_SEPOLIA_TESTNET_CONTRACT_ADDRESS: Address = H160([
@@ -108,7 +107,7 @@ mod tests {
     fn record_returns_correct_blockchain_record() {
         let test_array = [
             assert_returns_correct_record(Chain::EthMainnet, 1),
-            assert_returns_correct_record(Chain::EthRopsten, 3),
+            assert_returns_correct_record(Chain::EthSepolia, 11155111),
             assert_returns_correct_record(Chain::PolyMainnet, 137),
             assert_returns_correct_record(Chain::PolyAmoy, 80002),
             assert_returns_correct_record(Chain::BaseSepolia, 84532),
@@ -128,7 +127,7 @@ mod tests {
             assert_from_str(Chain::PolyMainnet),
             assert_from_str(Chain::PolyAmoy),
             assert_from_str(Chain::EthMainnet),
-            assert_from_str(Chain::EthRopsten),
+            assert_from_str(Chain::EthSepolia),
             assert_from_str(Chain::BaseSepolia),
             assert_from_str(Chain::Dev),
         ];
@@ -153,7 +152,7 @@ mod tests {
             Chain::EthMainnet,
             Chain::BaseSepolia,
             Chain::PolyAmoy,
-            Chain::EthRopsten,
+            Chain::EthSepolia,
             Chain::Dev,
         ];
         test_array
@@ -184,17 +183,17 @@ mod tests {
     }
 
     #[test]
-    fn ropsten_record_is_properly_declared() {
-        let examined_chain = Chain::EthRopsten;
+    fn sepolia_record_is_properly_declared() {
+        let examined_chain = Chain::EthSepolia;
         let chain_record = return_examined(examined_chain);
         assert_eq!(
             chain_record,
             &BlockchainRecord {
-                num_chain_id: 3,
+                num_chain_id: 11155111,
                 self_id: examined_chain,
-                literal_identifier: "eth-ropsten",
-                contract: ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: ETH_ROPSTEN_CONTRACT_CREATION_BLOCK,
+                literal_identifier: "eth-sepolia",
+                contract: ETH_SEPOLIA_TESTNET_CONTRACT_ADDRESS,
+                contract_creation_block: ETH_SEPOLIA_CONTRACT_CREATION_BLOCK,
             }
         );
     }
@@ -271,7 +270,7 @@ mod tests {
     fn chain_from_chain_identifier_opt_works() {
         let test_array = [
             assert_chain_from_chain_identifier_opt("eth-mainnet", Some(Chain::EthMainnet)),
-            assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
+            assert_chain_from_chain_identifier_opt("eth-sepolia", Some(Chain::EthSepolia)),
             assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
             assert_chain_from_chain_identifier_opt("polygon-amoy", Some(Chain::PolyAmoy)),
             assert_chain_from_chain_identifier_opt("base-sepolia", Some(Chain::BaseSepolia)),

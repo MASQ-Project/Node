@@ -25,7 +25,7 @@ pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
-pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const ETH_SEPOLIA_CONTRACT_CREATION_BLOCK: u64 = 6_615_411;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const POLYGON_AMOY_CONTRACT_CREATION_BLOCK: u64 = 5_323_366;
 pub const BASE_SEPOLIA_CONTRACT_CREATION_BLOCK: u64 = 14_732_730;
@@ -96,7 +96,7 @@ const LINK: char = '-';
 pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
 pub const POLYGON_AMOY_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "amoy");
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
-pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
+pub const ETH_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "sepolia");
 pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 
@@ -121,7 +121,7 @@ mod tests {
         assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
-        assert_eq!(ETH_ROPSTEN_CONTRACT_CREATION_BLOCK, 8_688_171);
+        assert_eq!(ETH_SEPOLIA_CONTRACT_CREATION_BLOCK, 6_615_411);
         assert_eq!(POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, 14_863_650);
         assert_eq!(POLYGON_AMOY_CONTRACT_CREATION_BLOCK, 5_323_366);
         assert_eq!(BASE_SEPOLIA_CONTRACT_CREATION_BLOCK, 14_732_730);
@@ -169,7 +169,7 @@ mod tests {
         assert_eq!(POLYGON_MAINNET_FULL_IDENTIFIER, "polygon-mainnet");
         assert_eq!(POLYGON_AMOY_FULL_IDENTIFIER, "polygon-amoy");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
-        assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
+        assert_eq!(ETH_SEPOLIA_FULL_IDENTIFIER, "eth-sepolia");
         assert_eq!(BASE_SEPOLIA_FULL_IDENTIFIER, "base-sepolia");
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(

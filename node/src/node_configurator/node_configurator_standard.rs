@@ -1320,7 +1320,7 @@ mod tests {
     }
 
     #[test]
-    fn privileged_configuration_accepts_network_chain_selection_for_ropsten() {
+    fn privileged_configuration_accepts_network_chain_selection_for_sepolia() {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -1359,7 +1359,7 @@ mod tests {
     }
 
     #[test]
-    fn privileged_configuration_accepts_ropsten_network_chain_selection() {
+    fn privileged_configuration_accepts_sepolia_network_chain_selection() {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [

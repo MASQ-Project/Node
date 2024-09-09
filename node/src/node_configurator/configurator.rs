@@ -2482,13 +2482,13 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::EthSepolia,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("sepolia".to_string())
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
@@ -2518,7 +2518,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "sepolia".to_string(),
                 gas_price: 2345,
                 max_block_count_opt: Some(100000),
                 neighborhood_mode: String::from("standard"),
@@ -2611,13 +2611,13 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::EthSepolia,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("sepolia".to_string())
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
@@ -2650,7 +2650,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "sepolia".to_string(),
                 gas_price: 2345,
                 max_block_count_opt: None,
                 neighborhood_mode: String::from("consume-only"),
@@ -2697,7 +2697,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("sepolia".to_string())
             .gas_price_result(Ok(2345))
             .earning_wallet_address_result(Ok(None))
             .start_block_result(Ok(3456))
@@ -2743,7 +2743,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "sepolia".to_string(),
                 gas_price: 2345,
                 max_block_count_opt: None,
                 neighborhood_mode: String::from("zero-hop"),
@@ -2786,7 +2786,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("sepolia".to_string())
             .gas_price_result(Ok(2345))
             .earning_wallet_address_result(Ok(Some("4a5e43b54c6C56Ebf7".to_string())))
             .start_block_result(Ok(3456))
@@ -2834,7 +2834,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("sepolia".to_string())
             .gas_price_result(Ok(2345))
             .earning_wallet_address_result(Ok(Some(
                 "0x0123456789012345678901234567890123456789".to_string(),

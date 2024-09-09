@@ -95,7 +95,7 @@ pub fn neighborhood_from_nodes(
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().unwrap(),
-                vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
+                vec![NodeDescriptor::from((neighbor, Chain::EthSepolia, cryptde))],
                 *root.rate_pack(),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
@@ -286,7 +286,7 @@ pub fn make_ip(nonce: u8) -> IpAddr {
 
 pub fn make_node_descriptor(ip_addr: IpAddr) -> NodeDescriptor {
     NodeDescriptor {
-        blockchain: Chain::EthRopsten,
+        blockchain: Chain::EthSepolia,
         encryption_public_key: PublicKey::from(&b"bitcoin is real money"[..]),
         node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
     }

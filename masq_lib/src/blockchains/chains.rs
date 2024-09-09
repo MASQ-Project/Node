@@ -3,7 +3,7 @@
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
     BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER,
-    ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_AMOY_FULL_IDENTIFIER,
+    ETH_MAINNET_FULL_IDENTIFIER, ETH_SEPOLIA_FULL_IDENTIFIER, POLYGON_AMOY_FULL_IDENTIFIER,
     POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Chain {
     EthMainnet,
-    EthRopsten,
+    EthSepolia,
     PolyMainnet,
     PolyAmoy,
     BaseSepolia,
@@ -34,8 +34,8 @@ impl From<&str> for Chain {
             Chain::BaseSepolia
         } else if str == POLYGON_AMOY_FULL_IDENTIFIER {
             Chain::PolyAmoy
-        } else if str == ETH_ROPSTEN_FULL_IDENTIFIER {
-            Chain::EthRopsten
+        } else if str == ETH_SEPOLIA_FULL_IDENTIFIER {
+            Chain::EthSepolia
         } else if str == DEV_CHAIN_FULL_IDENTIFIER {
             Chain::Dev
         } else {

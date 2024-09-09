@@ -1488,7 +1488,7 @@ mod tests {
             ("mapping-protocol", "pmp", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1518,7 +1518,7 @@ mod tests {
             ("mapping-protocol", "pmp", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1558,7 +1558,7 @@ mod tests {
             ("mapping-protocol", "igdp"),
             ("min-hops", "2"),
             ("neighborhood-mode", "originate-only"),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("neighbors", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1593,7 +1593,7 @@ mod tests {
             ("mapping-protocol", "igdp", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1634,7 +1634,7 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1666,7 +1666,7 @@ mod tests {
             ("mapping-protocol", "pmp", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("neighbors", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
@@ -1736,14 +1736,14 @@ mod tests {
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
                 .unwrap()
         }
-        let ropsten_dir = data_root
+        let sepolia_dir = data_root
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         {
-            std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
-            let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
+            std::fs::create_dir_all(sepolia_dir.clone()).unwrap();
+            let mut config_file = File::create(sepolia_dir.join("config.toml")).unwrap();
             config_file
-                .write_all(b"blockchain-service-url = \"https://www.ropsten.com\"\n")
+                .write_all(b"blockchain-service-url = \"https://www.sepolia.com\"\n")
                 .unwrap();
             config_file
                 .write_all(b"clandestine-port = \"8877\"\n")
@@ -1752,7 +1752,7 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
-                .write_all(b"db-password = \"ropstenPassword\"\n")
+                .write_all(b"db-password = \"sepoliaPassword\"\n")
                 .unwrap();
             config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
@@ -1801,7 +1801,7 @@ mod tests {
         let expected_result = vec![
             (
                 "blockchain-service-url",
-                "https://www.ropsten.com",
+                "https://www.sepolia.com",
                 Configured,
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1815,10 +1815,10 @@ mod tests {
             ("crash-point", "None", Configured),
             (
                 "data-directory",
-                &ropsten_dir.to_string_lossy().to_string(),
+                &sepolia_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", "ropstenPassword", Configured),
+            ("db-password", "sepoliaPassword", Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1884,7 +1884,7 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
             ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1946,7 +1946,7 @@ mod tests {
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
-                "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
+                "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
                 Set,
             ),
             ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
@@ -1982,7 +1982,7 @@ mod tests {
             ("mapping-protocol", "pcp", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("neighbors", "masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]

@@ -283,12 +283,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
+                            "masq://eth-sepolia:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
+                            "masq://eth-sepolia:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),

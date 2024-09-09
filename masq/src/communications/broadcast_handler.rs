@@ -211,7 +211,7 @@ mod tests {
         let message = UiSetupBroadcast {
             running: true,
             values: vec![
-                UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                UiSetupResponseValue::new("chain", "eth-sepolia", Configured),
                 UiSetupResponseValue::new("data-directory", "/home/booga", Default),
             ],
             errors: vec![],
@@ -393,7 +393,7 @@ mod tests {
         let good_message = UiSetupBroadcast {
             running: true,
             values: vec![
-                UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                UiSetupResponseValue::new("chain", "eth-sepolia", Configured),
                 UiSetupResponseValue::new("data-directory", "/home/booga", Default),
             ],
             errors: vec![],
@@ -465,7 +465,7 @@ mod tests {
                 },
                 UiSetupResponseValue {
                     name: "chain".to_string(),
-                    value: "ropsten".to_string(),
+                    value: "sepolia".to_string(),
                     status: UiSetupResponseValueStatus::Configured,
                 },
                 UiSetupResponseValue {
@@ -487,7 +487,7 @@ mod tests {
         let broadcast_output = "Daemon setup has changed:
 
 NAME                          VALUE                                                            STATUS
-chain                         ropsten                                                          Configured
+chain                         sepolia                                                          Configured
 data-directory                /home/booga                                                      Default
 ip                            4.4.4.4                                                          Set
 log-level                     error                                                            Set

@@ -141,6 +141,18 @@ fn masq_erc20_contract_exists_on_ethereum_mainnet_integration() {
 }
 
 #[test]
+fn masq_erc20_contract_exists_on_ethereum_sepolia_integration() {
+    let blockchain_urls = vec![
+        "https://ethereum-sepolia-rpc.publicnode.com",
+        "https://endpoints.omniatech.io/v1/eth/sepolia/public, https://1rpc.io/sepolia",
+    ];
+    let chain = Chain::EthSepolia;
+
+    let assertion_body = |url, chain| assert_contract_existence(url, chain, "tMASQ", 18);
+    assert_contract(blockchain_urls, &chain, assertion_body)
+}
+
+#[test]
 fn masq_erc20_contract_exists_on_base_sepolia_integration() {
     let blockchain_urls = vec![
         "https://rpc.ankr.com/base_sepolia",

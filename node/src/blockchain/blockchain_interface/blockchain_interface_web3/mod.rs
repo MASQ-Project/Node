@@ -578,7 +578,7 @@ where
 
     fn web3_gas_limit_const_part(chain: Chain) -> u64 {
         match chain {
-            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
+            Chain::EthMainnet | Chain::EthSepolia | Chain::Dev => 55_000,
             Chain::PolyMainnet | Chain::PolyAmoy | Chain::BaseSepolia => 70_000,
         }
     }
@@ -628,9 +628,18 @@ mod tests {
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 
+    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::test_utils::{
+        make_default_signed_transaction, BatchPayableToolsMock,
+    };
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
+    };
+    use crate::blockchain::blockchain_interface::data_structures::{
+        BlockchainTransaction, RpcPayablesFailure,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,
@@ -650,11 +659,12 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
-    use crate::test_utils::{make_paying_wallet, make_wallet, TestRawTransaction};
+    use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::{Actor, System};
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use futures::Future;
+    use indoc::indoc;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error as RPCError, ErrorCode, Id, MethodCall, Params};
     use masq_lib::blockchains::chains::Chain;
@@ -662,20 +672,9 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
-    use serde_derive::Deserialize;
+    use rustc_hex::ToHex;
     use serde_json::{json, Value};
     use std::net::Ipv4Addr;
-
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::test_utils::{
-        make_default_signed_transaction, BatchPayableToolsMock,
-    };
-    use crate::blockchain::blockchain_interface::data_structures::{
-        BlockchainTransaction, RpcPayablesFailure,
-    };
-    use indoc::indoc;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -818,7 +817,7 @@ mod tests {
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x574338ffb9471c7a260e338478409ed0f8900ea5","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
         let expected_body_suffix = r#""]}]}]"#;
         let expected_body = format!(
             "{}{}{}",
@@ -880,7 +879,7 @@ mod tests {
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x574338ffb9471c7a260e338478409ed0f8900ea5","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
         let expected_body_suffix = r#""]}]}]"#;
         let expected_body = format!(
             "{}{}{}",
@@ -1218,7 +1217,7 @@ mod tests {
         //exercising also the layer of web3 functions, but the transport layer is mocked
         init_test_logging();
         let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
-        //we compute the hashes ourselves during the batch preparation and so we don't care about
+        //we compute the hashes ourselves during the batch preparation, and so we don't care about
         //the same ones coming back with the response; we use the returned OKs as indicators of success only.
         //Any eventual rpc errors brought back are processed as well...
         let expected_batch_responses = vec![
@@ -1282,12 +1281,11 @@ mod tests {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
                         params: Params::Array(vec![Value::String(
-                            "0xf8a906851bf08eb00082db6894384de\
-        c25e03f94931767ce4c3556168468ba24c380b844a9059cbb000000000000000000000000000000000000000000\
-        00000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa06\
-        0b9f375c06f5641951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c\
-        031172ac6873037d90dcca36a1fbf2e67960ff"
-                                .to_string()
+                            "0xf8ad06851bf08eb00082db6894574338ffb9471c7a260e338478409ed0f8900ea580b\
+        844a9059cbb000000000000000000000000000000000000000000000000000000007731323300000000000000000\
+        00000000000000000000000000000000c7d713b49da00008401546d72a09b1158dbbfa81cb5e1340cd98afb86433\
+        f0cba2717c15f2f8d9276dc6460e6b3a02a73770db83cfdeafb5cbd75d2f2918b8e9295843c80ce75d07f0cb5840\
+        8d9c4".to_string()
                         )]),
                         id: Id::Num(1)
                     })
@@ -1298,12 +1296,11 @@ mod tests {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
                         params: Params::Array(vec![Value::String(
-                            "0xf8a907851bf08eb00082dae894384de\
-        c25e03f94931767ce4c3556168468ba24c380b844a9059cbb000000000000000000000000000000000000000000\
-        000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00\
-        e61352bb2ac9b32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915\
-        ecfbaa58268010e00d32c18a49a9fc3b9bd20a"
-                                .to_string()
+                            "0xf8ad07851bf08eb00082dae894574338ffb9471c7a260e338478409ed0f8900ea580b\
+        844a9059cbb000000000000000000000000000000000000000000000000000000007735353500000000000000000\
+        000000000000000000000000000000000000000075bcd158401546d72a03701341b6e34ba219952acf513ed85c1c\
+        cb2e686acbd7492026fd9f764b53f75a06398879a2e53cb774c4c1f0e9d2b79b6e860ed6f7e32412a0c710d8925d\
+        32972".to_string()
                         )]),
                         id: Id::Num(1)
                     })
@@ -1314,12 +1311,11 @@ mod tests {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
                         params: Params::Array(vec![Value::String(
-                            "0xf8a908851bf08eb00082db6894384de\
-        c25e03f94931767ce4c3556168468ba24c380b844a9059cbb000000000000000000000000000000000000000000\
-        0000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02\
-        d300cc8ba7b63b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23f\
-        be8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9"
-                                .to_string()
+                            "0xf8ad08851bf08eb00082db6894574338ffb9471c7a260e338478409ed0f8900ea580\
+        b844a9059cbb0000000000000000000000000000000000000000000000000000000077393837000000000000000\
+        000000000000000000000000000000000007680cd2f2d34008401546d71a0ab2d8346233e528e6e1fa02eae8b26\
+        dac866c76270281efcd0a99e164de58029a0791a7131a8fb92e0465b7f1d423b54060aadf34a670d81b1c832480\
+        43fd5f854".to_string()
                         )]),
                         id: Id::Num(1)
                     })
@@ -1339,7 +1335,7 @@ mod tests {
         };
         //first successful request
         let expected_hash_1 =
-            H256::from_str("26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1")
+            H256::from_str("141d5947b3bc8e723fcfeecb206d07c47a41e0be8399ae9593ff5a2927dfabbe")
                 .unwrap();
         check_expected_successful_request(expected_hash_1, 0);
         //failing request
@@ -1364,13 +1360,13 @@ mod tests {
             })
         );
         let expected_hash_2 =
-            H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
+            H256::from_str("b5a69a650918a14a659297859fc5cbef1bbd34c22d8e0e776648b2aa24519b66")
                 .unwrap();
         assert_eq!(hash_2, &expected_hash_2);
         assert_eq!(recipient_2, &make_wallet("w555"));
         //second_succeeding_request
         let expected_hash_3 =
-            H256::from_str("a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44")
+            H256::from_str("4eda953bca66d4cc5a1dc1c652e1bea318dfde81762048854581f3811fc1e432")
                 .unwrap();
         check_expected_successful_request(expected_hash_3, 2);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1396,7 +1392,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: sending_batch_payments: \
         Common attributes of payables to be transacted: sender wallet: 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725, contract: \
-          0x384dec25e03f94931767ce4c3556168468ba24c3, chain_id: 3, gas_price: 120");
+          0x574338ffb9471c7a260e338478409ed0f8900ea5, chain_id: 11155111, gas_price: 120");
         log_handler.exists_log_containing(
             "DEBUG: sending_batch_payments: Preparing payment of 900,000,000,000,000,000 wei \
         to 0x0000000000000000000000000000000077313233 with nonce 6",
@@ -1414,7 +1410,7 @@ mod tests {
         Transactions in the batch:\n\
         \n\
         gas price:                                   120 gwei\n\
-        chain:                                       ropsten\n\
+        chain:                                       sepolia\n\
         \n\
         [wallet address]                             [payment in wei]\n\
         0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
@@ -1621,7 +1617,7 @@ mod tests {
             55_000
         );
         assert_eq!(
-            Subject::web3_gas_limit_const_part(Chain::EthRopsten),
+            Subject::web3_gas_limit_const_part(Chain::EthSepolia),
             55_000
         );
         assert_eq!(
@@ -1844,7 +1840,7 @@ mod tests {
         let recipient_wallet = test_recipient_wallet();
         let nonce_correct_type = U256::from(nonce);
         let gas_price = match chain {
-            Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 110,
+            Chain::EthMainnet | Chain::EthSepolia | Chain::Dev => 110,
             Chain::PolyMainnet | Chain::PolyAmoy => 55,
             Chain::BaseSepolia => todo!(),
         };
@@ -1866,7 +1862,13 @@ mod tests {
             .unwrap();
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;
-        assert_eq!(byte_set_to_compare.as_slice(), template)
+        assert_eq!(
+            byte_set_to_compare.as_slice(),
+            template,
+            "Actual signed data {} is different from expected {}",
+            byte_set_to_compare.to_hex::<String>(),
+            template.to_hex::<String>()
+        )
     }
 
     // Transaction with this input was verified on the test network
@@ -1884,16 +1886,15 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
-    // Transaction with this input was verified on the test network
     #[test]
-    fn web3_interface_signing_a_transaction_works_for_eth_ropsten() {
-        let chain = Chain::EthRopsten;
+    fn web3_interface_signing_a_transaction_works_for_eth_sepolia() {
+        let chain = Chain::EthSepolia;
         let nonce = 1;
         let signed_transaction_data = "\
-        f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000\
+        f8ad0185199c82cc0082dee894574338ffb9471c7a260e338478409ed0f8900ea580b844a9059cbb00000000000\
         00000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b00000000000000000000000000000000000000\
-        0000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449\
-        bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
+        0000000000000000e8d4a510008401546d71a039dea9c5e758821883f0aa8b38634fdbdab7abeb7bbbcd0d3814c\
+        40ceed9d6d0a062d9b2950b34e19e694aa50b1f2cc291cedca38d3991671ab572c23b50b9f272";
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
@@ -1939,163 +1940,6 @@ mod tests {
         ];
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &signed_transaction_data)
-    }
-
-    // Adapted test from old times when we had our own signing method.
-    // Don't have data for new chains, so I omit them in this kind of tests
-    #[test]
-    fn signs_various_transactions_for_eth_mainnet() {
-        let signatures = &[
-            &[
-                248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179, 167,
-                100, 0, 0, 128, 37, 160, 40, 239, 97, 52, 11, 217, 57, 188, 33, 149, 254, 83, 117,
-                103, 134, 96, 3, 225, 161, 93, 60, 113, 255, 99, 225, 89, 6, 32, 170, 99, 98, 118,
-                160, 103, 203, 233, 216, 153, 127, 118, 26, 236, 183, 3, 48, 75, 56, 0, 204, 245,
-                85, 201, 243, 220, 100, 33, 75, 41, 127, 177, 150, 106, 59, 109, 131,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128, 37, 160, 9, 235, 182, 202, 5, 122, 5, 53, 214, 24, 100, 98,
-                188, 11, 70, 91, 86, 28, 148, 162, 149, 189, 176, 98, 31, 193, 146, 8, 171, 20,
-                154, 156, 160, 68, 15, 253, 119, 92, 233, 26, 131, 58, 180, 16, 119, 114, 4, 213,
-                52, 26, 111, 159, 169, 18, 22, 166, 243, 238, 44, 5, 31, 234, 106, 4, 40,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87, 38, 160, 122, 155, 12, 58, 133, 108, 183, 145, 181,
-                210, 141, 44, 236, 17, 96, 40, 55, 87, 204, 250, 142, 83, 122, 168, 250, 5, 113,
-                172, 203, 5, 12, 181, 160, 9, 100, 95, 141, 167, 178, 53, 101, 115, 131, 83, 172,
-                199, 242, 208, 96, 246, 121, 25, 18, 211, 89, 60, 94, 165, 169, 71, 3, 176, 157,
-                167, 50,
-            ][..],
-        ];
-        assert_signature(Chain::EthMainnet, signatures)
-    }
-
-    // Adapted test from old times when we had our own signing method.
-    // Don't have data for new chains, so I omit them in this kind of tests
-    #[test]
-    fn signs_various_transactions_for_ropsten() {
-        let signatures = &[
-            &[
-                248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179, 167,
-                100, 0, 0, 128, 41, 160, 8, 220, 80, 201, 100, 41, 178, 35, 151, 227, 210, 85, 27,
-                41, 27, 82, 217, 176, 64, 92, 205, 10, 195, 169, 66, 91, 213, 199, 124, 52, 3, 192,
-                160, 94, 220, 102, 179, 128, 78, 150, 78, 230, 117, 10, 10, 32, 108, 241, 50, 19,
-                148, 198, 6, 147, 110, 175, 70, 157, 72, 31, 216, 193, 229, 151, 115,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128, 41, 160, 186, 65, 161, 205, 173, 93, 185, 43, 220, 161, 63,
-                65, 19, 229, 65, 186, 247, 197, 132, 141, 184, 196, 6, 117, 225, 181, 8, 81, 198,
-                102, 150, 198, 160, 112, 126, 42, 201, 234, 236, 168, 183, 30, 214, 145, 115, 201,
-                45, 191, 46, 3, 113, 53, 80, 203, 164, 210, 112, 42, 182, 136, 223, 125, 232, 21,
-                205,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87, 41, 160, 146, 204, 57, 32, 218, 236, 59, 94, 106, 72,
-                174, 211, 223, 160, 122, 186, 126, 44, 200, 41, 222, 117, 117, 177, 189, 78, 203,
-                8, 172, 155, 219, 66, 160, 83, 82, 37, 6, 243, 61, 188, 102, 176, 132, 102, 74,
-                111, 180, 105, 33, 122, 106, 109, 73, 180, 65, 10, 117, 175, 190, 19, 196, 17, 128,
-                193, 75,
-            ][..],
-        ];
-        assert_signature(Chain::EthRopsten, signatures)
-    }
-
-    #[derive(Deserialize)]
-    struct Signing {
-        signed: Vec<u8>,
-        private_key: H256,
-    }
-
-    fn assert_signature(chain: Chain, slice_of_slices: &[&[u8]]) {
-        let first_part_tx_1 = r#"[{"nonce": "0x9", "gasPrice": "0x4a817c800", "gasLimit": "0x5208", "to": "0x3535353535353535353535353535353535353535", "value": "0xde0b6b3a7640000", "data": []}, {"private_key": "0x4646464646464646464646464646464646464646464646464646464646464646", "signed": "#;
-        let first_part_tx_2 = r#"[{"nonce": "0x0", "gasPrice": "0xd55698372431", "gasLimit": "0x1e8480", "to": "0xF0109fC8DF283027b6285cc889F5aA624EaC1F55", "value": "0x3b9aca00", "data": []}, {"private_key": "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "signed": "#;
-        let first_part_tx_3 = r#"[{"nonce": "0x00", "gasPrice": "0x09184e72a000", "gasLimit": "0x2710", "to": null, "value": "0x00", "data": [127,116,101,115,116,50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96,0,87]}, {"private_key": "0xe331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109", "signed": "#;
-        fn compose(first_part: &str, slice: &[u8]) -> String {
-            let third_part_jrc = "}]";
-            format!("{}{:?}{}", first_part, slice, third_part_jrc)
-        }
-        let all_transactions = format!(
-            "[{}]",
-            vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
-                .iter()
-                .zip(slice_of_slices.iter())
-                .zip(0usize..2)
-                .fold(String::new(), |so_far, actual| [
-                    so_far,
-                    compose(actual.0 .0, actual.0 .1)
-                ]
-                .join(if actual.1 == 0 { "" } else { ", " }))
-        );
-        let txs: Vec<(TestRawTransaction, Signing)> =
-            serde_json::from_str(&all_transactions).unwrap();
-        let constant_parts = &[
-            &[
-                248u8, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179,
-                167, 100, 0, 0, 128,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87,
-            ][..],
-        ];
-        let transport = TestTransport::default();
-        let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
-        let lengths_of_constant_parts: Vec<usize> =
-            constant_parts.iter().map(|part| part.len()).collect();
-        for (((tx, signed), length), constant_part) in txs
-            .iter()
-            .zip(lengths_of_constant_parts)
-            .zip(constant_parts)
-        {
-            let secret = Wallet::from(
-                Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref())
-                    .unwrap(),
-            )
-            .prepare_secp256k1_secret()
-            .unwrap();
-            let tx_params = from_raw_transaction_to_transaction_parameters(tx, chain);
-            let sign = subject
-                .web3
-                .accounts()
-                .sign_transaction(tx_params, &secret)
-                .wait()
-                .unwrap();
-            let signed_data_bytes = sign.raw_transaction.0;
-            assert_eq!(signed_data_bytes, signed.signed);
-            assert_eq!(signed_data_bytes[..length], **constant_part)
-        }
-    }
-
-    fn from_raw_transaction_to_transaction_parameters(
-        raw_transaction: &TestRawTransaction,
-        chain: Chain,
-    ) -> TransactionParameters {
-        TransactionParameters {
-            nonce: Some(raw_transaction.nonce),
-            to: raw_transaction.to,
-            gas: raw_transaction.gas_limit,
-            gas_price: Some(raw_transaction.gas_price),
-            value: raw_transaction.value,
-            data: Bytes(raw_transaction.data.clone()),
-            chain_id: Some(chain.rec().num_chain_id),
-        }
     }
 
     #[test]

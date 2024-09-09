@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthSepolia;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(TEST_DEFAULT_CHAIN, Chain::EthRopsten);
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::EthSepolia);
         assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
         assert_eq!(BASE_TEST_DIR, "generated/test");
     }
