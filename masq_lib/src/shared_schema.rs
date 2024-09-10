@@ -500,7 +500,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(SCANS_HELP),
     )
     //TODO test drive following parser
-    .arg(common_parameter_with_separate_u64_values( //common_parameter_with_separate_string_u64_value_pairs
+    .arg(common_parameter_with_separate_string_u64_value_pairs(
         "exit-location",
         EXIT_LOCATION_HELP,
     ))
@@ -524,6 +524,9 @@ pub mod common_validators {
     use std::net::IpAddr;
     use std::str::FromStr;
     use tiny_hderive::bip44::DerivationPath;
+    use ip_country_lib::country_block_stream::{Country, CountryBlock, IpRange};
+    use csv::StringRecord;
+    use std::net::Ipv4Addr;
 
     pub fn validate_ip_address(address: String) -> Result<(), String> {
         match IpAddr::from_str(&address) {
@@ -556,8 +559,56 @@ pub mod common_validators {
         }
     }
 
+    pub fn validate_country_code(country_code: String) -> Result<(), String> {
+        let country_range = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", country_code.as_str()]);
+        let country_block = CountryBlock::try_from(country_range);
+        let index = country_block.as_ref().unwrap().country.index;
+        let controll_cb = CountryBlock {
+            country: Country::try_from(index).unwrap(),
+            ip_range: IpRange::V4(Ipv4Addr::new(1,2,3,4), Ipv4Addr::new(5,6,7,8))};
+
+        if country_block == Ok(controll_cb) {
+            Ok(())
+        } else {
+            Err(country_code)
+        }
+    }
+
     pub fn validate_parameter_with_separate_string_u64_value_pairs(exit_location: String) -> Result<(), String> {
-        todo!("implement me");
+        let mut pass = true;
+        let mut collect_fails = "".to_string();
+        if exit_location.contains("|") {
+            let split = exit_location.split('|').collect::<Vec<&str>>();
+            split.iter().for_each(|country|{
+                (pass, collect_fails) = validate_country_code_and_priority(&country);
+            })
+        } else {
+            (pass, collect_fails) = validate_country_code_and_priority(exit_location.as_str());
+        }
+        if pass {
+            Ok(())
+        } else {
+            Err(collect_fails)
+        }
+    }
+
+    fn validate_country_code_and_priority(country: &str) -> (bool, String) {
+        let mut pass = true;
+        let mut collect_fails = "".to_string();
+        if let Some((country_code, priority)) = country.split_once(':') {
+            let validation_cc = validate_country_code(country_code.to_string());
+            let validation_priority = validate_non_zero_u16(priority.to_string());
+            if validation_cc == Ok(()) && validation_priority == Ok(()) {
+                ()
+            } else {
+                collect_fails.push_str(&format!("{},", country));
+                pass = false;
+            }
+        } else {
+            collect_fails.push_str(&format!("{},", country));
+            pass = false;
+        }
+        (pass, collect_fails)
     }
 
     pub fn validate_private_key(key: String) -> Result<(), String> {
@@ -646,18 +697,27 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
+    pub fn validate_separate_u64_values(values_with_delimiters: String, value_type: VersionedType ) -> Result<(), String> {
         //TODO consider separate the validator of numbers from this validator an use this validator to validate only sequential separation
         // of values and then use additional validator, one for numbers and second for country codes with priority `CZ:1` or `SK:2`
         values_with_delimiters.split('|').try_for_each(|segment| {
-            segment
-                .parse::<u64>()
-                .map_err(|_| {
-                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
-                        .to_string()
-                })
-                .map(|_| ())
+            match value_type {
+                u64 => validate_u64_values(segment),
+                String => {
+                    let (pass, errors) = validate_country_code_and_priority(segment);
+                }
+            }
         })
+    }
+
+    fn validate_u64_values(segment: &str) -> Result<(), String> {
+        segment
+            .parse::<u64>()
+            .map_err(|_| {
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                    .to_string()
+            })
+            .map(|_| ())
     }
 }
 
@@ -753,7 +813,7 @@ mod tests {
         );
         assert_eq!(
             EXIT_LOCATION_HELP,
-            "Country Code HELP."
+            "TODO create proper Country Code HELP."
         );
         assert_eq!(
             DATA_DIRECTORY_HELP,
@@ -973,7 +1033,7 @@ mod tests {
 
     #[test]
     fn validate_exit_key_trigger() {
-        let result = common_validators::validate_parameter_with_separate_string_u64_value_pairs(String::from("CZ:1"));
+        let result = common_validators::validate_parameter_with_separate_string_u64_value_pairs(String::from("CZ:1|SK:2"));
 
         assert_eq!(result, Ok(()));
     }

@@ -164,7 +164,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
     use crate::test_utils::mocks::{CommandContextMock, TerminalPassiveMock, TestStreamFactory};
-    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::constants::{DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
@@ -480,6 +480,39 @@ NAME                          VALUE                                             
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
+
+        SetupCommand::dump_setup(UiSetupInner::from(message), &mut stdout);
+
+        assert_eq!(handle.stdout_so_far(), expected);
+    }
+
+    #[test]
+    fn process_setup_command_for_exit_location() {
+        let message = UiSetupResponse {
+            running: false,
+            values: vec![
+                UiSetupResponseValue::new("chain", "dev", Default),
+                UiSetupResponseValue::new("data-directory", "dev", Default),
+                UiSetupResponseValue::new("exit-location", "CZ:1|SK:2", Set),
+            ],
+            errors: vec![],
+        };
+        let (stream_factory, handle) = TestStreamFactory::new();
+        let (mut stdout, _) = stream_factory.make();
+        let expected = format!("\
+NAME                          VALUE                                                            STATUS\n\
+{:29} {:64} {}\n{:29} {:64} {}\n{:29} {:64} {}\n{}\n",
+                               "chain",
+                               DEV_CHAIN_FULL_IDENTIFIER,
+                               "Default",
+                               "data-directory",
+                               "dev",
+                               "Default",
+                               "exit-location",
+                               "CZ:1|SK:2",
+                               "Set",
+                               "",
+        );
 
         SetupCommand::dump_setup(UiSetupInner::from(message), &mut stdout);
 
