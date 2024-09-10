@@ -42,7 +42,12 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
     let write_error = server_write_error_rx
         .recv_timeout(Duration::from_secs(60))
         .unwrap();
-    assert_eq!(write_error.kind(), io::ErrorKind::BrokenPipe);
+    if cfg!(target_os = "macos") {
+        assert_eq!(write_error.kind(), io::ErrorKind::BrokenPipe);
+    } else {
+        assert_eq!(write_error.kind(), io::ErrorKind::ConnectionReset);
+    }
+
     join_handle.join().unwrap();
 }
 
