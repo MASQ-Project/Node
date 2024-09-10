@@ -31,7 +31,6 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
-pub const EXIT_LOCATION_HELP: &str = "TODO";
 pub const DATA_DIRECTORY_HELP: &str =
     "Directory in which the Node will store its persistent state, including at least its database \
     and by default its configuration file as well.\nNote: any existing database in the data directory \
@@ -315,7 +314,7 @@ pub fn exit_location_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("exit-location")
         .long("exit-location")
         .value_name("EXIT-LOCATION")
-        .validator(common_validators::common_parameter_with_separate_string_u64_value_pairs)
+        .validator(common_validators::validate_parameter_with_separate_string_u64_value_pairs)
         .help(EXIT_LOCATION_HELP)
 }
 
@@ -349,6 +348,16 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .takes_value(true)
         .default_value(&DEFAULT_UI_PORT_VALUE)
         .validator(common_validators::validate_ui_port)
+        .help(help)
+}
+
+fn common_parameter_with_separate_string_u64_value_pairs<'a>(name: &'a str, help: &'a str) -> Arg<'a, 'a> {
+    Arg::with_name(name)
+        .long(name)
+        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_separate_u64_values)
         .help(help)
 }
 
@@ -491,7 +500,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .help(SCANS_HELP),
     )
     //TODO test drive following parser
-    .arg(common_parameter_with_separate_string_u64_value_pairs(
+    .arg(common_parameter_with_separate_u64_values( //common_parameter_with_separate_string_u64_value_pairs
         "exit-location",
         EXIT_LOCATION_HELP,
     ))
@@ -547,7 +556,7 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_parameter_with_separate_string_u64_value_pairs() -> Result<(), Vec<>> {
+    pub fn validate_parameter_with_separate_string_u64_value_pairs(exit_location: String) -> Result<(), String> {
         todo!("implement me");
     }
 
@@ -960,6 +969,13 @@ mod tests {
              blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
              provided."
         )
+    }
+
+    #[test]
+    fn validate_exit_key_trigger() {
+        let result = common_validators::validate_parameter_with_separate_string_u64_value_pairs(String::from("CZ:1"));
+
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
