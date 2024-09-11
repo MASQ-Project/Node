@@ -35,16 +35,16 @@ pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
 }
 
-pub struct StreamHandlerPoolReal {
-    inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    stream_adder_rx: Receiver<(StreamKey, StreamSenders)>,
-    stream_killer_rx: Receiver<(StreamKey, u64)>,
-}
-
 #[derive(Debug)]
 pub struct StreamSenders {
     pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
     pub reader_shutdown_tx: Sender<()>,
+}
+
+pub struct StreamHandlerPoolReal {
+    inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
+    stream_adder_rx: Receiver<(StreamKey, StreamSenders)>,
+    stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
 
 struct StreamHandlerPoolRealInner {
@@ -163,7 +163,6 @@ impl StreamHandlerPoolReal {
     ) {
         match reader_shutdown_tx.try_send(()) {
             Ok(()) => {
-                // todo!("Ok");
                 debug!(
                     logger,
                     "A shutdown signal was sent to the StreamReader for stream key {:?}.",
@@ -171,7 +170,6 @@ impl StreamHandlerPoolReal {
                 );
             }
             Err(_e) => {
-                // todo!("ERR");
                 debug!(
                     logger,
                     "Unable to send a shutdown signal to the StreamReader for \
@@ -261,7 +259,7 @@ impl StreamHandlerPoolReal {
                     None => {
                         debug!(
                             inner.logger,
-                            "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
+                            "Trying to remove StreamWriter and StreamReader for stream key {:?}, but it's already gone", stream_key
                         )
                     }
                 }

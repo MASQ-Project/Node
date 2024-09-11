@@ -84,15 +84,6 @@ impl Future for StreamReader {
     }
 }
 
-impl Drop for StreamReader {
-    fn drop(&mut self) {
-        debug!(
-            Logger::new("TEST"),
-            "StreamReader for stream key {:?} is being dropped.", self.stream_key
-        )
-    }
-}
-
 impl StreamReader {
     pub fn new(
         stream_key: StreamKey,
