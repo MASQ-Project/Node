@@ -587,12 +587,12 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::recorder::{make_proxy_client_subs_from_recorder, make_recorder};
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use actix::{Actor, System};
+    use actix::System;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -651,7 +651,6 @@ mod tests {
                 cryptde,
                 stream_adder_tx: unbounded().0,
                 stream_killer_tx: unbounded().0,
-                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(StreamConnectorMock::new()),
                 proxy_client_sub: peer_actors
                     .proxy_client_opt
@@ -897,7 +896,6 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -932,80 +930,6 @@ mod tests {
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
                 data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
             }
-        );
-    }
-
-    #[test]
-    fn while_housekeeping_the_stream_senders_are_received_by_stream_handler_pool() {
-        init_test_logging();
-        let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
-        let (shutdown_tx, shutdown_rx) = unbounded();
-        let (stream_adder_tx, stream_adder_rx) = unbounded();
-        thread::spawn(move || {
-            let stream_key = StreamKey::make_meaningful_stream_key("I should die");
-            let client_request_payload = ClientRequestPayload_0v1 {
-                stream_key,
-                sequenced_packet: SequencedPacket {
-                    data: b"I'm gonna kill you stream key".to_vec(),
-                    sequence_number: 0,
-                    last_data: true,
-                },
-                target_hostname: Some(String::from("3.4.5.6:80")),
-                target_port: HTTP_PORT,
-                protocol: ProxyProtocol::HTTP,
-                originator_public_key: PublicKey::new(&b"brutal death"[..]),
-            };
-            let package = ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("consuming")),
-                make_meaningless_route(),
-                client_request_payload.into(),
-                0,
-            );
-            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let peer_actors = peer_actors_builder().build();
-            let mut subject = StreamHandlerPoolReal::new(
-                Box::new(ResolverWrapperMock::new()),
-                main_cryptde(),
-                peer_actors.accountant.report_exit_service_provided.clone(),
-                peer_actors.proxy_client_opt.unwrap().clone(),
-                100,
-                200,
-            );
-            subject.stream_adder_rx = stream_adder_rx;
-            {
-                let mut inner = subject.inner.lock().unwrap();
-                inner.logger = Logger::new(test_name);
-                inner.stream_writer_channels.insert(
-                    stream_key,
-                    StreamSenders {
-                        writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
-                        reader_shutdown_tx: shutdown_tx,
-                    },
-                );
-                inner.establisher_factory = Box::new(StreamEstablisherFactoryReal {
-                    cryptde: main_cryptde(),
-                    stream_adder_tx,
-                    stream_killer_tx: unbounded().0,
-                    proxy_client_subs: make_proxy_client_subs_from_recorder(
-                        &make_recorder().0.start(),
-                    ),
-                    logger: Logger::new("test"),
-                });
-            }
-
-            // TODO: GH-800: Make sure that the stream_adder_tx sends something to the receiver
-
-            run_process_package_in_actix(subject, package);
-        });
-        let received = shutdown_rx.recv();
-        assert_eq!(received, Ok(()));
-        TestLogHandler::new().await_log_containing(
-            &format!(
-                "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
-            for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
-            ),
-            500,
         );
     }
 
@@ -1197,7 +1121,6 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -1377,7 +1300,6 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(StreamConnectorMock::new().with_connection(
                         peer_addr.clone(),
                         peer_addr.clone(),
@@ -1478,7 +1400,6 @@ mod tests {
                 cryptde,
                 stream_adder_tx,
                 stream_killer_tx,
-                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(
                     StreamConnectorMock::new()
                         .connect_pair_result(Err(Error::from(ErrorKind::Other))),
@@ -1601,7 +1522,6 @@ mod tests {
                 cryptde,
                 stream_adder_tx,
                 stream_killer_tx,
-                shutdown_signal_rx: unbounded().1,
                 stream_connector: Box::new(
                     StreamConnectorMock::new()
                         .connect_pair_result(Err(Error::from(ErrorKind::Other))),
@@ -1718,7 +1638,6 @@ mod tests {
                     cryptde,
                     stream_adder_tx,
                     stream_killer_tx,
-                    shutdown_signal_rx: unbounded().1,
                     stream_connector: Box::new(
                         StreamConnectorMock::new()
                             .with_connection(peer_addr, peer_addr, reader, writer),
