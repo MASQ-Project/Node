@@ -314,7 +314,7 @@ pub fn exit_location_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("exit-location")
         .long("exit-location")
         .value_name("EXIT-LOCATION")
-        .validator(common_validators::validate_parameter_with_separate_string_u64_value_pairs)
+        .validator(common_validators::validate_exit_location_pairs)
         .help(EXIT_LOCATION_HELP)
 }
 
@@ -377,7 +377,7 @@ fn exit_location_parameter<'a>() -> Arg<'a, 'a> {
         .value_name("EXIT-LOCATION")
         .min_values(0)
         .max_values(1)
-        .validator(common_validators::validate_parameter_with_separate_string_u64_value_pairs)
+        .validator(common_validators::validate_exit_location_pairs)
         .help(EXIT_LOCATION_HELP)
 }
 
@@ -574,6 +574,40 @@ pub mod common_validators {
         }
     }
 
+   pub fn validate_exit_location_pairs(exit_location: String) -> Result<(), String> {
+        let result = validate_pipe_separate_values(exit_location, |country: String| {
+            let mut collect_fails = "".to_string();
+            if let Some((country_code, priority)) = country.split_once(':') {
+                let validation_cc = validate_country_code(country_code.to_string());
+                let validation_priority = validate_non_zero_u16(priority.to_string());
+                if validation_cc == Ok(()) && validation_priority == Ok(()) {
+                    ()
+                } else {
+                    collect_fails.push_str(&format!("'{}': non-existent country codes or invalid priority, ", country));
+                }
+            } else {
+                collect_fails.push_str(&format!("'{}': you need to specify the priority, ", country));
+            }
+            return match collect_fails.is_empty() {
+                true => Ok(()),
+                false => Err(collect_fails.to_string())
+            };
+        });
+        return result;
+    }
+
+    pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
+        validate_pipe_separate_values(values, |segment: String| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                        .to_string()
+                })
+                .map(|_| ())
+        })
+    }
+
     pub fn validate_parameter_with_separate_string_u64_value_pairs(exit_location: String) -> Result<(), String> {
         let mut pass = true;
         let mut collect_fails = "".to_string();
@@ -601,11 +635,11 @@ pub mod common_validators {
             if validation_cc == Ok(()) && validation_priority == Ok(()) {
                 ()
             } else {
-                collect_fails.push_str(&format!("{},", country));
+                collect_fails.push_str(&format!("'{}': non-existent country codes or invalid priority, ", country));
                 pass = false;
             }
         } else {
-            collect_fails.push_str(&format!("{},", country));
+            collect_fails.push_str(&format!("'{}': you need to specify the priority, ", country));
             pass = false;
         }
         (pass, collect_fails)
@@ -697,28 +731,20 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_separate_u64_values(values_with_delimiters: String, value_type: VersionedType ) -> Result<(), String> {
-        //TODO consider separate the validator of numbers from this validator an use this validator to validate only sequential separation
-        // of values and then use additional validator, one for numbers and second for country codes with priority `CZ:1` or `SK:2`
-        values_with_delimiters.split('|').try_for_each(|segment| {
-            match value_type {
-                u64 => validate_u64_values(segment),
-                String => {
-                    let (pass, errors) = validate_country_code_and_priority(segment);
-                }
-            }
-        })
+    fn validate_pipe_separate_values(values_with_delimiters: String, closure: fn(String) -> Result<(), String> ) -> Result<(), String> {
+        let mut error_collection = vec![];
+        values_with_delimiters.split('|').into_iter().for_each(|segment| {
+            match closure(segment.to_string()) {
+                Ok(_) => (),
+                Err(msg) => error_collection.push(msg)
+            };
+        });
+        match error_collection.is_empty() {
+            true => Ok(()),
+            false => Err(error_collection.into_iter().collect::<String>())
+        }
     }
 
-    fn validate_u64_values(segment: &str) -> Result<(), String> {
-        segment
-            .parse::<u64>()
-            .map_err(|_| {
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
-                    .to_string()
-            })
-            .map(|_| ())
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -1032,8 +1058,15 @@ mod tests {
     }
 
     #[test]
-    fn validate_exit_key_trigger() {
-        let result = common_validators::validate_parameter_with_separate_string_u64_value_pairs(String::from("CZ:1|SK:2"));
+    fn validate_exit_key_fails_on_non_provided_priority() {
+        let result = common_validators::validate_exit_location_pairs(String::from("CZ|SK:BB"));
+
+        assert_eq!(result, Err("'CZ': you need to specify the priority, 'SK:BB': non-existent country codes or invalid priority, ".to_string()));
+    }
+
+    #[test]
+    fn validate_exit_key_success() {
+        let result = common_validators::validate_exit_location_pairs(String::from("CZ:1|SK:2"));
 
         assert_eq!(result, Ok(()));
     }
