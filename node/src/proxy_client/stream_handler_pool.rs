@@ -29,8 +29,8 @@ use tokio::prelude::future::{err, ok};
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
-// TODO: This should be renamed to ProxyClientStreamHandlerPoolReal (or something more concise)
-// to differentiate it from the other StreamHandlerPool, which, unlike this, is an actor.
+// TODO: This should be renamed to differentiate it from the other StreamHandlerPool,
+// which, unlike this, is an actor.
 pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
 }
@@ -785,9 +785,8 @@ mod tests {
                 0,
             );
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
             let peer_addr = SocketAddr::from_str("2.3.4.5:80").unwrap();
+            let resolver = ResolverWrapperMock::new().lookup_ip_success(vec![peer_addr.ip()]);
             let tx_to_write = SenderWrapperMock::new(peer_addr).unbounded_send_result(
                 make_send_error(client_request_payload.sequenced_packet.clone()),
             );
@@ -1920,7 +1919,7 @@ mod tests {
     }
 
     #[test]
-    fn clean_up_dead_streams_logs_when_the_shutdown_channel_is_down() {
+    fn clean_up_dead_streams_logs_when_the_stream_reader_is_down() {
         init_test_logging();
         let test_name = "clean_up_dead_streams_logs_when_the_shutdown_channel_is_down";
         let system = System::new(test_name);

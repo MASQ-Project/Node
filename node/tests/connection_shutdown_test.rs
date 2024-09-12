@@ -27,17 +27,18 @@ fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
     let join_handle = thread::spawn(move || {
         endless_write_server(server_port, server_write_error_tx);
     });
-    let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
-    stream
+    let mut browser_stream =
+        TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
+    browser_stream
         .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
     let request = format!("GET / HTTP/1.1\r\nHost: 127.0.0.1:{server_port}\r\n\r\n");
-    stream.write(request.as_bytes()).unwrap();
+    browser_stream.write(request.as_bytes()).unwrap();
     let mut buf = [0u8; 16384];
     // We want to make sure the Server is sending before we shutdown the stream
-    stream.read(&mut buf).unwrap();
+    browser_stream.read(&mut buf).unwrap();
 
-    stream.shutdown(Shutdown::Write).unwrap();
+    browser_stream.shutdown(Shutdown::Write).unwrap();
 
     let write_error = server_write_error_rx
         .recv_timeout(Duration::from_secs(60))

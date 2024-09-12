@@ -425,10 +425,11 @@ mod tests {
         let mut subject = make_subject();
         subject.shutdown_signal = shutdown_rx;
         subject.logger = Logger::new(test_name);
-
         shutdown_tx.send(()).unwrap();
 
-        assert_eq!(subject.poll(), Ok(Async::Ready(())));
+        let result = subject.poll();
+
+        assert_eq!(result, Ok(Async::Ready(())));
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {test_name}: Shutting down for stream: {:?}",
             subject.stream_key

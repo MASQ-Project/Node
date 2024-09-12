@@ -80,6 +80,7 @@ pub struct ProxyServer {
     tunneled_hosts: HashMap<StreamKey, String>,
     dns_failure_retries: HashMap<StreamKey, DNSFailureRetry>,
     stream_key_routes: HashMap<StreamKey, RouteQueryResponse>,
+    stream_key_ttl: HashMap<StreamKey, SystemTime>,
     is_decentralized: bool,
     consuming_wallet_balance: Option<i64>,
     main_cryptde: &'static dyn CryptDE,
@@ -260,6 +261,7 @@ impl ProxyServer {
             tunneled_hosts: HashMap::new(),
             dns_failure_retries: HashMap::new(),
             stream_key_routes: HashMap::new(),
+            stream_key_ttl: HashMap::new(),
             is_decentralized,
             consuming_wallet_balance,
             main_cryptde,
@@ -436,6 +438,39 @@ impl ProxyServer {
         }
     }
 
+    fn schedule_stream_key_purge(&mut self, stream_key: StreamKey) {
+        debug!(
+            self.logger,
+            "Last data received for stream key {:?}, which was tunneling through host {:?}. \
+            It will be purged after {:?}.",
+            &stream_key,
+            self.tunneled_hosts.get(&stream_key),
+            self.stream_key_purge_delay
+        );
+        self.stream_key_ttl.insert(stream_key, SystemTime::now());
+        self.subs
+            .as_ref()
+            .expect("ProxyServer Subs Unbound")
+            .schedule_stream_key_purge
+            .try_send(MessageScheduler {
+                scheduled_msg: StreamKeyPurge { stream_key },
+                delay: self.stream_key_purge_delay,
+            })
+            .expect("ProxyServer is dead");
+    }
+
+    fn log_straggling_packet(&self, stream_key: &StreamKey, old_timestamp: &SystemTime) {
+        let duration_since = SystemTime::now()
+            .duration_since(*old_timestamp)
+            .expect("time calculation error");
+        debug!(
+            self.logger,
+            "Straggling packet received for a stream key {:?} with a delay of {:?}",
+            stream_key,
+            duration_since
+        );
+    }
+
     fn handle_client_response_payload(
         &mut self,
         msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
@@ -495,15 +530,12 @@ impl ProxyServer {
                     })
                     .expect("Dispatcher is dead");
                 if last_data {
-                    self.subs
-                        .as_ref()
-                        .expect("ProxyServer Subs Unbound")
-                        .schedule_stream_key_purge
-                        .try_send(MessageScheduler {
-                            scheduled_msg: StreamKeyPurge { stream_key },
-                            delay: self.stream_key_purge_delay,
-                        })
-                        .expect("ProxyServer is dead");
+                    match self.stream_key_ttl.get(&stream_key) {
+                        None => self.schedule_stream_key_purge(stream_key),
+                        Some(old_timestamp) => {
+                            self.log_straggling_packet(&stream_key, old_timestamp)
+                        }
+                    }
                 }
             }
             None => {
@@ -633,13 +665,11 @@ impl ProxyServer {
     }
 
     fn purge_stream_key(&mut self, stream_key: &StreamKey) {
-        debug!(
-            self.logger,
-            "Retiring stream key {}: no more data", &stream_key
-        );
+        debug!(self.logger, "Retiring stream key {}", &stream_key);
         let _ = self.keys_and_addrs.remove_a(stream_key);
         let _ = self.stream_key_routes.remove(stream_key);
         let _ = self.tunneled_hosts.remove(stream_key);
+        let _ = self.stream_key_ttl.remove(stream_key);
     }
 
     fn make_payload(
@@ -3569,7 +3599,8 @@ mod tests {
     #[test]
     fn proxy_server_receives_terminal_response_from_hopper() {
         init_test_logging();
-        let system = System::new("proxy_server_receives_response_from_hopper");
+        let test_name = "proxy_server_receives_terminal_response_from_hopper";
+        let system = System::new(test_name);
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
@@ -3580,8 +3611,9 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
+        subject.logger = Logger::new(test_name);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         subject
             .keys_and_addrs
             .insert(stream_key.clone(), socket_addr.clone());
@@ -3618,8 +3650,8 @@ mod tests {
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr.try_send(first_expired_cores_package).unwrap();
-        subject_addr.try_send(second_expired_cores_package).unwrap(); // should shedule a new message
+        subject_addr.try_send(first_expired_cores_package).unwrap(); // should schedule a new message
+        subject_addr.try_send(second_expired_cores_package).unwrap(); // should cause the straggling message log
 
         System::current().stop();
         system.run();
@@ -3635,13 +3667,52 @@ mod tests {
             scheduled_msg,
             &MessageScheduler {
                 scheduled_msg: StreamKeyPurge { stream_key },
-                delay: Duration::from_secs(5)
+                delay: STREAM_KEY_PURGE_DELAY
             }
-        )
+        );
+        TestLogHandler::new()
+            .exists_log_containing(&format!(
+                "DEBUG: {test_name}: Straggling packet received for a stream key {stream_key} with a delay of"
+            ));
+    }
+
+    #[test]
+    #[should_panic(expected = "time calculation error")]
+    fn log_straggling_packet_panics_if_timestamp_is_wrong() {
+        let subject = ProxyServer::new(
+            main_cryptde(),
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let timestamp = SystemTime::now()
+            .checked_add(Duration::from_secs(10))
+            .unwrap();
+        let _ = subject.log_straggling_packet(&stream_key, &timestamp);
     }
 
     #[test]
     fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
+        /*
+          +---------------------------------------------------------------------------+
+          |  if current_time < stream_key_purge_delay_in_millis - offset_in_millis    |
+          |                 -> Records Exist                                          |
+          +---------------------------------------------------------------------------+
+                                    |
+                                    v
+          +---------------------------------------------------------------------------+
+          |  Purge happens when current_time reaches stream_key_purge_delay_in_millis |
+          +---------------------------------------------------------------------------+
+                                    |
+                                    v
+          +---------------------------------------------------------------------------+
+          |  if current_time > stream_key_purge_delay_in_millis + offset_in_millis    |
+          |                 -> Records were purged                                    |
+          +---------------------------------------------------------------------------+
+        */
+
         init_test_logging();
         let test_name = "handle_client_response_payload_purges_stream_keys_for_terminal_response";
         let cryptde = main_cryptde();
@@ -3657,8 +3728,7 @@ mod tests {
         subject.stream_key_purge_delay = Duration::from_millis(stream_key_purge_delay_in_millis);
         subject.logger = Logger::new(test_name);
         subject.subs = Some(make_proxy_server_out_subs());
-
-        let stream_key = StreamKey::make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
@@ -3698,18 +3768,34 @@ mod tests {
                 client_response_payload.into(),
                 0,
             );
-        let system =
-            System::new("handle_client_response_payload_purges_stream_keys_for_terminal_response");
+        let system = System::new(test_name);
         let bind_msg = BindMessage { peer_actors };
         proxy_server_addr.try_send(bind_msg).unwrap();
+        let time_before_sending_package = SystemTime::now();
 
         proxy_server_addr.try_send(expired_cores_package).unwrap();
 
+        let time_after_sending_package = time_before_sending_package
+            .checked_add(Duration::from_secs(1))
+            .unwrap();
         let pre_assertions_msg = AssertionsMessage {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
+                let purge_timestamp = proxy_server
+                    .stream_key_ttl
+                    .get(&stream_key)
+                    .unwrap()
+                    .clone();
+                assert!(
+                    time_before_sending_package <= purge_timestamp
+                        && purge_timestamp <= time_after_sending_package
+                );
                 assert!(!proxy_server.keys_and_addrs.is_empty());
                 assert!(!proxy_server.stream_key_routes.is_empty());
                 assert!(!proxy_server.tunneled_hosts.is_empty());
+                TestLogHandler::new().exists_log_containing(&format!(
+                    "DEBUG: {test_name}: Last data received for stream key vYMR621EYFzvxTJqpzrGKr3KMbc, \
+                    which was tunneling through host Some(\"hostname\"). It will be purged after 500ms."
+                ));
             }),
         };
         proxy_server_addr
@@ -3720,13 +3806,13 @@ mod tests {
             .unwrap();
         let post_assertions_msg = AssertionsMessage {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
-                TestLogHandler::new()
-                    .exists_log_containing(&format!(
-                        "DEBUG: {test_name}: Retiring stream key AAAAAAAAAAAAAAAAAAAAAAAAAAA: no more data"
-                    ));
                 assert!(proxy_server.keys_and_addrs.is_empty());
                 assert!(proxy_server.stream_key_routes.is_empty());
                 assert!(proxy_server.tunneled_hosts.is_empty());
+                assert!(proxy_server.stream_key_ttl.is_empty());
+                TestLogHandler::new().exists_log_containing(&format!(
+                    "DEBUG: {test_name}: Retiring stream key vYMR621EYFzvxTJqpzrGKr3KMbc"
+                ));
                 System::current().stop();
             }),
         };
