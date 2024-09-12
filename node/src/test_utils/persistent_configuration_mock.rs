@@ -14,7 +14,6 @@ use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::u64;
-use std::borrow::BorrowMut;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -43,8 +42,8 @@ pub struct PersistentConfigurationMock {
     earning_wallet_results: RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_exit_location_result: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    set_exit_location_params: Arc<Mutex<Vec<ExitLocation>>>,
-    exit_location_results: RefCell<Vec<Result<ExitLocation, PersistentConfigError>>>,
+    set_exit_location_params: Arc<Mutex<Vec<Option<ExitLocation>>>>,
+    exit_location_results: RefCell<Vec<Result<Option<ExitLocation>, PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
@@ -166,12 +165,12 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_address_results)
     }
 
-    fn set_exit_location_result(&mut self, exit_locations: ExitLocation) -> Result<(), PersistentConfigError> {
+    fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError> {
         self.exit_location_results.borrow_mut().push(Ok(exit_locations));
         Ok(())
     }
 
-    fn exit_location(&self) -> Result<ExitLocation, PersistentConfigError> {
+    fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError> {
         self.exit_location_results.borrow_mut().remove(0)
     }
 
@@ -410,7 +409,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_exit_location_params(mut self, params: &Arc<Mutex<Vec<ExitLocation>>>) -> Self {
+    pub fn set_exit_location_params(mut self, params: &Arc<Mutex<Vec<Option<ExitLocation>>>>) -> Self {
         self.set_exit_location_params = params.clone();
         self
     }
@@ -420,7 +419,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn exit_location_result(self, result: Result<ExitLocation, PersistentConfigError>) -> Self {
+    pub fn exit_location_result(self, result: Result<Option<ExitLocation>, PersistentConfigError>) -> Self {
         self.exit_location_results.borrow_mut().push(result);
         self
     }

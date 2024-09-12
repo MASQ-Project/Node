@@ -892,7 +892,6 @@ mod tests {
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::path::Path;
-    use std::process::Termination;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -913,7 +912,7 @@ mod tests {
     use crate::sub_lib::configurator::NewPasswordMessage;
     use crate::sub_lib::cryptde::PublicKey as PK;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
-    use crate::sub_lib::neighborhood::{ConfigurationChange, ExitLocation, NodeDescriptor, RatePack};
+    use crate::sub_lib::neighborhood::{ConfigurationChange, NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
@@ -1186,28 +1185,18 @@ mod tests {
     }
 
     #[test]
-    fn handle_exit_location_handles_error() {
+    fn handle_exit_location_handles_none_as_exit_location() {
         init_test_logging();
         let mut persistent_config = PersistentConfigurationMock::new();
-
-        persistent_config.set_exit_location_result(ExitLocation {
-            country_code: "CZ".to_string(),
-            priority: 1usize
-        }).expect("TODO: panic message");
-        let mut subject = make_subject(Some(persistent_config));
-        let msg = UiCheckPasswordRequest {
-            db_password_opt: None,
-        };
+        persistent_config.set_exit_location_result(None).expect("Expected persistent config");
+        let subject = make_subject(Some(persistent_config));
 
         let result = subject.persistent_config.exit_location().unwrap();
 
-        println!("result: {:?}", result);
         assert_eq!(
             result,
-            ExitLocation { country_code: "CZ".to_string(), priority: 1 }
+            None
         );
-        // TestLogHandler::new()
-        //     .exists_log_containing("WARN: Configurator: Failed to set Exit Location: NotPresent");
     }
 
     #[test]

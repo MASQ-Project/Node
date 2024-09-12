@@ -351,16 +351,6 @@ pub fn ui_port_arg(help: &str) -> Arg {
         .help(help)
 }
 
-fn common_parameter_with_separate_string_u64_value_pairs<'a>(name: &'a str, help: &'a str) -> Arg<'a, 'a> {
-    Arg::with_name(name)
-        .long(name)
-        .value_name(Box::leak(name.to_uppercase().into_boxed_str()))
-        .min_values(0)
-        .max_values(1)
-        .validator(common_validators::validate_separate_u64_values)
-        .help(help)
-}
-
 fn common_parameter_with_separate_u64_values<'a>(name: &'a str, help: &'a str) -> Arg<'a, 'a> {
     Arg::with_name(name)
         .long(name)
@@ -434,6 +424,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         EARNING_WALLET_HELP,
         common_validators::validate_ethereum_address,
     ))
+    .arg(exit_location_parameter())
     .arg(
         Arg::with_name("fake-public-key")
             .long("fake-public-key")
@@ -499,11 +490,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .possible_values(&["on", "off"])
             .help(SCANS_HELP),
     )
-    //TODO test drive following parser
-    .arg(common_parameter_with_separate_string_u64_value_pairs(
-        "exit-location",
-        EXIT_LOCATION_HELP,
-    ))
     .arg(common_parameter_with_separate_u64_values(
         "scan-intervals",
         SCAN_INTERVALS_HELP,

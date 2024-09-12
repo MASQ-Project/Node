@@ -4,6 +4,7 @@ use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapp
 use masq_lib::utils::to_string;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
+use crate::sub_lib::neighborhood::ExitLocation;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConfigDaoError {

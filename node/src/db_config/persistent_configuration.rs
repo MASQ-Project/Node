@@ -108,8 +108,8 @@ pub trait PersistentConfiguration {
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_exit_location_result(&mut self, exit_locations: ExitLocation) -> Result<(), PersistentConfigError>;
-    fn exit_location(&self) -> Result<ExitLocation, PersistentConfigError>;
+    fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError>;
+    fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError>;
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
@@ -311,12 +311,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(self.get("earning_wallet_address")?)
     }
 
-    fn set_exit_location_result(&mut self, exit_locations: ExitLocation) -> Result<(), PersistentConfigError> {
-        todo!()
+    fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError> {
+        self.exit_location
     }
 
-    fn exit_location(&self) -> Result<ExitLocation, PersistentConfigError> {
-        todo!()
+    fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError> {
+        match self.get("exit-location")? {
+            Ok(val) => Ok(val),
+            Err(e) => Err(PersistentConfigError::from(e))
+        }
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
@@ -597,7 +600,7 @@ impl PersistentConfigurationReal {
         }
     }
 
-    fn combined_params_get_method<'a, T, C>(
+        fn combined_params_get_method<'a, T, C>(
         &'a self,
         values_parser: C,
         parameter: &'a str,
