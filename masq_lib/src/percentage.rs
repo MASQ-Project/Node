@@ -1,6 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use nix::libc::sigaction;
 use num::CheckedAdd;
 use num::CheckedSub;
 use num::{CheckedDiv, CheckedMul, Integer};
@@ -11,12 +10,19 @@ use std::ops::{Div, Rem};
 // Designed to store values from 0 to 100 and offer a set of handy methods for PurePercentage
 // operations over a wide variety of integer types. It is also to look after the least significant
 // digit on the resulted number in order to avoid the effect of a loss on precision that genuinely
-// comes with division on integers if a remainder is left over.
+// comes with division on integers if a remainder is left over. The percents are always represented
+// by an unsigned integer. On the contrary, the numbers that it is applied on can take on both
+// positive and negative values.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PurePercentage {
     degree: u8,
 }
+
+// This is a wider type that allows to specify cumulative percents of more than only 100.
+// The expected use of this would look like requesting percents meaning possibly multiples of 100%,
+// roughly, of a certain base number. Similarly to the PurePercentage type, also signed numbers
+// would be accepted.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoosePercentage {
@@ -58,9 +64,9 @@ impl LoosePercentage {
         }
     }
 
-    // If this overflows you probably want to precede the operation by converting your bas number
+    // If this overflows you probably want to precede the operation by converting your base number
     // to a larger integer type
-    pub fn of<N>(&self, num: N) -> Result<N, OverflowError>
+    pub fn of<N>(&self, num: N) -> Result<N, BaseTypeOverflow>
     where
         N: PercentageInteger,
         <N as TryFrom<i8>>::Error: Debug,
@@ -71,25 +77,25 @@ impl LoosePercentage {
     {
         let multiples = match N::try_from(self.multiples_of_100_percent) {
             Ok(num) => num,
-            Err(e) => todo!(),
+            Err(e) => return Err(BaseTypeOverflow {}),
         };
 
         let by_wholes = match num.checked_mul(&multiples) {
             Some(num) => num,
-            None => todo!(),
+            None => return Err(BaseTypeOverflow {}),
         };
 
         let by_remainder = self.degrees_from_remainder.of(num);
 
         match by_wholes.checked_add(&by_remainder) {
             Some(res) => Ok(res),
-            None => todo!(),
+            None => Err(BaseTypeOverflow {}),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum OverflowError {}
+#[derive(Debug, PartialEq, Eq)]
+pub struct BaseTypeOverflow {}
 
 impl TryFrom<u8> for PurePercentage {
     type Error = String;
@@ -218,11 +224,12 @@ impl PurePercentage {
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        self.of(num).checked_add(&num).unwrap_or_else(|| {
+        let to_add = self.of(num);
+        num.checked_add(&to_add).unwrap_or_else(|| {
             panic!(
                 "Overflowed during addition of {} percent, that is {:?}, to {:?} of type {}.",
                 self.degree,
-                self.of(num),
+                to_add,
                 num,
                 type_name::<N>()
             )
@@ -236,7 +243,8 @@ impl PurePercentage {
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        num.checked_sub(&self.of(num))
+        let to_subtract = self.of(num);
+        num.checked_sub(&to_subtract)
             .expect("should never happen by its principle")
     }
 
@@ -281,9 +289,10 @@ enum RoundingRule {
 
 #[cfg(test)]
 mod tests {
-    use crate::percentage::{LoosePercentage, PercentageInteger, PurePercentage, RoundingRule};
+    use crate::percentage::{
+        BaseTypeOverflow, LoosePercentage, PercentageInteger, PurePercentage, RoundingRule,
+    };
     use std::fmt::Debug;
-    use std::ops::RangeInclusive;
 
     #[test]
     fn percentage_is_implemented_for_all_rust_integers() {
@@ -628,5 +637,35 @@ mod tests {
                     case.expected_result, result, case.requested_percent, case.examined_base_number
                 )
             })
+    }
+
+    #[test]
+    fn loose_percentage_multiple_of_percent_hits_limit() {
+        let percents = ((u8::MAX as u32 + 1) * 100);
+        let subject = LoosePercentage::new(percents);
+
+        let result: Result<u8, BaseTypeOverflow> = subject.of(1);
+
+        assert_eq!(result, Err(BaseTypeOverflow {}))
+    }
+
+    #[test]
+    fn loose_percentage_multiplying_input_number_hits_limit() {
+        let percents = 200;
+        let subject = LoosePercentage::new(percents);
+
+        let result: Result<u8, BaseTypeOverflow> = subject.of(u8::MAX);
+
+        assert_eq!(result, Err(BaseTypeOverflow {}))
+    }
+
+    #[test]
+    fn loose_percentage_adding_portion_from_remainder_hits_limit() {
+        let percents = 101;
+        let subject = LoosePercentage::new(percents);
+
+        let result: Result<u8, BaseTypeOverflow> = subject.of(u8::MAX);
+
+        assert_eq!(result, Err(BaseTypeOverflow {}))
     }
 }
