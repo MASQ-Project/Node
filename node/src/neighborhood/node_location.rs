@@ -34,26 +34,18 @@ pub fn get_node_location(
 
 #[cfg(test)]
 mod tests {
-    use crate::ip_country_lib::country_finder::CountryCodeFinder;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::node_location::{get_node_location, NodeLocation};
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use lazy_static::lazy_static;
     use std::net::{IpAddr, Ipv4Addr};
-
-    lazy_static! {
-        static ref FULL_COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
-            ip_country_lib::dbip_country::ipv4_country_data(),
-            ip_country_lib::dbip_country::ipv6_country_data()
-        );
-    }
+    use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 
     #[test]
     fn test_node_location() {
         let node_location = get_node_location(
             Some(IpAddr::V4(Ipv4Addr::new(125, 125, 125, 1))),
-            &FULL_COUNTRY_CODE_FINDER,
+            &COUNTRY_CODE_FINDER,
         )
         .unwrap();
 
@@ -66,7 +58,7 @@ mod tests {
         let mut metadata = NodeRecordMetadata::new();
         metadata.node_location_opt = get_node_location(
             Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))),
-            &FULL_COUNTRY_CODE_FINDER,
+            &COUNTRY_CODE_FINDER,
         );
         assert_eq!(
             metadata.node_location_opt.as_ref().unwrap(),
