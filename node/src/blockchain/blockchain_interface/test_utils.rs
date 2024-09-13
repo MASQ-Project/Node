@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 use crate::blockchain::blockchain_interface::lower_level_interface::{
-    LatestBlockNumber, LowBlockchainInt, ResultForBalance, ResultForNonce,
+    LowBlockchainInt,
 };
 use crate::sub_lib::wallet::Wallet;
 use std::cell::RefCell;
@@ -24,12 +24,12 @@ use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFa
 #[derive(Default)]
 pub struct LowBlockchainIntMock {
     get_transaction_fee_balance_params: Arc<Mutex<Vec<Address>>>,
-    get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
+    get_transaction_fee_balance_results: RefCell<Vec<Result<U256, BlockchainError>>>,
     get_masq_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_masq_balance_results: RefCell<Vec<ResultForBalance>>,
-    get_block_number_results: RefCell<Vec<LatestBlockNumber>>,
+    get_masq_balance_results: RefCell<Vec<Result<U256, BlockchainError>>>,
+    get_block_number_results: RefCell<Vec<Result<U64, BlockchainError>>>,
     get_transaction_id_params: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_id_results: RefCell<Vec<ResultForNonce>>,
+    get_transaction_id_results: RefCell<Vec<Result<U256, BlockchainError>>>,
 }
 
 impl LowBlockchainInt for LowBlockchainIntMock {
@@ -106,7 +106,7 @@ impl LowBlockchainIntMock {
         self
     }
 
-    pub fn get_transaction_fee_balance_result(self, result: ResultForBalance) -> Self {
+    pub fn get_transaction_fee_balance_result(self, result: Result<U256, BlockchainError>) -> Self {
         self.get_transaction_fee_balance_results
             .borrow_mut()
             .push(result);
@@ -118,12 +118,12 @@ impl LowBlockchainIntMock {
         self
     }
 
-    pub fn get_masq_balance_result(self, result: ResultForBalance) -> Self {
+    pub fn get_masq_balance_result(self, result: Result<U256, BlockchainError>) -> Self {
         self.get_masq_balance_results.borrow_mut().push(result);
         self
     }
 
-    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+    pub fn get_block_number_result(self, result: Result<U64, BlockchainError>) -> Self {
         self.get_block_number_results.borrow_mut().push(result);
         self
     }
@@ -133,7 +133,7 @@ impl LowBlockchainIntMock {
         self
     }
 
-    pub fn get_transaction_id_result(self, result: ResultForNonce) -> Self {
+    pub fn get_transaction_id_result(self, result: Result<U256, BlockchainError>) -> Self {
         self.get_transaction_id_results.borrow_mut().push(result);
         self
     }

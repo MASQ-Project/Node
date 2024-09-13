@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use actix::Recipient;
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, BlockchainResult, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::{H256, U64};
 use futures::Future;
@@ -16,7 +16,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_le
 use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 
 pub trait LowBlockchainInt {
-    // TODO: GH- The data structures in this trait are not generic, will need associated_type_defaults to implement it.
+    // TODO: GH-495 The data structures in this trait are not generic, will need associated_type_defaults to implement it.
     // see issue #29661 <https://github.com/rust-lang/rust/issues/29661> for more information
 
     fn get_transaction_fee_balance(
@@ -63,11 +63,4 @@ pub trait LowBlockchainInt {
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
-
-    // fn dup(&self) -> Box<dyn LowBlockchainInt>;
 }
-
-pub type ResultForBalance = BlockchainResult<web3::types::U256>;
-pub type ResultForBothBalances = BlockchainResult<(web3::types::U256, web3::types::U256)>;
-pub type ResultForNonce = BlockchainResult<U256>;
-pub type LatestBlockNumber = BlockchainResult<U64>;

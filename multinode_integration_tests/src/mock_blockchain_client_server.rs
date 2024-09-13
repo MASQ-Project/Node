@@ -209,7 +209,6 @@ mod tests {
     fn mbcs_understands_real_world_request() {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
-        // let addr = DockerHostSocketAddr::new(port);
         let subject = MockBlockchainClientServer::builder(port)
             .response(
                 Person {

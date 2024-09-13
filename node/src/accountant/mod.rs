@@ -137,8 +137,6 @@ pub struct ReceivedPayments {
     // detects any upcoming delinquency later than the more accurate version would. Is this
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
-    // pub payments: Vec<BlockchainTransaction>,
-    // pub new_start_block: u64,
     pub scan_result: Result<PaymentsAndStartBlock, ReceivedPaymentsError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -1599,10 +1597,6 @@ mod tests {
                 context_id: 4321,
             })
         );
-        // assert_eq!(
-        //     payments_instructions.agent.arbitrary_id_stamp(),
-        //     agent_id_stamp
-        // );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         test_use_of_the_same_logger(&logger_clone, test_name)
         // adjust_payments() did not need a prepared result which means it wasn't reached
@@ -1723,10 +1717,6 @@ mod tests {
             payments_instructions.response_skeleton_opt,
             Some(response_skeleton)
         );
-        // assert_eq!(
-        //     payments_instructions.agent.arbitrary_id_stamp(),
-        //     agent_id_stamp_second_phase
-        // );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         test_use_of_the_same_logger(&logger_clone, test_name)
     }
@@ -3717,7 +3707,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
 
-        let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0); //<<<-------
+        let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0);
 
         assert!(mark_pending_payable_params.is_empty());
         let first_payable = one_set_of_mark_pending_payable_params.remove(0);

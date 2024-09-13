@@ -2654,7 +2654,7 @@ mod tests {
         let result = future.wait().unwrap();
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {}: Request to wildcard IP detected 0.0.0.0",
+            "ERROR: {}: Request to wildcard IP detected 0.0.0.0. Most likely because Blockchain Service URL is not set",
             test_name
         ));
     }

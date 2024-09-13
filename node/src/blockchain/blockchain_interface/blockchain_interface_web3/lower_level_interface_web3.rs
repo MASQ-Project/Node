@@ -209,18 +209,15 @@ impl LowBlockchainIntWeb3 {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
     use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainInterface};
     use crate::sub_lib::wallet::Wallet;
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
     use ethereum_types::{H256, U64};
     use futures::Future;
-    use web3::transports::Http;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, H2048, Log, TransactionReceipt, U256};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_LITERAL;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
     use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
@@ -241,6 +238,32 @@ mod tests {
             .wait();
 
         assert_eq!(result, Ok(35.into()));
+    }
+
+    #[test]
+    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
+    ) {
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .response("0xFFFQ".to_string(), 0)
+            .start();
+        let subject = make_blockchain_interface_web3(Some(port));
+
+        let result = subject
+            .lower_interface()
+            .get_transaction_fee_balance(
+                Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
+                    .unwrap()
+                    .address(),
+            )
+            .wait();
+
+        match result {
+            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
+                ()
+            }
+            x => panic!("Expected complaint about hex character, but got {:?}", x),
+        };
     }
 
     #[test]
@@ -337,32 +360,6 @@ mod tests {
         let result = subject
             .lower_interface()
             .get_transaction_id(
-                Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
-                    .unwrap()
-                    .address(),
-            )
-            .wait();
-
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("invalid hex character: Q") => {
-                ()
-            }
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        };
-    }
-
-    #[test]
-    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
-    ) {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
-            .start();
-        let subject = make_blockchain_interface_web3(Some(port));
-
-        let result = subject
-            .lower_interface()
-            .get_transaction_fee_balance(
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
                     .address(),
@@ -484,13 +481,7 @@ mod tests {
     #[test]
     fn get_transaction_receipt_handles_errors() {
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = TEST_DEFAULT_CHAIN;
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let subject = make_blockchain_interface_web3(Some(port));
         let tx_hash = make_tx_hash(4564546);
 
         let actual_error = subject

@@ -122,6 +122,7 @@ pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68]
     U256::from(amount).to_big_endian(&mut data[36..68]);
     data
 }
+
 pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     let base_gas_limit = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain);
     let gas_limit = ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
@@ -130,6 +131,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     .expect("Internal error");
     gas_limit
 }
+
 pub fn sign_transaction(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
@@ -269,7 +271,7 @@ pub fn send_payables_within_batch(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
-    gas_price: u64,
+    gas_price_in_gwei: u64,
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: Vec<PayableAccount>,
@@ -281,7 +283,7 @@ pub fn send_payables_within_batch(
             consuming_wallet,
             chain.rec().contract,
             chain.rec().num_chain_id,
-            gas_price
+            gas_price_in_gwei
         );
 
     let hashes_and_paid_amounts = sign_and_append_multiple_payments(
@@ -289,7 +291,7 @@ pub fn send_payables_within_batch(
         chain,
         web3_batch.clone(),
         consuming_wallet,
-        gas_price,
+        gas_price_in_gwei,
         pending_nonce,
         accounts.clone(),
     );
@@ -306,7 +308,11 @@ pub fn send_payables_within_batch(
         })
         .expect("Accountant is dead");
 
-    info!(logger, "{}", transmission_log(chain, &accounts, gas_price));
+    info!(
+        logger,
+        "{}",
+        transmission_log(chain, &accounts, gas_price_in_gwei)
+    );
 
     return Box::new(
         web3_batch
@@ -1130,13 +1136,13 @@ mod tests {
             gas_price_in_gwei,
         );
 
-        let signed_transaction = web3
+        let expected_tx_result = web3
             .accounts()
             .sign_transaction(tx_parameters, &consuming_wallet_secret_key)
             .wait()
             .unwrap();
 
-        assert_eq!(result, signed_transaction);
+        assert_eq!(result, expected_tx_result);
     }
 
     #[test]
@@ -1184,6 +1190,7 @@ mod tests {
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let data = sign_transaction_data(amount, recipient_wallet);
+        // sign_transaction makes a blockchain call because nonce is set to None
         let transaction_parameters = TransactionParameters {
             nonce: None,
             to: Some(chain.rec().contract),
@@ -1233,7 +1240,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-
         let expected_hash =
             H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
                 .unwrap();
@@ -1336,14 +1342,11 @@ mod tests {
         const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
         let port = find_free_port();
-        let (_event_loop_handle, http) = Http::with_max_parallel(
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let transport = http;
-        // let subject = BlockchainInterfaceWeb3::new(transport, make_fake_event_loop_handle(), chain);
-
         let consuming_wallet = {
             let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
                 &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
@@ -1352,14 +1355,12 @@ mod tests {
             .unwrap();
             Wallet::from(key_pair)
         };
-
         let recipient_wallet = {
             let hex_part = &"0x7788df76BBd9a0C7c3e5bf0f77bb28C60a167a7b"[2..];
             let recipient_address_bytes = decode_hex(hex_part).unwrap();
             let address = Address::from_slice(&recipient_address_bytes);
             Wallet::from(address)
         };
-
         let nonce_correct_type = U256::from(nonce);
         let gas_price = match chain {
             Chain::EthMainnet => TEST_GAS_PRICE_ETH,

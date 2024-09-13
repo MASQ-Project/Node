@@ -5,7 +5,7 @@ use itertools::Either;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use variant_count::VariantCount;
-use web3::types::{Address, TransactionReceipt, H256};
+use web3::types::{Address, H256};
 
 const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
 being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
@@ -33,9 +33,6 @@ impl Display for BlockchainError {
         write!(f, "Blockchain error: {}", err_spec)
     }
 }
-
-pub type BlockchainResult<T> = Result<T, BlockchainError>;
-pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
 pub enum PayableTransactionError {

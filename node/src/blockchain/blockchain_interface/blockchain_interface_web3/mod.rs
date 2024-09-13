@@ -3,9 +3,7 @@
 mod batch_payable_tools;
 pub mod lower_level_interface_web3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainError, PayableTransactionError,
-};
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
@@ -19,7 +17,7 @@ use std::convert::{From, TryInto};
 use std::fmt::Debug;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Address, BlockNumber, Log, TransactionReceipt, H256, U256, FilterBuilder};
+use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
 use crate::blockchain::blockchain_interface_utils::{create_blockchain_agent_web3, BlockchainAgentFutureResult};
 
@@ -55,12 +53,6 @@ pub const REQUESTS_IN_PARALLEL: usize = 1;
 pub const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str =
     "To avoid being delinquency-banned, you should \
 restart the Node with a value for blockchain-service-url";
-
-pub type BlockchainResult<T> = Result<T, BlockchainError>;
-pub type ResultForBalance = BlockchainResult<U256>;
-pub type ResultForBothBalances = BlockchainResult<(U256, U256)>;
-pub type ResultForNonce = BlockchainResult<U256>;
-pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
 pub struct BlockchainInterfaceWeb3 {
     pub logger: Logger,
@@ -148,6 +140,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn build_blockchain_agent(
         &self,
+        // TODO: Change wallet to address in the future
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
@@ -209,9 +202,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         ))
     }
 }
-
-pub type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
-pub type HashesAndAmounts = Vec<(H256, u128)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub struct HashAndAmount {
@@ -441,13 +431,7 @@ mod tests {
             }"#.to_string()
             )
             .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = TEST_DEFAULT_CHAIN;
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let subject = make_blockchain_interface_web3(Some(port));
         let end_block_nbr = 1024u64;
 
         let result = subject
@@ -515,13 +499,7 @@ mod tests {
     fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
     ) {
         let port = find_free_port();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = TEST_DEFAULT_CHAIN;
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let subject = make_blockchain_interface_web3(Some(port));
 
         let result = subject
             .retrieve_transactions(
@@ -545,13 +523,7 @@ mod tests {
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = TEST_DEFAULT_CHAIN;
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let subject = make_blockchain_interface_web3(Some(port));
 
         let result = subject
             .retrieve_transactions(
@@ -577,13 +549,7 @@ mod tests {
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = TEST_DEFAULT_CHAIN;
-        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let subject = make_blockchain_interface_web3(Some(port));
 
         let result = subject
             .retrieve_transactions(

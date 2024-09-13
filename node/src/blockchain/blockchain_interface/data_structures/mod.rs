@@ -20,7 +20,7 @@ impl fmt::Display for BlockchainTransaction {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "{}gw from {} ({})",
+            "{}wei from {} ({})",
             self.wei_amount, self.from, self.block_number
         )
     }

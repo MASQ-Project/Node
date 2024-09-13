@@ -13,10 +13,4 @@ ganache-cli \
   -p 18545 \
   --networkId 2 \
   --verbose \
-  -m "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp absent write kind term toddler sphere ripple idle dragon curious hold" \
-  # --gasPrice 200
-  # --account '0xd4670b314ecb5e6b44b7fbe625ed746522c906316e66df31be64194ee6189188,1000000000000000000000000'
-  # --defaultBalanceEther 0 \
-
-
-
+  -m "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle lamp absent write kind term toddler sphere ripple idle dragon curious hold"

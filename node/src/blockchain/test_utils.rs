@@ -9,7 +9,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError, PayableTransactionError, ResultForReceipt,
+    BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
 };
 use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RetrievedBlockchainTransactions,
@@ -213,7 +213,8 @@ pub struct BlockchainInterfaceMock {
     send_batch_of_payables_results:
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
-    get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
+    get_transaction_receipt_results:
+        RefCell<Vec<Result<Option<TransactionReceipt>, BlockchainError>>>,
     lower_interface_result: Option<Box<LowBlockchainIntMock>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
     get_chain_results: RefCell<Vec<Chain>>,
@@ -333,7 +334,10 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_transaction_receipt_result(self, result: ResultForReceipt) -> Self {
+    pub fn get_transaction_receipt_result(
+        self,
+        result: Result<Option<TransactionReceipt>, BlockchainError>,
+    ) -> Self {
         self.get_transaction_receipt_results
             .borrow_mut()
             .push(result);

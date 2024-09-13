@@ -377,7 +377,6 @@ impl PayableScanner {
         }
     }
 
-    // TODO: The sorting in this function is changing the order of pending payables that we receive from blockchain_bridge.
     fn separate_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
         sent_payables: &[&'a PendingPayable],

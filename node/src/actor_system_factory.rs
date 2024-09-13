@@ -378,7 +378,17 @@ pub trait ActorFactory {
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
 
-pub struct ActorFactoryReal {}
+pub struct ActorFactoryReal {
+    logger: Logger,
+}
+
+impl ActorFactoryReal {
+    pub fn new() -> Self {
+        Self {
+            logger: Logger::new("ActorFactory"),
+        }
+    }
+}
 
 impl ActorFactory for ActorFactoryReal {
     fn make_and_start_dispatcher(
@@ -509,10 +519,12 @@ impl ActorFactory for ActorFactoryReal {
         let data_directory = config.data_directory.clone();
         let chain = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let logger = self.logger.clone();
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let blockchain_interface = BlockchainBridge::initialize_blockchain_interface(
                 blockchain_service_url_opt,
                 chain,
+                logger,
             );
             let persistent_config =
                 BlockchainBridge::initialize_persistent_configuration(&data_directory);
@@ -1059,7 +1071,7 @@ mod tests {
         };
         let main_cryptde_public_key_expected = pk_from_cryptde_null(main_cryptde);
         let alias_cryptde_public_key_expected = pk_from_cryptde_null(alias_cryptde);
-        let actor_factory = Box::new(ActorFactoryReal {});
+        let actor_factory = Box::new(ActorFactoryReal::new());
         let actor_factory_raw_address_expected = addr_of!(*actor_factory);
         let persistent_config_expected_arbitrary_id = ArbitraryIdStamp::new();
         let persistent_config = Box::new(
@@ -1771,7 +1783,7 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}
+            let subscribers = ActorFactoryReal::new()
                 .make_and_start_proxy_server(make_cryptde_pair(), &bootstrapper_config);
             subscribers.node_from_ui
         };
@@ -1792,7 +1804,7 @@ mod tests {
                 crashable: true,
                 exit_byte_rate: 50,
             };
-            let subscribers = ActorFactoryReal {}.make_and_start_proxy_client(proxy_cl_config);
+            let subscribers = ActorFactoryReal::new().make_and_start_proxy_client(proxy_cl_config);
             subscribers.node_from_ui
         };
 
@@ -1809,7 +1821,7 @@ mod tests {
                 is_decentralized: false,
                 crashable: true,
             };
-            let subscribers = ActorFactoryReal {}.make_and_start_hopper(hopper_config);
+            let subscribers = ActorFactoryReal::new().make_and_start_hopper(hopper_config);
             subscribers.node_from_ui
         };
 
@@ -1821,7 +1833,8 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}.make_and_start_ui_gateway(&bootstrapper_config);
+            let subscribers =
+                ActorFactoryReal::new().make_and_start_ui_gateway(&bootstrapper_config);
             subscribers.node_from_ui_message_sub
         };
 
@@ -1834,7 +1847,7 @@ mod tests {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
             let subscribers =
-                ActorFactoryReal {}.make_and_start_stream_handler_pool(&bootstrapper_config);
+                ActorFactoryReal::new().make_and_start_stream_handler_pool(&bootstrapper_config);
             subscribers.node_from_ui_sub
         };
 
@@ -1957,7 +1970,7 @@ mod tests {
 
         let _ = subject.make_and_start_actors(
             bootstrapper_config,
-            Box::new(ActorFactoryReal {}),
+            Box::new(ActorFactoryReal::new()),
             Box::new(persistent_config),
         );
     }
@@ -1969,7 +1982,7 @@ mod tests {
                    db_initializer: DbInitializerReal,
                    banned_cache_loader: BannedCacheLoaderMock,
                    address_leaker: SubsFactoryTestAddrLeaker<Accountant>| {
-            ActorFactoryReal {}.make_and_start_accountant(
+            ActorFactoryReal::new().make_and_start_accountant(
                 bootstrapper_config,
                 &db_initializer,
                 &banned_cache_loader,
@@ -2039,7 +2052,8 @@ mod tests {
         let (tx, blockchain_bridge_addr_rx) = bounded(1);
         let address_leaker = SubsFactoryTestAddrLeaker { address_leaker: tx };
 
-        ActorFactoryReal {}.make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker);
+        ActorFactoryReal::new()
+            .make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker);
 
         let blockchain_bridge_addr = blockchain_bridge_addr_rx.try_recv().unwrap();
         blockchain_bridge_addr
