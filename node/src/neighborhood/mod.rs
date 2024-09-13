@@ -48,7 +48,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ExitLocation, RouteQueryResponse};
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
@@ -108,6 +108,8 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
+    exit_location: Option<Vec<ExitLocation>>,
+    fallback_routing: bool,
 }
 
 impl Actor for Neighborhood {
@@ -497,6 +499,8 @@ impl Neighborhood {
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
+            exit_location: None,
+            fallback_routing: true
         }
     }
 
@@ -3416,6 +3420,130 @@ mod tests {
         );
     }
 
+    /* Complex testing of country_code undesirability on large network with aim to fin fallback routing and non fallback routing mechanisms */
+    #[test]
+    fn route_optimization_country_codes() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        subject.fallback_routing = false;
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let mut make_row = |db: &mut NeighborhoodDatabase| {
+            let n1 = make_node(db);
+            let n2 = make_node(db);
+            let n3 = make_node(db);
+            let n4 = make_node(db);
+            let n5 = make_node(db);
+            db.add_arbitrary_full_neighbor(&n1, &n2);
+            db.add_arbitrary_full_neighbor(&n2, &n3);
+            db.add_arbitrary_full_neighbor(&n3, &n4);
+            db.add_arbitrary_full_neighbor(&n4, &n5);
+            (n1, n2, n3, n4, n5)
+        };
+        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
+            let (f1, f2, f3, f4, f5) = first_row;
+            let (s1, s2, s3, s4, s5) = second_row;
+            db.add_arbitrary_full_neighbor(f1, s1);
+            db.add_arbitrary_full_neighbor(f2, s2);
+            db.add_arbitrary_full_neighbor(f3, s3);
+            db.add_arbitrary_full_neighbor(f4, s4);
+            db.add_arbitrary_full_neighbor(f5, s5);
+        };
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
+            let root_node_key = db.root().public_key().clone();
+            let node = db.node_by_key(key).unwrap().clone();
+            db.root_mut().inner = node.inner.clone();
+            db.root_mut().metadata = node.metadata.clone();
+            db.remove_node(&root_node_key);
+        };
+        let (a, b, c, d, e) = make_row(db);
+        let (f, g, h, i, j) = make_row(db);
+        let (k, l, m, n, o) = make_row(db);
+        let (p, q, r, s, t) = make_row(db);
+        let (u, v, w, x, y) = make_row(db);
+
+        println!("a {} - b {} - c {} - d {} - e {}",
+            db.node_by_key(&a).unwrap().inner.country_code,
+            db.node_by_key(&b).unwrap().inner.country_code,
+            db.node_by_key(&c).unwrap().inner.country_code,
+            db.node_by_key(&d).unwrap().inner.country_code,
+            db.node_by_key(&e).unwrap().inner.country_code);
+
+        println!("f {} - g {} - h {} - i {} - j {}",
+            db.node_by_key(&f).unwrap().inner.country_code,
+            db.node_by_key(&g).unwrap().inner.country_code,
+            db.node_by_key(&h).unwrap().inner.country_code,
+            db.node_by_key(&i).unwrap().inner.country_code,
+            db.node_by_key(&j).unwrap().inner.country_code
+        );
+
+        println!("k {} - l {} - m {} - n {} - o {}",
+            db.node_by_key(&k).unwrap().inner.country_code,
+            db.node_by_key(&l).unwrap().inner.country_code,
+            db.node_by_key(&m).unwrap().inner.country_code,
+            db.node_by_key(&n).unwrap().inner.country_code,
+            db.node_by_key(&o).unwrap().inner.country_code
+        );
+
+        println!("p {} - q {} - r {} - s {} - t {}",
+            db.node_by_key(&p).unwrap().inner.country_code,
+            db.node_by_key(&q).unwrap().inner.country_code,
+            db.node_by_key(&r).unwrap().inner.country_code,
+            db.node_by_key(&s).unwrap().inner.country_code,
+            db.node_by_key(&t).unwrap().inner.country_code
+        );
+
+
+        println!("u {} - v {} - w {} - x {} - y {}",
+            db.node_by_key(&u).unwrap().inner.country_code,
+            db.node_by_key(&v).unwrap().inner.country_code,
+            db.node_by_key(&w).unwrap().inner.country_code,
+            db.node_by_key(&x).unwrap().inner.country_code,
+            db.node_by_key(&y).unwrap().inner.country_code,
+        );
+
+        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
+        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
+        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
+        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
+        let checkdb = db.clone();
+        designate_root_node(db, &l);
+        let before = Instant::now();
+
+        // All the target-designated routes from L to N
+        // let route = subject
+        //     .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None, None)
+        //     .unwrap();
+        let route_cz = subject.find_best_route_segment(
+            &l,
+            None,
+            3,
+            10000,
+            RouteDirection::Over,
+            None,
+            Some("CZ".to_string()),
+        );
+
+        let after = Instant::now();
+
+        println!("route_cz: {:#?}", route_cz);
+
+        route_cz.unwrap().into_iter().for_each(|key| {
+            println!("key {:?}, country_code {:?}", &key, checkdb.node_by_key(&key).unwrap().inner.country_code);
+        });
+        // assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
+        // let interval = after.duration_since(before);
+        // assert!(
+        //     interval.as_millis() <= 100,
+        //     "Should have calculated route in <=100ms, but was {}ms",
+        //     interval.as_millis()
+        // );
+    }
+
     /*
             Database:
 
@@ -3437,7 +3565,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(c, b);
         db.add_arbitrary_full_neighbor(c, a);
 
-        let _route_cz = subject.find_best_route_segment(
+        let route_cz = subject.find_best_route_segment(
             p,
             None,
             2,
@@ -3467,6 +3595,11 @@ mod tests {
         db.add_arbitrary_full_neighbor(c, b);
         db.add_arbitrary_full_neighbor(c, a);
         let cdb = db.clone();
+
+        println!("p {}", db.node_by_key(p).unwrap().inner.country_code);
+        println!("a {}", db.node_by_key(a).unwrap().inner.country_code);
+        println!("b {}", db.node_by_key(b).unwrap().inner.country_code);
+        println!("c {}", db.node_by_key(c).unwrap().inner.country_code);
 
         let route_au = subject.find_best_route_segment(
             p,

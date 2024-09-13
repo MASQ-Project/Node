@@ -19,6 +19,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use core::fmt;
+use std::collections::HashSet;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
@@ -377,6 +378,12 @@ pub enum Hops {
     FourHops = 4,
     FiveHops = 5,
     SixHops = 6,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExitLocation {
+    pub country_code: HashSet<String>,
+    pub priority: usize,
 }
 
 impl FromStr for Hops {
