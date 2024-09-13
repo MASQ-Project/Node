@@ -663,7 +663,7 @@ mod tests {
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration =
-            PersistentConfigurationMock::default().gas_price_result(Ok(1));
+            PersistentConfigurationMock::default();
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("gulp");
         let qualified_payables = vec![
@@ -773,11 +773,9 @@ mod tests {
         let accountant_recipient = accountant.start().recipient();
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"somewallet");
-        let persistent_configuration =
-            PersistentConfigurationMock::default().gas_price_result(Ok(1));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_configuration),
+            Box::new(PersistentConfigurationMock::default()),
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
@@ -1064,12 +1062,11 @@ mod tests {
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1u64;
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
         let msg = OutboundPaymentsInstructions::new(vec![], Box::new(agent), None);
         let persistent_config =
-            configure_default_persistent_config(ZERO).gas_price_result(Ok(gas_price));
+            configure_default_persistent_config(ZERO);
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
