@@ -2,6 +2,7 @@
 
 use crate::blockchains::chains::Chain;
 use crate::constants::{
+    BASE_MAINNET_CONTRACT_CREATION_BLOCK, BASE_MAINNET_FULL_IDENTIFIER,
     BASE_SEPOLIA_CONTRACT_CREATION_BLOCK, BASE_SEPOLIA_FULL_IDENTIFIER, DEV_CHAIN_FULL_IDENTIFIER,
     ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_CONTRACT_CREATION_BLOCK, ETH_ROPSTEN_FULL_IDENTIFIER,
@@ -11,7 +12,7 @@ use crate::constants::{
 };
 use ethereum_types::{Address, H160};
 
-pub const CHAINS: [BlockchainRecord; 6] = [
+pub const CHAINS: [BlockchainRecord; 7] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
@@ -25,6 +26,13 @@ pub const CHAINS: [BlockchainRecord; 6] = [
         literal_identifier: ETH_MAINNET_FULL_IDENTIFIER,
         contract: ETH_MAINNET_CONTRACT_ADDRESS,
         contract_creation_block: ETH_MAINNET_CONTRACT_CREATION_BLOCK,
+    },
+    BlockchainRecord {
+        self_id: Chain::BaseMainnet,
+        num_chain_id: 8453,
+        literal_identifier: BASE_MAINNET_FULL_IDENTIFIER,
+        contract: BASE_MAINNET_CONTRACT_ADDRESS,
+        contract_creation_block: BASE_MAINNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
         self_id: Chain::BaseSepolia,
@@ -87,6 +95,11 @@ const ETH_ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = H160([
     0x68, 0xba, 0x24, 0xc3,
 ]);
 
+const BASE_MAINNET_CONTRACT_ADDRESS: Address = H160([
+    0x45, 0xD9, 0xC1, 0x01, 0xa3, 0x87, 0x0C, 0xa5, 0x02, 0x45, 0x82, 0xfd, 0x78, 0x8F, 0x4E, 0x1e,
+    0x8F, 0x79, 0x71, 0xc3,
+]);
+
 const BASE_SEPOLIA_TESTNET_CONTRACT_ADDRESS: Address = H160([
     0x89, 0x8e, 0x1c, 0xe7, 0x20, 0x08, 0x4A, 0x90, 0x2b, 0xc3, 0x7d, 0xd8, 0x22, 0xed, 0x6d, 0x6a,
     0x5f, 0x02, 0x7e, 0x10,
@@ -101,6 +114,7 @@ const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = H160([
 mod tests {
     use super::*;
     use crate::blockchains::chains::chain_from_chain_identifier_opt;
+    use crate::constants::BASE_MAINNET_CONTRACT_CREATION_BLOCK;
     use std::collections::HashSet;
     use std::iter::FromIterator;
 
@@ -111,6 +125,7 @@ mod tests {
             assert_returns_correct_record(Chain::EthRopsten, 3),
             assert_returns_correct_record(Chain::PolyMainnet, 137),
             assert_returns_correct_record(Chain::PolyAmoy, 80002),
+            assert_returns_correct_record(Chain::BaseMainnet, 8453),
             assert_returns_correct_record(Chain::BaseSepolia, 84532),
             assert_returns_correct_record(Chain::Dev, 2),
         ];
@@ -129,6 +144,7 @@ mod tests {
             assert_from_str(Chain::PolyAmoy),
             assert_from_str(Chain::EthMainnet),
             assert_from_str(Chain::EthRopsten),
+            assert_from_str(Chain::BaseMainnet),
             assert_from_str(Chain::BaseSepolia),
             assert_from_str(Chain::Dev),
         ];
@@ -151,6 +167,7 @@ mod tests {
         let test_array = [
             Chain::PolyMainnet,
             Chain::EthMainnet,
+            Chain::BaseMainnet,
             Chain::BaseSepolia,
             Chain::PolyAmoy,
             Chain::EthRopsten,
@@ -232,6 +249,22 @@ mod tests {
     }
 
     #[test]
+    fn base_mainnet_record_is_properly_declared() {
+        let examined_chain = Chain::BaseMainnet;
+        let chain_record = return_examined(examined_chain);
+        assert_eq!(
+            chain_record,
+            &BlockchainRecord {
+                num_chain_id: 8453,
+                self_id: examined_chain,
+                literal_identifier: "base-mainnet",
+                contract: BASE_MAINNET_CONTRACT_ADDRESS,
+                contract_creation_block: BASE_MAINNET_CONTRACT_CREATION_BLOCK,
+            }
+        );
+    }
+
+    #[test]
     fn base_sepolia_record_is_properly_declared() {
         let examined_chain = Chain::BaseSepolia;
         let chain_record = return_examined(examined_chain);
@@ -274,6 +307,7 @@ mod tests {
             assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
             assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
             assert_chain_from_chain_identifier_opt("polygon-amoy", Some(Chain::PolyAmoy)),
+            assert_chain_from_chain_identifier_opt("base-mainnet", Some(Chain::BaseMainnet)),
             assert_chain_from_chain_identifier_opt("base-sepolia", Some(Chain::BaseSepolia)),
             assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev)),
         ];
