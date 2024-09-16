@@ -49,43 +49,28 @@ impl CountryCodeFinder {
 }
 
 pub mod country_code_static_initializer {
-    use std::ops::{Deref, DerefMut};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use lazy_static::lazy_static;
     use crate::country_finder::COUNTRY_CODE_FINDER;
 
     lazy_static! {
-        pub static ref COUNTRY_CODE_FINDER_INITIALIZED: CCFInitializer = CCFInitializer {  initialized: false }; //Mutex::new(false)
+        pub static ref COUNTRY_CODE_FINDER_INITIALIZED: Arc<Mutex<CCFInitializer>> = Arc::new(Mutex::new(CCFInitializer { initialized: false }));
     }
 
     pub struct CCFInitializer {
-        initialized: bool //Mutex<bool>
+        pub initialized: bool, //Mutex<bool>
     }
-
-    // impl Deref for CCFInitializer {
-    //     type Target = bool;
-    //
-    //     fn deref(&self) -> &Self::Target {
-    //         &self.initialized.lock().expect("mutex is poisoned").clone();
-    //     }
-    // }
-    //
-    // impl DerefMut for CCFInitializer {
-    //     fn deref_mut(&mut self) -> &mut Self::Target {
-    //         self.initialized.get_mut().expect("mutex is poisoned")
-    //     }
-    // }
 
     impl CCFInitializer {
-        pub fn check_initialized(&mut self) {
-            let mut is_initialized = self.initialized; //.get_mut().expect("Mutex was poisoned");
-            if !is_initialized { //.deref()
+        pub fn check_initialized(&mut self) -> bool {
+            let mut is_initialized = self.initialized;
+            if !is_initialized {
                 COUNTRY_CODE_FINDER.init();
-                is_initialized = true; //&mut
+                is_initialized = true;
             }
+            is_initialized
         }
     }
-
 }
 
 #[cfg(test)]
@@ -99,7 +84,7 @@ mod tests {
 
     #[test]
     fn finds_ipv4_address_in_fourth_block() {
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("1.0.6.15").unwrap(),
@@ -110,7 +95,7 @@ mod tests {
 
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let time_start = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
@@ -121,7 +106,7 @@ mod tests {
         assert_eq!(result, None);
         let duration = time_end.duration_since(time_start).unwrap();
         assert!(
-            duration.as_secs() < 1,
+            duration.as_millis() < 1,
             "Duration of the search was too long: {} ms",
             duration.as_millis()
         );
@@ -129,7 +114,7 @@ mod tests {
 
     #[test]
     fn finds_ipv6_address_in_fourth_block() {
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("2001:2::").unwrap(),
@@ -140,7 +125,7 @@ mod tests {
 
     #[test]
     fn does_not_find_ipv6_address_in_zz_block() {
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("0:0:5:0:0:0:0:0").unwrap(),
@@ -151,7 +136,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_google() {
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let result = CountryCodeFinder::
             find_country(
                 &COUNTRY_CODE_FINDER,
@@ -166,7 +151,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_cz_ip() {
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
@@ -180,12 +165,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_sk_ip() {
-        // let _ = CountryCodeFinder::find_country(
-        //     &COUNTRY_CODE_FINDER,
-        //     IpAddr::from_str("213.81.185.100").unwrap(), // dig www.zoznam.sk A
-        // )
-        // .unwrap();
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let time_start = SystemTime::now();
 
         let result = CountryCodeFinder::find_country(
@@ -200,7 +180,7 @@ mod tests {
         assert_eq!(result.name, "Slovakia".to_string());
         let duration = time_end.duration_since(time_start).unwrap();
         assert!(
-            duration.as_millis() < 5,
+            duration.as_millis() < 1,
             "Duration of the search was too long: {} millisecond",
             duration.as_millis()
         );
@@ -208,12 +188,7 @@ mod tests {
 
     #[test]
     fn real_test_ipv6_with_google() {
-        // let _ = CountryCodeFinder::find_country(
-        //     &COUNTRY_CODE_FINDER,
-        //     IpAddr::from_str("2607:f8b0:4009:814::2004").unwrap(), // dig www.google.com AAAA
-        // )
-        // .unwrap();
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let time_start = SystemTime::now();
 
         let result = CountryCodeFinder::find_country(
@@ -228,7 +203,7 @@ mod tests {
         assert_eq!(result.name, "United States".to_string());
         let duration = time_end.duration_since(time_start).unwrap();
         assert!(
-            duration.as_secs() < 1,
+            duration.as_millis() < 1,
             "Duration of the search was too long: {} ms",
             duration.as_millis()
         );
@@ -239,10 +214,10 @@ mod tests {
         let time_start = SystemTime::now();
 
         let deserializer_ipv4 = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
-            crate::dbip_country::ipv4_country_data(),
+            dbip_country::ipv4_country_data(),
         );
         let deserializer_ipv6 = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
-            crate::dbip_country::ipv6_country_data(),
+            dbip_country::ipv6_country_data(),
         );
 
         let time_end = SystemTime::now();
@@ -266,10 +241,7 @@ mod tests {
 
     #[test]
     fn check_ipv4_ipv6_country_blocks_length() {
-        // let _result = COUNTRY_CODE_FINDER
-        //     .find_country(IpAddr::from_str("142.250.191.132").unwrap())
-        //     .unwrap();
-        COUNTRY_CODE_FINDER_INITIALIZED.check_initialized();
+        COUNTRY_CODE_FINDER_INITIALIZED.lock().expect("Mutex poisoned").check_initialized();
         let country_block_len_ipv4 = COUNTRY_CODE_FINDER.ipv4.len();
         let country_block_len_ipv6 = COUNTRY_CODE_FINDER.ipv6.len();
 
