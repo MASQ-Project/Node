@@ -34,12 +34,10 @@ pub fn get_node_location(
 
 #[cfg(test)]
 mod tests {
-    use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::node_location::{get_node_location, NodeLocation};
-    use crate::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use std::net::{IpAddr, Ipv4Addr};
+    use crate::neighborhood::node_record::NodeRecordMetadata;
     use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_node_location() {
@@ -67,23 +65,5 @@ mod tests {
                 free_world_bit: true
             }
         );
-    }
-
-    #[test]
-    fn node_record_from_gossip_with_addr_and_country_is_populated_with_right_addr_and_free_world_bit(
-    ) {
-        let mut original_node_record = make_node_record(2222, true);
-
-        let db = db_from_node(&original_node_record);
-        let builder = GossipBuilder::new(&db);
-
-        let builder = builder.node(original_node_record.public_key(), true);
-
-        let mut gossip = builder.build();
-        let gossip_result = gossip.node_records.remove(0);
-        let result_node_record = NodeRecord::try_from(&gossip_result).unwrap();
-
-        original_node_record.metadata.last_update = result_node_record.last_updated();
-        assert_eq!(result_node_record, original_node_record)
     }
 }

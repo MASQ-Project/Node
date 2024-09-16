@@ -8,5 +8,3 @@ pub mod country_finder;
 pub mod ip_country;
 #[rustfmt::skip]
 pub mod dbip_country;
-#[rustfmt::skip]
-pub mod test_dbip_country;

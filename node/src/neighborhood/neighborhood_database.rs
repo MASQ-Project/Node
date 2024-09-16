@@ -51,16 +51,10 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new(),
             logger: Logger::new("NeighborhoodDatabase"),
         };
-
-        let location_opt = get_node_location(
-            Some(
-                neighborhood_mode
-                    .node_addr_opt()
-                    .unwrap_or_default()
-                    .ip_addr(),
-            ),
-            &COUNTRY_CODE_FINDER,
-        );
+        let location_opt = match neighborhood_mode.node_addr_opt() {
+            Some(node_addr) => get_node_location(Some(node_addr.ip_addr()), &COUNTRY_CODE_FINDER),
+            None => None,
+        };
         let node_record_data = NodeRecordInputs {
             earning_wallet,
             rate_pack: *neighborhood_mode.rate_pack(),
