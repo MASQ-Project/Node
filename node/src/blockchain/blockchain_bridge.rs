@@ -662,8 +662,7 @@ mod tests {
         let accountant_recipient = accountant.start().recipient();
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"somewallet");
-        let persistent_configuration =
-            PersistentConfigurationMock::default();
+        let persistent_configuration = PersistentConfigurationMock::default();
         let wallet_1 = make_wallet("booga");
         let wallet_2 = make_wallet("gulp");
         let qualified_payables = vec![
@@ -1065,8 +1064,7 @@ mod tests {
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
         let msg = OutboundPaymentsInstructions::new(vec![], Box::new(agent), None);
-        let persistent_config =
-            configure_default_persistent_config(ZERO);
+        let persistent_config = configure_default_persistent_config(ZERO);
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
             Box::new(persistent_config),
