@@ -55,25 +55,28 @@ impl IpRange {
 
     pub fn ordering_by_range(&self, ip_addr: IpAddr) -> Ordering {
         match (ip_addr, self) {
-            (IpAddr::V4(ip), IpRange::V4(low, hi)) => {
-                Self::compare_with_range::<u32, Ipv4Addr>(ip, *low, *hi)
+            (IpAddr::V4(ip), IpRange::V4(low, high)) => {
+                Self::compare_with_range::<u32, Ipv4Addr>(ip, *low, *high)
             }
-            (IpAddr::V6(ip), IpRange::V6(low, hi)) => {
-                Self::compare_with_range::<u128, Ipv6Addr>(ip, *low, *hi)
+            (IpAddr::V6(ip), IpRange::V6(low, high)) => {
+                Self::compare_with_range::<u128, Ipv6Addr>(ip, *low, *high)
             }
             (ip, range) => panic!("Mismatch ip ({}) and range ({:?}) versions", ip, range),
         }
     }
 
-    fn compare_with_range<SingleIntegerIPRep, IP>(examined: IP, low: IP, hi: IP) -> Ordering
+    fn compare_with_range<SingleIntegerIPRep, IP>(examined: IP, low: IP, high: IP) -> Ordering
     where
         SingleIntegerIPRep: From<IP> + PartialOrd,
     {
-        let (low_end, hi_end) = (SingleIntegerIPRep::from(low), SingleIntegerIPRep::from(hi));
+        let (low_end, high_end) = (
+            SingleIntegerIPRep::from(low),
+            SingleIntegerIPRep::from(high),
+        );
         let ip_num = SingleIntegerIPRep::from(examined);
         if ip_num < low_end {
             Ordering::Greater
-        } else if ip_num > hi_end {
+        } else if ip_num > high_end {
             Ordering::Less
         } else {
             Ordering::Equal
@@ -149,7 +152,6 @@ impl CountryBlock {
     fn validate_ips_are_sequential<SingleIntegerIPRep, IP>(start: IP, end: IP) -> Result<(), String>
     where
         SingleIntegerIPRep: From<IP> + PartialOrd,
-        IpAddr: Display,
         IP: Display + Copy,
     {
         if SingleIntegerIPRep::from(start) > SingleIntegerIPRep::from(end) {
@@ -419,8 +421,8 @@ mod tests {
             Ipv6Addr::from_str("0:0:0:0:1:2:3:4").unwrap(),
             Ipv6Addr::from_str("0:0:0:0:4:3:2:1").unwrap(),
         );
-
         let ip = Ipv4Addr::from_str("1.2.3.4").unwrap();
+
         let _result = subject.ordering_by_range(IpAddr::V4(ip));
     }
 }

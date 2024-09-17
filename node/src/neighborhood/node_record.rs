@@ -9,6 +9,7 @@ use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
+use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::blockchains::chains::Chain;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
@@ -77,7 +78,7 @@ impl NodeRecord {
         cryptde: &dyn CryptDE, // Must be the new NodeRecord's CryptDE: used for signing
         node_record_inputs: NodeRecordInputs,
     ) -> NodeRecord {
-        let country = node_record_inputs
+        let country_opt = node_record_inputs
             .location_opt
             .as_ref()
             .map(|node_location| node_location.country_code.clone());
@@ -91,7 +92,7 @@ impl NodeRecord {
                 routes_data: node_record_inputs.routes_data,
                 neighbors: BTreeSet::new(),
                 version: node_record_inputs.version,
-                country_code_opt: country,
+                country_code_opt: country_opt,
             },
             signed_gossip: PlainData::new(&[]),
             signature: CryptData::new(&[]),
@@ -306,7 +307,8 @@ impl From<AccessibleGossipRecord> for NodeRecord {
             signed_gossip: agr.signed_gossip,
             signature: agr.signature,
         };
-        node_record.metadata.node_location_opt = get_node_location(ip_add_opt);
+        node_record.metadata.node_location_opt =
+            get_node_location(ip_add_opt, &COUNTRY_CODE_FINDER);
         node_record.metadata.node_addr_opt = agr.node_addr_opt;
         node_record
     }
@@ -334,7 +336,8 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
             signed_gossip: gnr.signed_data.clone(),
             signature: gnr.signature.clone(),
         };
-        node_record.metadata.node_location_opt = get_node_location(ip_addr_opt);
+        node_record.metadata.node_location_opt =
+            get_node_location(ip_addr_opt, &COUNTRY_CODE_FINDER);
         node_record.metadata.node_addr_opt = gnr.node_addr_opt.clone();
         Ok(node_record)
     }
@@ -377,6 +380,21 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    fn can_create_node_record_with_node_location_opt_none() {
+        let mut node_record_wo_location = make_node_record(2222, false);
+        node_record_wo_location.inner.country_code_opt = None;
+        node_record_wo_location.inner.accepts_connections = false;
+        let no_location_db = db_from_node(&node_record_wo_location);
+        let no_location_gossip =
+            GossipBuilder::new(&no_location_db).node(node_record_wo_location.public_key(), false);
+
+        let nr_wo_location =
+            NodeRecord::try_from(no_location_gossip.build().node_records.first().unwrap()).unwrap();
+
+        assert_eq!(nr_wo_location.inner.country_code_opt, None);
+    }
+
+    #[test]
     fn can_create_a_node_record_from_a_reference() {
         let mut expected_node_record = make_node_record(1234, true);
         expected_node_record.set_version(6);
@@ -394,10 +412,20 @@ mod tests {
             before <= actual_node_record.metadata.last_update
                 && actual_node_record.metadata.last_update <= after
         );
+        assert_eq!(
+            actual_node_record.inner.country_code_opt,
+            Some("AU".to_string())
+        );
+        assert_eq!(
+            actual_node_record
+                .metadata
+                .node_location_opt
+                .as_ref()
+                .unwrap()
+                .free_world_bit,
+            true
+        );
         expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
-        expected_node_record.metadata.node_location_opt =
-            actual_node_record.metadata.node_location_opt.clone();
-        expected_node_record.resign();
         assert_eq!(actual_node_record, expected_node_record);
     }
 

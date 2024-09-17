@@ -356,8 +356,8 @@ impl DebutHandler {
                     debut_node_key, e
                 )
             });
-        let gnr =
-            GossipNodeRecord::from((root_node.inner.clone(), root_node.node_addr_opt(), cryptde));
+        let root_node_addr_opt = root_node.node_addr_opt();
+        let gnr = GossipNodeRecord::from((root_node.inner, root_node_addr_opt, cryptde));
         Gossip_0v1 {
             node_records: vec![gnr],
         }
@@ -1667,7 +1667,7 @@ mod tests {
     }
 
     #[test]
-    fn two_parallel_progressing_debuts_handled_by_try_accept_debut_without_introduction() {
+    fn two_parallel_debuts_in_progress_handled_by_try_accept_debut_without_introduction() {
         let mut root_node = make_node_record(1234, true);
         let half_debuted_node = make_node_record(2345, true);
         let new_debutant = make_node_record(4567, true);
