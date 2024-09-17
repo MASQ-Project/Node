@@ -73,7 +73,6 @@ use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -546,7 +545,7 @@ impl Neighborhood {
     }
 
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
-        let node_location_opt = get_node_location(Some(new_public_ip), &COUNTRY_CODE_FINDER);
+        let node_location_opt = get_node_location(Some(new_public_ip));
         self.neighborhood_database
             .root_mut()
             .metadata

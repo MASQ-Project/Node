@@ -38,7 +38,6 @@ use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
@@ -509,10 +508,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             self.config.blockchain_bridge_config.chain,
         );
         // initialization od CountryFinder
-        let _ = get_node_location(
-            Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))),
-            &COUNTRY_CODE_FINDER,
-        );
+        let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),

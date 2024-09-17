@@ -199,7 +199,11 @@ impl CountryBlockSerializer {
     }
 }
 
-struct VersionedIPSerializer<IPType: Debug, SegmentNumRep: Debug, const SEGMENTS_COUNT: usize> {
+struct VersionedIPSerializer<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize>
+where
+    IPType: Debug,
+    SegmentNumRep: Debug,
+{
     prev_start: VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>,
     prev_end: VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>,
     block_count: usize,
@@ -310,7 +314,7 @@ where
 
 // Rust forces public visibility on traits that come to be used as type boundaries in any public
 // interface. This is how we can meet the requirements while the implementations of such
-// traits becomes ineffective from farther than this file. It works as a form of prevention to
+// traits become ineffective beyond this file. It works as a form of prevention to
 // namespace pollution for such kind of trait to be implemented on massively common types,
 // here namely Ipv4Addr or Ipv6Addr
 mod semi_private_items {
@@ -424,7 +428,7 @@ pub trait DeserializerPublic {
     fn next(&mut self) -> Option<CountryBlock>;
 }
 
-type Ipv4CountryBlockDeserializer = CountryBlockDeserializer<Ipv4Addr, u8, 4>;
+pub type Ipv4CountryBlockDeserializer = CountryBlockDeserializer<Ipv4Addr, u8, 4>;
 
 impl Ipv4CountryBlockDeserializer {
     pub fn new(country_data: (Vec<u64>, usize)) -> Self {
@@ -439,7 +443,7 @@ impl Iterator for Ipv4CountryBlockDeserializer {
     }
 }
 
-type Ipv6CountryBlockDeserializer = CountryBlockDeserializer<Ipv6Addr, u16, 8>;
+pub type Ipv6CountryBlockDeserializer = CountryBlockDeserializer<Ipv6Addr, u16, 8>;
 
 impl Ipv6CountryBlockDeserializer {
     pub fn new(country_data: (Vec<u64>, usize)) -> Self {
@@ -594,8 +598,11 @@ where
     segment_num_rep: PhantomData<SegmentNumRep>,
 }
 
-impl<IPType: Debug, SegmentNumRep: Debug, const SEGMENTS_COUNT: usize>
+impl<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize>
     VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>
+where
+    IPType: Debug,
+    SegmentNumRep: Debug,
 {
     fn new(ip: IPType) -> VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT> {
         let segment_num_rep = Default::default();
@@ -607,7 +614,11 @@ impl<IPType: Debug, SegmentNumRep: Debug, const SEGMENTS_COUNT: usize>
 }
 
 #[derive(Debug)]
-struct StreamRecord<IPType: Debug, SegmentNumRep: Debug, const SEGMENTS_COUNT: usize> {
+struct StreamRecord<IPType, SegmentNumRep, const SEGMENTS_COUNT: usize>
+where
+    IPType: Debug,
+    SegmentNumRep: Debug,
+{
     start: VersionedIP<IPType, SegmentNumRep, SEGMENTS_COUNT>,
     country_idx: usize,
 }
