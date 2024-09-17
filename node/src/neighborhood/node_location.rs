@@ -4,16 +4,10 @@ use ip_country_lib;
 use ip_country_lib::country_finder::CountryCodeFinder;
 use std::net::IpAddr;
 
-#[derive(Clone, Debug, Default, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NodeLocation {
     pub country_code: String,
     pub free_world_bit: bool,
-}
-
-impl PartialEq<Self> for NodeLocation {
-    fn eq(&self, other: &Self) -> bool {
-        self.country_code == other.country_code
-    }
 }
 
 pub fn get_node_location(
