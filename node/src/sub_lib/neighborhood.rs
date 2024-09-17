@@ -413,7 +413,7 @@ impl Display for Hops {
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
     pub min_hops: Hops,
-    pub exit_location: HashMap<String, u16>,
+    pub exit_location: Option<HashMap<String, u16>>,
 }
 
 lazy_static! {

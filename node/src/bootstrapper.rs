@@ -401,7 +401,7 @@ impl BootstrapperConfig {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
                 min_hops: DEFAULT_MIN_HOPS,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }

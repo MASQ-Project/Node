@@ -312,7 +312,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError> {
-        self.exit_location
+        self.exit_location()
     }
 
     fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError> {
