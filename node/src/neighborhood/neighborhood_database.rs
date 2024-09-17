@@ -11,7 +11,6 @@ use crate::sub_lib::neighborhood::NeighborhoodMode;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
@@ -52,7 +51,7 @@ impl NeighborhoodDatabase {
             logger: Logger::new("NeighborhoodDatabase"),
         };
         let location_opt = match neighborhood_mode.node_addr_opt() {
-            Some(node_addr) => get_node_location(Some(node_addr.ip_addr()), &COUNTRY_CODE_FINDER),
+            Some(node_addr) => get_node_location(Some(node_addr.ip_addr())),
             None => None,
         };
         let node_record_data = NodeRecordInputs {

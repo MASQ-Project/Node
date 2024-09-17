@@ -9,7 +9,6 @@ use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::blockchains::chains::Chain;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
@@ -307,8 +306,7 @@ impl From<AccessibleGossipRecord> for NodeRecord {
             signed_gossip: agr.signed_gossip,
             signature: agr.signature,
         };
-        node_record.metadata.node_location_opt =
-            get_node_location(ip_add_opt, &COUNTRY_CODE_FINDER);
+        node_record.metadata.node_location_opt = get_node_location(ip_add_opt);
         node_record.metadata.node_addr_opt = agr.node_addr_opt;
         node_record
     }
@@ -336,8 +334,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
             signed_gossip: gnr.signed_data.clone(),
             signature: gnr.signature.clone(),
         };
-        node_record.metadata.node_location_opt =
-            get_node_location(ip_addr_opt, &COUNTRY_CODE_FINDER);
+        node_record.metadata.node_location_opt = get_node_location(ip_addr_opt);
         node_record.metadata.node_addr_opt = gnr.node_addr_opt.clone();
         Ok(node_record)
     }

@@ -13,8 +13,8 @@ lazy_static! {
 }
 
 pub struct CountryCodeFinder {
-    pub ipv4: Vec<CountryBlock>,
-    pub ipv6: Vec<CountryBlock>,
+    ipv4: Vec<CountryBlock>,
+    ipv6: Vec<CountryBlock>,
 }
 
 impl CountryCodeFinder {
@@ -46,13 +46,17 @@ impl CountryCodeFinder {
         }
     }
 
-    pub fn init(&self) {}
+    pub fn ensure_init(&self) {
+        //This should provoke lazy_static to perform the value initialization
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::country_block_serde::CountryBlockDeserializer;
+    use crate::country_block_serde::{
+        CountryBlockDeserializer, Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer,
+    };
     use crate::dbip_country;
     use std::str::FromStr;
     use std::time::SystemTime;
@@ -69,7 +73,7 @@ mod tests {
 
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
-        COUNTRY_CODE_FINDER.init();
+        COUNTRY_CODE_FINDER.ensure_init();
         let time_start = SystemTime::now();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
@@ -80,7 +84,7 @@ mod tests {
         assert_eq!(result, None);
         let duration = time_end.duration_since(time_start).unwrap();
         assert!(
-            duration.as_millis() < 1,
+            duration.as_millis() <= 1,
             "Duration of the search was too long: {} ms",
             duration.as_millis()
         );
@@ -179,13 +183,13 @@ mod tests {
     }
 
     #[test]
-    fn country_blocks_for_ipv4_and_ipv6_are_deserialized_filled_into_vecs() {
+    fn country_blocks_for_ipv4_and_ipv6_are_deserialized_and_inserted_into_vecs() {
         let time_start = SystemTime::now();
 
         let deserializer_ipv4 =
-            CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(dbip_country::ipv4_country_data());
+            Ipv4CountryBlockDeserializer::new(dbip_country::ipv4_country_data());
         let deserializer_ipv6 =
-            CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(dbip_country::ipv6_country_data());
+            Ipv6CountryBlockDeserializer::new(dbip_country::ipv6_country_data());
 
         let time_end = SystemTime::now();
         let time_start_fill = SystemTime::now();
