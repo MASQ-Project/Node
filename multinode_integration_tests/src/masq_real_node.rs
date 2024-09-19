@@ -30,7 +30,7 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::string::ToString;
@@ -630,8 +630,8 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn blockchain_service_url(mut self, blockchain_service_url: String) -> Self {
-        self.blockchain_service_url = Some(blockchain_service_url);
+    pub fn blockchain_service_url(mut self, blockchain_service_url: &str) -> Self {
+        self.blockchain_service_url = Some(blockchain_service_url.to_string());
         self
     }
 
@@ -778,7 +778,7 @@ impl MASQNode for MASQRealNode {
 }
 
 impl MASQRealNode {
-    pub fn prepare(name: &str) {
+    pub fn prepare_node_directories_for_docker(name: &str) {
         Self::do_prepare_for_docker_run(name).unwrap();
     }
 
@@ -1219,6 +1219,13 @@ impl MASQRealNode {
             };
         }
     }
+}
+
+#[derive(Debug)]
+pub struct NodeNamingAndDir {
+    pub node_name: String,
+    pub index: usize,
+    pub db_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]

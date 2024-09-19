@@ -18,7 +18,7 @@ use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use std::{io, thread};
 
@@ -111,7 +111,7 @@ pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(
     }
 }
 
-pub fn open_all_file_permissions(dir: PathBuf) {
+pub fn open_all_file_permissions(dir: &Path) {
     match Command::new(
         "chmod",
         Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
