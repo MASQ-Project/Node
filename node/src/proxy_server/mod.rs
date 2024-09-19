@@ -459,13 +459,19 @@ impl ProxyServer {
             .expect("ProxyServer is dead");
     }
 
-    fn log_straggling_packet(&self, stream_key: &StreamKey, old_timestamp: &SystemTime) {
+    fn log_straggling_packet(
+        &self,
+        stream_key: &StreamKey,
+        packet_len: usize,
+        old_timestamp: &SystemTime,
+    ) {
         let duration_since = SystemTime::now()
             .duration_since(*old_timestamp)
             .expect("time calculation error");
-        debug!(
+        warning!(
             self.logger,
-            "Straggling packet received for a stream key {:?} with a delay of {:?}",
+            "Straggling packet of length {} received for a stream key {:?} after a delay of {:?}",
+            packet_len,
             stream_key,
             duration_since
         );
@@ -498,7 +504,8 @@ impl ProxyServer {
             response.sequenced_packet.data.len(),
             payload_data_len,
         );
-        match self.remove_dns_failure_retry(&response.stream_key) {
+        let stream_key = response.stream_key;
+        match self.remove_dns_failure_retry(&stream_key) {
             Ok(_) => {
                 debug!(self.logger, "Successful attempt of DNS resolution, removing DNS retry entry for stream key: {}", &response.stream_key)
             }
@@ -510,10 +517,12 @@ impl ProxyServer {
                 )
             }
         }
-        match self.keys_and_addrs.a_to_b(&response.stream_key) {
+        if let Some(old_timestamp) = self.stream_key_ttl.get(&stream_key) {
+            self.log_straggling_packet(&stream_key, payload_data_len, old_timestamp)
+        }
+        match self.keys_and_addrs.a_to_b(&stream_key) {
             Some(socket_addr) => {
                 let last_data = response.sequenced_packet.last_data;
-                let stream_key = response.stream_key;
                 let sequence_number = Some(
                     response.sequenced_packet.sequence_number
                         + self.browser_proxy_sequence_offset as u64,
@@ -530,12 +539,11 @@ impl ProxyServer {
                     })
                     .expect("Dispatcher is dead");
                 if last_data {
-                    match self.stream_key_ttl.get(&stream_key) {
-                        None => self.schedule_stream_key_purge(stream_key),
-                        Some(old_timestamp) => {
-                            self.log_straggling_packet(&stream_key, old_timestamp)
-                        }
-                    }
+                    debug!(
+                        self.logger,
+                        "Received last data for the stream key {stream_key}."
+                    );
+                    self.purge_stream_key(&stream_key);
                 }
             }
             None => {
@@ -618,6 +626,7 @@ impl ProxyServer {
                 self.logger,
                 "Reporting shutdown of {} to counterpart", &stream_key
             );
+            self.schedule_stream_key_purge(stream_key);
             let ibcd = InboundClientData {
                 timestamp: SystemTime::now(),
                 peer_addr: msg.peer_addr,
@@ -3602,7 +3611,6 @@ mod tests {
         let test_name = "proxy_server_receives_terminal_response_from_hopper";
         let system = System::new(test_name);
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
-        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -3644,36 +3652,28 @@ mod tests {
             0,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
-        let peer_actors = peer_actors_builder()
-            .dispatcher(dispatcher)
-            .proxy_server(proxy_server)
-            .build();
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr.try_send(first_expired_cores_package).unwrap(); // should schedule a new message
-        subject_addr.try_send(second_expired_cores_package).unwrap(); // should cause the straggling message log
+        subject_addr.try_send(first_expired_cores_package).unwrap(); // This will purge the stream key records
+        subject_addr.try_send(second_expired_cores_package).unwrap(); // This will be discarded
 
         System::current().stop();
         system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let transmit_data_msg = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        let scheduled_msg =
-            proxy_server_recording.get_record::<MessageScheduler<StreamKeyPurge>>(0);
         assert_eq!(transmit_data_msg.endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(transmit_data_msg.last_data, true);
         assert_eq!(transmit_data_msg.data, b"16 bytes of data".to_vec());
-        assert_eq!(
-            scheduled_msg,
-            &MessageScheduler {
-                scheduled_msg: StreamKeyPurge { stream_key },
-                delay: STREAM_KEY_PURGE_DELAY
-            }
-        );
-        TestLogHandler::new()
-            .exists_log_containing(&format!(
-                "DEBUG: {test_name}: Straggling packet received for a stream key {stream_key} with a delay of"
-            ));
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Received last data for the stream key {:?}.",
+            stream_key
+        ));
+        tlh.exists_log_containing(&format!(
+            "WARN: {test_name}: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}",
+            stream_key
+        ));
     }
 
     #[test]
@@ -3690,11 +3690,70 @@ mod tests {
         let timestamp = SystemTime::now()
             .checked_add(Duration::from_secs(10))
             .unwrap();
-        let _ = subject.log_straggling_packet(&stream_key, &timestamp);
+        let _ = subject.log_straggling_packet(&stream_key, 10, &timestamp);
     }
 
     #[test]
     fn handle_client_response_payload_purges_stream_keys_for_terminal_response() {
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        subject.subs = Some(make_proxy_server_out_subs());
+
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        subject.stream_key_routes.insert(
+            stream_key.clone(),
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        subject
+            .tunneled_hosts
+            .insert(stream_key.clone(), "hostname".to_string());
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![],
+                protocol: ProxyProtocol::HTTP,
+                hostname_opt: None,
+            },
+        );
+        let client_response_payload = ClientResponsePayload_0v1 {
+            stream_key: stream_key.clone(),
+            sequenced_packet: SequencedPacket::new(vec![], 1, true),
+        };
+        let (dispatcher_mock, _, _) = make_recorder();
+        let peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
+        subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
+        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                client_response_payload.into(),
+                0,
+            );
+
+        subject.handle_client_response_payload(expired_cores_package);
+
+        assert!(subject.keys_and_addrs.is_empty());
+        assert!(subject.stream_key_routes.is_empty());
+        assert!(subject.tunneled_hosts.is_empty());
+    }
+
+    #[test]
+    fn proxy_server_schedules_stream_key_purge_once_shutdown_order_is_received_for_stream() {
         /*
           +---------------------------------------------------------------------------+
           |  if current_time < stream_key_purge_delay_in_millis - offset_in_millis    |
@@ -3714,7 +3773,8 @@ mod tests {
         */
 
         init_test_logging();
-        let test_name = "handle_client_response_payload_purges_stream_keys_for_terminal_response";
+        let test_name =
+            "proxy_server_schedules_stream_key_purge_once_shutdown_order_is_received_for_stream";
         let cryptde = main_cryptde();
         let stream_key_purge_delay_in_millis = 500;
         let offset_in_millis = 100;
@@ -3752,28 +3812,24 @@ mod tests {
                 hostname_opt: None,
             },
         );
-        let client_response_payload = ClientResponsePayload_0v1 {
-            stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket::new(vec![], 1, true),
-        };
         let proxy_server_addr = subject.start();
-        let schedule_stream_key_sub = proxy_server_addr.clone().recipient();
+        let schedule_stream_key_purge_sub = proxy_server_addr.clone().recipient();
         let mut peer_actors = peer_actors_builder().build();
-        peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_sub;
-        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
-            ExpiredCoresPackage::new(
-                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
-                Some(make_wallet("irrelevant")),
-                return_route_with_id(cryptde, 1234),
-                client_response_payload.into(),
-                0,
-            );
+        peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_purge_sub;
         let system = System::new(test_name);
         let bind_msg = BindMessage { peer_actors };
         proxy_server_addr.try_send(bind_msg).unwrap();
         let time_before_sending_package = SystemTime::now();
+        let stream_shutdown_msg = StreamShutdownMsg {
+            peer_addr: socket_addr,
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: 0,
+                sequence_number: 0,
+            }),
+            report_to_counterpart: true,
+        };
 
-        proxy_server_addr.try_send(expired_cores_package).unwrap();
+        proxy_server_addr.try_send(stream_shutdown_msg).unwrap();
 
         let time_after_sending_package = time_before_sending_package
             .checked_add(Duration::from_secs(1))
@@ -3793,7 +3849,7 @@ mod tests {
                 assert!(!proxy_server.stream_key_routes.is_empty());
                 assert!(!proxy_server.tunneled_hosts.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
-                    "DEBUG: {test_name}: Last data received for stream key vYMR621EYFzvxTJqpzrGKr3KMbc, \
+                    "DEBUG: {test_name}: Last data received for stream key zpi6SfvohvBgqq9y8zLgzIhxPS4, \
                     which was tunneling through host Some(\"hostname\"). It will be purged after 500ms."
                 ));
             }),
@@ -3811,7 +3867,7 @@ mod tests {
                 assert!(proxy_server.tunneled_hosts.is_empty());
                 assert!(proxy_server.stream_key_ttl.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
-                    "DEBUG: {test_name}: Retiring stream key vYMR621EYFzvxTJqpzrGKr3KMbc"
+                    "DEBUG: {test_name}: Retiring stream key zpi6SfvohvBgqq9y8zLgzIhxPS4"
                 ));
                 System::current().stop();
             }),
@@ -3823,6 +3879,85 @@ mod tests {
             })
             .unwrap();
         system.run();
+    }
+
+    #[test]
+    fn straggling_packets_are_logged() {
+        init_test_logging();
+        let test_name = "straggling_packets_are_logged";
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        subject.logger = Logger::new(test_name);
+        subject.subs = Some(make_proxy_server_out_subs());
+        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        subject.stream_key_routes.insert(
+            stream_key.clone(),
+            RouteQueryResponse {
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 1234),
+            },
+        );
+        subject
+            .tunneled_hosts
+            .insert(stream_key.clone(), "hostname".to_string());
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![],
+                protocol: ProxyProtocol::HTTP,
+                hostname_opt: None,
+            },
+        );
+        let proxy_server_addr = subject.start();
+        let schedule_stream_key_purge_sub = proxy_server_addr.clone().recipient();
+        let mut peer_actors = peer_actors_builder().build();
+        peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_purge_sub;
+
+        let system = System::new(test_name);
+        let bind_msg = BindMessage { peer_actors };
+        proxy_server_addr.try_send(bind_msg).unwrap();
+        let stream_shutdown_msg = StreamShutdownMsg {
+            peer_addr: socket_addr,
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: 0,
+                sequence_number: 0,
+            }),
+            report_to_counterpart: true,
+        };
+        let client_response_payload = ClientResponsePayload_0v1 {
+            stream_key: stream_key.clone(),
+            sequenced_packet: SequencedPacket::new(vec![], 1, true),
+        };
+        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                client_response_payload.into(),
+                0,
+            );
+        proxy_server_addr.try_send(stream_shutdown_msg).unwrap();
+
+        proxy_server_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop();
+        system.run();
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: {test_name}: Straggling packet of length 0 received for a \
+            stream key {:?} after a delay of",
+            stream_key
+        ));
     }
 
     #[test]
@@ -5745,6 +5880,7 @@ mod tests {
     fn handle_stream_shutdown_msg_logs_errors_from_handling_normal_client_data() {
         init_test_logging();
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
+        subject.subs = Some(make_proxy_server_out_subs());
         let helper = IBCDHelperMock::default()
             .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
         subject.inbound_client_data_helper_opt = Some(Box::new(helper));
@@ -5769,6 +5905,7 @@ mod tests {
     fn stream_shutdown_msg_populates_correct_inbound_client_data_msg() {
         let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
+        subject.subs = Some(make_proxy_server_out_subs());
         let icd_helper = IBCDHelperMock::default()
             .handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
             .handle_normal_client_data_result(Ok(()));
