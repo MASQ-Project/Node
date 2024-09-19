@@ -1,4 +1,5 @@
 #!/bin/sh
+# Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 # All wallets begin with null balances. The only exception is the contract owner wallet whose means are to be
 # redistributed from there to every account that would need it. (Notice the argument --account '<contract owner wallet
