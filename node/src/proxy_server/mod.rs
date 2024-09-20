@@ -441,7 +441,7 @@ impl ProxyServer {
     fn schedule_stream_key_purge(&mut self, stream_key: StreamKey) {
         debug!(
             self.logger,
-            "Last data received for stream key {:?}, which was tunneling through host {:?}. \
+            "Client closed stream referenced by stream key {:?}, which was tunneling to the host {:?}. \
             It will be purged after {:?}.",
             &stream_key,
             self.tunneled_hosts.get(&stream_key),
@@ -3755,21 +3755,28 @@ mod tests {
     #[test]
     fn proxy_server_schedules_stream_key_purge_once_shutdown_order_is_received_for_stream() {
         /*
-          +---------------------------------------------------------------------------+
-          |  if current_time < stream_key_purge_delay_in_millis - offset_in_millis    |
-          |                 -> Records Exist                                          |
-          +---------------------------------------------------------------------------+
-                                    |
-                                    v
-          +---------------------------------------------------------------------------+
-          |  Purge happens when current_time reaches stream_key_purge_delay_in_millis |
-          +---------------------------------------------------------------------------+
-                                    |
-                                    v
-          +---------------------------------------------------------------------------+
-          |  if current_time > stream_key_purge_delay_in_millis + offset_in_millis    |
-          |                 -> Records were purged                                    |
-          +---------------------------------------------------------------------------+
+        +------------------------------------------------------------------+
+        | (0ms)                                                            |
+        | Stream shutdown is ordered                                       |
+        +------------------------------------------------------------------+
+                      |
+                      v
+        +------------------------------------------------------------------+
+        | (400ms) (stream_key_purge_delay_in_millis - offset_in_millis)    |
+        | Pre-purge assertion message finds records                        |
+        +------------------------------------------------------------------+
+                      |
+                      v
+        +------------------------------------------------------------------+
+        | (500ms) (stream_key_purge_delay_in_millis)                       |
+        | Stream is purged                                                 |
+        +------------------------------------------------------------------+
+                      |
+                      v
+        +------------------------------------------------------------------+
+        | (600ms) (stream_key_purge_delay_in_millis + offset_in_millis)    |
+        | Post-purge assertion message finds no records                    |
+        +------------------------------------------------------------------+
         */
 
         init_test_logging();
@@ -3834,7 +3841,7 @@ mod tests {
         let time_after_sending_package = time_before_sending_package
             .checked_add(Duration::from_secs(1))
             .unwrap();
-        let pre_assertions_msg = AssertionsMessage {
+        let pre_purge_assertions = AssertionsMessage {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                 let purge_timestamp = proxy_server
                     .stream_key_ttl
@@ -3849,33 +3856,36 @@ mod tests {
                 assert!(!proxy_server.stream_key_routes.is_empty());
                 assert!(!proxy_server.tunneled_hosts.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
-                    "DEBUG: {test_name}: Last data received for stream key zpi6SfvohvBgqq9y8zLgzIhxPS4, \
-                    which was tunneling through host Some(\"hostname\"). It will be purged after 500ms."
+                    "DEBUG: {test_name}: Client closed stream referenced by stream key {:?}, \
+                    which was tunneling to the host Some(\"hostname\"). \
+                    It will be purged after {stream_key_purge_delay_in_millis}ms.",
+                    stream_key
                 ));
             }),
         };
         proxy_server_addr
             .try_send(MessageScheduler {
-                scheduled_msg: pre_assertions_msg,
-                delay: Duration::from_millis(stream_key_purge_delay_in_millis - offset_in_millis),
+                scheduled_msg: pre_purge_assertions,
+                delay: Duration::from_millis(stream_key_purge_delay_in_millis - offset_in_millis), // 400ms
             })
             .unwrap();
-        let post_assertions_msg = AssertionsMessage {
+        let post_purge_assertions = AssertionsMessage {
             assertions: Box::new(move |proxy_server: &mut ProxyServer| {
                 assert!(proxy_server.keys_and_addrs.is_empty());
                 assert!(proxy_server.stream_key_routes.is_empty());
                 assert!(proxy_server.tunneled_hosts.is_empty());
                 assert!(proxy_server.stream_key_ttl.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
-                    "DEBUG: {test_name}: Retiring stream key zpi6SfvohvBgqq9y8zLgzIhxPS4"
+                    "DEBUG: {test_name}: Retiring stream key {:?}",
+                    stream_key
                 ));
                 System::current().stop();
             }),
         };
         proxy_server_addr
             .try_send(MessageScheduler {
-                scheduled_msg: post_assertions_msg,
-                delay: Duration::from_millis(stream_key_purge_delay_in_millis + offset_in_millis),
+                scheduled_msg: post_purge_assertions,
+                delay: Duration::from_millis(stream_key_purge_delay_in_millis + offset_in_millis), // 600ms
             })
             .unwrap();
         system.run();
