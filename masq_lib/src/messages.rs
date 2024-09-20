@@ -846,6 +846,42 @@ pub struct UiWalletAddressesResponse {
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CountryCodes {
+    #[serde(rename = "CountryCodes")]
+    pub country_codes: Vec<String>,
+    #[serde(rename = "Priority")]
+    pub priority: usize,
+}
+
+impl From<(String, usize)> for CountryCodes {
+    fn from(item: (String, usize)) -> Self {
+        CountryCodes {
+            country_codes: item.0.split(",").into_iter().map(|x| x.to_string()).collect::<Vec<String>>(),
+            priority: item.1 + 1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ExitLocation {
+    #[serde(rename = "ExitLocation")]
+    exit_location: Vec<CountryCodes>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationRequest {
+    #[serde(rename = "FallbackRouting")]
+    pub fallback_routing: bool,
+    #[serde(rename = "ExitLocations")]
+    pub exit_locations: Vec<CountryCodes>,
+}
+
+conversation_message!(UiSetExitLocationRequest, "ExitLocation");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationResponse {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
