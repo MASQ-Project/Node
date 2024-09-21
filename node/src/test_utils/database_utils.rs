@@ -7,7 +7,7 @@ use crate::database::db_initializer::ExternalData;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
-use crate::test_utils::unshared_test_utils::standard_dir_for_test_input_data;
+use crate::test_utils::standard_dir_for_test_input_data;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{to_string, NeighborhoodModeLight};

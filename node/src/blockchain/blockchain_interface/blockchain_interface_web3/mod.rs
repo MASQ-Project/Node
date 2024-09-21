@@ -37,7 +37,7 @@ use web3::types::{
     H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Web3};
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
 use crate::sub_lib::blockchain_interface_web3::{compute_gas_limit, transaction_data_web3, web3_gas_limit_const_part};
@@ -71,7 +71,7 @@ pub const REQUESTS_IN_PARALLEL: usize = 1;
 
 lazy_static! {
     // TODO In the future, we'll replace this by a dynamical value of the user's choice.
-    pub static ref TRANSACTION_FEE_MARGIN: Percentage = Percentage::new(15);
+    pub static ref TRANSACTION_FEE_MARGIN: PurePercentage = PurePercentage::try_from(15).expect("Value below 100 should cause no issue");
 }
 
 pub struct BlockchainInterfaceWeb3<T>

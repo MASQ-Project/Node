@@ -5,7 +5,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::ToMessageBody;
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
@@ -32,8 +32,11 @@ use node_lib::sub_lib::blockchain_interface_web3::{
 };
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
+use node_lib::test_utils::standard_dir_for_test_input_data;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{thread, u128};
@@ -43,15 +46,16 @@ use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, Tran
 use web3::Web3;
 
 #[test]
-fn verify_bill_payment() {
+fn full_payments_were_processed_for_sufficient_balances() {
     // Note: besides the main objectives of this test, it relies on (and so it proves) the premise
-    // that each Node, after it reaches its full connectivity and becomes able to make a route,
-    // activates its accountancy module whereas it also unleashes the first cycle of the scanners
-    // immediately. That's why some consideration has been made not to take out the passage with
-    // the intense startups of a bunch of Nodes, with that particular reason to fulfill the above
-    // depicted scenario, even though this test could be written more simply with the use of
-    // the `scans` command emitted from a UI, with a smaller CPU burden. (You may want to know that
-    // such an approach is implemented for another test in this file.)
+    // that each Node, after it achieves an effective connectivity as making a route is enabled,
+    // activates the accountancy module whereas the first cycle of scanners is unleashed. That's
+    // an excuse hopefully good enough not to take out the passage in this test with the intense
+    // startup of a bunch of real Nodes, with the only purpose of fulfilling the conditions required
+    // for going through that above depicted sequence of events. That said, this test could've been
+    // written simpler with an emulated UI and its `scans` command, lowering the CPU burden.
+    // (You may be pleased to know that such an approach is implemented for another test in this
+    // file.)
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_500_000,
         debt_threshold_gwei: 1_000_000_000,
@@ -71,15 +75,15 @@ fn verify_bill_payment() {
         consuming_node_initial_transaction_fee_balance_minor_opt: None,
         consuming_node_initial_service_fee_balance_minor,
         debts_config: DebtsSpecs {
-            serving_node_1: AccountedDebt {
+            serving_node_1: Debt {
                 balance_minor: owed_to_serving_node_1_minor,
                 age_s: long_ago,
             },
-            serving_node_2: AccountedDebt {
+            serving_node_2: Debt {
                 balance_minor: owed_to_serving_node_2_minor,
                 age_s: long_ago,
             },
-            serving_node_3: AccountedDebt {
+            serving_node_3: Debt {
                 balance_minor: owed_to_serving_node_3_minor,
                 age_s: long_ago,
             },
@@ -102,57 +106,60 @@ fn verify_bill_payment() {
         },
     };
 
-    let stimulate_payments: StimulateConsumingNodePayments =
-        Box::new(|cluster, real_consuming_node, _test_inputs| {
-            for _ in 0..6 {
-                cluster.start_real_node(
-                    NodeStartupConfigBuilder::standard()
-                        .chain(Chain::Dev)
-                        .neighbor(real_consuming_node.node_reference())
-                        .build(),
-                );
-            }
-        });
-
-    let start_serving_nodes_and_activate_their_accountancy : StartServingNodesAndLetThemPerformReceivablesCheck = Box::new(
-        |cluster,
-         serving_nodes,
-         _wholesome_config| {
-            let (node_references, serving_nodes): (Vec<_>, Vec<_>) = serving_nodes
-                .into_iter()
-                .map(|attributes| {
-                    let namings = &attributes.common.namings;
-                    cluster.start_named_real_node(
-                        &namings.node_name,
-                        namings.index,
-                        attributes.common.config_opt.take().unwrap(),
-                    )
-                })
-                .map(|node| (node.node_reference(), node))
-                .unzip();
-            let auxiliary_node_config_builder =
-                NodeStartupConfigBuilder::standard().chain(Chain::Dev);
-            let auxiliary_node_config = node_references
-                .into_iter()
-                .fold(
-                    auxiliary_node_config_builder,
-                    |builder, serving_node_reference| builder.neighbor(serving_node_reference),
-                )
-                .build();
-
-            for _ in 0..3 {
-                let _ = cluster.start_real_node(auxiliary_node_config.clone());
-            }
-
-            serving_nodes.try_into().unwrap()
-        });
-
     test_body(
         test_inputs,
         assertions_values,
-        stimulate_payments,
-        start_serving_nodes_and_activate_their_accountancy,
+        stimulate_consuming_node_to_pay_for_test_with_sufficient_funds,
+        activating_serving_nodes_for_test_with_sufficient_funds,
     );
+}
+
+fn stimulate_consuming_node_to_pay_for_test_with_sufficient_funds<'a>(
+    cluster: &'a mut MASQNodeCluster,
+    real_consuming_node: &'a MASQRealNode,
+    _global_values: &'a GlobalValues,
+) {
+    for _ in 0..6 {
+        cluster.start_real_node(
+            NodeStartupConfigBuilder::standard()
+                .chain(Chain::Dev)
+                .neighbor(real_consuming_node.node_reference())
+                .build(),
+        );
+    }
+}
+
+fn activating_serving_nodes_for_test_with_sufficient_funds<'a>(
+    cluster: &'a mut MASQNodeCluster,
+    serving_nodes: &'a mut [ServingNodeAttributes; 3],
+    _global_values: &'a GlobalValues,
+) -> [MASQRealNode; 3] {
+    let (node_references, serving_nodes): (Vec<_>, Vec<_>) = serving_nodes
+        .into_iter()
+        .map(|attributes| {
+            let namings = &attributes.common.namings;
+            cluster.start_named_real_node(
+                &namings.node_name,
+                namings.index,
+                attributes.common.config_opt.take().unwrap(),
+            )
+        })
+        .map(|node| (node.node_reference(), node))
+        .unzip();
+    let auxiliary_node_config = node_references
+        .into_iter()
+        .fold(
+            NodeStartupConfigBuilder::standard().chain(Chain::Dev),
+            |builder, serving_node_reference| builder.neighbor(serving_node_reference),
+        )
+        .build();
+
+    // Should be enough additional Nodes to provide the full connectivity
+    for _ in 0..3 {
+        let _ = cluster.start_real_node(auxiliary_node_config.clone());
+    }
+
+    serving_nodes.try_into().unwrap()
 }
 
 #[test]
@@ -165,34 +172,41 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 1_000_000,
     };
-
+    // Assuming all Nodes rely on the same set of payment thresholds
     let owed_to_serv_node_1_minor = gwei_to_wei(payment_thresholds.debt_threshold_gwei + 5_000_000);
     let owed_to_serv_node_2_minor =
         gwei_to_wei(payment_thresholds.debt_threshold_gwei + 20_000_000);
+    // Account of Node 3 will be a victim of tx fee insufficiency and will fall away, as its debt
+    // is the heaviest, implying the smallest weight evaluated and the last priority compared to
+    // those two others.
     let owed_to_serv_node_3_minor =
         gwei_to_wei(payment_thresholds.debt_threshold_gwei + 60_000_000);
-    // Assuming all Nodes rely on the same set of payment thresholds
-    let consuming_node_initial_service_fee_balance_minor = (owed_to_serv_node_1_minor
-        + owed_to_serv_node_2_minor)
-        - gwei_to_wei::<u128, u64>(2_345_678);
+    let enough_balance_for_serving_node_1_and_2 =
+        owed_to_serv_node_1_minor + owed_to_serv_node_2_minor;
+    let consuming_node_initial_service_fee_balance_minor =
+        enough_balance_for_serving_node_1_and_2 - gwei_to_wei::<u128, _>(2_345_678_u64);
     let agreed_transaction_fee_unit_price_major = 60;
-    let transaction_fee_needed_to_pay_for_one_payment_major = {
-        // We will need less but this should be accurate enough
-        let txn_data_with_maximized_cost = [0xff; 68];
+    let tx_fee_needed_to_pay_for_one_payment_major = {
+        // We'll need littler funds, but we can stand mild inaccuracy from assuming the use of
+        // all nonzero bytes in the data in both txs, which represents maximized costs
+        let txn_data_with_maximized_costs = [0xff; 68];
         let gas_limit_dev_chain = {
             let const_part = web3_gas_limit_const_part(Chain::Dev);
             u64::try_from(compute_gas_limit(
                 const_part,
-                txn_data_with_maximized_cost.as_slice(),
+                txn_data_with_maximized_costs.as_slice(),
             ))
             .unwrap()
         };
-        let transaction_fee_margin = Percentage::new(15);
+        let transaction_fee_margin = PurePercentage::try_from(15).unwrap();
         transaction_fee_margin
             .add_percent_to(gas_limit_dev_chain * agreed_transaction_fee_unit_price_major)
     };
+    const AFFORDABLE_PAYMENTS_COUNT: u128 = 2;
+    let tx_fee_needed_to_pay_for_one_payment_minor: u128 =
+        gwei_to_wei(tx_fee_needed_to_pay_for_one_payment_major);
     let consuming_node_transaction_fee_balance_minor =
-        2 * gwei_to_wei::<u128, u64>(transaction_fee_needed_to_pay_for_one_payment_major);
+        AFFORDABLE_PAYMENTS_COUNT * tx_fee_needed_to_pay_for_one_payment_minor;
     let test_inputs = TestInputs {
         ui_ports_opt: Some(Ports {
             consuming_node: find_free_port(),
@@ -202,23 +216,23 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         }),
         // Should be enough only for two payments, the least significant one will fall out
         consuming_node_initial_transaction_fee_balance_minor_opt: Some(
-            consuming_node_transaction_fee_balance_minor + 1,
+            consuming_node_transaction_fee_balance_minor,
         ),
         consuming_node_initial_service_fee_balance_minor,
         debts_config: DebtsSpecs {
             // This account will be the most significant and will deserve the full balance
-            serving_node_1: AccountedDebt {
+            serving_node_1: Debt {
                 balance_minor: owed_to_serv_node_1_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 1000,
             },
             // This balance is of a middle size it will be reduced as there won't be enough
             // after the first one is filled up.
-            serving_node_2: AccountedDebt {
+            serving_node_2: Debt {
                 balance_minor: owed_to_serv_node_2_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 100_000,
             },
-            // This account will be the least significant and therefore eliminated
-            serving_node_3: AccountedDebt {
+            // This account will be the least significant, therefore eliminated due to tx fee
+            serving_node_3: Debt {
                 balance_minor: owed_to_serv_node_3_minor,
                 age_s: payment_thresholds.maturity_threshold_sec + 30_000,
             },
@@ -228,8 +242,8 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     };
 
     let assertions_values = AssertionsValues {
-        // It seems like the ganache server sucked up quite less than those 55_000 units of gas??
-        final_consuming_node_transaction_fee_balance_minor: 2_828_352_000_000_001,
+        // How much is left after the smart contract was successfully executed, those three payments
+        final_consuming_node_transaction_fee_balance_minor: 2_828_352_000_000_000,
         // Zero reached, because the algorithm is designed to exhaust the wallet completely
         final_consuming_node_service_fee_balance_minor: 0,
         // This account was granted with the full size as its lowest balance from the set makes
@@ -242,63 +256,74 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         },
     };
 
-    let process_scan_request_to_node =
-        |real_node: &MASQRealNode, ui_port: u16, scan_type: ScanType, context_id: u64| {
-            let ui_client = real_node.make_ui(ui_port);
-            ui_client.send_request(UiScanRequest { scan_type }.tmb(context_id));
-            let response = ui_client.wait_for_response(context_id, Duration::from_secs(10));
-            UiScanResponse::fmb(response).unwrap();
-        };
-
-    let stimulate_payments: StimulateConsumingNodePayments =
-        Box::new(|_cluster, real_consuming_node, global_values| {
-            process_scan_request_to_node(
-                &real_consuming_node,
-                global_values
-                    .test_inputs
-                    .port(NodeByRole::ConsumingNode)
-                    .unwrap(),
-                ScanType::Payables,
-                1111,
-            )
-        });
-
-    let start_serving_nodes_and_activate_their_accountancy: StartServingNodesAndLetThemPerformReceivablesCheck = Box::new(|cluster,
-                                                              serving_nodes_attributes, global_values| {
-        let real_nodes: Vec<_> = serving_nodes_attributes
-            .iter_mut()
-            .enumerate()
-            .map(|(idx, serving_node_attributes)| {
-                let node_config = serving_node_attributes.common.config_opt.take().unwrap();
-                let common = &serving_node_attributes.common;
-                let serving_node = cluster.start_named_real_node(
-                    &common.namings.node_name,
-                    common.namings.index,
-                    node_config,
-                );
-                let ui_port = global_values.test_inputs
-                    .port(common.node_by_role)
-                    .expect("ui port missing");
-
-                process_scan_request_to_node(
-                    &serving_node,
-                    ui_port,
-                    ScanType::Receivables,
-                    (idx * 111) as u64,
-                );
-
-                serving_node
-            })
-            .collect();
-        real_nodes.try_into().unwrap()
-    });
-
     test_body(
         test_inputs,
         assertions_values,
-        stimulate_payments,
-        start_serving_nodes_and_activate_their_accountancy,
+        stimulate_consuming_node_to_pay_for_test_with_insufficient_funds,
+        activating_serving_nodes_for_test_with_insufficient_funds,
     );
+}
+
+fn stimulate_consuming_node_to_pay_for_test_with_insufficient_funds(
+    _cluster: &mut MASQNodeCluster,
+    real_consuming_node: &MASQRealNode,
+    global_values: &GlobalValues,
+) {
+    process_scan_request_to_node(
+        &real_consuming_node,
+        global_values
+            .test_inputs
+            .port(NodeByRole::ConsumingNode)
+            .unwrap(),
+        ScanType::Payables,
+        1111,
+    )
+}
+
+fn activating_serving_nodes_for_test_with_insufficient_funds(
+    cluster: &mut MASQNodeCluster,
+    serving_nodes: &mut [ServingNodeAttributes; 3],
+    global_values: &GlobalValues,
+) -> [MASQRealNode; 3] {
+    let real_nodes: Vec<_> = serving_nodes
+        .iter_mut()
+        .enumerate()
+        .map(|(idx, serving_node_attributes)| {
+            let node_config = serving_node_attributes.common.config_opt.take().unwrap();
+            let common = &serving_node_attributes.common;
+            let serving_node = cluster.start_named_real_node(
+                &common.namings.node_name,
+                common.namings.index,
+                node_config,
+            );
+            let ui_port = global_values
+                .test_inputs
+                .port(common.node_by_role)
+                .expect("ui port missing");
+
+            process_scan_request_to_node(
+                &serving_node,
+                ui_port,
+                ScanType::Receivables,
+                (idx * 111) as u64,
+            );
+
+            serving_node
+        })
+        .collect();
+    real_nodes.try_into().unwrap()
+}
+
+fn process_scan_request_to_node(
+    real_node: &MASQRealNode,
+    ui_port: u16,
+    scan_type: ScanType,
+    context_id: u64,
+) {
+    let ui_client = real_node.make_ui(ui_port);
+    ui_client.send_request(UiScanRequest { scan_type }.tmb(context_id));
+    let response = ui_client.wait_for_response(context_id, Duration::from_secs(10));
+    UiScanResponse::fmb(response).expect("Scan request went wrong");
 }
 
 fn establish_test_frame(test_inputs: TestInputs) -> (MASQNodeCluster, GlobalValues) {
@@ -356,7 +381,7 @@ fn to_wei(gwei: u64) -> u128 {
     gwei_to_wei(gwei)
 }
 
-fn make_init_config(chain: Chain) -> DbInitializationConfig {
+fn make_db_init_config(chain: Chain) -> DbInitializationConfig {
     DbInitializationConfig::create_or_migrate(ExternalData::new(
         chain,
         NeighborhoodModeLight::Standard,
@@ -364,8 +389,22 @@ fn make_init_config(chain: Chain) -> DbInitializationConfig {
     ))
 }
 
+fn load_contract_in_bytes() -> Vec<u8> {
+    let file_path =
+        standard_dir_for_test_input_data().join("smart_contract_for_on_blockchain_test");
+    let mut file = File::open(file_path).expect("couldn't acquire a handle to the data file");
+    let mut data = String::new();
+    file.read_to_string(&mut data).unwrap();
+    let data = data
+        .chars()
+        .filter(|char| !char.is_whitespace())
+        .collect::<String>();
+    data.from_hex::<Vec<u8>>()
+        .expect("bad contract: contains non-hexadecimal characters")
+}
+
 fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Address {
-    let data = "608060405234801561001057600080fd5b5060038054600160a060020a031916331790819055604051600160a060020a0391909116906000907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908290a3610080336b01866de34549d620d8000000640100000000610b9461008582021704565b610156565b600160a060020a038216151561009a57600080fd5b6002546100b490826401000000006109a461013d82021704565b600255600160a060020a0382166000908152602081905260409020546100e790826401000000006109a461013d82021704565b600160a060020a0383166000818152602081815260408083209490945583518581529351929391927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9281900390910190a35050565b60008282018381101561014f57600080fd5b9392505050565b610c6a806101656000396000f3006080604052600436106100fb5763ffffffff7c010000000000000000000000000000000000000000000000000000000060003504166306fdde038114610100578063095ea7b31461018a57806318160ddd146101c257806323b872dd146101e95780632ff2e9dc14610213578063313ce56714610228578063395093511461025357806342966c681461027757806370a0823114610291578063715018a6146102b257806379cc6790146102c75780638da5cb5b146102eb5780638f32d59b1461031c57806395d89b4114610331578063a457c2d714610346578063a9059cbb1461036a578063dd62ed3e1461038e578063f2fde38b146103b5575b600080fd5b34801561010c57600080fd5b506101156103d6565b6040805160208082528351818301528351919283929083019185019080838360005b8381101561014f578181015183820152602001610137565b50505050905090810190601f16801561017c5780820380516001836020036101000a031916815260200191505b509250505060405180910390f35b34801561019657600080fd5b506101ae600160a060020a0360043516602435610436565b604080519115158252519081900360200190f35b3480156101ce57600080fd5b506101d7610516565b60408051918252519081900360200190f35b3480156101f557600080fd5b506101ae600160a060020a036004358116906024351660443561051c565b34801561021f57600080fd5b506101d76105b9565b34801561023457600080fd5b5061023d6105c9565b6040805160ff9092168252519081900360200190f35b34801561025f57600080fd5b506101ae600160a060020a03600435166024356105ce565b34801561028357600080fd5b5061028f60043561067e565b005b34801561029d57600080fd5b506101d7600160a060020a036004351661068b565b3480156102be57600080fd5b5061028f6106a6565b3480156102d357600080fd5b5061028f600160a060020a0360043516602435610710565b3480156102f757600080fd5b5061030061071e565b60408051600160a060020a039092168252519081900360200190f35b34801561032857600080fd5b506101ae61072d565b34801561033d57600080fd5b5061011561073e565b34801561035257600080fd5b506101ae600160a060020a0360043516602435610775565b34801561037657600080fd5b506101ae600160a060020a03600435166024356107c0565b34801561039a57600080fd5b506101d7600160a060020a03600435811690602435166107d6565b3480156103c157600080fd5b5061028f600160a060020a0360043516610801565b606060405190810160405280602481526020017f486f7420746865206e657720746f6b656e20796f75277265206c6f6f6b696e6781526020017f20666f720000000000000000000000000000000000000000000000000000000081525081565b600081158061044c575061044a33846107d6565b155b151561050557604080517f08c379a000000000000000000000000000000000000000000000000000000000815260206004820152604160248201527f55736520696e637265617365417070726f76616c206f7220646563726561736560448201527f417070726f76616c20746f2070726576656e7420646f75626c652d7370656e6460648201527f2e00000000000000000000000000000000000000000000000000000000000000608482015290519081900360a40190fd5b61050f838361081d565b9392505050565b60025490565b600160a060020a038316600090815260016020908152604080832033845290915281205482111561054c57600080fd5b600160a060020a0384166000908152600160209081526040808320338452909152902054610580908363ffffffff61089b16565b600160a060020a03851660009081526001602090815260408083203384529091529020556105af8484846108b2565b5060019392505050565b6b01866de34549d620d800000081565b601281565b6000600160a060020a03831615156105e557600080fd5b336000908152600160209081526040808320600160a060020a0387168452909152902054610619908363ffffffff6109a416565b336000818152600160209081526040808320600160a060020a0389168085529083529281902085905580519485525191937f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925929081900390910190a350600192915050565b61068833826109b6565b50565b600160a060020a031660009081526020819052604090205490565b6106ae61072d565b15156106b957600080fd5b600354604051600091600160a060020a0316907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0908390a36003805473ffffffffffffffffffffffffffffffffffffffff19169055565b61071a8282610a84565b5050565b600354600160a060020a031690565b600354600160a060020a0316331490565b60408051808201909152600381527f484f540000000000000000000000000000000000000000000000000000000000602082015281565b6000600160a060020a038316151561078c57600080fd5b336000908152600160209081526040808320600160a060020a0387168452909152902054610619908363ffffffff61089b16565b60006107cd3384846108b2565b50600192915050565b600160a060020a03918216600090815260016020908152604080832093909416825291909152205490565b61080961072d565b151561081457600080fd5b61068881610b16565b6000600160a060020a038316151561083457600080fd5b336000818152600160209081526040808320600160a060020a03881680855290835292819020869055805186815290519293927f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925929181900390910190a350600192915050565b600080838311156108ab57600080fd5b5050900390565b600160a060020a0383166000908152602081905260409020548111156108d757600080fd5b600160a060020a03821615156108ec57600080fd5b600160a060020a038316600090815260208190526040902054610915908263ffffffff61089b16565b600160a060020a03808516600090815260208190526040808220939093559084168152205461094a908263ffffffff6109a416565b600160a060020a038084166000818152602081815260409182902094909455805185815290519193928716927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef92918290030190a3505050565b60008282018381101561050f57600080fd5b600160a060020a03821615156109cb57600080fd5b600160a060020a0382166000908152602081905260409020548111156109f057600080fd5b600254610a03908263ffffffff61089b16565b600255600160a060020a038216600090815260208190526040902054610a2f908263ffffffff61089b16565b600160a060020a038316600081815260208181526040808320949094558351858152935191937fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef929081900390910190a35050565b600160a060020a0382166000908152600160209081526040808320338452909152902054811115610ab457600080fd5b600160a060020a0382166000908152600160209081526040808320338452909152902054610ae8908263ffffffff61089b16565b600160a060020a038316600090815260016020908152604080832033845290915290205561071a82826109b6565b600160a060020a0381161515610b2b57600080fd5b600354604051600160a060020a038084169216907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e090600090a36003805473ffffffffffffffffffffffffffffffffffffffff1916600160a060020a0392909216919091179055565b600160a060020a0382161515610ba957600080fd5b600254610bbc908263ffffffff6109a416565b600255600160a060020a038216600090815260208190526040902054610be8908263ffffffff6109a416565b600160a060020a0383166000818152602081815260408083209490945583518581529351929391927fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9281900390910190a350505600a165627a7a72305820d4ad56dfe541fec48c3ecb02cebad565a998dfca7774c0c4f4b1f4a8e2363a590029".from_hex::<Vec<u8>>().unwrap();
+    let contract = load_contract_in_bytes();
     let gas_price = to_wei(50);
     let gas_limit = 1_000_000_u64;
     let tx = TransactionParameters {
@@ -374,10 +413,10 @@ fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Ad
         gas: ethereum_types::U256::try_from(gas_limit).expect("Internal error"),
         gas_price: Some(ethereum_types::U256::try_from(gas_price).expect("Internal error")),
         value: ethereum_types::U256::zero(),
-        data: Bytes(data),
+        data: Bytes(contract),
         chain_id: Some(chain.rec().num_chain_id),
     };
-    let signed_tx = sign_transaction(web3, tx, wallet);
+    let signed_tx = primitive_sign_transaction(web3, tx, wallet);
     match web3
         .eth()
         .send_raw_transaction(signed_tx.raw_transaction)
@@ -415,9 +454,7 @@ fn transfer_service_fee_amount_to_address(
         data: Bytes(data.to_vec()),
         chain_id: Some(chain.rec().num_chain_id),
     };
-
-    let signed_tx = sign_transaction(web3, tx, from_wallet);
-
+    let signed_tx = primitive_sign_transaction(web3, tx, from_wallet);
     match web3
         .eth()
         .send_raw_transaction(signed_tx.raw_transaction)
@@ -431,7 +468,7 @@ fn transfer_service_fee_amount_to_address(
     }
 }
 
-fn sign_transaction(
+fn primitive_sign_transaction(
     web3: &Web3<Http>,
     tx: TransactionParameters,
     signing_wallet: &Wallet,
@@ -466,7 +503,6 @@ fn transfer_transaction_fee_amount_to_address(
         nonce: Some(ethereum_types::U256::try_from(transaction_nonce).expect("Internal error")),
         condition: None,
     };
-
     match web3
         .personal()
         .unlock_account(from_wallet.address(), "", None)
@@ -488,7 +524,6 @@ fn transfer_transaction_fee_amount_to_address(
             e
         ),
     }
-
     match web3.eth().send_transaction(tx).wait() {
         Ok(tx_hash) => eprintln!(
             "Transaction {:?} of {} wei of ETH was sent from wallet {:?} to {:?}",
@@ -540,14 +575,13 @@ fn make_node_wallet(seed: &Seed, derivation_path: &str) -> (Wallet, String) {
     )
 }
 
+const MNEMONIC_PHRASE: &str =
+    "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle \
+    lamp absent write kind term toddler sphere ripple idle dragon curious hold";
+
 fn make_seed() -> Seed {
-    let phrase = "\
-    timber cage wide hawk phone shaft pattern movie \
-    army dizzy hen tackle lamp absent write kind \
-    term toddler sphere ripple idle dragon curious hold";
-    let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
-    let seed = Seed::new(&mnemonic, "");
-    seed
+    let mnemonic = Mnemonic::from_phrase(MNEMONIC_PHRASE, Language::English).unwrap();
+    Seed::new(&mnemonic, "")
 }
 
 struct TestInputs {
@@ -612,18 +646,18 @@ struct WholesomeConfig {
 }
 
 struct DebtsSpecs {
-    serving_node_1: AccountedDebt,
-    serving_node_2: AccountedDebt,
-    serving_node_3: AccountedDebt,
+    serving_node_1: Debt,
+    serving_node_2: Debt,
+    serving_node_3: Debt,
 }
 
 #[derive(Copy, Clone)]
-struct AccountedDebt {
+struct Debt {
     balance_minor: u128,
     age_s: u64,
 }
 
-impl AccountedDebt {
+impl Debt {
     fn proper_timestamp(&self, now: SystemTime) -> SystemTime {
         now.checked_sub(Duration::from_secs(self.age_s)).unwrap()
     }
@@ -639,7 +673,7 @@ impl TestInputs {
         })
     }
 
-    fn debt_specs(&self, requested: NodeByRole) -> AccountedDebt {
+    fn debt_specs(&self, requested: NodeByRole) -> Debt {
         match requested {
             NodeByRole::ServingNode1 => self.debts_config.serving_node_1,
             NodeByRole::ServingNode2 => self.debts_config.serving_node_2,
@@ -661,7 +695,7 @@ impl GlobalValues {
             &self.blockchain_params.seed,
             wallet_derivation_path.as_str(),
         );
-        let cfg_to_build = NodeStartupConfigBuilder::standard()
+        let mut cfg_to_build = NodeStartupConfigBuilder::standard()
             .blockchain_service_url(&self.blockchain_params.server_url)
             .chain(Chain::Dev)
             .payment_thresholds(payment_thresholds)
@@ -670,16 +704,12 @@ impl GlobalValues {
                 "{}",
                 node_wallet.clone()
             )));
-        let cfg_to_build = if let Some(port) = self.test_inputs.port(node_by_role) {
-            cfg_to_build.ui_port(port)
-        } else {
-            cfg_to_build
-        };
-        let cfg_to_build = if let Some(price) = self.test_inputs.consuming_node_gas_price_opt {
-            cfg_to_build.gas_price(price)
-        } else {
-            cfg_to_build
-        };
+        if let Some(port) = self.test_inputs.port(node_by_role) {
+            cfg_to_build = cfg_to_build.ui_port(port)
+        }
+        if let Some(price) = self.test_inputs.consuming_node_gas_price_opt {
+            cfg_to_build = cfg_to_build.gas_price(price)
+        }
 
         eprintln!("{:?} wallet established: {}\n", node_by_role, node_wallet,);
 
@@ -725,19 +755,17 @@ impl GlobalValues {
         let consuming_node_connection = DbInitializerReal::default()
             .initialize(
                 Path::new(&consuming_node_namings.db_path),
-                make_init_config(cluster.chain),
+                make_db_init_config(cluster.chain),
             )
             .unwrap();
         let consuming_node_payable_dao = PayableDaoReal::new(consuming_node_connection);
-        ConsumingNodeAttributes {
-            common: NodeAttributesCommon {
-                node_by_role: NodeByRole::ConsumingNode,
-                namings: consuming_node_namings,
-                config_opt: Some(consuming_node_config),
-            },
-            consuming_wallet: consuming_node_wallet,
-            payable_dao: consuming_node_payable_dao,
-        }
+        ConsumingNodeAttributes::new(
+            NodeByRole::ConsumingNode,
+            consuming_node_namings,
+            Some(consuming_node_config),
+            consuming_node_wallet,
+            consuming_node_payable_dao,
+        )
     }
 
     fn prepare_serving_nodes(&self, cluster: &mut MASQNodeCluster) -> [ServingNodeAttributes; 3] {
@@ -751,22 +779,20 @@ impl GlobalValues {
             let (serving_node_config, serving_node_earning_wallet) =
                 self.get_node_config_and_wallet(node_by_role);
             let serving_node_namings = cluster.prepare_real_node(&serving_node_config);
-            let serving_node_1_connection = DbInitializerReal::default()
+            let serving_node_connection = DbInitializerReal::default()
                 .initialize(
                     &serving_node_namings.db_path,
-                    make_init_config(cluster.chain),
+                    make_db_init_config(cluster.chain),
                 )
                 .unwrap();
-            let serving_node_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
-            ServingNodeAttributes {
-                common: NodeAttributesCommon {
-                    node_by_role,
-                    namings: serving_node_namings,
-                    config_opt: Some(serving_node_config),
-                },
-                earning_wallet: serving_node_earning_wallet,
-                receivable_dao: serving_node_receivable_dao,
-            }
+            let serving_node_receivable_dao = ReceivableDaoReal::new(serving_node_connection);
+            ServingNodeAttributes::new(
+                node_by_role,
+                serving_node_namings,
+                Some(serving_node_config),
+                serving_node_earning_wallet,
+                serving_node_receivable_dao,
+            )
         })
         .collect::<Vec<_>>()
         .try_into()
@@ -774,7 +800,6 @@ impl GlobalValues {
     }
 
     fn set_start_block_to_zero(path: &Path) {
-        //TODO do we want to do this??
         DbInitializerReal::default()
             .initialize(path, DbInitializationConfig::panic_on_migration())
             .unwrap()
@@ -897,7 +922,7 @@ impl WholesomeConfig {
             assertions_values.final_consuming_node_service_fee_balance_minor,
         );
         assertions_values
-            .serving_nodes_final_values()
+            .serving_nodes_actually_received_payments()
             .into_iter()
             .zip(self.serving_nodes.iter())
             .for_each(|(expected_remaining_owed_value, serving_node)| {
@@ -914,36 +939,42 @@ impl WholesomeConfig {
         &self,
         assertions_values: &AssertionsValues,
     ) {
-        let final_values = assertions_values.serving_nodes_final_values();
+        let actually_received_payments = assertions_values.serving_nodes_actually_received_payments();
         let consuming_node_wallet = &self.consuming_node.consuming_wallet;
         self.serving_nodes
             .iter()
-            .zip(final_values.into_iter())
-            .for_each(|(serving_node, final_value)| {
-                test_utils::wait_for(Some(1000), Some(15000), || {
-                    if let Some(status) = serving_node
-                        .receivable_dao
-                        .account_status(&consuming_node_wallet)
-                    {
-                        status.balance_wei
-                            == i128::try_from(
-                                self.global_values
-                                    .test_inputs
-                                    .debt_specs(serving_node.common.node_by_role)
-                                    .balance_minor
-                                    - final_value,
-                            )
-                            .unwrap()
-                    } else {
-                        false
-                    }
-                });
+            .zip(actually_received_payments.into_iter())
+            .for_each(|(serving_node, received_payment)| {
+                let original_debt = self.global_values
+                    .test_inputs
+                    .debt_specs(serving_node.common.node_by_role)
+                    .balance_minor;
+                let expected_final_balance = original_debt - received_payment;
+                Self::wait_for_exact_balance_in_receivables(
+                    &serving_node.receivable_dao,
+                    expected_final_balance,
+                    consuming_node_wallet,
+                )
             })
+    }
+
+    fn wait_for_exact_balance_in_receivables(
+        node_receivable_dao: &ReceivableDaoReal,
+        expected_value: u128,
+        consuming_node_wallet: &Wallet,
+    ) {
+        test_utils::wait_for(Some(1000), Some(15000), || {
+            if let Some(status) = node_receivable_dao.account_status(&consuming_node_wallet) {
+                status.balance_wei == i128::try_from(expected_value).unwrap()
+            } else {
+                false
+            }
+        });
     }
 }
 
 impl AssertionsValues {
-    fn serving_nodes_final_values(&self) -> [u128; 3] {
+    fn serving_nodes_actually_received_payments(&self) -> [u128; 3] {
         [
             self.final_service_fee_balances.node_1_minor,
             self.final_service_fee_balances.node_2_minor,
@@ -988,16 +1019,56 @@ struct ServingNodeAttributes {
     receivable_dao: ReceivableDaoReal,
 }
 
-type StimulateConsumingNodePayments<'a> =
-    Box<dyn FnOnce(&mut MASQNodeCluster, &MASQRealNode, &GlobalValues) + 'a>;
-type StartServingNodesAndLetThemPerformReceivablesCheck<'a> = Box<
-    dyn FnOnce(
-            &mut MASQNodeCluster,
-            &mut [ServingNodeAttributes; 3],
-            &GlobalValues,
-        ) -> [MASQRealNode; 3]
-        + 'a,
->;
+impl ConsumingNodeAttributes {
+    fn new(
+        node_by_role: NodeByRole,
+        namings: NodeNamingAndDir,
+        config_opt: Option<NodeStartupConfig>,
+        consuming_wallet: Wallet,
+        payable_dao: PayableDaoReal,
+    ) -> Self {
+        let common = NodeAttributesCommon {
+            node_by_role,
+            namings,
+            config_opt,
+        };
+        Self {
+            common,
+            consuming_wallet,
+            payable_dao,
+        }
+    }
+}
+
+impl ServingNodeAttributes {
+    fn new(
+        node_by_role: NodeByRole,
+        namings: NodeNamingAndDir,
+        config_opt: Option<NodeStartupConfig>,
+        earning_wallet: Wallet,
+        receivable_dao: ReceivableDaoReal,
+    ) -> Self {
+        let common = NodeAttributesCommon {
+            node_by_role,
+            namings,
+            config_opt,
+        };
+        Self {
+            common,
+            earning_wallet,
+            receivable_dao,
+        }
+    }
+}
+
+type StimulateConsumingNodePayments =
+    for<'a> fn(&'a mut MASQNodeCluster, &'a MASQRealNode, &'a GlobalValues);
+
+type StartServingNodesAndLetThemPerformReceivablesCheck = for<'a> fn(
+    &'a mut MASQNodeCluster,
+    &'a mut [ServingNodeAttributes; 3],
+    &'a GlobalValues,
+) -> [MASQRealNode; 3];
 
 fn test_body(
     test_inputs: TestInputs,
@@ -1036,13 +1107,13 @@ fn test_body(
         &wholesome_config.global_values,
     );
 
-    let now = Instant::now();
+    let timeout_start = Instant::now();
     while !wholesome_config
         .consuming_node
         .payable_dao
         .non_pending_payables()
         .is_empty()
-        && now.elapsed() < Duration::from_secs(10)
+        && timeout_start.elapsed() < Duration::from_secs(10)
     {
         thread::sleep(Duration::from_millis(400));
     }

@@ -51,6 +51,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
+use std::env::current_dir;
 use std::fmt::Debug;
 
 use std::hash::Hash;
@@ -58,7 +59,7 @@ use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
-
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -526,6 +527,17 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
+pub fn standard_dir_for_test_input_data() -> PathBuf {
+    let mut working_dir = current_dir().unwrap();
+    if !working_dir.ends_with("/node/") {
+        working_dir = working_dir.parent().unwrap().join("node");
+    }
+    working_dir
+        .join("src")
+        .join("test_utils")
+        .join("test_input_data")
+}
+
 #[cfg(test)]
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
@@ -554,8 +566,6 @@ pub mod unshared_test_utils {
     use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
-    #[cfg(not(feature = "no_test_share"))]
-    use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::any::TypeId;
@@ -807,14 +817,6 @@ pub mod unshared_test_utils {
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
             .collect()
-    }
-
-    pub fn standard_dir_for_test_input_data() -> PathBuf {
-        current_dir()
-            .unwrap()
-            .join("src")
-            .join("test_utils")
-            .join("input_data")
     }
 
     pub mod system_killer_actor {

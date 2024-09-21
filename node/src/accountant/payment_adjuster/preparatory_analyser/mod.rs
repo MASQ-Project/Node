@@ -25,7 +25,7 @@ use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use ethereum_types::U256;
 use itertools::Either;
 use masq_lib::logger::Logger;
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 
 pub struct PreparatoryAnalyzer {}
 
@@ -167,7 +167,7 @@ impl PreparatoryAnalyzer {
     fn determine_transaction_count_limit_by_transaction_fee(
         &self,
         cw_transaction_fee_balance_minor: U256,
-        agreed_transaction_fee_margin: Percentage,
+        agreed_transaction_fee_margin: PurePercentage,
         per_transaction_requirement_minor: u128,
         number_of_qualified_accounts: usize,
         logger: &Logger,

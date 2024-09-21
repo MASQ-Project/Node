@@ -4,7 +4,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::logger::Logger;
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -33,9 +33,9 @@ impl BlockchainAgent for BlockchainAgentNull {
         0
     }
 
-    fn agreed_transaction_fee_margin(&self) -> Percentage {
+    fn agreed_transaction_fee_margin(&self) -> PurePercentage {
         self.log_function_call("agreed_transaction_fee_margin()");
-        Percentage::new(0)
+        PurePercentage::try_from(0).expect("0 should cause no issue")
     }
 
     fn consuming_wallet(&self) -> &Wallet {
