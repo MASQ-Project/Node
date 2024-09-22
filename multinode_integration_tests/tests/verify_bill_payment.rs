@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::verify_bill_payment_utils::utils::{
     test_body, to_wei, AssertionsValues, Debt, DebtsSpecs, FinalServiceFeeBalancesByServingNodes,
     GlobalValues, NodeByRole, Ports, ServingNodeAttributes, TestInputsBuilder,
@@ -14,7 +15,6 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{MASQRealNode,
     NodeStartupConfigBuilder,
 };
-use node_lib::accountant::gwei_to_wei;
 use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::blockchain_interface_web3::{
     compute_gas_limit, web3_gas_limit_const_part,
@@ -141,14 +141,14 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         unban_below_gwei: 1_000_000,
     };
     // Assuming all Nodes rely on the same set of payment thresholds
-    let owed_to_serv_node_1_minor = gwei_to_wei(payment_thresholds.debt_threshold_gwei + 5_000_000);
+    let owed_to_serv_node_1_minor = to_wei(payment_thresholds.debt_threshold_gwei + 5_000_000);
     let owed_to_serv_node_2_minor =
-        gwei_to_wei(payment_thresholds.debt_threshold_gwei + 20_000_000);
+        to_wei(payment_thresholds.debt_threshold_gwei + 20_000_000);
     // Account of Node 3 will be a victim of tx fee insufficiency and will fall away, as its debt
     // is the heaviest, implying the smallest weight evaluated and the last priority compared to
     // those two others.
     let owed_to_serv_node_3_minor =
-        gwei_to_wei(payment_thresholds.debt_threshold_gwei + 60_000_000);
+        to_wei(payment_thresholds.debt_threshold_gwei + 60_000_000);
     let enough_balance_for_serving_node_1_and_2 =
         owed_to_serv_node_1_minor + owed_to_serv_node_2_minor;
     let consuming_node_initial_service_fee_balance_minor =
@@ -171,7 +171,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     };
     const AFFORDABLE_PAYMENTS_COUNT: u128 = 2;
     let tx_fee_needed_to_pay_for_one_payment_minor: u128 =
-        gwei_to_wei(tx_fee_needed_to_pay_for_one_payment_major);
+        to_wei(tx_fee_needed_to_pay_for_one_payment_major);
     let consuming_node_transaction_fee_balance_minor =
         AFFORDABLE_PAYMENTS_COUNT * tx_fee_needed_to_pay_for_one_payment_minor;
     let test_inputs = TestInputsBuilder::default()
