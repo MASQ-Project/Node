@@ -59,7 +59,7 @@ use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;

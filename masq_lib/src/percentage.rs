@@ -5,8 +5,7 @@ use num::CheckedSub;
 use num::{CheckedDiv, CheckedMul, Integer};
 use std::any::type_name;
 use std::fmt::Debug;
-use std::ops::Mul;
-use std::ops::{Div, Rem};
+use std::ops::{Rem};
 // Designed to store values from 0 to 100 and offer a set of handy methods for PurePercentage
 // operations over a wide variety of integer types. It is also to look after the least significant
 // digit on the resulted number in order to avoid the effect of a loss on precision that genuinely
@@ -77,7 +76,7 @@ impl LoosePercentage {
     {
         let multiples = match N::try_from(self.multiples_of_100_percent) {
             Ok(num) => num,
-            Err(e) => return Err(BaseTypeOverflow {}),
+            Err(_) => return Err(BaseTypeOverflow {}),
         };
 
         let by_wholes = match num.checked_mul(&multiples) {

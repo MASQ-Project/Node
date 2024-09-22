@@ -1222,7 +1222,7 @@ impl MASQRealNode {
 }
 
 #[derive(Debug)]
-pub struct NodeNamingAndDir {
+pub struct NodeID {
     pub node_name: String,
     pub index: usize,
     pub db_path: PathBuf,

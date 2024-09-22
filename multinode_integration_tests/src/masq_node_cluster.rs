@@ -6,7 +6,7 @@ use crate::masq_mock_node::{
 };
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::NodeStartupConfig;
-use crate::masq_real_node::{MASQRealNode, NodeNamingAndDir};
+use crate::masq_real_node::{MASQRealNode, NodeID};
 use crate::utils::{node_chain_specific_data_directory, open_all_file_permissions};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
@@ -52,7 +52,7 @@ impl MASQNodeCluster {
         self.next_index
     }
 
-    pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> NodeNamingAndDir {
+    pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> NodeID {
         let index = self.startup_configs.len() + 1;
         let name = MASQRealNode::make_name(index);
         self.next_index = index + 1;
@@ -62,7 +62,7 @@ impl MASQNodeCluster {
         let db_path: PathBuf = node_chain_specific_data_directory(&name).into();
         open_all_file_permissions(&db_path);
 
-        NodeNamingAndDir {
+        NodeID {
             node_name: name,
             index,
             db_path,
