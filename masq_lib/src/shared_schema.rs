@@ -563,17 +563,12 @@ pub mod common_validators {
    pub fn validate_exit_location_pairs(exit_location: String) -> Result<(), String> {
         let result = validate_pipe_separate_values(exit_location, |country: String| {
             let mut collect_fails = "".to_string();
-            if let Some((country_code, priority)) = country.split_once(':') {
-                let validation_cc = validate_country_code(country_code.to_string());
-                let validation_priority = validate_non_zero_u16(priority.to_string());
-                if validation_cc == Ok(()) && validation_priority == Ok(()) {
-                    ()
-                } else {
-                    collect_fails.push_str(&format!("'{}': non-existent country codes or invalid priority, ", country));
+            country.split(',').into_iter().for_each(|country_code| {
+                match validate_country_code(country_code.to_string()) {
+                    Ok(_) => (),
+                    Err(e) => collect_fails.push_str(&format!("'{}': non-existent country code", e))
                 }
-            } else {
-                collect_fails.push_str(&format!("'{}': you need to specify the priority, ", country));
-            }
+            });
             return match collect_fails.is_empty() {
                 true => Ok(()),
                 false => Err(collect_fails.to_string())

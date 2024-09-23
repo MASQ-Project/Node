@@ -882,6 +882,8 @@ conversation_message!(UiSetExitLocationRequest, "ExitLocation");
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiSetExitLocationResponse {}
 
+conversation_message!(UiSetExitLocationResponse, "ExitLocation");
+
 #[cfg(test)]
 mod tests {
     use super::*;
