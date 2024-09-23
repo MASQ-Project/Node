@@ -1,3 +1,5 @@
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use ip_country_lib::ip_country::ip_country;
 use std::env;
 use std::io;

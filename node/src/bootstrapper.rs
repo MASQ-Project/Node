@@ -53,7 +53,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
@@ -507,19 +507,12 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        let node_ip = match self.config.neighborhood_config.mode.node_addr_opt() {
-            Some(node_addr) => Some(node_addr.ip_addr),
-            None => None,
-        };
-        let country_code = match get_node_location(node_ip) {
-            Some(country) => country.country_code,
-            None => "ZZ".to_string(),
-        };
+        // initialization od CountryFinder
+        let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
-            country_code,
         );
         self.config.node_descriptor = node_descriptor;
         // Before you remove local-descriptor reporting for non-Standard neighborhood modes, make
@@ -601,11 +594,10 @@ impl Bootstrapper {
         cryptde: &dyn CryptDE,
         node_addr_opt: Option<NodeAddr>,
         chain: Chain,
-        country: String,
     ) -> NodeDescriptor {
         match node_addr_opt {
             Some(node_addr) => {
-                NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde, country))
+                NodeDescriptor::from((cryptde.public_key(), &node_addr, chain, cryptde))
             }
             None => {
                 let mut result = NodeDescriptor::from((
@@ -613,7 +605,6 @@ impl Bootstrapper {
                     &NodeAddr::default(),
                     chain,
                     cryptde,
-                    country,
                 ));
                 result.node_addr_opt = None;
                 result
@@ -1221,7 +1212,6 @@ mod tests {
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::EthRopsten,
                 main_cryptde_ref(),
-                "AU".to_string()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
@@ -1339,7 +1329,6 @@ mod tests {
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::EthRopsten,
                 main_cryptde_ref(),
-                "AU".to_string()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
@@ -1581,7 +1570,6 @@ mod tests {
                 cryptdes.main,
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
-                "ZZ".to_string(),
             );
             Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
@@ -1621,12 +1609,8 @@ mod tests {
         init_test_logging();
         let cryptdes = {
             let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            let descriptor = Bootstrapper::make_local_descriptor(
-                cryptdes.main,
-                None,
-                TEST_DEFAULT_CHAIN,
-                "ZZ".to_string(),
-            );
+            let descriptor =
+                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
             Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
 
             cryptdes
@@ -1873,7 +1857,6 @@ mod tests {
                     ),
                     Chain::EthMainnet,
                     cryptde,
-                    "ZZ".to_string(),
                 ))],
                 rate_pack(100),
             ),
@@ -1945,7 +1928,6 @@ mod tests {
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     Chain::EthRopsten,
                     cryptde,
-                    "ZZ".to_string(),
                 ))],
                 rate_pack(100),
             ),
@@ -1996,7 +1978,6 @@ mod tests {
                     &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                     Chain::EthRopsten,
                     cryptde,
-                    "ZZ".to_string(),
                 ))],
                 rate_pack(100),
             ),
@@ -2037,7 +2018,6 @@ mod tests {
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234]),
                 Chain::EthRopsten,
                 cryptde,
-                "ZZ".to_string(),
             ))]),
             min_hops: MIN_HOPS_FOR_TEST,
             country: "ZZ".to_string(),

@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 #[derive(PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct NodeAddr {
-    pub(crate) ip_addr: IpAddr,
+    ip_addr: IpAddr,
     ports: Vec<u16>,
 }
 

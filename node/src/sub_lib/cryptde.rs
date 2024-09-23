@@ -377,7 +377,7 @@ impl<'a> Visitor<'a> for CryptDataVisitor {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlainData {
-    pub(crate) data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl Serialize for PlainData {

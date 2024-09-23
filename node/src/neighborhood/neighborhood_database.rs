@@ -50,11 +50,9 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new(),
             logger: Logger::new("NeighborhoodDatabase"),
         };
-
-        let location = if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
-            get_node_location(Some(node_addr.ip_addr))
-        } else {
-            None
+        let location_opt = match neighborhood_mode.node_addr_opt() {
+            Some(node_addr) => get_node_location(Some(node_addr.ip_addr())),
+            None => None,
         };
         let node_record_data = NodeRecordInputs {
             earning_wallet,
@@ -62,7 +60,7 @@ impl NeighborhoodDatabase {
             accepts_connections: neighborhood_mode.accepts_connections(),
             routes_data: neighborhood_mode.routes_data(),
             version: 0,
-            location,
+            location_opt,
         };
         let mut node_record = NodeRecord::new(public_key, cryptde, node_record_data);
         if let Some(node_addr) = neighborhood_mode.node_addr_opt() {
@@ -386,25 +384,10 @@ mod tests {
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AU".to_string(),
-            free_world_bit: true,
-        });
-        this_node.resign();
 
         let subject = db_from_node(&this_node);
 
-        let this_pubkey = this_node.public_key();
-        let last_update = subject
-            .by_public_key
-            .iter()
-            .map(|(pubkey, node_record)| match pubkey == this_pubkey {
-                true => node_record.metadata.last_update,
-                false => todo!("implement me"),
-            })
-            .exactly_one()
-            .unwrap();
+        let last_update = subject.root().metadata.last_update;
         this_node.metadata.last_update = last_update;
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -432,12 +415,6 @@ mod tests {
     #[test]
     fn can_get_mutable_root() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AU".to_string(),
-            free_world_bit: true,
-        });
-        this_node.resign();
 
         let mut subject = NeighborhoodDatabase::new(
             this_node.public_key(),
@@ -446,16 +423,7 @@ mod tests {
             &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
-        let this_pubkey = this_node.public_key();
-        let last_update = subject
-            .by_public_key
-            .iter()
-            .map(|(pubkey, node_record)| match pubkey == this_pubkey {
-                true => node_record.metadata.last_update,
-                false => todo!("implement me"),
-            })
-            .exactly_one()
-            .unwrap();
+        let last_update = subject.root().metadata.last_update;
         this_node.metadata.last_update = last_update;
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -517,12 +485,6 @@ mod tests {
     #[test]
     fn node_by_key_works() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = "AU".to_string();
-        this_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AU".to_string(),
-            free_world_bit: true,
-        });
-        this_node.resign();
 
         let one_node = make_node_record(4567, true);
         let another_node = make_node_record(5678, true);
@@ -558,7 +520,7 @@ mod tests {
     #[test]
     fn node_by_ip_works() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code = "AU".to_string();
+        this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,
@@ -858,7 +820,7 @@ mod tests {
     fn new_public_ip_replaces_ip_address_and_nothing_else() {
         let this_node = make_node_record(1234, true);
         let mut old_node = this_node.clone();
-        old_node.inner.country_code = "AU".to_string();
+        old_node.inner.country_code_opt = Some("AU".to_string());
         old_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
             free_world_bit: true,

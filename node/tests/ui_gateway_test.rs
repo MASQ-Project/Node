@@ -166,7 +166,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let assertion_lookup_pattern_2 =
         |_port_spec_ui: &str| "Received shutdown order from client 1".to_string();
     let second_port = connected_and_disconnected_assertion(2, assertion_lookup_pattern_2);
-    //TODO Create card to Change infrastructure and add node_client.send here and it should return result - we send the suhtdown request in loop until it not returns
+    //TODO Card #806 "Test utility to easily verify the Node's termination"
     loop {
         if let Ok(_stream) = TcpStream::connect(format!("127.0.0.1:{}", ui_redirect.port)) {
         } else {
