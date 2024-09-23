@@ -215,7 +215,8 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
-            Some(NodeAddr::from_str(str_node_addr)?)
+            let node_addr = NodeAddr::from_str(str_node_addr)?;
+            Some(node_addr)
         };
         Ok(NodeDescriptor {
             blockchain,
@@ -244,7 +245,7 @@ impl NodeDescriptor {
             CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
-            node_addr_string
+            node_addr_string,
         )
     }
 
@@ -404,6 +405,7 @@ impl Display for Hops {
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
     pub min_hops: Hops,
+    pub country: String,
 }
 
 lazy_static! {
@@ -929,7 +931,7 @@ mod tests {
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &[1234, 2345, 3456],
-                ))
+                )),
             },
         )
     }
@@ -943,7 +945,7 @@ mod tests {
             NodeDescriptor {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
                 blockchain: Chain::EthMainnet,
-                node_addr_opt: None
+                node_addr_opt: None,
             },
         )
     }

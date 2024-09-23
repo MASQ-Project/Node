@@ -15,6 +15,7 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
+use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
@@ -52,7 +53,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
@@ -399,6 +400,7 @@ impl BootstrapperConfig {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
                 min_hops: DEFAULT_MIN_HOPS,
+                country: "ZZ".to_string(),
             },
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
@@ -505,6 +507,8 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
+        // initialization od CountryFinder
+        let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
@@ -1207,7 +1211,7 @@ mod tests {
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::EthRopsten,
-                main_cryptde_ref()
+                main_cryptde_ref(),
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
@@ -1236,6 +1240,7 @@ mod tests {
         let neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::OriginateOnly(vec![], rate_pack(9)),
             min_hops: MIN_HOPS_FOR_TEST,
+            country: "ZZ".to_string(),
         };
         let earning_wallet = make_wallet("earning wallet");
         let consuming_wallet_opt = Some(make_wallet("consuming wallet"));
@@ -1323,7 +1328,7 @@ mod tests {
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::EthRopsten,
-                main_cryptde_ref()
+                main_cryptde_ref(),
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
@@ -1856,6 +1861,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
+            country: "ZZ".to_string(),
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(port);
@@ -1926,6 +1932,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
+            country: "ZZ".to_string(),
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
@@ -1975,6 +1982,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
+            country: "ZZ".to_string(),
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2012,6 +2020,7 @@ mod tests {
                 cryptde,
             ))]),
             min_hops: MIN_HOPS_FOR_TEST,
+            country: "ZZ".to_string(),
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2042,6 +2051,7 @@ mod tests {
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
             min_hops: MIN_HOPS_FOR_TEST,
+            country: "ZZ".to_string(),
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2073,6 +2083,7 @@ mod tests {
             config.neighborhood_config = NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
                 min_hops: MIN_HOPS_FOR_TEST,
+                country: "ZZ".to_string(),
             };
             let mut subject = BootstrapperBuilder::new().config(config).build();
             subject.set_up_clandestine_port();
