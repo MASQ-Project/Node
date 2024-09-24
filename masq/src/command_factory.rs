@@ -10,6 +10,7 @@ use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::financials_command::FinancialsCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
+use crate::commands::neighborhood_info_command::NeighborhoodInfoCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::scan_command::ScanCommand;
 use crate::commands::set_configuration_command::SetConfigurationCommand;
@@ -60,6 +61,9 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
+
+            "neighborhood-info" => Box::new(NeighborhoodInfoCommand::new()),
+
             "recover-wallets" => match RecoverWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),

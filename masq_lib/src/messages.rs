@@ -629,6 +629,31 @@ pub struct CustomQueries {
     pub receivable_opt: Option<RangeQuery<i64>>,
 }
 
+///////////+------------------ GH-469
+//
+// Still thinking about these names
+//
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct NodeInfo {
+    pub version: u32,
+    pub country_code: String,
+    pub exit_service: bool,
+    pub unreachable_hosts: Vec<String>,
+}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiCollectNeighborhoodInfoRequest {}
+conversation_message!(UiCollectNeighborhoodInfoRequest, "neighborhoodInfo");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiCollectNeighborhoodInfoResponse {
+    pub neighborhood_database: HashMap<String, NodeInfo>,
+}
+conversation_message!(UiCollectNeighborhoodInfoResponse, "neighborhoodInfo");
+
+
+///////////+------------------ GH-469
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct RangeQuery<T> {
     #[serde(rename = "minAgeS")]
@@ -902,6 +927,69 @@ mod tests {
             "Could not deserialize message from Daemon or Node: Booga booga\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
     }
+
+
+    // ---------- GH-469
+    #[test]
+    fn can_deserialize_ui_collect_country_codes_response() {
+        let json = r#"
+            {
+                "neighborhood_database": {
+                    "public_key_1": {
+                        "version": 252,
+                        "country_code": "UK",
+                        "exit_service": true,
+                        "unreachable_hosts": ["facebook.com", "x.com"]
+                    },
+                    "public_key_2": {
+                        "version": 5,
+                        "country_code": "CZ",
+                        "exit_service": false,
+                        "unreachable_hosts": ["facebook.com", "x.com"]
+                    }
+                }
+            }
+            "#;
+        let message_body = MessageBody {
+            opcode: "countryCodes".to_string(),
+            path: Conversation(1234),
+            payload: Ok(json.to_string()),
+        };
+
+        let result: Result<(UiCollectNeighborhoodInfoResponse, u64), UiMessageError> =
+            UiCollectNeighborhoodInfoResponse::fmb(message_body);
+
+        let expect_result = HashMap::from([
+            (
+                "public_key_1".to_string(),
+                NodeInfo {
+                    version: 252,
+                    country_code: "UK".to_string(),
+                    exit_service: true,
+                    unreachable_hosts: vec!["facebook.com".to_string(), "x.com".to_string()],
+                },
+            ),
+            (
+                "public_key_2".to_string(),
+                NodeInfo {
+                    version: 5,
+                    country_code: "CZ".to_string(),
+                    exit_service: false,
+                    unreachable_hosts: vec!["facebook.com".to_string(), "x.com".to_string()],
+                },
+            ),
+        ]);
+        assert_eq!(
+            result,
+            Ok((
+                UiCollectNeighborhoodInfoResponse {
+                    neighborhood_database: expect_result,
+                },
+                1234
+            ))
+        );
+    }
+
 
     #[test]
     fn ui_descriptor_methods_were_correctly_generated() {
