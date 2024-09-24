@@ -439,12 +439,15 @@ impl ProxyServer {
     }
 
     fn schedule_stream_key_purge(&mut self, stream_key: StreamKey) {
+        let host_info = match self.tunneled_hosts.get(&stream_key) {
+            None => String::from(""),
+            Some(hostname) => format!(", which was tunneling to the host {:?}", hostname),
+        };
         debug!(
             self.logger,
-            "Client closed stream referenced by stream key {:?}, which was tunneling to the host {:?}. \
-            It will be purged after {:?}.",
+            "Client closed stream referenced by stream key {:?}{}. It will be purged after {:?}.",
             &stream_key,
-            self.tunneled_hosts.get(&stream_key),
+            host_info,
             self.stream_key_purge_delay
         );
         self.stream_key_ttl.insert(stream_key, SystemTime::now());
@@ -3857,7 +3860,7 @@ mod tests {
                 assert!(!proxy_server.tunneled_hosts.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
                     "DEBUG: {test_name}: Client closed stream referenced by stream key {:?}, \
-                    which was tunneling to the host Some(\"hostname\"). \
+                    which was tunneling to the host \"hostname\". \
                     It will be purged after {stream_key_purge_delay_in_millis}ms.",
                     stream_key
                 ));
@@ -5713,7 +5716,10 @@ mod tests {
 
     #[test]
     fn handle_stream_shutdown_msg_reports_to_counterpart_without_tunnel_when_necessary() {
-        let system = System::new("test");
+        init_test_logging();
+        let test_name =
+            "handle_stream_shutdown_msg_reports_to_counterpart_without_tunnel_when_necessary";
+        let system = System::new(test_name);
         let mut subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
@@ -5770,6 +5776,7 @@ mod tests {
                 ),
             },
         );
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
@@ -5824,6 +5831,11 @@ mod tests {
                 report_to_counterpart: false
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Client closed stream referenced by stream key {:?}. \
+            It will be purged after {:?}.",
+            &affected_stream_key, STREAM_KEY_PURGE_DELAY
+        ));
     }
 
     #[test]
