@@ -9,7 +9,7 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -21,9 +21,7 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
@@ -107,7 +105,7 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
-    exit_location: HashSet<ExitLocation>
+    exit_location: Option<HashSet<ExitLocation>>
 }
 
 impl Actor for Neighborhood {
@@ -390,7 +388,9 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
+        if let Ok((message, context_id)) = UiSetExitLocationRequest::fmb(msg.body.clone()) {
+            self.handle_exit_location_message(message, client_id, context_id);
+        } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
@@ -497,6 +497,7 @@ impl Neighborhood {
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
+            exit_location: None,
         }
     }
 
@@ -1450,6 +1451,12 @@ impl Neighborhood {
         undesirability + node_undesirability
     }
 
+    fn handle_exit_location_message(&self, message: UiSetExitLocationRequest, client_id: u64, context_id: u64) {
+        println!("message {:#?}", message);
+        println!("client_id {}", client_id);
+        println!("context_id {}", context_id);
+    }
+
     fn handle_gossip_reply(
         &self,
         gossip: Gossip_0v1,
@@ -1671,7 +1678,7 @@ mod tests {
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
+    use masq_lib::messages::{CountryCodes, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -1757,11 +1764,10 @@ mod tests {
             vec![make_node_descriptor(make_ip(2))],
             rate_pack(100),
         );
-        let country = "ZZ".to_string();
         let neighborhood_config = NeighborhoodConfig {
             mode,
             min_hops,
-            country,
+            exit_location: None,
         };
 
         let subject = Neighborhood::new(
@@ -1794,7 +1800,7 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             earning_wallet.clone(),
             None,
@@ -1820,7 +1826,7 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             earning_wallet.clone(),
             None,
@@ -1842,7 +1848,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1872,7 +1878,7 @@ mod tests {
                         DEFAULT_RATE_PACK.clone(),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1912,7 +1918,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1965,7 +1971,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2046,7 +2052,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2516,7 +2522,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2594,7 +2600,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -3064,6 +3070,43 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: The value of min_hops (2-hop -> 4-hop) and db_patch_size (3 -> 4) has been changed"
         ));
+    }
+
+    #[test]
+    fn exit_location_can_be_changed_using_exit_location_msg() {
+        init_test_logging();
+        let test_name = "exit_location_can_be_changed_using_exit_location_msg";
+        let request = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![
+                CountryCodes {
+                    country_codes: vec!["CZ".to_string(), "SK".to_string()],
+                    priority: 1,
+                },
+                CountryCodes {
+                    country_codes: vec!["AT".to_string(), "DE".to_string()],
+                    priority: 2,
+                },
+                CountryCodes {
+                    country_codes: vec!["PL".to_string(), "HU".to_string()],
+                    priority: 3,
+                },
+            ] };
+        let message = NodeFromUiMessage {
+            client_id: 0,
+            body: request.tmb(0),
+        };
+        let system = System::new(test_name);
+        let (ui_gateway, _, ui_gateway_recording) = make_recorder();
+        let mut subject = make_standard_subject();
+        subject.exit_location = None;
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(message).unwrap()
+
     }
 
     #[test]
@@ -3577,7 +3620,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string(),
+                        exit_location: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -3978,7 +4021,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -4724,7 +4767,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string(),
+                        exit_location: None,
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -4788,7 +4831,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -4846,7 +4889,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -4890,7 +4933,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -5081,7 +5124,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        exit_location: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5144,7 +5187,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        exit_location: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5212,7 +5255,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        exit_location: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5277,7 +5320,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    exit_location: None,
                 },
                 node_record.earning_wallet(),
                 None,
@@ -5790,7 +5833,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -6161,7 +6204,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
@@ -6186,7 +6229,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_location: None,
                 },
                 make_wallet("earning"),
                 None,

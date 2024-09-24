@@ -165,15 +165,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         Self::result_from(&self.earning_wallet_address_results)
     }
 
-    fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError> {
-        self.exit_location_results.borrow_mut().push(Ok(exit_locations));
-        Ok(())
-    }
-
-    fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError> {
-        self.exit_location_results.borrow_mut().remove(0)
-    }
-
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
         Self::result_from(&self.gas_price_results)
     }

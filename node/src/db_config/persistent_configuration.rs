@@ -12,7 +12,7 @@ use crate::db_config::typed_config_layer::{
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{ExitLocation, Hops, NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -108,8 +108,6 @@ pub trait PersistentConfiguration {
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-    fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError>;
-    fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError>;
     fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
@@ -309,17 +307,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
         Ok(self.get("earning_wallet_address")?)
-    }
-
-    fn set_exit_location_result(&mut self, exit_locations: Option<ExitLocation>) -> Result<(), PersistentConfigError> {
-        self.exit_location()
-    }
-
-    fn exit_location(&self) -> Result<Option<ExitLocation>, PersistentConfigError> {
-        match self.get("exit-location")? {
-            Ok(val) => Ok(val),
-            Err(e) => Err(PersistentConfigError::from(e))
-        }
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {

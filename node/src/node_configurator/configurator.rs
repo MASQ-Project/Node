@@ -741,9 +741,7 @@ impl Configurator {
 
         match password {
             None => {
-                if "exit-location" == &msg.name {
-                    Self::set_exit_location(msg.value, persistent_config)?;
-                } else if "gas-price" == &msg.name {
+                if "gas-price" == &msg.name {
                     Self::set_gas_price(msg.value, persistent_config)?;
                 } else if "start-block" == &msg.name {
                     Self::set_start_block(msg.value, persistent_config)?;
@@ -1181,21 +1179,6 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "WARN: Configurator: Failed to change password: \
             The database already has a password. You may only change it",
-        );
-    }
-
-    #[test]
-    fn handle_exit_location_handles_none_as_exit_location() {
-        init_test_logging();
-        let mut persistent_config = PersistentConfigurationMock::new();
-        persistent_config.set_exit_location_result(None).expect("Expected persistent config");
-        let subject = make_subject(Some(persistent_config));
-
-        let result = subject.persistent_config.exit_location().unwrap();
-
-        assert_eq!(
-            result,
-            None
         );
     }
 

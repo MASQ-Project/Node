@@ -569,12 +569,12 @@ pub mod common_validators {
                     Err(e) => collect_fails.push_str(&format!("'{}': non-existent country code", e))
                 }
             });
-            return match collect_fails.is_empty() {
+            match collect_fails.is_empty() {
                 true => Ok(()),
                 false => Err(collect_fails.to_string())
-            };
+            }
         });
-        return result;
+        result
     }
 
     pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
@@ -587,43 +587,6 @@ pub mod common_validators {
                 })
                 .map(|_| ())
         })
-    }
-
-    pub fn validate_parameter_with_separate_string_u64_value_pairs(exit_location: String) -> Result<(), String> {
-        let mut pass = true;
-        let mut collect_fails = "".to_string();
-        if exit_location.contains("|") {
-            let split = exit_location.split('|').collect::<Vec<&str>>();
-            split.iter().for_each(|country|{
-                (pass, collect_fails) = validate_country_code_and_priority(&country);
-            })
-        } else {
-            (pass, collect_fails) = validate_country_code_and_priority(exit_location.as_str());
-        }
-        if pass {
-            Ok(())
-        } else {
-            Err(collect_fails)
-        }
-    }
-
-    fn validate_country_code_and_priority(country: &str) -> (bool, String) {
-        let mut pass = true;
-        let mut collect_fails = "".to_string();
-        if let Some((country_code, priority)) = country.split_once(':') {
-            let validation_cc = validate_country_code(country_code.to_string());
-            let validation_priority = validate_non_zero_u16(priority.to_string());
-            if validation_cc == Ok(()) && validation_priority == Ok(()) {
-                ()
-            } else {
-                collect_fails.push_str(&format!("'{}': non-existent country codes or invalid priority, ", country));
-                pass = false;
-            }
-        } else {
-            collect_fails.push_str(&format!("'{}': you need to specify the priority, ", country));
-            pass = false;
-        }
-        (pass, collect_fails)
     }
 
     pub fn validate_private_key(key: String) -> Result<(), String> {

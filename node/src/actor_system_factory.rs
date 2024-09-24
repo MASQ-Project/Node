@@ -1179,7 +1179,7 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1255,7 +1255,7 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1401,7 +1401,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1556,7 +1556,7 @@ mod tests {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1746,7 +1746,7 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),

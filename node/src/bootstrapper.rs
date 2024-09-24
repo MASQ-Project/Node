@@ -1244,7 +1244,7 @@ mod tests {
         let neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::OriginateOnly(vec![], rate_pack(9)),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let earning_wallet = make_wallet("earning wallet");
         let consuming_wallet_opt = Some(make_wallet("consuming wallet"));
@@ -1865,7 +1865,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(port);
@@ -1936,7 +1936,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
@@ -1986,7 +1986,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2024,7 +2024,7 @@ mod tests {
                 cryptde,
             ))]),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2055,7 +2055,7 @@ mod tests {
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_location: None,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2087,7 +2087,7 @@ mod tests {
             config.neighborhood_config = NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_location: None,
             };
             let mut subject = BootstrapperBuilder::new().config(config).build();
             subject.set_up_clandestine_port();
