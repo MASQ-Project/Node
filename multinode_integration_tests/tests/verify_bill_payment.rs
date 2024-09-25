@@ -2,26 +2,22 @@
 
 use crate::verify_bill_payment_utils::utils::{
     test_body, to_wei, AssertionsValues, Debt, DebtsSpecs, FinalServiceFeeBalancesByServingNodes,
-    GlobalValues, NodeByRole, Ports, ServingNodeAttributes, TestInputsBuilder,
+    NodeProfile, Ports, TestInputsBuilder, WholesomeConfig,
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::ToMessageBody;
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use masq_lib::percentage::PurePercentage;
-use masq_lib::utils::{find_free_port};
+use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{MASQRealNode,
-    NodeStartupConfigBuilder,
-};
+use multinode_integration_tests_lib::masq_real_node::{MASQRealNode, NodeStartupConfigBuilder};
 use node_lib::sub_lib::accountant::PaymentThresholds;
-use node_lib::sub_lib::blockchain_interface_web3::{
-    compute_gas_limit, web3_gas_limit_const_part,
-};
+use node_lib::sub_lib::blockchain_interface_web3::{compute_gas_limit, web3_gas_limit_const_part};
 use std::convert::TryFrom;
 use std::time::{Duration, UNIX_EPOCH};
-use std::{u128};
+use std::u128;
 mod verify_bill_payment_utils;
 
 #[test]
@@ -85,7 +81,7 @@ fn full_payments_were_processed_for_sufficient_balances() {
 fn stimulate_consuming_node_to_pay_for_test_with_sufficient_funds(
     cluster: &mut MASQNodeCluster,
     real_consuming_node: &MASQRealNode,
-    _global_values: &GlobalValues,
+    _wholesome_config: &WholesomeConfig,
 ) {
     for _ in 0..6 {
         cluster.start_real_node(
@@ -99,17 +95,22 @@ fn stimulate_consuming_node_to_pay_for_test_with_sufficient_funds(
 
 fn activating_serving_nodes_for_test_with_sufficient_funds(
     cluster: &mut MASQNodeCluster,
-    serving_nodes: &mut [ServingNodeAttributes; 3],
-    _global_values: &GlobalValues,
+    wholesome_values: &WholesomeConfig,
 ) -> [MASQRealNode; 3] {
-    let (node_references, serving_nodes): (Vec<_>, Vec<_>) = serving_nodes
-        .into_iter()
+    let (node_references, serving_nodes): (Vec<_>, Vec<_>) = wholesome_values
+        .serving_nodes
+        .iter()
         .map(|attributes| {
             let namings = &attributes.common.node_id;
             cluster.start_named_real_node(
-                &namings.node_name,
+                &namings.node_docker_name,
                 namings.index,
-                attributes.common.config_opt.take().unwrap(),
+                attributes
+                    .common
+                    .startup_config_opt
+                    .borrow_mut()
+                    .take()
+                    .unwrap(),
             )
         })
         .map(|node| (node.node_reference(), node))
@@ -142,13 +143,11 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     };
     // Assuming all Nodes rely on the same set of payment thresholds
     let owed_to_serv_node_1_minor = to_wei(payment_thresholds.debt_threshold_gwei + 5_000_000);
-    let owed_to_serv_node_2_minor =
-        to_wei(payment_thresholds.debt_threshold_gwei + 20_000_000);
+    let owed_to_serv_node_2_minor = to_wei(payment_thresholds.debt_threshold_gwei + 20_000_000);
     // Account of Node 3 will be a victim of tx fee insufficiency and will fall away, as its debt
     // is the heaviest, implying the smallest weight evaluated and the last priority compared to
     // those two others.
-    let owed_to_serv_node_3_minor =
-        to_wei(payment_thresholds.debt_threshold_gwei + 60_000_000);
+    let owed_to_serv_node_3_minor = to_wei(payment_thresholds.debt_threshold_gwei + 60_000_000);
     let enough_balance_for_serving_node_1_and_2 =
         owed_to_serv_node_1_minor + owed_to_serv_node_2_minor;
     let consuming_node_initial_service_fee_balance_minor =
@@ -234,14 +233,15 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
 fn stimulate_consuming_node_to_pay_for_test_with_insufficient_funds(
     _cluster: &mut MASQNodeCluster,
     real_consuming_node: &MASQRealNode,
-    global_values: &GlobalValues,
+    wholesome_config: &WholesomeConfig,
 ) {
     process_scan_request_to_node(
         &real_consuming_node,
-        global_values
-            .test_inputs
-            .port(NodeByRole::ConsumingNode)
-            .unwrap(),
+        wholesome_config
+            .consuming_node
+            .node_profile
+            .ui_port()
+            .expect("UI port missing"),
         ScanType::Payables,
         1111,
     )
@@ -249,23 +249,28 @@ fn stimulate_consuming_node_to_pay_for_test_with_insufficient_funds(
 
 fn activating_serving_nodes_for_test_with_insufficient_funds(
     cluster: &mut MASQNodeCluster,
-    serving_nodes: &mut [ServingNodeAttributes; 3],
-    global_values: &GlobalValues,
+    wholesome_config: &WholesomeConfig,
 ) -> [MASQRealNode; 3] {
-    let real_nodes: Vec<_> = serving_nodes
-        .iter_mut()
+    let real_nodes: Vec<_> = wholesome_config
+        .serving_nodes
+        .iter()
         .enumerate()
         .map(|(idx, serving_node_attributes)| {
-            let node_config = serving_node_attributes.common.config_opt.take().unwrap();
+            let node_config = serving_node_attributes
+                .common
+                .startup_config_opt
+                .borrow_mut()
+                .take()
+                .unwrap();
             let common = &serving_node_attributes.common;
             let serving_node = cluster.start_named_real_node(
-                &common.node_id.node_name,
+                &common.node_id.node_docker_name,
                 common.node_id.index,
                 node_config,
             );
-            let ui_port = global_values
-                .test_inputs
-                .port(common.node_by_role)
+            let ui_port = serving_node_attributes
+                .serving_node_profile
+                .ui_port()
                 .expect("ui port missing");
 
             process_scan_request_to_node(

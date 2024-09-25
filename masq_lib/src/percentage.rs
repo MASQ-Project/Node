@@ -5,7 +5,7 @@ use num::CheckedSub;
 use num::{CheckedDiv, CheckedMul, Integer};
 use std::any::type_name;
 use std::fmt::Debug;
-use std::ops::{Rem};
+use std::ops::Rem;
 // Designed to store values from 0 to 100 and offer a set of handy methods for PurePercentage
 // operations over a wide variety of integer types. It is also to look after the least significant
 // digit on the resulted number in order to avoid the effect of a loss on precision that genuinely

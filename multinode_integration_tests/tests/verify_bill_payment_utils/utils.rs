@@ -2,6 +2,7 @@
 
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
+use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
@@ -18,6 +19,9 @@ use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
+use node_lib::blockchain::blockchain_interface::lower_level_interface::{
+    LowBlockchainInt, ResultForBalance,
+};
 use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
@@ -28,25 +32,22 @@ use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use node_lib::test_utils::standard_dir_for_test_input_data;
 use rustc_hex::{FromHex, ToHex};
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
-use lazy_static::lazy_static;
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, TransactionRequest};
 use web3::Web3;
 
-pub type StimulateConsumingNodePayments =
-    fn(&mut MASQNodeCluster, &MASQRealNode, &GlobalValues);
+pub type StimulateConsumingNodePayments = fn(&mut MASQNodeCluster, &MASQRealNode, &WholesomeConfig);
 
-pub type StartServingNodesAndLetThemPerformReceivablesCheck = fn(
-    &mut MASQNodeCluster,
-    &mut [ServingNodeAttributes; 3],
-    &GlobalValues,
-) -> [MASQRealNode; 3];
+pub type StartServingNodesAndLetThemPerformReceivablesCheck =
+    fn(&mut MASQNodeCluster, &WholesomeConfig) -> [MASQRealNode; 3];
 
 pub fn test_body(
     test_inputs: TestInputs,
@@ -62,28 +63,29 @@ pub fn test_body(
     let serving_nodes_array = global_values.prepare_serving_nodes(&mut cluster);
     global_values.set_up_consuming_node_db(&serving_nodes_array, &consuming_node_attributes);
     global_values.set_up_serving_nodes_databases(&serving_nodes_array, &consuming_node_attributes);
-    let mut wholesome_config = WholesomeConfig::new(
+    let wholesome_config = WholesomeConfig::new(
         global_values,
         consuming_node_attributes,
         serving_nodes_array,
     );
     wholesome_config.assert_expected_wallet_addresses();
     let real_consuming_node = cluster.start_named_real_node(
-        &wholesome_config.consuming_node.common.node_id.node_name,
+        &wholesome_config
+            .consuming_node
+            .common
+            .node_id
+            .node_docker_name,
         wholesome_config.consuming_node.common.node_id.index,
         wholesome_config
             .consuming_node
             .common
-            .config_opt
+            .startup_config_opt
+            .borrow_mut()
             .take()
             .unwrap(),
     );
 
-    stimulate_consuming_node_to_pay(
-        &mut cluster,
-        &real_consuming_node,
-        &wholesome_config.global_values,
-    );
+    stimulate_consuming_node_to_pay(&mut cluster, &real_consuming_node, &wholesome_config);
 
     let timeout_start = Instant::now();
     while !wholesome_config
@@ -100,8 +102,7 @@ pub fn test_body(
     let _ = start_serving_nodes_and_activate_their_accountancy(
         &mut cluster,
         // So that individual Configs can be pulled out and used
-        &mut wholesome_config.serving_nodes,
-        &wholesome_config.global_values,
+        &wholesome_config,
     );
 
     wholesome_config.assert_serving_nodes_addressed_received_payments(&assertions_values)
@@ -112,18 +113,14 @@ const MNEMONIC_PHRASE: &str =
     lamp absent write kind term toddler sphere ripple idle dragon curious hold";
 
 pub struct TestInputs {
-    ui_ports_opt: Option<Ports>,
-    // The contract owner wallet is populated with 100 ETH as defined in the set of commands
-    // with which we start up the Ganache server.
+    // The contract owner wallet is populated with 100 ETH as defined in the set of commands with
+    // which we start up the Ganache server.
     //
-    // Specify number of wei this account should possess at its initialisation.
-    // The consuming node gets the full balance of the contract owner if left as None.
-    // Cannot ever get more than what the "owner" has.
-    consuming_node_initial_tx_fee_balance_minor_opt: Option<u128>,
-    consuming_node_initial_service_fee_balance_minor: u128,
-    debts_config: DebtsSpecs,
+    // This specifies number of wei this account should possess at its initialisation.
+    // The consuming node gets the full balance of the contract owner if left as None. Cannot ever
+    // get more than what the "owner" has.
     payment_thresholds_all_nodes: PaymentThresholds,
-    consuming_node_gas_price_opt: Option<u64>,
+    node_profiles: NodeProfiles,
 }
 
 #[derive(Default)]
@@ -168,15 +165,80 @@ impl TestInputsBuilder {
     }
 
     pub fn build(self) -> TestInputs {
-        TestInputs{
-            ui_ports_opt: self.ui_ports_opt,
-            consuming_node_initial_tx_fee_balance_minor_opt: self.consuming_node_initial_tx_fee_balance_minor_opt,
-            consuming_node_initial_service_fee_balance_minor: self.consuming_node_initial_service_fee_balance_minor_opt.expect("You forgot providing a mandatory input: consuming node initial service fee balance"),
-            debts_config: self.debts_config_opt.expect("You forgot providing a mandatory input: debts config"),
-            payment_thresholds_all_nodes: self.payment_thresholds_all_nodes_opt.expect("You forgot providing a mandatory input: payment thresholds"),
-            consuming_node_gas_price_opt: self.consuming_node_gas_price_opt,
+        let mut debts = self
+            .debts_config_opt
+            .expect("You forgot providing a mandatory input: debts config")
+            .debts
+            .to_vec();
+        let mut ui_ports = Self::resolve_ports(self.ui_ports_opt).to_vec();
+        let consuming_node = ConsumingNodeProfile {
+            ui_port_opt: ui_ports.remove(0),
+            gas_price_opt: self.consuming_node_gas_price_opt,
+            initial_tx_fee_balance_minor_opt: self.consuming_node_initial_tx_fee_balance_minor_opt,
+            initial_service_fee_balance_minor: self
+                .consuming_node_initial_service_fee_balance_minor_opt
+                .expect("Mandatory input not provided: consuming node initial service fee balance"),
+        };
+        let mut serving_nodes = [
+            ServingNodeByName::ServingNode1,
+            ServingNodeByName::ServingNode2,
+            ServingNodeByName::ServingNode3,
+        ]
+        .into_iter()
+        .map(|serving_node_by_name| ServingNodeProfile {
+            serving_node_by_name,
+            debt: debts.remove(0),
+            ui_port_opt: ui_ports.remove(0),
+        })
+        .collect::<Vec<_>>();
+        let node_profiles = NodeProfiles {
+            consuming_node,
+            serving_nodes: core::array::from_fn(|_| serving_nodes.remove(0)),
+        };
+
+        TestInputs {
+            payment_thresholds_all_nodes: self
+                .payment_thresholds_all_nodes_opt
+                .expect("Mandatory input not provided: payment thresholds"),
+            node_profiles,
         }
     }
+
+    fn resolve_ports(ui_ports_opt: Option<Ports>) -> [Option<u16>; 4] {
+        match ui_ports_opt {
+            Some(ui_ports) => {
+                let mut serialized = VecDeque::new();
+                serialized.push_front(ui_ports.consuming_node);
+                serialized.extend(ui_ports.serving_nodes);
+                let array: [Option<u16>; 4] = core::array::from_fn(|_| serialized.pop_front());
+                if array.iter().any(|item| item.is_none()) {
+                    panic!("UI ports are expected for each Node, but at least one isn't populated")
+                }
+                array
+            }
+            None => Default::default(),
+        }
+    }
+}
+
+struct NodeProfiles {
+    consuming_node: ConsumingNodeProfile,
+    serving_nodes: [ServingNodeProfile; 3],
+}
+
+#[derive(Debug, Clone)]
+pub struct ConsumingNodeProfile {
+    ui_port_opt: Option<u16>,
+    gas_price_opt: Option<u64>,
+    initial_tx_fee_balance_minor_opt: Option<u128>,
+    initial_service_fee_balance_minor: u128,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServingNodeProfile {
+    serving_node_by_name: ServingNodeByName,
+    debt: Debt,
+    ui_port_opt: Option<u16>,
 }
 
 pub struct AssertionsValues {
@@ -195,14 +257,6 @@ impl FinalServiceFeeBalancesByServingNodes {
             balances: [node_1, node_2, node_3],
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeByRole {
-    ConsumingNode = 1,
-    ServingNode1 = 2,
-    ServingNode2 = 3,
-    ServingNode3 = 4,
 }
 
 pub struct BlockchainParams {
@@ -243,7 +297,7 @@ impl DebtsSpecs {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Debt {
     pub balance_minor: u128,
     pub age_s: u64,
@@ -262,26 +316,66 @@ impl Debt {
     }
 }
 
-impl TestInputs {
-    pub fn port(&self, requested: NodeByRole) -> Option<u16> {
-        self.ui_ports_opt.as_ref().map(|ports| match requested {
-            NodeByRole::ConsumingNode => ports.consuming_node,
-            NodeByRole::ServingNode1 => ports.serving_nodes[0],
-            NodeByRole::ServingNode2 => ports.serving_nodes[1],
-            NodeByRole::ServingNode3 => ports.serving_nodes[2],
-        })
+pub trait NodeProfile {
+    fn ui_port(&self) -> Option<u16>;
+
+    fn debt_specs(&self) -> Debt;
+
+    fn derivation_path(&self) -> String;
+
+    fn name(&self) -> String;
+
+    fn gas_price_opt(&self) -> Option<u64>;
+}
+
+impl NodeProfile for ConsumingNodeProfile {
+    fn ui_port(&self) -> Option<u16> {
+        self.ui_port_opt
     }
 
-    pub fn debt_specs(&self, requested: NodeByRole) -> Debt {
-        match requested {
-            NodeByRole::ServingNode1 => self.debts_config.debts[0],
-            NodeByRole::ServingNode2 => self.debts_config.debts[1],
-            NodeByRole::ServingNode3 => self.debts_config.debts[2],
-            NodeByRole::ConsumingNode => panic!(
-                "Version fully specified: These configs describe debts owed to the consuming node, \
-                while that one should not be here."
-            ),
-        }
+    fn debt_specs(&self) -> Debt {
+        panic!("This method should be called only by the serving Nodes.")
+    }
+
+    fn derivation_path(&self) -> String {
+        derivation_path(0, 1)
+    }
+
+    fn name(&self) -> String {
+        "ConsumingNode".to_string()
+    }
+
+    fn gas_price_opt(&self) -> Option<u64> {
+        self.gas_price_opt
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ServingNodeByName {
+    ServingNode1 = 1,
+    ServingNode2 = 2,
+    ServingNode3 = 3,
+}
+
+impl NodeProfile for ServingNodeProfile {
+    fn ui_port(&self) -> Option<u16> {
+        self.ui_port_opt
+    }
+
+    fn debt_specs(&self) -> Debt {
+        self.debt
+    }
+
+    fn derivation_path(&self) -> String {
+        derivation_path(0, (self.serving_node_by_name as usize + 1) as u8)
+    }
+
+    fn name(&self) -> String {
+        format!("{:?}", self.serving_node_by_name)
+    }
+
+    fn gas_price_opt(&self) -> Option<u64> {
+        None
     }
 }
 
@@ -301,7 +395,8 @@ pub fn establish_test_frame(test_inputs: TestInputs) -> (MASQNodeCluster, Global
         Http::with_max_parallel(&server_url, REQUESTS_IN_PARALLEL).unwrap();
     let web3 = Web3::new(http.clone());
     let seed = make_seed();
-    let (contract_owner_wallet, _) = make_node_wallet_and_private_key(&seed, &derivation_path(0, 0));
+    let (contract_owner_wallet, _) =
+        make_node_wallet_and_private_key(&seed, &derivation_path(0, 0));
     let contract_owner_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
     let blockchain_interface = Box::new(BlockchainInterfaceWeb3::new(
         http,
@@ -368,8 +463,10 @@ fn load_contract_in_bytes() -> Vec<u8> {
 }
 
 lazy_static! {
-    static ref GAS_PRICE: ethereum_types::U256 = 50_u64.try_into().expect("Gas price, internal error");
-    static ref GAS_LIMIT: ethereum_types::U256 = 1_000_000_u64.try_into().expect("Gas limit, internal error");
+    static ref GAS_PRICE: ethereum_types::U256 =
+        50_u64.try_into().expect("Gas price, internal error");
+    static ref GAS_LIMIT: ethereum_types::U256 =
+        1_000_000_u64.try_into().expect("Gas limit, internal error");
 }
 
 fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Address {
@@ -500,28 +597,46 @@ fn assert_balances(
     expected_eth_balance: u128,
     expected_token_balance: u128,
 ) {
-    let eth_balance = blockchain_interface
-        .lower_interface()
-        .get_transaction_fee_balance(&wallet)
-        .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
-    assert_eq!(
-        eth_balance,
-        web3::types::U256::from(expected_eth_balance),
-        "Actual EthBalance {} doesn't much with expected {} for {}",
-        eth_balance,
+    single_balance_assertion(
+        blockchain_interface,
+        wallet,
         expected_eth_balance,
-        wallet
+        "ETH balance",
+        |blockchain_interface, wallet| blockchain_interface.get_transaction_fee_balance(wallet),
     );
-    let token_balance = blockchain_interface
-        .lower_interface()
-        .get_service_fee_balance(&wallet)
-        .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
-    assert_eq!(
-        token_balance,
-        web3::types::U256::from(expected_token_balance),
-        "Actual TokenBalance {} doesn't match with expected {} for {}",
-        token_balance,
+
+    single_balance_assertion(
+        blockchain_interface,
+        wallet,
         expected_token_balance,
+        "MASQ balance",
+        |blockchain_interface, wallet| blockchain_interface.get_service_fee_balance(wallet),
+    );
+}
+
+fn single_balance_assertion(
+    blockchain_interface: &dyn BlockchainInterface,
+    wallet: &Wallet,
+    expected_balance: u128,
+    balance_specification: &str,
+    balance_fetcher: fn(&dyn LowBlockchainInt, &Wallet) -> ResultForBalance,
+) {
+    let actual_balance = {
+        let lower_blockchain_int = blockchain_interface.lower_interface();
+        balance_fetcher(lower_blockchain_int, &wallet).unwrap_or_else(|_| {
+            panic!(
+                "Failed to retrieve {} for {}",
+                balance_specification, wallet
+            )
+        })
+    };
+    assert_eq!(
+        actual_balance,
+        web3::types::U256::from(expected_balance),
+        "Actual {} {} doesn't much with expected {} for {}",
+        balance_specification,
+        actual_balance,
+        expected_balance,
         wallet
     );
 }
@@ -530,21 +645,18 @@ fn make_node_wallet_and_private_key(seed: &Seed, derivation_path: &str) -> (Wall
     let extended_private_key = ExtendedPrivKey::derive(&seed.as_ref(), derivation_path).unwrap();
     let str_private_key: String = extended_private_key.secret().to_hex();
     let wallet = Wallet::from(Bip32EncryptionKeyProvider::from_key(extended_private_key));
-    (
-        wallet,
-        str_private_key,
-    )
+    (wallet, str_private_key)
 }
 
 impl GlobalValues {
-    fn get_node_config_and_wallet(&self, node_by_role: NodeByRole) -> (NodeStartupConfig, Wallet) {
-        let wallet_derivation_path = node_by_role.derivation_path();
+    fn get_node_config_and_wallet(&self, node: &dyn NodeProfile) -> (NodeStartupConfig, Wallet) {
+        let wallet_derivation_path = node.derivation_path();
         let payment_thresholds = self.test_inputs.payment_thresholds_all_nodes;
         let (node_wallet, node_secret) = make_node_wallet_and_private_key(
             &self.blockchain_params.seed,
             wallet_derivation_path.as_str(),
         );
-        let mut cfg_to_build = NodeStartupConfigBuilder::standard()
+        let mut config_builder = NodeStartupConfigBuilder::standard()
             .blockchain_service_url(&self.blockchain_params.server_url)
             .chain(Chain::Dev)
             .payment_thresholds(payment_thresholds)
@@ -553,16 +665,14 @@ impl GlobalValues {
                 "{}",
                 node_wallet.clone()
             )));
-        if let Some(port) = self.test_inputs.port(node_by_role) {
-            cfg_to_build = cfg_to_build.ui_port(port)
+        if let Some(port) = node.ui_port() {
+            config_builder = config_builder.ui_port(port)
         }
-        if let Some(price) = self.test_inputs.consuming_node_gas_price_opt {
-            cfg_to_build = cfg_to_build.gas_price(price)
+        if let Some(gas_price) = node.gas_price_opt() {
+            config_builder = config_builder.gas_price(gas_price)
         }
-
-        eprintln!("{:?} wallet established: {}\n", node_by_role, node_wallet,);
-
-        (cfg_to_build.build(), node_wallet)
+        eprintln!("{} wallet established: {}\n", node.name(), node_wallet,);
+        (config_builder.build(), node_wallet)
     }
 
     fn prepare_consuming_node(
@@ -570,12 +680,14 @@ impl GlobalValues {
         cluster: &mut MASQNodeCluster,
         blockchain_interfaces: &BlockchainInterfaces,
     ) -> ConsumingNodeAttributes {
+        let consuming_node_profile = self.test_inputs.node_profiles.consuming_node.clone();
+        let initial_service_fee_balance_minor =
+            consuming_node_profile.initial_service_fee_balance_minor;
+        let initial_tx_fee_balance_opt = consuming_node_profile.initial_tx_fee_balance_minor_opt;
+
         let (consuming_node_config, consuming_node_wallet) =
-            self.get_node_config_and_wallet(NodeByRole::ConsumingNode);
-        let initial_transaction_fee_balance = self
-            .test_inputs
-            .consuming_node_initial_tx_fee_balance_minor_opt
-            .unwrap_or(ONE_ETH_IN_WEI);
+            self.get_node_config_and_wallet(&consuming_node_profile);
+        let initial_transaction_fee_balance = initial_tx_fee_balance_opt.unwrap_or(ONE_ETH_IN_WEI);
         transfer_transaction_fee_amount_to_address(
             &self.blockchain_params.contract_owner_wallet,
             &consuming_node_wallet,
@@ -587,19 +699,19 @@ impl GlobalValues {
             self.blockchain_params.contract_owner_addr,
             &self.blockchain_params.contract_owner_wallet,
             &consuming_node_wallet,
-            self.test_inputs
-                .consuming_node_initial_service_fee_balance_minor,
+            initial_service_fee_balance_minor,
             2,
             &blockchain_interfaces.web3,
             self.blockchain_params.chain,
         );
+
         assert_balances(
             &consuming_node_wallet,
             blockchain_interfaces.blockchain_interface.as_ref(),
             initial_transaction_fee_balance,
-            self.test_inputs
-                .consuming_node_initial_service_fee_balance_minor,
+            initial_service_fee_balance_minor,
         );
+
         let consuming_node_namings = cluster.prepare_real_node(&consuming_node_config);
         let consuming_node_connection = DbInitializerReal::default()
             .initialize(
@@ -609,43 +721,42 @@ impl GlobalValues {
             .unwrap();
         let consuming_node_payable_dao = PayableDaoReal::new(consuming_node_connection);
         ConsumingNodeAttributes::new(
-            NodeByRole::ConsumingNode,
+            consuming_node_profile,
             consuming_node_namings,
-            Some(consuming_node_config),
+            consuming_node_config,
             consuming_node_wallet,
             consuming_node_payable_dao,
         )
     }
 
     fn prepare_serving_nodes(&self, cluster: &mut MASQNodeCluster) -> [ServingNodeAttributes; 3] {
-        [
-            NodeByRole::ServingNode1,
-            NodeByRole::ServingNode2,
-            NodeByRole::ServingNode3,
-        ]
-        .into_iter()
-        .map(|node_by_role: NodeByRole| {
-            let (serving_node_config, serving_node_earning_wallet) =
-                self.get_node_config_and_wallet(node_by_role);
-            let serving_node_namings = cluster.prepare_real_node(&serving_node_config);
-            let serving_node_connection = DbInitializerReal::default()
-                .initialize(
-                    &serving_node_namings.db_path,
-                    make_db_init_config(cluster.chain),
+        self.test_inputs
+            .node_profiles
+            .serving_nodes
+            .clone()
+            .into_iter()
+            .map(|serving_node_profile: ServingNodeProfile| {
+                let (serving_node_config, serving_node_earning_wallet) =
+                    self.get_node_config_and_wallet(&serving_node_profile);
+                let serving_node_namings = cluster.prepare_real_node(&serving_node_config);
+                let serving_node_connection = DbInitializerReal::default()
+                    .initialize(
+                        &serving_node_namings.db_path,
+                        make_db_init_config(cluster.chain),
+                    )
+                    .unwrap();
+                let serving_node_receivable_dao = ReceivableDaoReal::new(serving_node_connection);
+                ServingNodeAttributes::new(
+                    serving_node_profile,
+                    serving_node_namings,
+                    serving_node_config,
+                    serving_node_earning_wallet,
+                    serving_node_receivable_dao,
                 )
-                .unwrap();
-            let serving_node_receivable_dao = ReceivableDaoReal::new(serving_node_connection);
-            ServingNodeAttributes::new(
-                node_by_role,
-                serving_node_namings,
-                Some(serving_node_config),
-                serving_node_earning_wallet,
-                serving_node_receivable_dao,
-            )
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .expect("failed to make [T;3] of provided Vec<T>")
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("failed to make [T;3] of provided Vec<T>")
     }
 
     fn set_start_block_to_zero(path: &Path) {
@@ -658,26 +769,14 @@ impl GlobalValues {
             .unwrap();
     }
 
-    fn serving_node_debt_balance_and_timestamp(
-        &self,
-        attributes: &ServingNodeAttributes,
-    ) -> (u128, SystemTime) {
-        let node_role = attributes.common.node_by_role;
-        let debt_specs = self.test_inputs.debt_specs(node_role);
-        (
-            debt_specs.balance_minor,
-            debt_specs.proper_timestamp(self.now_in_common),
-        )
-    }
-
     fn set_up_serving_nodes_databases(
         &self,
         serving_nodes_matrix: &[ServingNodeAttributes; 3],
         consuming_node_attributes: &ConsumingNodeAttributes,
     ) {
+        let now = self.now_in_common;
         serving_nodes_matrix.iter().for_each(|node_attributes| {
-            let (balance, timestamp) =
-                self.serving_node_debt_balance_and_timestamp(node_attributes);
+            let (balance, timestamp) = node_attributes.debt_balance_and_timestamp(now);
             node_attributes
                 .receivable_dao
                 .more_money_receivable(
@@ -704,9 +803,9 @@ impl GlobalValues {
         serving_nodes_array: &[ServingNodeAttributes; 3],
         consuming_node_attributes: &ConsumingNodeAttributes,
     ) {
+        let now = self.now_in_common;
         serving_nodes_array.iter().for_each(|node_attributes| {
-            let (balance, timestamp) =
-                self.serving_node_debt_balance_and_timestamp(node_attributes);
+            let (balance, timestamp) = node_attributes.debt_balance_and_timestamp(now);
             consuming_node_attributes
                 .payable_dao
                 .more_money_payable(timestamp, &node_attributes.earning_wallet, balance)
@@ -750,7 +849,9 @@ impl WholesomeConfig {
                 &serving_node_actual,
                 expected_wallet_addr,
                 "{:?} wallet {} mismatched with expected {}",
-                serving_node_attributes.common.node_by_role,
+                serving_node_attributes
+                    .serving_node_profile
+                    .serving_node_by_name,
                 serving_node_actual,
                 expected_wallet_addr
             );
@@ -797,11 +898,7 @@ impl WholesomeConfig {
             .iter()
             .zip(actually_received_payments.into_iter())
             .for_each(|(serving_node, received_payment)| {
-                let original_debt = self
-                    .global_values
-                    .test_inputs
-                    .debt_specs(serving_node.common.node_by_role)
-                    .balance_minor;
+                let original_debt = serving_node.serving_node_profile.debt_specs().balance_minor;
                 let expected_final_balance = original_debt - received_payment;
                 Self::wait_for_exact_balance_in_receivables(
                     &serving_node.receivable_dao,
@@ -823,12 +920,6 @@ impl WholesomeConfig {
                 false
             }
         });
-    }
-}
-
-impl NodeByRole {
-    fn derivation_path(self) -> String {
-        derivation_path(0, self as usize as u8)
     }
 }
 
@@ -855,13 +946,22 @@ impl Ports {
 
 #[derive(Debug)]
 pub struct NodeAttributesCommon {
-    pub node_by_role: NodeByRole,
     pub node_id: NodeID,
-    pub config_opt: Option<NodeStartupConfig>,
+    pub startup_config_opt: RefCell<Option<NodeStartupConfig>>,
+}
+
+impl NodeAttributesCommon {
+    fn new(node_id: NodeID, config: NodeStartupConfig) -> Self {
+        NodeAttributesCommon {
+            node_id,
+            startup_config_opt: RefCell::new(Some(config)),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct ConsumingNodeAttributes {
+    pub node_profile: ConsumingNodeProfile,
     pub common: NodeAttributesCommon,
     pub consuming_wallet: Wallet,
     pub payable_dao: PayableDaoReal,
@@ -869,25 +969,30 @@ pub struct ConsumingNodeAttributes {
 
 #[derive(Debug)]
 pub struct ServingNodeAttributes {
+    pub serving_node_profile: ServingNodeProfile,
     pub common: NodeAttributesCommon,
     pub earning_wallet: Wallet,
     pub receivable_dao: ReceivableDaoReal,
 }
 
+impl ServingNodeAttributes {
+    fn debt_balance_and_timestamp(&self, now: SystemTime) -> (u128, SystemTime) {
+        let debt_specs = self.serving_node_profile.debt_specs();
+        (debt_specs.balance_minor, debt_specs.proper_timestamp(now))
+    }
+}
+
 impl ConsumingNodeAttributes {
     fn new(
-        node_by_role: NodeByRole,
+        node_profile: ConsumingNodeProfile,
         node_id: NodeID,
-        config_opt: Option<NodeStartupConfig>,
+        config: NodeStartupConfig,
         consuming_wallet: Wallet,
         payable_dao: PayableDaoReal,
     ) -> Self {
-        let common = NodeAttributesCommon {
-            node_by_role,
-            node_id,
-            config_opt,
-        };
+        let common = NodeAttributesCommon::new(node_id, config);
         Self {
+            node_profile,
             common,
             consuming_wallet,
             payable_dao,
@@ -897,18 +1002,15 @@ impl ConsumingNodeAttributes {
 
 impl ServingNodeAttributes {
     fn new(
-        node_by_role: NodeByRole,
+        serving_node_profile: ServingNodeProfile,
         node_id: NodeID,
-        config_opt: Option<NodeStartupConfig>,
+        config: NodeStartupConfig,
         earning_wallet: Wallet,
         receivable_dao: ReceivableDaoReal,
     ) -> Self {
-        let common = NodeAttributesCommon {
-            node_by_role,
-            node_id,
-            config_opt,
-        };
+        let common = NodeAttributesCommon::new(node_id, config);
         Self {
+            serving_node_profile,
             common,
             earning_wallet,
             receivable_dao,

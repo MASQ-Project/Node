@@ -63,7 +63,7 @@ impl MASQNodeCluster {
         open_all_file_permissions(&db_path);
 
         NodeID {
-            node_name: name,
+            node_docker_name: name,
             index,
             db_path,
         }

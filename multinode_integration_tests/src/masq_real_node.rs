@@ -1223,7 +1223,7 @@ impl MASQRealNode {
 
 #[derive(Debug)]
 pub struct NodeID {
-    pub node_name: String,
+    pub node_docker_name: String,
     pub index: usize,
     pub db_path: PathBuf,
 }
