@@ -28,6 +28,7 @@ use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
+    #[allow(dead_code)]
     dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
@@ -80,11 +81,12 @@ impl Future for ServerInitializerReal {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(self
-            .dns_socket_server
-            .as_mut()
-            .join(self.bootstrapper.as_mut())
-            .poll());
+        // try_ready!(self
+        //     .dns_socket_server
+        //     .as_mut()
+        //     .join(self.bootstrapper.as_mut())
+        //     .poll());
+        try_ready!(self.bootstrapper.as_mut().poll());
         Ok(Async::Ready(()))
     }
 }
