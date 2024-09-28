@@ -456,7 +456,7 @@ impl BlockchainBridge {
 
     pub fn extract_max_block_count(&self, error: BlockchainError) -> Option<u64> {
         let regex_result =
-            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \()(?P<max_block_count>\d+).*")
+            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range )(?P<max_block_count>\d+).*")
                 .expect("Invalid regex");
         let max_block_count = match error {
             BlockchainError::QueryFailed(msg) => match regex_result.captures(msg.as_str()) {
@@ -1753,6 +1753,19 @@ mod tests {
         let max_block_count = subject.extract_max_block_count(result);
 
         assert_eq!(None, max_block_count);
+    }
+
+    #[test]
+    fn extract_max_block_range_for_nodies_error_response() {
+        let result = BlockchainError::QueryFailed("RPC error: Error { code: InvalidParams, message: \"query exceeds max block range 100000\", data: None }".to_string());
+        let subject = BlockchainBridge::new(
+            Box::new(BlockchainInterfaceMock::default()),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+        );
+        let max_block_count = subject.extract_max_block_count(result);
+
+        assert_eq!(Some(100000), max_block_count);
     }
 
     #[test]
