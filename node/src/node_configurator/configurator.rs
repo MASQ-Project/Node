@@ -767,13 +767,6 @@ impl Configurator {
         Ok(UiSetConfigurationResponse {}.tmb(context_id))
     }
 
-    fn set_exit_location(
-        country_codes: String,
-        _config: &mut Box<dyn PersistentConfiguration>,
-    ) -> Result<(), (u64, String)> {
-        todo!("{}", format!("implement me, country_codes: {}", country_codes));
-    }
-
     fn set_gas_price(
         string_price: String,
         config: &mut Box<dyn PersistentConfiguration>,

@@ -225,7 +225,7 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         Ok(mode) => Ok(NeighborhoodConfig {
             mode,
             min_hops,
-            exit_location: None,
+            exit_locations_opt: None,
         }),
         Err(e) => Err(e),
     }
@@ -722,7 +722,7 @@ mod tests {
                     DEFAULT_RATE_PACK
                 ),
                 min_hops: Hops::OneHop,
-                exit_location: None,
+                exit_locations_opt: None,
             })
         );
     }
