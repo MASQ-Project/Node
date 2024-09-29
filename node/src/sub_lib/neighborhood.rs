@@ -19,7 +19,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use core::fmt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
@@ -381,10 +381,30 @@ pub enum Hops {
     SixHops = 6,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExitLocation {
     pub country_code: Vec<String>,
     pub priority: usize,
+}
+
+pub struct ExitLocationSet(pub HashSet<ExitLocation>);
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Country Codes: {:?}, Priority: {};", self.country_code, self.priority)
+    }
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for (i, exit_location) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", exit_location)?;
+        }
+        Ok(())
+    }
 }
 
 impl FromStr for Hops {

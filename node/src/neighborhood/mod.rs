@@ -11,6 +11,7 @@ pub mod overall_connection_status;
 
 use std::collections::{HashSet};
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
@@ -46,7 +47,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::{ExitLocation, RouteQueryResponse};
+use crate::sub_lib::neighborhood::{ExitLocation, ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
@@ -1461,13 +1462,14 @@ impl Neighborhood {
         self.exit_locations_opt = match exit_location.is_empty() {
             true => None,
             false => {
-                info!(
-                    self.logger,
-                    "{}", format!("Exit Location Set: {:?}", exit_location)
-                );
-                Some(exit_location)
+                Some(exit_location.clone())
             }
         };
+        let location_set = ExitLocationSet(exit_location);
+        info!(
+                self.logger,
+                "{}", format!("Exit Location Set: {}", location_set)
+            );
     }
 
     fn handle_gossip_reply(
@@ -3105,7 +3107,6 @@ mod tests {
                     priority: 3,
                 },
             ] };
-        let exit_locations = "CZ,SK: Priotity: 1, AT,DE: Priority: 2, PL,HU: Priority: 3";
         let message = NodeFromUiMessage {
             client_id: 0,
             body: request.tmb(0),
@@ -3123,12 +3124,19 @@ mod tests {
 
         System::current().stop();
         system.run();
-        // let recording = ui_gateway_recording.lock().unwrap();
-        // let message_opt = recording.get_record_opt::<NodeToUiMessage>(0);
 
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-                "INFO: {}: Exit Location Set to {}", test_name, exit_locations
+                "INFO: {}: Exit Location Set:", test_name
+            ),
+            &format!(
+                "{}", "Country Codes: [\"CZ\", \"SK\"], Priority: 1;"
+            ),
+            &format!(
+                "{}", "Country Codes: [\"AT\", \"DE\"], Priority: 2;"
+            ),
+            &format!(
+                "{}", "Country Codes: [\"PL\", \"HU\"], Priority: 3;"
             ),
         ]);
     }
