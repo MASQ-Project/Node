@@ -1,6 +1,6 @@
 [package]
 name = "dns_utility"
-version = "0.8.0"
+version = "0.8.1"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."

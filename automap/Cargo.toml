@@ -1,6 +1,6 @@
 [package]
 name = "automap"
-version = "0.8.0"
+version = "0.8.1"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = "Library full of code to make routers map ports through firewalls"
