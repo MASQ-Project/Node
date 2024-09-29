@@ -506,13 +506,13 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
+    use csv::StringRecord;
+    use ip_country_lib::country_block_stream::{Country, CountryBlock, IpRange};
     use regex::Regex;
     use std::net::IpAddr;
+    use std::net::Ipv4Addr;
     use std::str::FromStr;
     use tiny_hderive::bip44::DerivationPath;
-    use ip_country_lib::country_block_stream::{Country, CountryBlock, IpRange};
-    use csv::StringRecord;
-    use std::net::Ipv4Addr;
 
     pub fn validate_ip_address(address: String) -> Result<(), String> {
         match IpAddr::from_str(&address) {
@@ -551,7 +551,8 @@ pub mod common_validators {
         let index = country_block.as_ref().unwrap().country.index;
         let controll_cb = CountryBlock {
             country: Country::try_from(index).unwrap(),
-            ip_range: IpRange::V4(Ipv4Addr::new(1,2,3,4), Ipv4Addr::new(5,6,7,8))};
+            ip_range: IpRange::V4(Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)),
+        };
 
         if country_block == Ok(controll_cb) {
             Ok(())
@@ -560,18 +561,20 @@ pub mod common_validators {
         }
     }
 
-   pub fn validate_exit_location_pairs(exit_location: String) -> Result<(), String> {
+    pub fn validate_exit_location_pairs(exit_location: String) -> Result<(), String> {
         let result = validate_pipe_separate_values(exit_location, |country: String| {
             let mut collect_fails = "".to_string();
             country.split(',').into_iter().for_each(|country_code| {
                 match validate_country_code(country_code.to_string()) {
                     Ok(_) => (),
-                    Err(e) => collect_fails.push_str(&format!("'{}': non-existent country code", e))
+                    Err(e) => {
+                        collect_fails.push_str(&format!("'{}': non-existent country code", e))
+                    }
                 }
             });
             match collect_fails.is_empty() {
                 true => Ok(()),
-                false => Err(collect_fails.to_string())
+                false => Err(collect_fails.to_string()),
             }
         });
         result
@@ -675,20 +678,25 @@ pub mod common_validators {
         }
     }
 
-    fn validate_pipe_separate_values(values_with_delimiters: String, closure: fn(String) -> Result<(), String> ) -> Result<(), String> {
+    fn validate_pipe_separate_values(
+        values_with_delimiters: String,
+        closure: fn(String) -> Result<(), String>,
+    ) -> Result<(), String> {
         let mut error_collection = vec![];
-        values_with_delimiters.split('|').into_iter().for_each(|segment| {
-            match closure(segment.to_string()) {
-                Ok(_) => (),
-                Err(msg) => error_collection.push(msg)
-            };
-        });
+        values_with_delimiters
+            .split('|')
+            .into_iter()
+            .for_each(|segment| {
+                match closure(segment.to_string()) {
+                    Ok(_) => (),
+                    Err(msg) => error_collection.push(msg),
+                };
+            });
         match error_collection.is_empty() {
             true => Ok(()),
-            false => Err(error_collection.into_iter().collect::<String>())
+            false => Err(error_collection.into_iter().collect::<String>()),
         }
     }
-
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -781,10 +789,7 @@ mod tests {
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
         );
-        assert_eq!(
-            EXIT_LOCATION_HELP,
-            "TODO create proper Country Code HELP."
-        );
+        assert_eq!(EXIT_LOCATION_HELP, "TODO create proper Country Code HELP.");
         assert_eq!(
             DATA_DIRECTORY_HELP,
             "Directory in which the Node will store its persistent state, including at \

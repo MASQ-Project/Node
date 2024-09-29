@@ -857,8 +857,9 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
-                min_hops: Hops::ThreeHops, ..
-               }) => node_addr,
+                min_hops: Hops::ThreeHops,
+                ..
+            }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
         assert_eq!(node_addr.ip_addr(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));

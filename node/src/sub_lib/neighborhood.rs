@@ -19,7 +19,6 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use core::fmt;
-use std::collections::{HashMap, HashSet};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
@@ -28,6 +27,7 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
@@ -391,7 +391,11 @@ pub struct ExitLocationSet(pub HashSet<ExitLocation>);
 
 impl Display for ExitLocation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Country Codes: {:?}, Priority: {};", self.country_code, self.priority)
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_code, self.priority
+        )
     }
 }
 

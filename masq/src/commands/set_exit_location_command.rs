@@ -1,30 +1,37 @@
-use clap::{App, Arg, SubCommand};
-use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
-use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse};
-use masq_lib::shared_schema::{common_validators};
-use masq_lib::utils::ExpectValue;
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS, transaction};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
+use clap::{App, Arg, SubCommand};
+use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse};
+use masq_lib::shared_schema::common_validators;
+use masq_lib::utils::ExpectValue;
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetExitLocationCommand {
     pub exit_locations: Vec<CountryCodes>,
-    pub fallback_routing: bool
+    pub fallback_routing: bool,
 }
 
 impl SetExitLocationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         match set_exit_location_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => {
-                let exit_locations = matches.value_of("country-codes")
-                    .expectv("required param").split("|") //TODO check it is required in clap
+                let exit_locations = matches
+                    .value_of("country-codes")
+                    .expectv("required param")
+                    .split("|") //TODO check it is required in clap
                     .enumerate()
                     .map(|(index, code)| CountryCodes::from((code.to_string(), index)))
                     .collect();
-                let fallback_routing = match matches.value_of("fallback-routing") { Some(_) => true, None => false };
+                let fallback_routing = match matches.value_of("fallback-routing") {
+                    Some(_) => true,
+                    None => false,
+                };
                 Ok(SetExitLocationCommand {
                     exit_locations,
-                    fallback_routing
+                    fallback_routing,
                 })
             }
 
@@ -40,7 +47,8 @@ impl Command for SetExitLocationCommand {
             fallback_routing: self.fallback_routing.clone(),
         };
 
-        let _: UiSetExitLocationResponse = transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
+        let _: UiSetExitLocationResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
         short_writeln!(context.stdout(), "Parameter was successfully set");
         Ok(())
     }
@@ -48,11 +56,9 @@ impl Command for SetExitLocationCommand {
     as_any_ref_in_trait_impl!();
 }
 
-const EXIT_LOACTION_ABOUT: &str =
-    "TODO finish me! Sets Exit Location for Exit Node.";
+const EXIT_LOACTION_ABOUT: &str = "TODO finish me! Sets Exit Location for Exit Node.";
 
-const COUNTRY_CODES_HELP: &str =
-    "TODO finish me!";
+const COUNTRY_CODES_HELP: &str = "TODO finish me!";
 
 pub fn set_exit_location_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("exit-location")
@@ -76,11 +82,13 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
 }
 
 pub mod tests {
-    use std::sync::{Arc, Mutex};
-    use masq_lib::messages::{CountryCodes, ToMessageBody, UiSetExitLocationRequest, UiSetExitLocationResponse};
     use crate::commands::commands_common::{Command, STANDARD_COMMAND_TIMEOUT_MILLIS};
     use crate::commands::set_exit_location_command::SetExitLocationCommand;
     use crate::test_utils::mocks::CommandContextMock;
+    use masq_lib::messages::{
+        CountryCodes, ToMessageBody, UiSetExitLocationRequest, UiSetExitLocationResponse,
+    };
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn can_deserialize_ui_set_exit_location() {
@@ -106,7 +114,8 @@ pub mod tests {
                     country_codes: vec!["PL".to_string(), "HU".to_string()],
                     priority: 3,
                 },
-            ] };
+            ],
+        };
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -119,14 +128,17 @@ pub mod tests {
             "CZ,SK|AT,DE|PL,HU".to_string(),
             "--fallback-routing".to_string(),
         ])
-            .unwrap();
+        .unwrap();
 
         let result = subject.execute(&mut context);
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);
-        assert_eq!(transact_params.as_slice(), &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]);
+        assert_eq!(
+            transact_params.as_slice(),
+            &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
+        );
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
         let stdout = stdout_arc.lock().unwrap();

@@ -587,7 +587,7 @@ impl PersistentConfigurationReal {
         }
     }
 
-        fn combined_params_get_method<'a, T, C>(
+    fn combined_params_get_method<'a, T, C>(
         &'a self,
         values_parser: C,
         parameter: &'a str,

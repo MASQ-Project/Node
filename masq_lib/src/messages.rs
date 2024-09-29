@@ -857,7 +857,12 @@ pub struct CountryCodes {
 impl From<(String, usize)> for CountryCodes {
     fn from(item: (String, usize)) -> Self {
         CountryCodes {
-            country_codes: item.0.split(",").into_iter().map(|x| x.to_string()).collect::<Vec<String>>(),
+            country_codes: item
+                .0
+                .split(",")
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>(),
             priority: item.1 + 1,
         }
     }

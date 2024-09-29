@@ -5,7 +5,7 @@
 use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::neighborhood::{ExitLocation, Hops, NodeDescriptor, RatePack};
+use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
@@ -41,9 +41,6 @@ pub struct PersistentConfigurationMock {
         RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     earning_wallet_results: RefCell<Vec<Result<Option<Wallet>, PersistentConfigError>>>,
     earning_wallet_address_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
-    set_exit_location_result: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    set_exit_location_params: Arc<Mutex<Vec<Option<ExitLocation>>>>,
-    exit_location_results: RefCell<Vec<Result<Option<ExitLocation>, PersistentConfigError>>>,
     set_wallet_info_params: Arc<Mutex<Vec<(String, String, String)>>>,
     set_wallet_info_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     mapping_protocol_results: RefCell<Vec<Result<Option<AutomapProtocol>, PersistentConfigError>>>,
@@ -397,21 +394,6 @@ impl PersistentConfigurationMock {
 
     pub fn set_clandestine_port_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_clandestine_port_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn set_exit_location_params(mut self, params: &Arc<Mutex<Vec<Option<ExitLocation>>>>) -> Self {
-        self.set_exit_location_params = params.clone();
-        self
-    }
-
-    pub fn set_exit_location_results(self, result: Result<(), PersistentConfigError>) -> Self {
-        self.set_exit_location_result.borrow_mut().push(result);
-        self
-    }
-
-    pub fn exit_location_result(self, result: Result<Option<ExitLocation>, PersistentConfigError>) -> Self {
-        self.exit_location_results.borrow_mut().push(result);
         self
     }
 

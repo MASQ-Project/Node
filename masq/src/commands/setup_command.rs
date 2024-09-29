@@ -378,7 +378,7 @@ ip                            No sir, I don't like it.\n\
     }
 
     #[test]
-        fn setup_command_with_data_directory_shows_right_path() {
+    fn setup_command_with_data_directory_shows_right_path() {
         #[rustfmt::skip]
         vec![
             SetupCommandData {

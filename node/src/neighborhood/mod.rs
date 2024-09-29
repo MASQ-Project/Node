@@ -9,7 +9,7 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
@@ -22,7 +22,10 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
+    UiSetExitLocationRequest,
+};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
@@ -47,7 +50,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::{ExitLocation, ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
@@ -55,6 +57,7 @@ use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{ExitLocation, ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
@@ -106,7 +109,8 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
-    exit_locations_opt: Option<HashSet<ExitLocation>>
+    exit_locations_opt: Option<HashSet<ExitLocation>>,
+    fallback_routing: bool,
 }
 
 impl Actor for Neighborhood {
@@ -499,6 +503,7 @@ impl Neighborhood {
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
             exit_locations_opt: None,
+            fallback_routing: true,
         }
     }
 
@@ -1453,23 +1458,39 @@ impl Neighborhood {
     }
 
     fn handle_exit_location_message(&mut self, message: UiSetExitLocationRequest) {
-        let exit_location = message.exit_locations.iter().map(|countries| {
-            ExitLocation {
-                country_code: countries.country_codes.as_slice().iter().map(|a| a.into()).collect::<Vec<String>>(),
+        let exit_location = message
+            .exit_locations
+            .iter()
+            .map(|countries| ExitLocation {
+                country_code: countries
+                    .country_codes
+                    .as_slice()
+                    .iter()
+                    .map(|a| a.into())
+                    .collect::<Vec<String>>(),
                 priority: countries.priority,
-            }
-        }).collect::<HashSet<ExitLocation>>();
+            })
+            .collect::<HashSet<ExitLocation>>();
         self.exit_locations_opt = match exit_location.is_empty() {
             true => None,
-            false => {
-                Some(exit_location.clone())
-            }
+            false => Some(exit_location.clone()),
+        };
+        self.fallback_routing = message.fallback_routing;
+        let fallback_status = match self.fallback_routing {
+            true => "is",
+            false => "NOT",
         };
         let location_set = ExitLocationSet(exit_location);
         info!(
-                self.logger,
-                "{}", format!("Exit Location Set: {}", location_set)
-            );
+            self.logger,
+            "{}",
+            format!("Fallback Routing {} Set.", fallback_status)
+        );
+        info!(
+            self.logger,
+            "{}",
+            format!("Exit Location Set: {}", location_set)
+        );
     }
 
     fn handle_gossip_reply(
@@ -1693,7 +1714,9 @@ mod tests {
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
-    use masq_lib::messages::{CountryCodes, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
+    use masq_lib::messages::{
+        CountryCodes, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
+    };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -3088,7 +3111,8 @@ mod tests {
     }
 
     #[test]
-    fn exit_location_can_be_changed_using_exit_location_msg() {
+    fn exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg()
+    {
         init_test_logging();
         let test_name = "exit_location_can_be_changed_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
@@ -3106,7 +3130,8 @@ mod tests {
                     country_codes: vec!["PL".to_string(), "HU".to_string()],
                     priority: 3,
                 },
-            ] };
+            ],
+        };
         let message = NodeFromUiMessage {
             client_id: 0,
             body: request.tmb(0),
@@ -3126,17 +3151,48 @@ mod tests {
         system.run();
 
         TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Fallback Routing is Set.", test_name),
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!("{}", "Country Codes: [\"CZ\", \"SK\"], Priority: 1;"),
+            &format!("{}", "Country Codes: [\"AT\", \"DE\"], Priority: 2;"),
+            &format!("{}", "Country Codes: [\"PL\", \"HU\"], Priority: 3;"),
+        ]);
+    }
+
+    #[test]
+    fn exit_location_is_set_with_fallback_routing_false_using_exit_location_msg() {
+        init_test_logging();
+        let test_name = "exit_location_can_be_changed_using_exit_location_msg";
+        let request = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["CZ".to_string()],
+                priority: 1,
+            }],
+        };
+        let message = NodeFromUiMessage {
+            client_id: 0,
+            body: request.tmb(0),
+        };
+        let system = System::new(test_name);
+        let (ui_gateway, _, _) = make_recorder();
+        let mut subject = make_standard_subject();
+        subject.exit_locations_opt = None;
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(message).unwrap();
+
+        System::current().stop();
+        system.run();
+
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
             &format!(
-                "INFO: {}: Exit Location Set:", test_name
-            ),
-            &format!(
-                "{}", "Country Codes: [\"CZ\", \"SK\"], Priority: 1;"
-            ),
-            &format!(
-                "{}", "Country Codes: [\"AT\", \"DE\"], Priority: 2;"
-            ),
-            &format!(
-                "{}", "Country Codes: [\"PL\", \"HU\"], Priority: 3;"
+                "INFO: {}: Exit Location Set: {}",
+                test_name, "Country Codes: [\"CZ\"], Priority: 1;"
             ),
         ]);
     }
