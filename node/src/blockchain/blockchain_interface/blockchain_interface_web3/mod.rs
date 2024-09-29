@@ -1853,7 +1853,7 @@ mod tests {
             // limited by the units here
             Chain::BaseMainnet | Chain::BaseSepolia => 1,
         };
-        let payment_size_wei = 1_000_000_000_000;
+        let payment_size_wei = gwei_to_wei(1_000_u64);
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
             payment_size_wei,
@@ -1871,7 +1871,6 @@ mod tests {
             .unwrap();
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;
-        eprintln!("signed {}", hex::encode(byte_set_to_compare.clone()));
         assert_eq!(
             byte_set_to_compare,
             template,
