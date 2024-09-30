@@ -9,7 +9,7 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
@@ -57,7 +57,7 @@ use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::{ExitLocation, ExitLocationSet, RouteQueryResponse};
+use crate::sub_lib::neighborhood::{ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
@@ -109,7 +109,7 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
-    exit_locations_opt: Option<HashSet<ExitLocation>>,
+    exit_locations_opt: Option<HashMap<usize, Vec<String>>>,
     fallback_routing: bool,
 }
 
@@ -1458,19 +1458,10 @@ impl Neighborhood {
     }
 
     fn handle_exit_location_message(&mut self, message: UiSetExitLocationRequest) {
-        let exit_location = message
+        let exit_location: HashMap<usize, Vec<String>> = message
             .exit_locations
-            .iter()
-            .map(|countries| ExitLocation {
-                country_code: countries
-                    .country_codes
-                    .as_slice()
-                    .iter()
-                    .map(|a| a.into())
-                    .collect::<Vec<String>>(),
-                priority: countries.priority,
-            })
-            .collect::<HashSet<ExitLocation>>();
+            .into_iter()
+            .map(|cc| (cc.priority, cc.country_codes)).collect();
         self.exit_locations_opt = match exit_location.is_empty() {
             true => None,
             false => Some(exit_location.clone()),
@@ -1489,7 +1480,7 @@ impl Neighborhood {
         info!(
             self.logger,
             "{}",
-            format!("Exit Location Set: {}", location_set)
+            format!("Exit Location Set:{}", location_set)
         );
     }
 
@@ -3153,9 +3144,9 @@ mod tests {
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
             &format!("INFO: {}: Exit Location Set:", test_name),
-            &format!("{}", "Country Codes: [\"CZ\", \"SK\"], Priority: 1;"),
-            &format!("{}", "Country Codes: [\"AT\", \"DE\"], Priority: 2;"),
-            &format!("{}", "Country Codes: [\"PL\", \"HU\"], Priority: 3;"),
+            &format!("{}", "Country Codes: [\"CZ\", \"SK\"] - Priority: 1;"),
+            &format!("{}", "Country Codes: [\"AT\", \"DE\"] - Priority: 2;"),
+            &format!("{}", "Country Codes: [\"PL\", \"HU\"] - Priority: 3;"),
         ]);
     }
 
@@ -3192,7 +3183,7 @@ mod tests {
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
             &format!(
                 "INFO: {}: Exit Location Set: {}",
-                test_name, "Country Codes: [\"CZ\"], Priority: 1;"
+                test_name, "Country Codes: [\"CZ\"] - Priority: 1;"
             ),
         ]);
     }
