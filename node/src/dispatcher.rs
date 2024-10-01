@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::bootstrapper::Bootstrapper;
 use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -16,9 +17,7 @@ use actix::Handler;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiDescriptorRequest, UiDescriptorResponse,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::net::{IpAddr, Ipv4Addr};
 

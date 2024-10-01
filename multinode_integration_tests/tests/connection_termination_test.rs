@@ -293,7 +293,7 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
 
 fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMockNode, PublicKey) {
     let mut real_node: NodeRecord = make_node_record(1234, true);
-    let mut mock_node: NodeRecord = make_node_record(2345, true);
+    let mut mock_node:  NodeRecord = make_node_record(2345, true);
     let mut fictional_node_1: NodeRecord = make_node_record(3456, true);
     let mut fictional_node_2: NodeRecord = make_node_record(4567, true);
     full_neighbor(&mut real_node, &mut mock_node);

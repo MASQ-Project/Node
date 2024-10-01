@@ -629,31 +629,6 @@ pub struct CustomQueries {
     pub receivable_opt: Option<RangeQuery<i64>>,
 }
 
-///////////+------------------ GH-469
-//
-// Still thinking about these names
-//
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct NodeInfo {
-    pub version: u32,
-    pub country_code: String,
-    pub exit_service: bool,
-    pub unreachable_hosts: Vec<String>,
-}
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct UiCollectNeighborhoodInfoRequest {}
-conversation_message!(UiCollectNeighborhoodInfoRequest, "neighborhoodInfo");
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct UiCollectNeighborhoodInfoResponse {
-    pub neighborhood_database: HashMap<String, NodeInfo>,
-}
-conversation_message!(UiCollectNeighborhoodInfoResponse, "neighborhoodInfo");
-
-
-///////////+------------------ GH-469
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct RangeQuery<T> {
     #[serde(rename = "minAgeS")]
@@ -724,6 +699,36 @@ pub struct UiGenerateSeedSpec {
     #[serde(rename = "mnemonicPassphraseOpt")]
     pub mnemonic_passphrase_opt: Option<String>,
 }
+
+
+///////////+------------------ GH-469
+//
+// Still thinking about these names
+//
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct NodeInfo {
+    pub version: u32,
+    #[serde(rename = "countryCode")]
+    pub country_code_opt: Option<String>,
+    #[serde(rename = "exitService")]
+    pub exit_service: bool,
+    #[serde(rename = "unreachableHosts")]
+    pub unreachable_hosts: Vec<String>,
+}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiCollectNeighborhoodInfoRequest {}
+conversation_message!(UiCollectNeighborhoodInfoRequest, "neighborhoodInfo");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiCollectNeighborhoodInfoResponse {
+    #[serde(rename = "neighborhoodDatabase")]
+    pub neighborhood_database: HashMap<String, NodeInfo>,
+}
+conversation_message!(UiCollectNeighborhoodInfoResponse, "neighborhoodInfo");
+
+
+///////////+------------------ GH-469
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiGenerateWalletsRequest {
@@ -934,24 +939,24 @@ mod tests {
     fn can_deserialize_ui_collect_country_codes_response() {
         let json = r#"
             {
-                "neighborhood_database": {
+                "neighborhoodDatabase": {
                     "public_key_1": {
                         "version": 252,
-                        "country_code": "UK",
-                        "exit_service": true,
-                        "unreachable_hosts": ["facebook.com", "x.com"]
+                        "countryCode": "UK",
+                        "exitService": true,
+                        "unreachableHosts": ["facebook.com", "x.com"]
                     },
                     "public_key_2": {
                         "version": 5,
-                        "country_code": "CZ",
-                        "exit_service": false,
-                        "unreachable_hosts": ["facebook.com", "x.com"]
+                        "countryCode": "CZ",
+                        "exitService": false,
+                        "unreachableHosts": ["example.com"]
                     }
                 }
             }
             "#;
         let message_body = MessageBody {
-            opcode: "countryCodes".to_string(),
+            opcode: "neighborhoodInfo".to_string(),
             path: Conversation(1234),
             payload: Ok(json.to_string()),
         };
@@ -975,7 +980,7 @@ mod tests {
                     version: 5,
                     country_code: "CZ".to_string(),
                     exit_service: false,
-                    unreachable_hosts: vec!["facebook.com".to_string(), "x.com".to_string()],
+                    unreachable_hosts: vec!["example.com".to_string()],
                 },
             ),
         ]);

@@ -9,7 +9,7 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -21,9 +21,7 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
-};
+use masq_lib::messages::{FromMessageBody, NodeInfo, ToMessageBody, UiCollectNeighborhoodInfoRequest, UiCollectNeighborhoodInfoResponse, UiConnectionStage, UiConnectionStatusRequest};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
@@ -388,7 +386,12 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
+
+        // -- GH-469 Add here - First pos
+        if let Ok((_, context_id)) = UiCollectNeighborhoodInfoRequest::fmb(msg.body.clone()) {
+            // TODO: GH-469
+            self.handle_neighborhood_info_request(client_id, context_id);
+        } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
@@ -1532,6 +1535,42 @@ impl Neighborhood {
         }
     }
 
+    // TODO: GH-469
+    fn handle_neighborhood_info_request(&self, client_id: u64, context_id: u64) {
+        let mut response:HashMap<String, NodeInfo> = HashMap::new();
+
+        let db = &self.neighborhood_database.clone();
+        let db_keys = db.keys();
+        let root_node = db.root().public_key();
+
+        for db_key in db_keys {
+            let node_record = db.node_by_key(db_key).expect("Failed to get node record");
+            if root_node != &node_record.inner.public_key{
+                response.insert(node_record.inner.public_key.to_string(), NodeInfo{
+                    version: node_record.inner.version,
+                    country_code_opt: node_record.inner.country_code_opt.clone(),
+                    exit_service: node_record.inner.accepts_connections,
+                    unreachable_hosts: node_record.metadata.unreachable_hosts.clone().into_iter().collect(),
+                });
+            }
+        }
+
+        let response_inner = UiCollectNeighborhoodInfoResponse {
+            neighborhood_database: response
+        };
+        let message = NodeToUiMessage {
+            target: MessageTarget::ClientId(client_id),
+            body: response_inner.tmb(context_id),
+        };
+
+        self.node_to_ui_recipient_opt
+            .as_ref()
+            .expect("UI Gateway is unbound")
+            .try_send(message)
+            .expect("UiGateway is dead");
+    }
+
+
     fn handle_stream_shutdown_msg(&mut self, msg: StreamShutdownMsg) {
         if msg.stream_type != RemovedStreamType::Clandestine {
             panic!("Neighborhood should never get ShutdownStreamMsg about non-clandestine stream")
@@ -1728,6 +1767,7 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::ui_gateway::MessageTarget::ClientId;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -5819,6 +5859,79 @@ mod tests {
             .exists_log_containing("INFO: Neighborhood: Received shutdown order from client 1234");
     }
 
+
+    #[test]
+    fn neighborhood_info_message_is_handled_properly() {
+        let test_name = "neighborhood_info_message_is_handled_properly";
+        let system = System::new("test");
+        let client_id = 1234;
+        let context_id = 4321;
+        let mut subject = make_standard_subject();
+        let root_node_record = subject.neighborhood_database.root().clone();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_params(&set_past_neighbors_params_arc)
+            .set_past_neighbors_result(Ok(()));
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        let p = &subject.neighborhood_database.root().clone();
+        let q = &make_node_record(3456, true);
+        let r = &make_node_record(4567, false);
+        let s = &make_node_record(5678, false);
+        let t = make_node_record(7777, false);
+        let db = &mut subject.neighborhood_database;
+        db.add_node(q.clone()).unwrap();
+        db.add_node(t.clone()).unwrap();
+        db.add_node(r.clone()).unwrap();
+        db.add_node(s.clone()).unwrap();
+        let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
+            db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
+        };
+        dual_edge(p, q);
+        dual_edge(q, &t);
+        dual_edge(q, r);
+        dual_edge(r, s);
+
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id,
+                body: MessageBody {
+                    opcode: "neighborhoodInfo".to_string(),
+                    path: Conversation(context_id),
+                    payload: Ok("{}".to_string()),
+                },
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let message_opt = ui_gateway_recording
+            .get_record_opt::<NodeToUiMessage>(0)
+            .cloned();
+
+        let mut expected_response:HashMap<String, NodeInfo> = HashMap::new();
+        // expected_response.insert("B+TPRn12lX9mt7Zvs/8gfx+rd1ko4xyjy4DRSEdoKKA".to_string(), NodeInfo{version:0,country_code_opt:Some("CH".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("BAUGBw".to_string(),NodeInfo{version:0, country_code_opt: Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("BwcHBw".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("AwQFBg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("BQYHCA".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
+
+        let (message_to, _):(UiCollectNeighborhoodInfoResponse, u64) = FromMessageBody::fmb(message_opt.unwrap().body).unwrap();
+        let response_inner = UiCollectNeighborhoodInfoResponse {
+            neighborhood_database: expected_response
+        };
+        assert_eq!(
+            message_to,
+            response_inner
+        );
+    }
+
     #[test]
     fn connection_status_message_is_handled_properly_for_not_connected() {
         let stage = OverallConnectionStage::NotConnected;
@@ -6170,6 +6283,61 @@ mod tests {
         neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         neighborhood
     }
+
+
+    // fn neighborhood_info_message_received_by_ui(
+    //     test_name: &str,
+    //     neighborhood_database: NeighborhoodDatabase,
+    // ) -> Option<NodeToUiMessage> {
+    //     let client_id = 1234;
+    //     let context_id = 4321;
+    //     let system = System::new("test");
+    //     let mut subject = Neighborhood::new(
+    //         main_cryptde(),
+    //         &bc_from_nc_plus(
+    //             NeighborhoodConfig {
+    //                 mode: NeighborhoodMode::Standard(
+    //                     NodeAddr::new(&make_ip(1), &[1234, 2345]),
+    //                     vec![make_node_descriptor(make_ip(2))],
+    //                     rate_pack(100),
+    //                 ),
+    //                 min_hops: MIN_HOPS_FOR_TEST,
+    //                 country: "ZZ".to_string(),
+    //             },
+    //             make_wallet("earning"),
+    //             None,
+    //             test_name,
+    //         ),
+    //     );
+    //
+    //     subject.neighborhood_database = neighborhood_database;
+    //
+    //     let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+    //     let subject_addr = subject.start();
+    //     let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+    //     subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+    //
+    //     subject_addr
+    //         .try_send(NodeFromUiMessage {
+    //             client_id,
+    //             body: MessageBody {
+    //                 opcode: "neighborhoodInfo".to_string(),
+    //                 path: Conversation(context_id),
+    //                 payload: Ok("{}".to_string()),
+    //             },
+    //         })
+    //         .unwrap();
+    //
+    //     System::current().stop();
+    //     system.run();
+    //     let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+    //     let message_opt = ui_gateway_recording
+    //         .get_record_opt::<NodeToUiMessage>(0)
+    //         .cloned();
+    //
+    //     message_opt
+    // }
+
 
     fn connection_status_message_received_by_ui(
         stage: OverallConnectionStage,
