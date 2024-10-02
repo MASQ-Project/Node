@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::ops::Add;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use log::Level;
@@ -19,8 +18,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 };
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{
-    config_dao, node_chain_specific_data_directory, open_all_file_permissions, receivable_dao,
-    UrlHolder,
+    config_dao, receivable_dao, UrlHolder,
 };
 use node_lib::accountant::db_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;

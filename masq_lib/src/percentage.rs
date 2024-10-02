@@ -152,7 +152,7 @@ impl PurePercentage {
         <N as TryFrom<i8>>::Error: Debug,
     {
         let divisor = N::try_from(100).expect("Each type has 100");
-        let rounded_rule = Self::should_be_rounded_as(num, divisor);
+        let desired_rounding = Self::should_be_rounded_to(num, divisor);
         let significant_digits_only = num.checked_div(&divisor).expect("Division failed");
 
         macro_rules! adjust_num {
@@ -163,20 +163,18 @@ impl PurePercentage {
             };
         }
 
-        match rounded_rule {
-            RoundingRule::ToBiggerPositive => {
+        match desired_rounding {
+            RoundingTo::BiggerPositive => {
                 adjust_num!(significant_digits_only, checked_add, "Addition failed")
             }
-            RoundingRule::ToBiggerNegative => {
+            RoundingTo::BiggerNegative => {
                 adjust_num!(significant_digits_only, checked_sub, "Subtraction failed")
             }
-            RoundingRule::ToSmallerNegative | RoundingRule::ToSmallerPositive => {
-                significant_digits_only
-            }
+            RoundingTo::SmallerNegative | RoundingTo::SmallerPositive => significant_digits_only,
         }
     }
 
-    fn should_be_rounded_as<N>(num: N, divisor: N) -> RoundingRule
+    fn should_be_rounded_to<N>(num: N, divisor: N) -> RoundingTo
     where
         N: PercentageInteger,
         <N as TryFrom<i8>>::Error: Debug,
@@ -186,18 +184,12 @@ impl PurePercentage {
         let divider = N::try_from(50).expect("Each type has 50");
         let abs_of_significant_digits =
             Self::abs_of_least_significant_digits(least_significant_digits, is_signed);
-        let is_minor: bool = if abs_of_significant_digits == divider {
-            false
-        } else if abs_of_significant_digits > divider {
-            false
-        } else {
-            true
-        };
+        let is_minor = abs_of_significant_digits < divider;
         match (is_signed, is_minor) {
-            (false, true) => RoundingRule::ToSmallerPositive,
-            (false, false) => RoundingRule::ToBiggerPositive,
-            (true, true) => RoundingRule::ToSmallerNegative,
-            (true, false) => RoundingRule::ToBiggerNegative,
+            (false, true) => RoundingTo::SmallerPositive,
+            (false, false) => RoundingTo::BiggerPositive,
+            (true, true) => RoundingTo::SmallerNegative,
+            (true, false) => RoundingTo::BiggerNegative,
         }
     }
 
@@ -279,17 +271,17 @@ impl PurePercentage {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum RoundingRule {
-    ToBiggerPositive,
-    ToBiggerNegative,
-    ToSmallerPositive,
-    ToSmallerNegative,
+enum RoundingTo {
+    BiggerPositive,
+    BiggerNegative,
+    SmallerPositive,
+    SmallerNegative,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::percentage::{
-        BaseTypeOverflow, LoosePercentage, PercentageInteger, PurePercentage, RoundingRule,
+        BaseTypeOverflow, LoosePercentage, PercentageInteger, PurePercentage, RoundingTo,
     };
     use std::fmt::Debug;
 
@@ -427,48 +419,32 @@ mod tests {
     }
 
     #[test]
-    fn should_be_rounded_as_works_for_last_but_one_digit() {
+    fn should_be_rounded_to_works_for_last_but_one_digit() {
         [
-            (
-                49,
-                RoundingRule::ToSmallerPositive,
-                RoundingRule::ToSmallerNegative,
-            ),
-            (
-                50,
-                RoundingRule::ToBiggerPositive,
-                RoundingRule::ToBiggerNegative,
-            ),
-            (
-                51,
-                RoundingRule::ToBiggerPositive,
-                RoundingRule::ToBiggerNegative,
-            ),
-            (
-                5,
-                RoundingRule::ToSmallerPositive,
-                RoundingRule::ToSmallerNegative,
-            ),
+            (49, RoundingTo::SmallerPositive, RoundingTo::SmallerNegative),
+            (50, RoundingTo::BiggerPositive, RoundingTo::BiggerNegative),
+            (51, RoundingTo::BiggerPositive, RoundingTo::BiggerNegative),
+            (5, RoundingTo::SmallerPositive, RoundingTo::SmallerNegative),
             (
                 100,
-                RoundingRule::ToSmallerPositive,
-                RoundingRule::ToSmallerNegative,
+                RoundingTo::SmallerPositive,
+                RoundingTo::SmallerNegative,
             ),
             (
                 787879,
-                RoundingRule::ToBiggerPositive,
-                RoundingRule::ToBiggerNegative,
+                RoundingTo::BiggerPositive,
+                RoundingTo::BiggerNegative,
             ),
             (
                 898784545,
-                RoundingRule::ToSmallerPositive,
-                RoundingRule::ToSmallerNegative,
+                RoundingTo::SmallerPositive,
+                RoundingTo::SmallerNegative,
             ),
         ]
         .into_iter()
         .for_each(
             |(num, expected_result_for_unsigned_base, expected_result_for_signed_base)| {
-                let result = PurePercentage::should_be_rounded_as(num, 100);
+                let result = PurePercentage::should_be_rounded_to(num, 100);
                 assert_eq!(
                 result,
                 expected_result_for_unsigned_base,
@@ -478,7 +454,7 @@ mod tests {
                 expected_result_for_unsigned_base
             );
                 let signed = num as i64 * -1;
-                let result = PurePercentage::should_be_rounded_as(signed, 100);
+                let result = PurePercentage::should_be_rounded_to(signed, 100);
                 assert_eq!(
                 result,
                 expected_result_for_signed_base,
