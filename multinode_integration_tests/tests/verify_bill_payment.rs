@@ -4,6 +4,7 @@ use crate::verify_bill_payment_utils::utils::{
     test_body, to_wei, AssertionsValues, Debt, DebtsSpecs, FinalServiceFeeBalancesByServingNodes,
     NodeProfile, Ports, TestInputsBuilder, WholesomeConfig,
 };
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::messages::FromMessageBody;
 use masq_lib::messages::ToMessageBody;
@@ -16,8 +17,9 @@ use multinode_integration_tests_lib::masq_real_node::{MASQRealNode, NodeStartupC
 use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::blockchain_interface_web3::{compute_gas_limit, web3_gas_limit_const_part};
 use std::convert::TryFrom;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 use std::u128;
+
 mod verify_bill_payment_utils;
 
 #[test]
@@ -44,15 +46,17 @@ fn full_payments_were_processed_for_sufficient_balances() {
     let owed_to_serving_node_2_minor = debt_threshold_wei + 456_789;
     let owed_to_serving_node_3_minor = debt_threshold_wei + 789_012;
     let consuming_node_initial_service_fee_balance_minor = debt_threshold_wei * 4;
-    let long_ago = UNIX_EPOCH.elapsed().unwrap().as_secs();
     let test_inputs = TestInputsBuilder::default()
         .consuming_node_initial_service_fee_balance_minor(
             consuming_node_initial_service_fee_balance_minor,
         )
-        .debts_config(DebtsSpecs::new(
-            Debt::new(owed_to_serving_node_1_minor, long_ago),
-            Debt::new(owed_to_serving_node_2_minor, long_ago),
-            Debt::new(owed_to_serving_node_3_minor, long_ago),
+        .debts_config(set_old_debts(
+            [
+                owed_to_serving_node_1_minor,
+                owed_to_serving_node_2_minor,
+                owed_to_serving_node_3_minor,
+            ],
+            &payment_thresholds,
         ))
         .payment_thresholds_all_nodes(payment_thresholds)
         .build();
@@ -101,10 +105,10 @@ fn activating_serving_nodes_for_test_with_sufficient_funds(
         .serving_nodes
         .iter()
         .map(|attributes| {
-            let namings = &attributes.common.node_id;
+            let node_id = &attributes.common.prepared_node;
             cluster.start_named_real_node(
-                &namings.node_docker_name,
-                namings.index,
+                &node_id.node_docker_name,
+                node_id.index,
                 attributes
                     .common
                     .startup_config_opt
@@ -129,6 +133,19 @@ fn activating_serving_nodes_for_test_with_sufficient_funds(
     }
 
     serving_nodes.try_into().unwrap()
+}
+
+fn set_old_debts(
+    owed_money_to_serving_nodes: [u128; 3],
+    payment_thresholds: &PaymentThresholds,
+) -> DebtsSpecs {
+    let quite_long_ago =
+        payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec + 1;
+    let debts = owed_money_to_serving_nodes
+        .into_iter()
+        .map(|balance_minor| Debt::new(balance_minor, quite_long_ago))
+        .collect_vec();
+    DebtsSpecs::new(debts[0], debts[1], debts[2])
 }
 
 #[test]
@@ -264,8 +281,8 @@ fn activating_serving_nodes_for_test_with_insufficient_funds(
                 .unwrap();
             let common = &serving_node_attributes.common;
             let serving_node = cluster.start_named_real_node(
-                &common.node_id.node_docker_name,
-                common.node_id.index,
+                &common.prepared_node.node_docker_name,
+                common.prepared_node.index,
                 node_config,
             );
             let ui_port = serving_node_attributes
