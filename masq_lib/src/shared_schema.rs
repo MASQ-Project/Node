@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
+    BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, POLYGON_AMOY_FULL_IDENTIFIER,
+    POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -13,6 +14,7 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -64,8 +66,9 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+     masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
      masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -256,6 +259,8 @@ pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
+        BASE_MAINNET_FULL_IDENTIFIER,
+        BASE_SEPOLIA_FULL_IDENTIFIER,
         POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
@@ -670,11 +675,11 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::blockchains::chains::Chain;
     use crate::shared_schema::common_validators::validate_non_zero_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
+    use std::collections::HashSet;
 
     #[test]
     fn constants_have_correct_values() {
@@ -683,6 +688,7 @@ mod tests {
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
              https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
              https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
         assert_eq!(
@@ -757,8 +763,9 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
+                  masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
                   masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -1141,12 +1148,34 @@ mod tests {
 
     #[test]
     fn official_chain_names_are_reliable() {
-        let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyAmoy);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
-        assert_eq!(iterator.next(), None)
+        let expected_supported_chains = [
+            Chain::PolyMainnet,
+            Chain::EthMainnet,
+            Chain::BaseMainnet,
+            Chain::BaseSepolia,
+            Chain::PolyAmoy,
+            Chain::EthRopsten,
+            Chain::Dev,
+        ]
+        .into_iter()
+        .collect::<HashSet<Chain>>();
+
+        let chain_names_recognizable_by_clap = official_chain_names();
+
+        let chains_from_clap = chain_names_recognizable_by_clap
+            .into_iter()
+            .map(|chain_name| Chain::from(*chain_name))
+            .collect::<HashSet<Chain>>();
+        let differences = chains_from_clap
+            .symmetric_difference(&expected_supported_chains)
+            .collect::<Vec<&Chain>>();
+        assert!(
+            differences.is_empty(),
+            "There are differences in the Clap schema in the collection of supported chains, \
+        between the expected values {:?} and actual {:?}, specifically {:?}",
+            expected_supported_chains,
+            chains_from_clap,
+            differences
+        );
     }
 }
