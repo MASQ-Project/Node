@@ -351,6 +351,7 @@ pub struct NodeRecordMetadata {
     pub unreachable_hosts: HashSet<String>,
     pub node_location_opt: Option<NodeLocation>,
     pub node_distrust_score: u32,
+    pub country_undesirablity: Option<u32>
     //TODO introduce various scores for latency, reliability and so
 }
 
@@ -362,6 +363,7 @@ impl NodeRecordMetadata {
             unreachable_hosts: Default::default(),
             node_location_opt,
             node_distrust_score: Default::default(),
+            country_undesirablity: None, //TODO use this field to compute coutnry_code undesirability to use in routing engine
         }
     }
 }
