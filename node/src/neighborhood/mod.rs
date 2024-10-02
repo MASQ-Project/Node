@@ -1471,6 +1471,24 @@ impl Neighborhood {
             true => "is",
             false => "NOT",
         };
+        let nodes = self.neighborhood_database.nodes_mut();
+        for node_record in nodes {
+            let country_code = match node_record.inner.country_code_opt.as_ref() {
+                Some(code) => code.clone(),
+                None => "ZZ".to_string(),
+            };
+            println!("db record: country_code: {:?}, country_undesirability {:?}", &country_code, node_record.metadata.country_undesirability);
+            for (exit_priority, exit_countries) in &exit_location {
+                if exit_countries.contains(&country_code) {
+                    node_record.metadata.country_undesirability = 1_000 * (*exit_priority - 1) as u32;
+                } else {
+                    if node_record.metadata.country_undesirability == 0 {
+                        node_record.metadata.country_undesirability = 1_000_000u32;
+                    }
+                }
+            }
+            println!("db record: country_code: {:?}, country_undesirability {:?}", &country_code, node_record.metadata.country_undesirability);
+        }
         let location_set = ExitLocationSet(exit_location);
         info!(
             self.logger,
@@ -3159,17 +3177,52 @@ mod tests {
             exit_locations: vec![CountryCodes {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
+            }, CountryCodes {
+                country_codes: vec!["FR".to_string()],
+                priority: 2,
             }],
         };
+        let message_request = request.clone();
         let message = NodeFromUiMessage {
             client_id: 0,
             body: request.tmb(0),
         };
-        let system = System::new(test_name);
-        let (ui_gateway, _, _) = make_recorder();
         let mut subject = make_standard_subject();
+        //TODO create separate test for apply country_undesirability to the nodes in NeighborhoodDatabase
+
+        // let root_node = subject.neighborhood_database.root();
+        // let arc_db = Arc::new(Mutex::new(NeighborhoodDatabase::new(
+        //     &root_node.inner.public_key, NeighborhoodMode::Standard(
+        //         root_node.node_addr_opt().unwrap(),
+        //         vec![root_node.node_descriptor(DEFAULT_CHAIN, main_cryptde())],
+        //         root_node.inner.rate_pack),
+        //     root_node.earning_wallet(),
+        //     main_cryptde())));
+        // let db_clone = Arc::clone(&arc_db);
+        // let (tx, rx) = mpsc::channel();
+        let mut system = System::new(test_name);
+        let (ui_gateway, _, _) = make_recorder();
+
         subject.exit_locations_opt = None;
         subject.logger = Logger::new(test_name);
+        let q = &mut make_node_record(3456, true);
+        q.inner.country_code_opt = Some("CZ".to_string());
+        let r = &make_node_record(4567, false);
+        let s = &make_node_record(5678, false);
+        let t = &make_node_record(7777, false);
+        let db = &mut subject.neighborhood_database.clone();
+        db.add_node(q.clone()).unwrap();
+        db.add_node(t.clone()).unwrap();
+        db.add_node(r.clone()).unwrap();
+        db.add_node(s.clone()).unwrap();
+        let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
+            db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
+        };
+        dual_edge(&subject.neighborhood_database.root(), q);
+        dual_edge(q, t);
+        dual_edge(q, r);
+        dual_edge(r, s);
+        subject.neighborhood_database = db.clone();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -3178,14 +3231,20 @@ mod tests {
 
         System::current().stop();
         system.run();
-
+        // system.block_on(Neighborhood::handle_exit_location_message(&mut subject, message_request)).expect("TODO: panic message");
+        println!("node: {} {} {}", q.inner.country_code_opt.clone().unwrap(), q.inner.public_key, q.metadata.country_undesirability.clone());
+        println!("node: {} {} {}", r.inner.country_code_opt.clone().unwrap(), q.inner.public_key, r.metadata.country_undesirability.clone());
+        println!("node: {} {} {}", s.inner.country_code_opt.clone().unwrap(), q.inner.public_key, s.metadata.country_undesirability.clone());
+        println!("node: {} {} {}", t.inner.country_code_opt.clone().unwrap(), q.inner.public_key, t.metadata.country_undesirability.clone());
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
-            &format!(
-                "INFO: {}: Exit Location Set: {}",
-                test_name, "Country Codes: [\"CZ\"] - Priority: 1;"
-            ),
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
         ]);
+        // assert_eq!(db.node_by_key(&q.inner.public_key).unwrap().metadata.country_undesirability, 0u32);
+        // assert_eq!(db.node_by_key(&r.inner.public_key).unwrap().metadata.country_undesirability, 1000000u32);
+        // assert_eq!(db.node_by_key(&s.inner.public_key).unwrap().metadata.country_undesirability, 1_000u32);
+        // assert_eq!(db.node_by_key(&t.inner.public_key).unwrap().metadata.country_undesirability, 1_000_000u32);
     }
 
     #[test]

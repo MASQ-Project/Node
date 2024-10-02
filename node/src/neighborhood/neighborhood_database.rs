@@ -101,6 +101,10 @@ impl NeighborhoodDatabase {
         self.by_public_key.get_mut(public_key)
     }
 
+    pub fn nodes_mut(&mut self) -> Vec<&mut NodeRecord> {
+        self.by_public_key.iter_mut().map(|(_key, node_record)| node_record).collect()
+    }
+
     pub fn node_by_ip(&self, ip_addr: &IpAddr) -> Option<&NodeRecord> {
         match self.by_ip_addr.get(ip_addr) {
             Some(key) => self.node_by_key(key),
