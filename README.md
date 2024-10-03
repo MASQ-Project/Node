@@ -39,8 +39,7 @@ stage - MASQ Network and it's developers are not responsible for any activity, o
 ## Source
 The MASQ project was forked from Substratum's Node project in order to carry on development after Substratum ceased 
 operations in October of 2019. In 2021, Substratum's Node repositories were removed from GitHub, so the fork link
-with MASQ was broken, but all credit for the original idea, the original design, and the first two years of MASQ's
-development belongs to Substratum. 
+with MASQ was broken, but all credit for the original idea and the original design belongs to Substratum (and properly attributed through GPLv3 license) 
 
 ## Running the MASQ Node
 
@@ -452,6 +451,4 @@ recommend using a 64-bit version to build.
 
 We do plan to release binaries that will run on 32-bit Windows, but they will likely be built on 64-bit Windows.
 
-Copyright (c) 2019-2022, MASQ Network
-
-Copyright (c) 2017-2019, Substratum LLC and/or its affiliates. All rights reserved.
+Copyright (c) 2019-2024, MASQ Network
