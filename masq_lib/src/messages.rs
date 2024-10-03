@@ -859,7 +859,7 @@ impl From<(String, usize)> for CountryCodes {
         CountryCodes {
             country_codes: item
                 .0
-                .split(",")
+                .split(',')
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect::<Vec<String>>(),

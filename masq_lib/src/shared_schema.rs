@@ -562,22 +562,22 @@ pub mod common_validators {
     }
 
     pub fn validate_exit_location_pairs(exit_location: String) -> Result<(), String> {
-        let result = validate_pipe_separate_values(exit_location, |country: String| {
+        validate_pipe_separate_values(exit_location, |country: String| {
             let mut collect_fails = "".to_string();
             country.split(',').into_iter().for_each(|country_code| {
                 match validate_country_code(country_code.to_string()) {
                     Ok(_) => (),
                     Err(e) => {
-                        collect_fails.push_str(&format!("'{}': non-existent country code", e))
+                        collect_fails.push_str(&e);
+                        collect_fails.push_str(": non-existent country code");
                     }
                 }
             });
             match collect_fails.is_empty() {
                 true => Ok(()),
-                false => Err(collect_fails.to_string()),
+                false => Err(collect_fails),
             }
-        });
-        result
+        })
     }
 
     pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
@@ -1008,7 +1008,8 @@ mod tests {
 
     #[test]
     fn validate_exit_key_fails_on_non_provided_priority() {
-        let result = common_validators::validate_exit_location_pairs(String::from("CZ|SK:BB"));
+        //TODO review those two tests with priority ... delete or modify
+        let result = common_validators::validate_exit_location_pairs(String::from("CZ|SK,BB"));
 
         assert_eq!(result, Err("'CZ': you need to specify the priority, 'SK:BB': non-existent country codes or invalid priority, ".to_string()));
     }

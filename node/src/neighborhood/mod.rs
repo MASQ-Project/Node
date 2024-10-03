@@ -1468,7 +1468,8 @@ impl Neighborhood {
                     self.exit_countries.push(code.clone());
                 }
                 (cc.priority, cc.country_codes)
-            }).collect();
+            })
+            .collect();
         self.exit_locations_opt = match exit_locations_by_priority.is_empty() {
             true => None,
             false => Some(exit_locations_by_priority.clone()),
@@ -1497,9 +1498,16 @@ impl Neighborhood {
             };
             for (exit_priority, exit_countries) in &exit_locations_by_priority {
                 if exit_countries.contains(&country_code) {
-                    node_record.metadata.country_undesirability = 1_000 * (*exit_priority - 1) as u32;
+                    node_record.metadata.country_undesirability =
+                        1_000 * (*exit_priority - 1) as u32;
                 }
-                if !self.exit_countries.contains(node_record.inner.country_code_opt.as_ref().expect("expected Country Code")) {
+                if !self.exit_countries.contains(
+                    node_record
+                        .inner
+                        .country_code_opt
+                        .as_ref()
+                        .expect("expected Country Code"),
+                ) {
                     node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
                 }
                 // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
@@ -1511,7 +1519,7 @@ impl Neighborhood {
         }
         let exit_location_status = match self.exit_locations_opt {
             Some(_) => "Exit Location Set:",
-            None => "Exit Location Unset."
+            None => "Exit Location Unset.",
         };
         match self.exit_locations_opt {
             Some(_) => (),
@@ -3207,13 +3215,16 @@ mod tests {
         let test_name = "exit_location_can_be_changed_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
             fallback_routing: false,
-            exit_locations: vec![CountryCodes {
-                country_codes: vec!["CZ".to_string()],
-                priority: 1,
-            }, CountryCodes {
-                country_codes: vec!["FR".to_string()],
-                priority: 2,
-            }],
+            exit_locations: vec![
+                CountryCodes {
+                    country_codes: vec!["CZ".to_string()],
+                    priority: 1,
+                },
+                CountryCodes {
+                    country_codes: vec!["FR".to_string()],
+                    priority: 2,
+                },
+            ],
         };
         let message = NodeFromUiMessage {
             client_id: 0,
@@ -3254,12 +3265,50 @@ mod tests {
         let r_public_key_2 = r.inner.public_key.clone();
         let s_public_key_2 = s.inner.public_key.clone();
         let t_public_key_2 = t.inner.public_key.clone();
-        let assertion_msg = AssertionsMessage { assertions: Box::new( move |neighborhood: &mut Neighborhood| {
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&q_public_key).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, country is with Priority: 1");
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&r_public_key).unwrap().metadata.country_undesirability, 1_000_000u32, "We expecting 1 000 000, country is not requested for exit location");
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&s_public_key).unwrap().metadata.country_undesirability, 1_000u32, "We expecting 1 000, country is with Priority: 2");
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&t_public_key).unwrap().metadata.country_undesirability, 1_000_000u32, "We expecting 1 000 000, country is not requested for exit location");
-        }) };
+        let assertion_msg = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&q_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, country is with Priority: 1"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&r_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    1_000_000u32,
+                    "We expecting 1 000 000, country is not requested for exit location"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&s_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    1_000u32,
+                    "We expecting 1 000, country is with Priority: 2"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&t_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    1_000_000u32,
+                    "We expecting 1 000 000, country is not requested for exit location"
+                );
+            }),
+        };
         let request_2 = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![],
@@ -3268,12 +3317,50 @@ mod tests {
             client_id: 0,
             body: request_2.tmb(0),
         };
-        let assertion_msg_2 = AssertionsMessage { assertions: Box::new( move |neighborhood: &mut Neighborhood| {
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&q_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&r_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&s_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&t_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
-        }) };
+        let assertion_msg_2 = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&q_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&r_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&s_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&t_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+            }),
+        };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(message).unwrap();
         subject_addr.try_send(assertion_msg).unwrap();

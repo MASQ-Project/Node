@@ -11,7 +11,6 @@ use crate::sub_lib::neighborhood::NeighborhoodMode;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::utils::ExpectValue;
@@ -51,16 +50,10 @@ impl NeighborhoodDatabase {
             by_ip_addr: HashMap::new(),
             logger: Logger::new("NeighborhoodDatabase"),
         };
-
-        let location_opt = get_node_location(
-            Some(
-                neighborhood_mode
-                    .node_addr_opt()
-                    .unwrap_or_default()
-                    .ip_addr(),
-            ),
-            &COUNTRY_CODE_FINDER,
-        );
+        let location_opt = match neighborhood_mode.node_addr_opt() {
+            Some(node_addr) => get_node_location(Some(node_addr.ip_addr())),
+            None => None,
+        };
         let node_record_data = NodeRecordInputs {
             earning_wallet,
             rate_pack: *neighborhood_mode.rate_pack(),
@@ -102,7 +95,10 @@ impl NeighborhoodDatabase {
     }
 
     pub fn nodes_mut(&mut self) -> Vec<&mut NodeRecord> {
-        self.by_public_key.iter_mut().map(|(_key, node_record)| node_record).collect()
+        self.by_public_key
+            .iter_mut()
+            .map(|(_key, node_record)| node_record)
+            .collect()
     }
 
     pub fn node_by_ip(&self, ip_addr: &IpAddr) -> Option<&NodeRecord> {
@@ -381,7 +377,9 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, make_segmented_ip, make_segments};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_segmented_ip, make_segments,
+    };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
@@ -590,15 +588,27 @@ mod tests {
         let mut keys_nums: Vec<(PublicKey, u16)> = vec![];
         let mutable_nodes = subject.nodes_mut();
         for node in mutable_nodes {
-            node.metadata.node_addr_opt = Some(NodeAddr::new(&make_segmented_ip(make_segments(num)), &[num]));
+            node.metadata.node_addr_opt = Some(NodeAddr::new(
+                &make_segmented_ip(make_segments(num)),
+                &[num],
+            ));
             keys_nums.push((node.inner.public_key.clone(), num));
             num += 1;
         }
 
         for (pub_key, num) in keys_nums {
             assert_eq!(
-                &subject.node_by_key(&pub_key).unwrap().clone().metadata.node_addr_opt,
-                &Some(NodeAddr::new(&make_segmented_ip(make_segments(num)), &[num])));
+                &subject
+                    .node_by_key(&pub_key)
+                    .unwrap()
+                    .clone()
+                    .metadata
+                    .node_addr_opt,
+                &Some(NodeAddr::new(
+                    &make_segmented_ip(make_segments(num)),
+                    &[num]
+                ))
+            );
         }
     }
 
