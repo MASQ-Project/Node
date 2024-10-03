@@ -1477,7 +1477,6 @@ impl Neighborhood {
                 Some(code) => code.clone(),
                 None => "ZZ".to_string(),
             };
-            println!("db record: country_code: {:?}, country_undesirability {:?}", &country_code, node_record.metadata.country_undesirability);
             for (exit_priority, exit_countries) in &exit_location {
                 if exit_countries.contains(&country_code) {
                     node_record.metadata.country_undesirability = 1_000 * (*exit_priority - 1) as u32;
@@ -1487,7 +1486,6 @@ impl Neighborhood {
                     }
                 }
             }
-            println!("db record: country_code: {:?}, country_undesirability {:?}", &country_code, node_record.metadata.country_undesirability);
         }
         let location_set = ExitLocationSet(exit_location);
         info!(
@@ -3187,13 +3185,12 @@ mod tests {
             body: request.tmb(0),
         };
         let mut subject = make_standard_subject();
-        //TODO create separate test for apply country_undesirability to the nodes in NeighborhoodDatabase
-
         let system = System::new(test_name);
         let (ui_gateway, _, _) = make_recorder();
 
         subject.exit_locations_opt = None;
         subject.logger = Logger::new(test_name);
+
         let q = &mut make_node_record(3456, true);
         q.inner.country_code_opt = Some("CZ".to_string());
         let r = &make_node_record(4567, false);
@@ -3219,13 +3216,12 @@ mod tests {
         let s_public_key = s.inner.public_key.clone();
         let t_public_key = t.inner.public_key.clone();
         let assertion_msg = AssertionsMessage { assertions: Box::new( move |neighborhood: &mut Neighborhood| {
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&q_public_key).unwrap().metadata.country_undesirability, 0u32); //TODO add message to all there assertions
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&r_public_key).unwrap().metadata.country_undesirability, 1_000_000u32);
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&s_public_key).unwrap().metadata.country_undesirability, 1_000u32);
-            assert_eq!(neighborhood.neighborhood_database.node_by_key(&t_public_key).unwrap().metadata.country_undesirability, 1_000_000u32);
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&q_public_key).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, country is with Priority: 1");
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&r_public_key).unwrap().metadata.country_undesirability, 1_000_000u32, "We expecting 1 000 000, country is not requested for exit location");
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&s_public_key).unwrap().metadata.country_undesirability, 1_000u32, "We expecting 1 000, country is with Priority: 2");
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&t_public_key).unwrap().metadata.country_undesirability, 1_000_000u32, "We expecting 1 000 000, country is not requested for exit location");
         }) };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
         subject_addr.try_send(message).unwrap();
         subject_addr.try_send(assertion_msg).unwrap();
 
