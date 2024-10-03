@@ -92,13 +92,6 @@ pub mod tests {
 
     #[test]
     fn can_deserialize_ui_set_exit_location() {
-        // let json = r#"{"FallbackRouting":true,"ExitLocations":[{"CountryCodes":["CZ","SK"],"Priority":1},{"CountryCodes":["AT","DE"],"Priority":2},{"CountryCodes":["PL"],"Priority":3}]}"#
-        //     .to_string();
-        // let message_body = MessageBody {
-        //     opcode: "ExitLocation".to_string(),
-        //     path: Conversation(0),
-        //     payload: Ok(json),
-        // };
         let expected_request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![

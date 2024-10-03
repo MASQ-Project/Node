@@ -110,6 +110,7 @@ pub struct Neighborhood {
     logger: Logger,
     tools: NeighborhoodTools,
     exit_locations_opt: Option<HashMap<usize, Vec<String>>>,
+    exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
     fallback_routing: bool,
 }
 
@@ -503,6 +504,7 @@ impl Neighborhood {
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
             exit_locations_opt: None,
+            exit_countries: vec![],
             fallback_routing: true,
         }
     }
@@ -1458,14 +1460,30 @@ impl Neighborhood {
     }
 
     fn handle_exit_location_message(&mut self, message: UiSetExitLocationRequest) {
-        let exit_location: HashMap<usize, Vec<String>> = message
+        let exit_locations_by_priority: HashMap<usize, Vec<String>> = message
             .exit_locations
             .into_iter()
-            .map(|cc| (cc.priority, cc.country_codes)).collect();
-        self.exit_locations_opt = match exit_location.is_empty() {
+            .map(|cc| {
+                for code in &cc.country_codes {
+                    self.exit_countries.push(code.clone());
+                }
+                (cc.priority, cc.country_codes)
+            }).collect();
+        self.exit_locations_opt = match exit_locations_by_priority.is_empty() {
             true => None,
-            false => Some(exit_location.clone()),
+            false => Some(exit_locations_by_priority.clone()),
         };
+
+        // You can set exit-location --country-codes "CZ" without --fallback-routing argument and in that case, tha fallback-routing will be set OFF. In case, you do
+        // not specify the --country-codes and neither --fallback-routing, then country-codes will be set OFF and fallback-routing will be set ON.
+
+        // exit-location --country-codes --fallback-routing                 // disable exit-location
+        // exit-location --fallback-routing                                 // disable exit-location
+        // exit-location                                                    // disable exit-location
+        //
+        // exit-location --country-codes "CZ,PL|SK" --fallback-routing      // fallback-routing is ON
+        // exit-location --country-codes "CZ|SK"                            // fallback-routing is OFF
+
         self.fallback_routing = message.fallback_routing;
         let fallback_status = match self.fallback_routing {
             true => "is",
@@ -1477,17 +1495,34 @@ impl Neighborhood {
                 Some(code) => code.clone(),
                 None => "ZZ".to_string(),
             };
-            for (exit_priority, exit_countries) in &exit_location {
+            for (exit_priority, exit_countries) in &exit_locations_by_priority {
                 if exit_countries.contains(&country_code) {
                     node_record.metadata.country_undesirability = 1_000 * (*exit_priority - 1) as u32;
-                } else {
-                    if node_record.metadata.country_undesirability == 0 {
-                        node_record.metadata.country_undesirability = 1_000_000u32;
-                    }
+                }
+                if !self.exit_countries.contains(node_record.inner.country_code_opt.as_ref().expect("expected Country Code")) {
+                    node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
+                }
+                // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
+                // --country-codes "CZ|DE" --falback-routing
+                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 2000
+                // --country-codes "CZ|DE"
+                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 100_000_000
+            }
+        }
+        let exit_location_status = match self.exit_locations_opt {
+            Some(_) => "Exit Location Set:",
+            None => "Exit Location Unset."
+        };
+        match self.exit_locations_opt {
+            Some(_) => (),
+            None => {
+                let nodes = self.neighborhood_database.nodes_mut();
+                for node_record in nodes {
+                    node_record.metadata.country_undesirability = 0u32;
                 }
             }
         }
-        let location_set = ExitLocationSet(exit_location);
+        let location_set = ExitLocationSet(exit_locations_by_priority);
         info!(
             self.logger,
             "{}",
@@ -1496,7 +1531,7 @@ impl Neighborhood {
         info!(
             self.logger,
             "{}",
-            format!("Exit Location Set:{}", location_set)
+            format!("{}{}", exit_location_status, location_set)
         );
     }
 
@@ -3215,15 +3250,35 @@ mod tests {
         let r_public_key = r.inner.public_key.clone();
         let s_public_key = s.inner.public_key.clone();
         let t_public_key = t.inner.public_key.clone();
+        let q_public_key_2 = q.inner.public_key.clone();
+        let r_public_key_2 = r.inner.public_key.clone();
+        let s_public_key_2 = s.inner.public_key.clone();
+        let t_public_key_2 = t.inner.public_key.clone();
         let assertion_msg = AssertionsMessage { assertions: Box::new( move |neighborhood: &mut Neighborhood| {
             assert_eq!(neighborhood.neighborhood_database.node_by_key(&q_public_key).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, country is with Priority: 1");
             assert_eq!(neighborhood.neighborhood_database.node_by_key(&r_public_key).unwrap().metadata.country_undesirability, 1_000_000u32, "We expecting 1 000 000, country is not requested for exit location");
             assert_eq!(neighborhood.neighborhood_database.node_by_key(&s_public_key).unwrap().metadata.country_undesirability, 1_000u32, "We expecting 1 000, country is with Priority: 2");
             assert_eq!(neighborhood.neighborhood_database.node_by_key(&t_public_key).unwrap().metadata.country_undesirability, 1_000_000u32, "We expecting 1 000 000, country is not requested for exit location");
         }) };
+        let request_2 = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![],
+        };
+        let message_2 = NodeFromUiMessage {
+            client_id: 0,
+            body: request_2.tmb(0),
+        };
+        let assertion_msg_2 = AssertionsMessage { assertions: Box::new( move |neighborhood: &mut Neighborhood| {
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&q_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&r_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&s_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
+            assert_eq!(neighborhood.neighborhood_database.node_by_key(&t_public_key_2).unwrap().metadata.country_undesirability, 0u32, "We expecting zero, exit_location was unset");
+        }) };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(message).unwrap();
         subject_addr.try_send(assertion_msg).unwrap();
+        subject_addr.try_send(message_2).unwrap();
+        subject_addr.try_send(assertion_msg_2).unwrap();
 
         System::current().stop();
         system.run();
@@ -3232,6 +3287,8 @@ mod tests {
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
             &format!("INFO: {}: Exit Location Set:", test_name),
             &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
+            &format!("INFO: {}: Fallback Routing is Set.", test_name),
+            &format!("INFO: {}: Exit Location Unset.", test_name),
         ]);
     }
 

@@ -585,8 +585,6 @@ mod tests {
         );
         subject.add_node(node_a.clone()).unwrap();
         subject.add_node(node_b.clone()).unwrap();
-        subject.add_arbitrary_half_neighbor(node_a.public_key(), node_b.public_key());
-        subject.add_arbitrary_half_neighbor(node_b.public_key(), node_a.public_key());
 
         let mut num: u16 = 7890;
         let mut keys_nums: Vec<(PublicKey, u16)> = vec![];
