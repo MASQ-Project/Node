@@ -25,5 +25,6 @@ format "$CI_DIR"/../dns_utility
 format "$CI_DIR"/../masq
 format "$CI_DIR"/../multinode_integration_tests
 format "$CI_DIR"/../port_exposer
+format "$CI_DIR"/../ip_country
 
 exit $final_exit_code
