@@ -3202,7 +3202,7 @@ mod tests {
     }
 
     #[test]
-    fn exit_location_is_set_with_fallback_routing_false_using_exit_location_msg() {
+    fn exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg() {
         init_test_logging();
         let test_name = "exit_location_can_be_changed_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
