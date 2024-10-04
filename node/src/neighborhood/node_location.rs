@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use ip_country_lib;
-use ip_country_lib::country_finder::CountryCodeFinder;
+use ip_country_lib::country_finder::{CountryCodeFinder, COUNTRY_CODE_FINDER};
 use std::net::IpAddr;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

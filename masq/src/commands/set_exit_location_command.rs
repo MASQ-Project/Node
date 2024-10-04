@@ -67,7 +67,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
             Arg::with_name("country-codes")
                 .long("country-codes")
                 .value_name("COUNTRY-CODES")
-                .validator(common_validators::validate_exit_location_pairs)
+                .validator(common_validators::validate_exit_locations)
                 .help(COUNTRY_CODES_HELP)
                 .required(true)
         )

@@ -50,7 +50,16 @@ pub const EARNING_WALLET_HELP: &str =
      careful to supply exactly the same one you supplied before.";
 pub const EXIT_LOCATION_HELP: &str =
     "Choose your Exit Location for access the internet. You can choose from all countries, available in \
-    your Neighborhood.";
+    your Neighborhood. \n\
+    You can set exit-location --country-codes \"CZ\" without --fallback-routing argument and in that case, \
+    the fallback-routing will be set OFF. In case, you do not specify the --country-codes and neither --fallback-routing, \
+    then country-codes will be set OFF and fallback-routing will be set ON.\n\n\
+        exit-location --country-codes --fallback-routing                    disable exit-location\
+        exit-location --fallback-routing                                    disable exit-location\
+        exit-location                                                       disable exit-location\n\n\
+        exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       fallback-routing is ON \
+        exit-location --country-codes \"CZ|SK\"                             fallback-routing is OFF\
+    ";
 pub const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
      address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
@@ -314,7 +323,7 @@ pub fn exit_location_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("exit-location")
         .long("exit-location")
         .value_name("EXIT-LOCATION")
-        .validator(common_validators::validate_exit_location_pairs)
+        .validator(common_validators::validate_exit_locations)
         .help(EXIT_LOCATION_HELP)
 }
 
@@ -367,7 +376,7 @@ fn exit_location_parameter<'a>() -> Arg<'a, 'a> {
         .value_name("EXIT-LOCATION")
         .min_values(0)
         .max_values(1)
-        .validator(common_validators::validate_exit_location_pairs)
+        .validator(common_validators::validate_exit_locations)
         .help(EXIT_LOCATION_HELP)
 }
 
@@ -507,10 +516,9 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
     use csv::StringRecord;
-    use ip_country_lib::country_block_stream::{Country, CountryBlock, IpRange};
+    use ip_country_lib::country_block_stream::CountryBlock;
     use regex::Regex;
     use std::net::IpAddr;
-    use std::net::Ipv4Addr;
     use std::str::FromStr;
     use tiny_hderive::bip44::DerivationPath;
 
@@ -547,30 +555,20 @@ pub mod common_validators {
 
     pub fn validate_country_code(country_code: String) -> Result<(), String> {
         let country_range = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", country_code.as_str()]);
-        let country_block = CountryBlock::try_from(country_range);
-        let index = country_block.as_ref().unwrap().country.index;
-        let controll_cb = CountryBlock {
-            country: Country::try_from(index).unwrap(),
-            ip_range: IpRange::V4(Ipv4Addr::new(1, 2, 3, 4), Ipv4Addr::new(5, 6, 7, 8)),
-        };
 
-        if country_block == Ok(controll_cb) {
-            Ok(())
-        } else {
-            Err(country_code)
+        match CountryBlock::try_from(country_range) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
         }
     }
 
-    pub fn validate_exit_location_pairs(exit_location: String) -> Result<(), String> {
+    pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
         validate_pipe_separate_values(exit_location, |country: String| {
             let mut collect_fails = "".to_string();
             country.split(',').into_iter().for_each(|country_code| {
                 match validate_country_code(country_code.to_string()) {
                     Ok(_) => (),
-                    Err(e) => {
-                        collect_fails.push_str(&e);
-                        collect_fails.push_str(": non-existent country code");
-                    }
+                    Err(e) => collect_fails.push_str(&e),
                 }
             });
             match collect_fails.is_empty() {
@@ -789,7 +787,19 @@ mod tests {
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
         );
-        assert_eq!(EXIT_LOCATION_HELP, "TODO create proper Country Code HELP.");
+        assert_eq!(
+            EXIT_LOCATION_HELP,
+           "Choose your Exit Location for access the internet. You can choose from all countries, available in \
+            your Neighborhood. \n\
+            You can set exit-location --country-codes \"CZ\" without --fallback-routing argument and in that case, \
+            the fallback-routing will be set OFF. In case, you do not specify the --country-codes and neither --fallback-routing, \
+            then country-codes will be set OFF and fallback-routing will be set ON.\n\n\
+                exit-location --country-codes --fallback-routing                    disable exit-location\
+                exit-location --fallback-routing                                    disable exit-location\
+                exit-location                                                       disable exit-location\n\n\
+                exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       fallback-routing is ON \
+                exit-location --country-codes \"CZ|SK\"                             fallback-routing is OFF"
+        );
         assert_eq!(
             DATA_DIRECTORY_HELP,
             "Directory in which the Node will store its persistent state, including at \
@@ -1007,16 +1017,18 @@ mod tests {
     }
 
     #[test]
-    fn validate_exit_key_fails_on_non_provided_priority() {
-        //TODO review those two tests with priority ... delete or modify
-        let result = common_validators::validate_exit_location_pairs(String::from("CZ|SK,BB"));
+    fn validate_exit_key_fails_on_not_valid_country_code() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR"));
 
-        assert_eq!(result, Err("'CZ': you need to specify the priority, 'SK:BB': non-existent country codes or invalid priority, ".to_string()));
+        assert_eq!(
+            result,
+            Err("'RR' is not a valid ISO3166 country code".to_string())
+        );
     }
 
     #[test]
     fn validate_exit_key_success() {
-        let result = common_validators::validate_exit_location_pairs(String::from("CZ:1|SK:2"));
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK"));
 
         assert_eq!(result, Ok(()));
     }

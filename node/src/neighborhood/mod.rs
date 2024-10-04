@@ -75,7 +75,6 @@ use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -556,7 +555,7 @@ impl Neighborhood {
     }
 
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
-        let node_location_opt = get_node_location(Some(new_public_ip), &COUNTRY_CODE_FINDER);
+        let node_location_opt = get_node_location(Some(new_public_ip));
         self.neighborhood_database
             .root_mut()
             .metadata
@@ -3203,8 +3202,18 @@ mod tests {
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
             &format!("INFO: {}: Exit Location Set:", test_name),
+
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
             &format!("{}", "Country Codes: [\"CZ\", \"SK\"] - Priority: 1;"),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
             &format!("{}", "Country Codes: [\"AT\", \"DE\"] - Priority: 2;"),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
             &format!("{}", "Country Codes: [\"PL\", \"HU\"] - Priority: 3;"),
         ]);
     }
@@ -3373,7 +3382,11 @@ mod tests {
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
             &format!("INFO: {}: Exit Location Set:", test_name),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
             &format!("INFO: {}: Exit Location Unset.", test_name),
         ]);
