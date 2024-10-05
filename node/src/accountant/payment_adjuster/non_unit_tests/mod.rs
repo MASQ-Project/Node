@@ -24,7 +24,7 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::{Either, Itertools};
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::convert_collection;
 use rand;
@@ -441,7 +441,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
-        .agreed_transaction_fee_margin_result(Percentage::new(15))
+        .agreed_transaction_fee_margin_result(PurePercentage::try_from(15).unwrap())
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {

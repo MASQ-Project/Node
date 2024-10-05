@@ -85,7 +85,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::sub_lib::wallet::Wallet;
     use masq_lib::logger::Logger;
-    use masq_lib::percentage::Percentage;
+    use masq_lib::percentage::PurePercentage;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
 
@@ -184,7 +184,7 @@ mod tests {
 
         let result = subject.agreed_transaction_fee_margin();
 
-        assert_eq!(result, Percentage::new(0));
+        assert_eq!(result, PurePercentage::try_from(0).unwrap());
         assert_error_log(test_name, "agreed_transaction_fee_margin")
     }
 

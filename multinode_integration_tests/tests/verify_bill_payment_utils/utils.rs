@@ -2,6 +2,7 @@
 
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
@@ -38,7 +39,6 @@ use std::io::Read;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
-use itertools::Itertools;
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, TransactionRequest};
@@ -165,7 +165,8 @@ impl TestInputsBuilder {
             .expect("You forgot providing a mandatory input: debts config")
             .debts
             .to_vec();
-        let (consuming_node_ui_port_opt, serving_nodes_ui_ports_opt) = Self::resolve_ports(self.ui_ports_opt);
+        let (consuming_node_ui_port_opt, serving_nodes_ui_ports_opt) =
+            Self::resolve_ports(self.ui_ports_opt);
         let mut serving_nodes_ui_ports_opt = serving_nodes_ui_ports_opt.to_vec();
         let consuming_node = ConsumingNodeProfile {
             ui_port_opt: consuming_node_ui_port_opt,
@@ -181,14 +182,15 @@ impl TestInputsBuilder {
             ServingNodeByName::ServingNode3,
         ]
         .into_iter()
-        .map(|serving_node_by_name|{
+        .map(|serving_node_by_name| {
             let debt = debts.remove(0);
             let ui_port_opt = serving_nodes_ui_ports_opt.remove(0);
             ServingNodeProfile {
-            serving_node_by_name,
-            debt,
-            ui_port_opt,
-        }})
+                serving_node_by_name,
+                debt,
+                ui_port_opt,
+            }
+        })
         .collect::<Vec<_>>();
         let node_profiles = NodeProfiles {
             consuming_node,
@@ -206,8 +208,10 @@ impl TestInputsBuilder {
     fn resolve_ports(ui_ports_opt: Option<Ports>) -> (Option<u16>, [Option<u16>; 3]) {
         match ui_ports_opt {
             Some(ui_ports) => {
-                let mut ui_ports_as_opt = ui_ports.serving_nodes.into_iter().map(Some).collect_vec();
-                let serving_nodes_array: [Option<u16>; 3] = core::array::from_fn(|_| ui_ports_as_opt.remove(0));
+                let mut ui_ports_as_opt =
+                    ui_ports.serving_nodes.into_iter().map(Some).collect_vec();
+                let serving_nodes_array: [Option<u16>; 3] =
+                    core::array::from_fn(|_| ui_ports_as_opt.remove(0));
                 (Some(ui_ports.consuming_node), serving_nodes_array)
             }
             None => Default::default(),
@@ -248,9 +252,7 @@ pub struct FinalServiceFeeBalancesByServingNodes {
 impl FinalServiceFeeBalancesByServingNodes {
     pub fn new(node_1: u128, node_2: u128, node_3: u128) -> Self {
         let balances = [node_1, node_2, node_3];
-        Self {
-            balances,
-        }
+        Self { balances }
     }
 }
 

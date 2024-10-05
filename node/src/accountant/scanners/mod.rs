@@ -304,7 +304,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
                     logger,
                     "Insolvency detected led to an analysis of feasibility for making payments \
                     adjustment, however, giving no satisfactory solution. Please be advised that \
-                    your balances can cover neither reasonable portion of any of those payables \
+                    your balances can cover neither reasonable portion of those payables \
                     recently qualified for an imminent payment. You must add more funds into your \
                     consuming wallet in order to stay off delinquency bans that your creditors may \
                     apply against you otherwise. Details: {}.",
@@ -340,6 +340,15 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
                 None
             }
         }
+    }
+
+    fn scan_canceled_by_payment_instructor(&mut self, logger: &Logger) {
+        error!(
+            logger,
+            "Payable scanner is blocked from preparing instructions for payments. If matured payables \
+            are not repaid in time, creditors may treat you with a ban"
+        );
+        self.mark_as_ended(logger)
     }
 }
 

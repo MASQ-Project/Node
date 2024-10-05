@@ -36,6 +36,8 @@ pub trait SolvencySensitivePaymentInstructor {
         setup: PreparedAdjustment,
         logger: &Logger,
     ) -> Option<OutboundPaymentsInstructions>;
+
+    fn scan_canceled_by_payment_instructor(&mut self, logger: &Logger);
 }
 
 pub struct PreparedAdjustment {

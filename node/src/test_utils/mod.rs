@@ -571,7 +571,6 @@ pub mod unshared_test_utils {
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::env::current_dir;
     use std::num::ParseIntError;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::{Path, PathBuf};
@@ -966,6 +965,7 @@ pub mod unshared_test_utils {
 
     pub mod arbitrary_id_stamp {
         use super::*;
+        use masq_lib::test_utils::utils::MutexIncrementInset;
 
         //The issues we are to solve might look as follows:
 

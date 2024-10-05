@@ -384,12 +384,13 @@ impl ThresholdUtils {
         and the denominator must be less than or equal to 10^9.
 
         These restrictions do not seem overly strict for having .permanent_debt_allowed greater
-        than or equal to .debt_threshold_gwei would not make any sense and setting
-        .threshold_interval_sec over 10^9 would mean stretching out for debts across more than
-        31 years.
+        than or equal to .debt_threshold_gwei would be silly (this is because the former one defines
+        the absolutely lowest point of the threshold curves) and setting .threshold_interval_sec
+        to more than 10^9 seconds would mean the user would allow for debts stretching out into 31
+        years of age.
 
-        If payment_thresholds are ever configurable by the user, these validations should be done
-        on the values before they are accepted.
+        As long as the thresholds are configurable in a set, a validation should always be done on
+        some of these values before they are loaded in.
         */
 
         (gwei_to_wei::<i128, u64>(payment_thresholds.permanent_debt_allowed_gwei)

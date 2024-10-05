@@ -76,7 +76,6 @@ pub fn to_millis(dur: &Duration) -> u64 {
     (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
 }
 
-#[cfg(not(feature = "no_test_share"))]
 pub struct MutexIncrementInset(pub usize);
 
 #[cfg(test)]

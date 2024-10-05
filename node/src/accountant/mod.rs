@@ -139,12 +139,12 @@ pub struct QualifiedPayableAccount {
 
 impl QualifiedPayableAccount {
     pub fn new(
-        qualified_as: PayableAccount,
+        bare_account: PayableAccount,
         payment_threshold_intercept_minor: u128,
         creditor_thresholds: CreditorThresholds,
     ) -> QualifiedPayableAccount {
         Self {
-            bare_account: qualified_as,
+            bare_account,
             payment_threshold_intercept_minor,
             creditor_thresholds,
         }
@@ -265,7 +265,7 @@ impl Handler<BlockchainAgentWithContextMessage> for Accountant {
         msg: BlockchainAgentWithContextMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_payable_payment_setup(msg)
+        self.send_outbound_payments_instructions(msg)
     }
 }
 
@@ -703,48 +703,61 @@ impl Accountant {
         })
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: BlockchainAgentWithContextMessage) {
+    fn send_outbound_payments_instructions(&mut self, msg: BlockchainAgentWithContextMessage) {
         let response_skeleton_opt = msg.response_skeleton_opt;
-        let blockchain_bridge_instructions_opt = match self
+        if let Some(blockchain_bridge_instructions) = self.try_composing_instructions(msg) {
+            self.outbound_payments_instructions_sub_opt
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(blockchain_bridge_instructions)
+                .expect("BlockchainBridge is dead")
+        } else {
+            self.handle_obstruction(response_skeleton_opt)
+        }
+    }
+
+    fn try_composing_instructions(
+        &mut self,
+        msg: BlockchainAgentWithContextMessage,
+    ) -> Option<OutboundPaymentsInstructions> {
+        let analysed_without_an_error = match self
             .scanners
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
         {
-            Some(Either::Left(complete_msg)) => Some(complete_msg),
-            Some(Either::Right(unaccepted_msg)) => {
-                //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
-                self.scanners
-                    .payable
-                    .perform_payment_adjustment(unaccepted_msg, &self.logger)
-            }
-            None => None,
+            Some(analysed) => analysed,
+            None => return None,
         };
 
-        match blockchain_bridge_instructions_opt {
-            Some(blockchain_bridge_instructions) => self
-                .outbound_payments_instructions_sub_opt
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .try_send(blockchain_bridge_instructions)
-                .expect("BlockchainBridge is dead"),
-            None => {
-                error!(
-                    self.logger,
-                    "Payable scanner could not finish. If matured payables stay untreated long, your \
-                    creditors may impose a ban on you"
-                );
-                self.scanners.payable.mark_as_ended(&self.logger);
-                if let Some(response_skeleton) = response_skeleton_opt {
-                    self.ui_message_sub_opt
-                        .as_ref()
-                        .expect("UI gateway unbound")
-                        .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(response_skeleton.client_id),
-                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                        })
-                        .expect("UI gateway is dead")
-                }
+        match analysed_without_an_error {
+            Either::Left(prepared_msg_with_unadjusted_payables) => {
+                Some(prepared_msg_with_unadjusted_payables)
             }
+            Either::Right(adjustment_order) => {
+                //TODO we will eventually query info from Neighborhood before the adjustment,
+                // according to GH-699, but probably with asynchronous messages that will be
+                // more in favour after GH-676
+                self.scanners
+                    .payable
+                    .perform_payment_adjustment(adjustment_order, &self.logger)
+            }
+        }
+    }
+
+    fn handle_obstruction(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
+        self.scanners
+            .payable
+            .scan_canceled_by_payment_instructor(&self.logger);
+
+        if let Some(response_skeleton) = response_skeleton_opt {
+            self.ui_message_sub_opt
+                .as_ref()
+                .expect("UI gateway unbound")
+                .try_send(NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                })
+                .expect("UI gateway is dead")
         }
     }
 
@@ -1760,7 +1773,7 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Insolvency detected led to an analysis of feasibility for making \
             payments adjustment, however, giving no satisfactory solution. Please be advised that \
-            your balances can cover neither reasonable portion of any of those payables recently \
+            your balances can cover neither reasonable portion of those payables recently \
             qualified for an imminent payment. You must add more funds into your consuming wallet \
             in order to stay off delinquency bans that your creditors may apply against you \
             otherwise. Details: Current transaction fee balance is not enough to pay a single \
@@ -1770,8 +1783,8 @@ mod tests {
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay \
-            untreated long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
+            If matured payables are not repaid in time, creditors may treat you with a ban"
         ));
     }
 
@@ -1799,8 +1812,8 @@ mod tests {
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated \
-            long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
+            If matured payables are not repaid in time, creditors may treat you with a ban"
         ));
     }
 
@@ -1835,13 +1848,13 @@ mod tests {
             None,
         );
 
-        subject.handle_payable_payment_setup(msg);
+        subject.send_outbound_payments_instructions(msg);
 
         // Test didn't blow up while the subject was unbound to other actors
         // therefore we didn't attempt to send the NodeUiMessage
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated \
-            long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
+            If matured payables are not repaid in time, creditors may treat you with a ban"
         ));
     }
 
