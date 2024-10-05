@@ -172,9 +172,9 @@ pub struct CreditorThresholds {
 }
 
 impl CreditorThresholds {
-    pub fn new(permanent_debt_allowed_wei: u128) -> Self {
+    pub fn new(permanent_debt_allowed_minor: u128) -> Self {
         Self {
-            permanent_debt_allowed_minor: permanent_debt_allowed_wei,
+            permanent_debt_allowed_minor,
         }
     }
 }
@@ -1490,9 +1490,6 @@ mod tests {
     #[test]
     fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not match either the condition for
-        // the payment adjustment or the actual values that come from the payable size reducing
-        // algorithm: all that is mocked in this test
         init_test_logging();
         let test_name = "received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge";
         let search_for_indispensable_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1505,8 +1502,8 @@ mod tests {
         let account_1 = make_payable_account(44_444);
         let account_2 = make_payable_account(333_333);
         let qualified_payables = vec![
-            QualifiedPayableAccount::new(account_1.clone(), 2345, CreditorThresholds::new(1111)),
-            QualifiedPayableAccount::new(account_2.clone(), 6789, CreditorThresholds::new(2222)),
+            {let mut qp= make_non_guaranteed_qualified_payable(1234); qp.bare_account = account_1.clone(); qp},
+            {let mut qp= make_non_guaranteed_qualified_payable(6789); qp.bare_account = account_2.clone(); qp}
         ];
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_params(
@@ -1525,11 +1522,9 @@ mod tests {
         let system = System::new("test");
         let expected_agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(expected_agent_id_stamp);
-
+        let protected_qualified_payables = protect_qualified_payables_in_test(qualified_payables.clone());
         let msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_qualified_payables_in_test(
-                qualified_payables.clone(),
-            ),
+            protected_qualified_payables,
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1573,9 +1568,7 @@ mod tests {
     #[test]
     fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not match either the condition for
-        // the payment adjustment or the actual values that come from the payable size reducing algorithm;
-        // all that is mocked in this test
+        // The numbers in balances, etc. don't do real math, the payment adjuster is mocked
         init_test_logging();
         let test_name = "received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge";
         let adjust_payments_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1585,24 +1578,16 @@ mod tests {
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
-        let unadjusted_account_1 = QualifiedPayableAccount::new(
-            make_payable_account(111_111),
-            1234567,
-            CreditorThresholds::new(1111111),
-        );
-        let unadjusted_account_2 = QualifiedPayableAccount::new(
-            make_payable_account(999_999),
-            444555666,
-            CreditorThresholds::new(111111111),
-        );
-        let adjusted_account_1 = PayableAccount {
-            balance_wei: gwei_to_wei(55_550_u64),
-            ..unadjusted_account_1.bare_account.clone()
+        let prepare_unadjusted_and_adjusted_payable = |n: u64| {
+            let unadjusted_account = make_non_guaranteed_qualified_payable(n);
+            let adjusted_account =  PayableAccount {
+                balance_wei: gwei_to_wei(n / 3),
+                ..unadjusted_account.bare_account.clone()
+            };
+            (unadjusted_account, adjusted_account)
         };
-        let adjusted_account_2 = PayableAccount {
-            balance_wei: gwei_to_wei(100_000_u64),
-            ..unadjusted_account_2.bare_account.clone()
-        };
+        let (unadjusted_account_1, adjusted_account_1) = prepare_unadjusted_and_adjusted_payable(12345678);
+        let (unadjusted_account_2, adjusted_account_2) = prepare_unadjusted_and_adjusted_payable(33445566);
         let response_skeleton = ResponseSkeleton {
             client_id: 12,
             context_id: 55,
@@ -1690,7 +1675,7 @@ mod tests {
         assert_eq!(blockchain_bridge_recording.len(), 1);
     }
 
-    fn test_handling_payment_adjuster_error(
+    fn test_payment_adjuster_error_during_different_stages(
         test_name: &str,
         payment_adjuster: PaymentAdjusterMock,
     ) {
@@ -1713,8 +1698,7 @@ mod tests {
         subject.ui_message_sub_opt = Some(ui_gateway_recipient);
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
-        let scan_started_at = SystemTime::now();
-        subject.scanners.payable.mark_as_started(scan_started_at);
+        subject.scanners.payable.mark_as_started(SystemTime::now());
         let subject_addr = subject.start();
         let account = make_payable_account(111_111);
         let qualified_payable =
@@ -1752,22 +1736,22 @@ mod tests {
     }
 
     #[test]
-    fn payment_adjuster_throws_out_an_error_from_the_insolvency_check() {
+    fn payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check() {
         init_test_logging();
-        let test_name = "payment_adjuster_throws_out_an_error_from_the_insolvency_check";
+        let test_name = "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Err(
                 PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 1,
                     transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                        per_transaction_requirement_minor: 60 * 55_000,
+                        per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
                         cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
                     }),
                     service_fee_opt: None,
                 },
             ));
 
-        test_handling_payment_adjuster_error(test_name, payment_adjuster);
+        test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
@@ -1777,8 +1761,8 @@ mod tests {
             qualified for an imminent payment. You must add more funds into your consuming wallet \
             in order to stay off delinquency bans that your creditors may apply against you \
             otherwise. Details: Current transaction fee balance is not enough to pay a single \
-            payment. Number of canceled payments: 1. Transaction fee per payment: 3,300,000 wei, \
-            while the wallet contains: 123,000,000,000 wei."
+            payment. Number of canceled payments: 1. Transaction fee per payment: \
+            3,300,000,000,000,000 wei, while the wallet contains: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
@@ -1789,10 +1773,10 @@ mod tests {
     }
 
     #[test]
-    fn payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong() {
+    fn payment_adjuster_throws_out_an_error_during_stage_two_adjustment_went_wrong() {
         init_test_logging();
         let test_name =
-            "payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong";
+            "payment_adjuster_throws_out_an_error_during_stage_two_adjustment_went_wrong";
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Ok(Either::Right(AdjustmentAnalysis::new(
                 Adjustment::ByServiceFee,
@@ -1800,7 +1784,7 @@ mod tests {
             ))))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
 
-        test_handling_payment_adjuster_error(test_name, payment_adjuster);
+        test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
