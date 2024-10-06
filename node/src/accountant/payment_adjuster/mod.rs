@@ -2011,8 +2011,8 @@ mod tests {
         let panic_msg = err.downcast_ref::<String>().unwrap();
         assert_eq!(
             panic_msg,
-            "Broken code: Broken code: Called the null implementation of \
-        the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+            "Broken code: Called the null implementation of \
+            the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
         )
     }
 

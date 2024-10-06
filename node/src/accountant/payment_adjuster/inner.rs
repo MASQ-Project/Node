@@ -69,7 +69,7 @@ pub struct PaymentAdjusterInnerNull {}
 impl PaymentAdjusterInnerNull {
     fn panicking_operation(operation: &str) -> ! {
         panic!(
-            "Broken code: Broken code: Called the null implementation of the {} method in PaymentAdjusterInner",
+            "Broken code: Called the null implementation of the {} method in PaymentAdjusterInner",
             operation
         )
     }

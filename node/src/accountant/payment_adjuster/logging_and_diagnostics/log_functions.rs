@@ -8,7 +8,6 @@ use itertools::Itertools;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
-use std::iter::once;
 use std::ops::Not;
 use thousands::Separable;
 use web3::types::U256;
@@ -21,72 +20,122 @@ Passed successfully adjustment by transaction fee, then rechecked the service fe
 applied on the adjusted set, but discovered a shortage of MASQ not to suffice even for a single \
 transaction. Operation is aborting.";
 
-const BLANK_SPACE: &str = "";
+const EMPTY_STR: &str = "";
 
-pub fn format_brief_adjustment_summary(
+pub fn accounts_before_and_after_debug(
     original_account_balances_mapped: HashMap<Wallet, u128>,
     adjusted_accounts: &[PayableAccount],
 ) -> String {
-    fn format_summary_for_included_accounts(
-        original_account_balances_mapped: &HashMap<Wallet, u128>,
-        adjusted_accounts: &[PayableAccount],
-    ) -> String {
-        adjusted_accounts
-            .iter()
-            .sorted_by(|account_a, account_b| {
-                Ord::cmp(&account_b.balance_wei, &account_a.balance_wei)
-            })
-            .map(|account| {
-                format!(
-                    "{} {}\n{:^length$} {}",
-                    account.wallet,
-                    original_account_balances_mapped
-                        .get(&account.wallet)
-                        .expectv("initial balance")
-                        .separate_with_commas(),
-                    BLANK_SPACE,
-                    account.balance_wei.separate_with_commas(),
-                    length = WALLET_ADDRESS_LENGTH
-                )
-            })
-            .join("\n")
-    }
-    fn format_summary_for_excluded_accounts(excluded: &[(&Wallet, u128)]) -> String {
-        let title = once(format!(
-            "\n{:<length$} Original\n",
-            "Ruled Out Accounts",
-            length = WALLET_ADDRESS_LENGTH
-        ));
-        let list = excluded
-            .iter()
-            .sorted_by(|(_, balance_account_a), (_, balance_account_b)| {
-                Ord::cmp(&balance_account_b, &balance_account_a)
-            })
-            .map(|(wallet, original_balance)| {
-                format!("{} {}", wallet, original_balance.separate_with_commas())
-            });
-        title.chain(list).join("\n")
-    }
+    let excluded_wallets_and_balances =
+        preprocess_excluded_accounts(&original_account_balances_mapped, adjusted_accounts);
+    let excluded_accounts_summary = excluded_wallets_and_balances.is_empty().not().then(|| {
+        write_title_and_summary(
+            &excluded_accounts_title(),
+            &format_summary_for_excluded_accounts(&excluded_wallets_and_balances),
+        )
+    });
+    let included_accounts = write_title_and_summary(
+        &included_accounts_title(),
+        &format_summary_for_included_accounts(&original_account_balances_mapped, adjusted_accounts),
+    );
+    concatenate_summaries(included_accounts, excluded_accounts_summary)
+}
 
+fn included_accounts_title() -> String {
+    format!(
+        "{:<length$} {}\n\
+         \n\
+         {:<length$} {}\n\
+         {:<length$} {}",
+        "Payable Account",
+        "Balance Wei",
+        EMPTY_STR,
+        "Original",
+        EMPTY_STR,
+        "Adjusted",
+        length = WALLET_ADDRESS_LENGTH
+    )
+}
+
+fn format_summary_for_included_accounts(
+    original_account_balances_mapped: &HashMap<Wallet, u128>,
+    adjusted_accounts: &[PayableAccount],
+) -> String {
+    adjusted_accounts
+        .iter()
+        .sorted_by(|account_a, account_b| {
+            // Sorting in descending order
+            Ord::cmp(&account_b.balance_wei, &account_a.balance_wei)
+        })
+        .map(|account| {
+            let original_balance = original_account_balances_mapped
+                .get(&account.wallet)
+                .expectv("");
+            (account, *original_balance)
+        })
+        .map(format_single_included_account)
+        .join("\n")
+}
+
+fn format_single_included_account(
+    (processed_account, original_balance): (&PayableAccount, u128),
+) -> String {
+    format!(
+        "{} {}\n{:^length$} {}",
+        processed_account.wallet,
+        original_balance.separate_with_commas(),
+        EMPTY_STR,
+        processed_account.balance_wei.separate_with_commas(),
+        length = WALLET_ADDRESS_LENGTH
+    )
+}
+
+fn excluded_accounts_title() -> String {
+    format!(
+        "{:<length$} Original",
+        "Ruled Out Accounts",
+        length = WALLET_ADDRESS_LENGTH
+    )
+}
+
+fn preprocess_excluded_accounts<'a>(
+    original_account_balances_mapped: &'a HashMap<Wallet, u128>,
+    adjusted_accounts: &'a [PayableAccount],
+) -> Vec<(&'a Wallet, u128)> {
     let adjusted_accounts_wallets: Vec<&Wallet> = adjusted_accounts
         .iter()
         .map(|account| &account.wallet)
         .collect();
-    let excluded: Vec<(&Wallet, u128)> = original_account_balances_mapped.iter().fold(
-        vec![],
-        |mut acc, (wallet, original_balance)| {
+    original_account_balances_mapped
+        .iter()
+        .fold(vec![], |mut acc, (wallet, original_balance)| {
             if !adjusted_accounts_wallets.contains(&wallet) {
                 acc.push((wallet, *original_balance));
             }
             acc
-        },
-    );
-    let adjusted_accounts_summary =
-        format_summary_for_included_accounts(&original_account_balances_mapped, adjusted_accounts);
-    let excluded_accounts_summary_opt = excluded
-        .is_empty()
-        .not()
-        .then(|| format_summary_for_excluded_accounts(&excluded));
+        })
+}
+
+fn format_summary_for_excluded_accounts(excluded: &[(&Wallet, u128)]) -> String {
+    excluded
+        .iter()
+        .sorted_by(|(_, balance_account_a), (_, balance_account_b)| {
+            Ord::cmp(&balance_account_b, &balance_account_a)
+        })
+        .map(|(wallet, original_balance)| {
+            format!("{} {}", wallet, original_balance.separate_with_commas())
+        })
+        .join("\n")
+}
+
+fn write_title_and_summary(title: &str, summary: &str) -> String {
+    format!("\n{}\n\n{}", title, summary)
+}
+
+fn concatenate_summaries(
+    adjusted_accounts_summary: String,
+    excluded_accounts_summary_opt: Option<String>,
+) -> String {
     vec![
         Some(adjusted_accounts_summary),
         excluded_accounts_summary_opt,
@@ -94,29 +143,6 @@ pub fn format_brief_adjustment_summary(
     .into_iter()
     .flatten()
     .join("\n")
-}
-
-pub fn accounts_before_and_after_debug(
-    original_account_balances_mapped: HashMap<Wallet, u128>,
-    adjusted_accounts: &[PayableAccount],
-) -> String {
-    format!(
-        "\n\
-            {:<length$} {}\n\
-            \n\
-            {:<length$} {}\n\
-            {:<length$} {}\n\
-            \n\
-            {}",
-        "Payable Account",
-        "Balance Wei",
-        BLANK_SPACE,
-        "Original",
-        BLANK_SPACE,
-        "Adjusted",
-        format_brief_adjustment_summary(original_account_balances_mapped, adjusted_accounts),
-        length = WALLET_ADDRESS_LENGTH
-    )
 }
 
 pub fn info_log_for_disqualified_account(

@@ -59,7 +59,7 @@ mod tests {
                     multiple_by_billion(n);
                 basic_analyzed_payable
                     .qualified_as
-                    .payment_threshold_intercept_minor = (multiple_by_billion(2) / 5) * 3;
+                    .payment_threshold_intercept_minor = multiple_by_billion(2) * (idx as u128 + 1);
                 basic_analyzed_payable
             })
             .collect::<Vec<_>>();
@@ -75,18 +75,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let zipped = analyzed_accounts
+        let expected_values = vec![4_384_000_000_000, 4_336_000_000_000, 2_216_000_000_000];
+        computed_criteria
             .into_iter()
-            .zip(computed_criteria.into_iter());
-        zipped.into_iter().for_each(|(account, actual_criterion)| {
-            let expected_criterion = {
-                let exceeding_balance_on_this_account =
-                    account.qualified_as.bare_account.balance_wei
-                        - account.qualified_as.payment_threshold_intercept_minor;
-                let diff = largest_exceeding_balance - exceeding_balance_on_this_account;
-                largest_exceeding_balance + diff
-            };
-            assert_eq!(actual_criterion, expected_criterion)
-        })
+            .zip(expected_values.into_iter())
+            .for_each(|(actual_criterion, expected_criterion)| {
+                assert_eq!(actual_criterion, expected_criterion)
+            })
     }
 }
