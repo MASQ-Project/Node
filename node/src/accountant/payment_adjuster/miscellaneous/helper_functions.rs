@@ -201,7 +201,7 @@ mod tests {
         zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
-    use crate::accountant::test_utils::{make_analyzed_account, make_payable_account};
+    use crate::accountant::test_utils::{make_meaningless_analyzed_account, make_payable_account};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use itertools::{Either, Itertools};
@@ -268,10 +268,10 @@ mod tests {
 
     #[test]
     fn find_largest_exceeding_balance_works() {
-        let mut account_1 = make_analyzed_account(111);
+        let mut account_1 = make_meaningless_analyzed_account(111);
         account_1.qualified_as.bare_account.balance_wei = 5_000_000_000;
         account_1.qualified_as.payment_threshold_intercept_minor = 2_000_000_000;
-        let mut account_2 = make_analyzed_account(222);
+        let mut account_2 = make_meaningless_analyzed_account(222);
         account_2.qualified_as.bare_account.balance_wei = 4_000_000_000;
         account_2.qualified_as.payment_threshold_intercept_minor = 800_000_000;
         let qualified_accounts = &[account_1, account_2];

@@ -521,7 +521,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::test_utils::{
-        make_non_guaranteed_qualified_payable, make_pending_payable_fingerprint,
+        make_meaningless_qualified_payable, make_pending_payable_fingerprint,
     };
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_null::BlockchainInterfaceNull;
@@ -664,8 +664,8 @@ mod tests {
         let persistent_configuration = PersistentConfigurationMock::default()
             .set_arbitrary_id_stamp(persistent_config_id_stamp);
         let qualified_payables = vec![
-            make_non_guaranteed_qualified_payable(111),
-            make_non_guaranteed_qualified_payable(222),
+            make_meaningless_qualified_payable(111),
+            make_meaningless_qualified_payable(222),
         ];
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -739,7 +739,7 @@ mod tests {
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = QualifiedPayablesMessage {
             protected_qualified_payables: protect_qualified_payables_in_test(vec![
-                make_non_guaranteed_qualified_payable(1234),
+                make_meaningless_qualified_payable(1234),
             ]),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11,
@@ -786,7 +786,7 @@ mod tests {
         );
         let request = QualifiedPayablesMessage {
             protected_qualified_payables: protect_qualified_payables_in_test(vec![
-                make_non_guaranteed_qualified_payable(12345),
+                make_meaningless_qualified_payable(12345),
             ]),
             response_skeleton_opt: None,
         };

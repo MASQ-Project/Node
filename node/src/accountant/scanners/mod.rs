@@ -300,16 +300,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             }
             Err(e) => {
                 if e.insolvency_detected() {
-                    warning!(
-                    logger,
-                    "Insolvency detected led to an analysis of feasibility for making payments \
-                    adjustment, however, giving no satisfactory solution. Please be advised that \
-                    your balances can cover neither reasonable portion of those payables \
-                    recently qualified for an imminent payment. You must add more funds into your \
-                    consuming wallet in order to stay off delinquency bans that your creditors may \
-                    apply against you otherwise. Details: {}.",
-                    e
-                )
+                    warning!(logger, "{}. Details: {}.", Self::ADD_MORE_FUNDS_URGE, e)
                 } else {
                     unimplemented!("This situation is not possible yet, but may be in the future")
                 }
@@ -333,8 +324,8 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             Err(e) => {
                 warning!(
                     logger,
-                    "Payment adjustment has not produced any executable payments. Please add funds \
-                    into your consuming wallet in order to avoid bans from your creditors. Details: {}",
+                    "Payment adjustment has not produced any executable payments. {}. Details: {}",
+                    Self::ADD_MORE_FUNDS_URGE,
                     e
                 );
                 None
@@ -345,8 +336,8 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn scan_canceled_by_payment_instructor(&mut self, logger: &Logger) {
         error!(
             logger,
-            "Payable scanner is blocked from preparing instructions for payments. If matured payables \
-            are not repaid in time, creditors may treat you with a ban"
+            "Payable scanner is blocked from preparing instructions for payments. The cause appears \
+            to be in competence of the user."
         );
         self.mark_as_ended(logger)
     }
@@ -471,9 +462,9 @@ impl PayableScanner {
 
     fn is_symmetrical(
         sent_payables_hashes: HashSet<H256>,
-        fingerptint_hashes: HashSet<H256>,
+        fingerprints_hashes: HashSet<H256>,
     ) -> bool {
-        sent_payables_hashes == fingerptint_hashes
+        sent_payables_hashes == fingerprints_hashes
     }
 
     fn mark_pending_payable(&self, sent_payments: &[&PendingPayable], logger: &Logger) {
@@ -593,6 +584,11 @@ impl PayableScanner {
     fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<QualifiedPayableAccount> {
         obfuscated.expose_vector()
     }
+
+    const ADD_MORE_FUNDS_URGE: &'static str =
+        "Add more funds into your consuming wallet in order to \
+    become able to repay already expired liabilities as the creditors would respond by delinquency \
+    bans otherwise";
 }
 
 pub struct PendingPayableScanner {
@@ -1156,7 +1152,7 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payable_account, make_pending_payable_fingerprint,
-        make_receivable_account, make_unqualified_and_qualified_payables, BannedDaoFactoryMock,
+        make_qualified_and_unqualified_payables, make_receivable_account, BannedDaoFactoryMock,
         BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
         PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock,
@@ -1334,7 +1330,7 @@ mod tests {
         let test_name = "payable_scanner_can_initiate_a_scan";
         let now = SystemTime::now();
         let (qualified_payable_accounts, _, all_non_pending_payables) =
-            make_unqualified_and_qualified_payables(now, &PaymentThresholds::default());
+            make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
@@ -1367,7 +1363,7 @@ mod tests {
     fn payable_scanner_throws_error_when_a_scan_is_already_running() {
         let now = SystemTime::now();
         let (_, _, all_non_pending_payables) =
-            make_unqualified_and_qualified_payables(now, &PaymentThresholds::default());
+            make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let mut subject = PayableScannerBuilder::new()
@@ -1389,7 +1385,7 @@ mod tests {
     fn payable_scanner_throws_error_in_case_no_qualified_payable_is_found() {
         let now = SystemTime::now();
         let (_, unqualified_payable_accounts, _) =
-            make_unqualified_and_qualified_payables(now, &PaymentThresholds::default());
+            make_qualified_and_unqualified_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
         let mut subject = PayableScannerBuilder::new()

@@ -13,7 +13,9 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 };
 use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjuster;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
-use crate::accountant::test_utils::{make_analyzed_account, make_non_guaranteed_qualified_payable};
+use crate::accountant::test_utils::{
+    make_meaningless_analyzed_account, make_meaningless_qualified_payable,
+};
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::test_utils::make_wallet;
@@ -92,7 +94,7 @@ pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHO
 };
 
 pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
-    let qualified_account = make_non_guaranteed_qualified_payable(n);
+    let qualified_account = make_meaningless_qualified_payable(n);
     let proposed_adjusted_balance_minor =
         (qualified_account.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
     let disqualification_limit_minor = (3 * proposed_adjusted_balance_minor) / 4;
@@ -217,16 +219,18 @@ impl ServiceFeeAdjusterMock {
 pub fn multiple_by_billion(num: u128) -> u128 {
     num * 10_u128.pow(9)
 }
-pub fn make_analyzed_account_by_wallet(wallet_address_segment: &str) -> AnalyzedPayableAccount {
+pub fn make_meaningless_analyzed_account_by_wallet(
+    wallet_address_segment: &str,
+) -> AnalyzedPayableAccount {
     let num = u64::from_str_radix(wallet_address_segment, 16).unwrap();
     let wallet = make_wallet(wallet_address_segment);
-    let mut account = make_analyzed_account(num);
+    let mut account = make_meaningless_analyzed_account(num);
     account.qualified_as.bare_account.wallet = wallet;
     account
 }
 
 pub fn make_weighed_account(n: u64) -> WeightedPayable {
-    WeightedPayable::new(make_analyzed_account(n), 123456789)
+    WeightedPayable::new(make_meaningless_analyzed_account(n), 123456789)
 }
 
 // Should stay test only!

@@ -35,7 +35,7 @@ mod tests {
     use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::test_utils::multiple_by_billion;
-    use crate::accountant::test_utils::make_analyzed_account;
+    use crate::accountant::test_utils::make_meaningless_analyzed_account;
     use std::time::SystemTime;
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(idx, n)| {
-                let mut basic_analyzed_payable = make_analyzed_account(idx as u64);
+                let mut basic_analyzed_payable = make_meaningless_analyzed_account(idx as u64);
                 basic_analyzed_payable.qualified_as.bare_account.balance_wei =
                     multiple_by_billion(n);
                 basic_analyzed_payable

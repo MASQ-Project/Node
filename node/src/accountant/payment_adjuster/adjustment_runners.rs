@@ -84,7 +84,7 @@ mod tests {
     use crate::accountant::payment_adjuster::test_utils::make_initialized_subject;
     use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjusterReal};
     use crate::accountant::test_utils::{
-        make_analyzed_account, make_non_guaranteed_qualified_payable,
+        make_meaningless_analyzed_account, make_meaningless_qualified_payable,
     };
     use crate::accountant::{AnalyzedPayableAccount, CreditorThresholds, QualifiedPayableAccount};
     use crate::sub_lib::wallet::Wallet;
@@ -106,7 +106,8 @@ mod tests {
     }
 
     fn make_weighed_payable(n: u64, initial_balance_minor: u128) -> WeightedPayable {
-        let mut payable = WeightedPayable::new(make_analyzed_account(111), n as u128 * 1234);
+        let mut payable =
+            WeightedPayable::new(make_meaningless_analyzed_account(111), n as u128 * 1234);
         payable
             .analyzed_account
             .qualified_as
@@ -215,7 +216,7 @@ mod tests {
     #[test]
     fn adjust_accounts_for_service_fee_only_runner_is_not_supposed_to_care_about_transaction_fee() {
         let balance = 5_000_000_000;
-        let mut account = make_non_guaranteed_qualified_payable(111);
+        let mut account = make_meaningless_qualified_payable(111);
         account.bare_account.balance_wei = balance;
         let wallet_1 = make_wallet("abc");
         let wallet_2 = make_wallet("def");

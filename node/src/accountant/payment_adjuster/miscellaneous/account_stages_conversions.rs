@@ -81,9 +81,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
     };
-    use crate::accountant::test_utils::{
-        make_non_guaranteed_qualified_payable, make_payable_account,
-    };
+    use crate::accountant::test_utils::{make_meaningless_qualified_payable, make_payable_account};
     use crate::accountant::AnalyzedPayableAccount;
 
     #[test]
@@ -106,7 +104,7 @@ mod tests {
         let garbage_disqualification_limit = 333_333_333;
         let garbage_weight = 777_777_777;
         let mut analyzed_account = AnalyzedPayableAccount::new(
-            make_non_guaranteed_qualified_payable(111),
+            make_meaningless_qualified_payable(111),
             garbage_disqualification_limit,
         );
         analyzed_account.qualified_as.bare_account = payable_account;

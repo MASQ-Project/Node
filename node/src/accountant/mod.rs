@@ -1090,9 +1090,9 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_analyzed_account,
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-        make_payable_account, make_unqualified_and_qualified_payables, BannedDaoFactoryMock,
+        bc_from_earning_wallet, bc_from_wallets, make_meaningless_analyzed_account,
+        make_meaningless_qualified_payable, make_payable_account,
+        make_qualified_and_unqualified_payables, make_qualified_payables, BannedDaoFactoryMock,
         ConfigDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
         PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
@@ -1428,7 +1428,7 @@ mod tests {
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let expected_qualified_payables =
-            make_guaranteed_qualified_payables(vec![payable], &DEFAULT_PAYMENT_THRESHOLDS, now);
+            make_qualified_payables(vec![payable], &DEFAULT_PAYMENT_THRESHOLDS, now);
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
@@ -1502,8 +1502,16 @@ mod tests {
         let account_1 = make_payable_account(44_444);
         let account_2 = make_payable_account(333_333);
         let qualified_payables = vec![
-            {let mut qp= make_non_guaranteed_qualified_payable(1234); qp.bare_account = account_1.clone(); qp},
-            {let mut qp= make_non_guaranteed_qualified_payable(6789); qp.bare_account = account_2.clone(); qp}
+            {
+                let mut qp = make_meaningless_qualified_payable(1234);
+                qp.bare_account = account_1.clone();
+                qp
+            },
+            {
+                let mut qp = make_meaningless_qualified_payable(6789);
+                qp.bare_account = account_2.clone();
+                qp
+            },
         ];
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_params(
@@ -1522,7 +1530,8 @@ mod tests {
         let system = System::new("test");
         let expected_agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(expected_agent_id_stamp);
-        let protected_qualified_payables = protect_qualified_payables_in_test(qualified_payables.clone());
+        let protected_qualified_payables =
+            protect_qualified_payables_in_test(qualified_payables.clone());
         let msg = BlockchainAgentWithContextMessage {
             protected_qualified_payables,
             agent: Box::new(agent),
@@ -1579,15 +1588,17 @@ mod tests {
             .recipient();
         let mut subject = AccountantBuilder::default().build();
         let prepare_unadjusted_and_adjusted_payable = |n: u64| {
-            let unadjusted_account = make_non_guaranteed_qualified_payable(n);
-            let adjusted_account =  PayableAccount {
+            let unadjusted_account = make_meaningless_qualified_payable(n);
+            let adjusted_account = PayableAccount {
                 balance_wei: gwei_to_wei(n / 3),
                 ..unadjusted_account.bare_account.clone()
             };
             (unadjusted_account, adjusted_account)
         };
-        let (unadjusted_account_1, adjusted_account_1) = prepare_unadjusted_and_adjusted_payable(12345678);
-        let (unadjusted_account_2, adjusted_account_2) = prepare_unadjusted_and_adjusted_payable(33445566);
+        let (unadjusted_account_1, adjusted_account_1) =
+            prepare_unadjusted_and_adjusted_payable(12345678);
+        let (unadjusted_account_2, adjusted_account_2) =
+            prepare_unadjusted_and_adjusted_payable(33445566);
         let response_skeleton = ResponseSkeleton {
             client_id: 12,
             context_id: 55,
@@ -1738,7 +1749,8 @@ mod tests {
     #[test]
     fn payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check() {
         init_test_logging();
-        let test_name = "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
+        let test_name =
+            "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Err(
                 PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
@@ -1755,20 +1767,17 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Insolvency detected led to an analysis of feasibility for making \
-            payments adjustment, however, giving no satisfactory solution. Please be advised that \
-            your balances can cover neither reasonable portion of those payables recently \
-            qualified for an imminent payment. You must add more funds into your consuming wallet \
-            in order to stay off delinquency bans that your creditors may apply against you \
-            otherwise. Details: Current transaction fee balance is not enough to pay a single \
-            payment. Number of canceled payments: 1. Transaction fee per payment: \
-            3,300,000,000,000,000 wei, while the wallet contains: 123,000,000,000 wei."
+            "WARN: {test_name}: Add more funds into your consuming wallet in order to become able \
+            to repay already expired liabilities as the creditors would respond by delinquency bans \
+            otherwise. Details: Current transaction fee balance is not enough to pay a single payment. \
+            Number of canceled payments: 1. Transaction fee per payment: 3,300,000,000,000,000 wei, \
+            while the wallet contains: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            If matured payables are not repaid in time, creditors may treat you with a ban"
+            The cause appears to be in competence of the user."
         ));
     }
 
@@ -1780,7 +1789,7 @@ mod tests {
         let payment_adjuster = PaymentAdjusterMock::default()
             .search_for_indispensable_adjustment_result(Ok(Either::Right(AdjustmentAnalysis::new(
                 Adjustment::ByServiceFee,
-                vec![make_analyzed_account(123)],
+                vec![make_meaningless_analyzed_account(123)],
             ))))
             .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
 
@@ -1788,16 +1797,17 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Please \
-        add funds into your consuming wallet in order to avoid bans from your creditors. Details: \
-        The adjustment algorithm had to eliminate each payable from the recently urged payment due \
-        to lack of resources"
+            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Add \
+            more funds into your consuming wallet in order to become able to repay already expired \
+            liabilities as the creditors would respond by delinquency bans otherwise. Details: \
+            The adjustment algorithm had to eliminate each payable from the recently urged payment \
+            due to lack of resources"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            If matured payables are not repaid in time, creditors may treat you with a ban"
+            The cause appears to be in competence of the user"
         ));
     }
 
@@ -1823,7 +1833,7 @@ mod tests {
             .build();
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
-        let qualified_payable = make_non_guaranteed_qualified_payable(111_111);
+        let qualified_payable = make_meaningless_qualified_payable(111_111);
         let protected_payables = protect_qualified_payables_in_test(vec![qualified_payable]);
         let blockchain_agent = BlockchainAgentMock::default();
         let msg = BlockchainAgentWithContextMessage::new(
@@ -1834,11 +1844,11 @@ mod tests {
 
         subject.send_outbound_payments_instructions(msg);
 
-        // Test didn't blow up while the subject was unbound to other actors
-        // therefore we didn't attempt to send the NodeUiMessage
+        // No NodeUiMessage was sent because there is no `response_skeleton`. It is evident by
+        // the fact that the test didn't blow up even though UIGateway is unbound
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            If matured payables are not repaid in time, creditors may treat you with a ban"
+            The cause appears to be in competence of the user"
         ));
     }
 
@@ -2041,7 +2051,7 @@ mod tests {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let (qualified_payables, _, all_non_pending_payables) =
-            make_unqualified_and_qualified_payables(now, &payment_thresholds);
+            make_qualified_and_unqualified_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let system = System::new(
@@ -2406,7 +2416,7 @@ mod tests {
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
                 protected_qualified_payables: protect_qualified_payables_in_test(vec![
-                    make_non_guaranteed_qualified_payable(123),
+                    make_meaningless_qualified_payable(123),
                 ]),
                 response_skeleton_opt: None,
             }))
@@ -2615,7 +2625,7 @@ mod tests {
             },
         ];
         let qualified_payables =
-            make_guaranteed_qualified_payables(payables.clone(), &DEFAULT_PAYMENT_THRESHOLDS, now);
+            make_qualified_payables(payables.clone(), &DEFAULT_PAYMENT_THRESHOLDS, now);
         let payable_dao = PayableDaoMock::default().non_pending_payables_result(payables);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
@@ -3427,15 +3437,15 @@ mod tests {
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
+        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let build_blockchain_agent_params = Arc::new(Mutex::new(vec![]));
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
-        let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let return_all_errorless_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
-        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let update_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
+        let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_arc_cloned =
             notify_later_scan_for_pending_payable_params_arc.clone(); // because it moves into a closure
@@ -3514,7 +3524,7 @@ mod tests {
             last_paid_timestamp: past_payable_timestamp_2,
             pending_payable_opt: None,
         };
-        let qualified_payables = make_guaranteed_qualified_payables(
+        let qualified_payables = make_qualified_payables(
             vec![account_1.clone(), account_2.clone()],
             &DEFAULT_PAYMENT_THRESHOLDS,
             now,

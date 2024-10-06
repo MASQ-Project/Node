@@ -563,10 +563,10 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_analyzed_account_by_wallet, make_extreme_payables, make_initialized_subject,
-        multiple_by_billion, CriterionCalculatorMock, DisqualificationGaugeMock,
-        ServiceFeeAdjusterMock, MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR,
-        PRESERVED_TEST_PAYMENT_THRESHOLDS,
+        make_extreme_payables, make_initialized_subject,
+        make_meaningless_analyzed_account_by_wallet, multiple_by_billion, CriterionCalculatorMock,
+        DisqualificationGaugeMock, ServiceFeeAdjusterMock,
+        MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS,
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
@@ -576,7 +576,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
     use crate::accountant::test_utils::{
-        make_guaranteed_analyzed_payables, make_guaranteed_qualified_payables, make_payable_account,
+        make_analyzed_payables, make_payable_account, make_qualified_payables,
     };
     use crate::accountant::{
         gwei_to_wei, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
@@ -1046,12 +1046,12 @@ mod tests {
     ) {
         let cw_service_fee_balance_minor = multiple_by_billion(4_200_000);
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut account_1 = make_analyzed_account_by_wallet("abc");
+        let mut account_1 = make_meaningless_analyzed_account_by_wallet("abc");
         let balance_1 = multiple_by_billion(3_000_000);
         let disqualification_limit_1 = multiple_by_billion(2_300_000);
         account_1.qualified_as.bare_account.balance_wei = balance_1;
         account_1.disqualification_limit_minor = disqualification_limit_1;
-        let mut account_2 = make_analyzed_account_by_wallet("def");
+        let mut account_2 = make_meaningless_analyzed_account_by_wallet("def");
         let wallet_2 = account_2.qualified_as.bare_account.wallet.clone();
         let balance_2 = multiple_by_billion(2_500_000);
         let disqualification_limit_2 = multiple_by_billion(1_800_000);
@@ -1193,7 +1193,7 @@ mod tests {
         };
         let payables = vec![account_1, account_2, account_3];
         let qualified_payables =
-            make_guaranteed_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+            make_qualified_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
         let calculator_mock = CriterionCalculatorMock::default()
             .calculate_result(multiple_by_billion(2_000_000_000))
             .calculate_result(0)
@@ -1287,7 +1287,7 @@ mod tests {
         };
         let payables = vec![account_1, account_2.clone(), account_3.clone()];
         let analyzed_accounts =
-            make_guaranteed_analyzed_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
+            make_analyzed_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
         let calculator_mock = CriterionCalculatorMock::default()
             .calculate_result(0)
             .calculate_result(multiple_by_billion(50_000_000_000))
@@ -1339,11 +1339,8 @@ mod tests {
                 now,
             )
         };
-        let analyzed_payables = make_guaranteed_analyzed_payables(
-            extreme_payables,
-            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-            now,
-        );
+        let analyzed_payables =
+            make_analyzed_payables(extreme_payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         // In turn, tiny cw balance

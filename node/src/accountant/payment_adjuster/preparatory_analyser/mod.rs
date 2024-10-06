@@ -382,7 +382,7 @@ mod tests {
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{
-        make_analyzed_account, make_non_guaranteed_qualified_payable,
+        make_meaningless_analyzed_account, make_meaningless_qualified_payable,
     };
     use crate::accountant::QualifiedPayableAccount;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
@@ -457,9 +457,9 @@ mod tests {
 
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_slightly_bigger() {
-        let mut account_1 = make_non_guaranteed_qualified_payable(111);
+        let mut account_1 = make_meaningless_qualified_payable(111);
         account_1.bare_account.balance_wei = 1_000_000_000;
-        let mut account_2 = make_non_guaranteed_qualified_payable(333);
+        let mut account_2 = make_meaningless_qualified_payable(333);
         account_2.bare_account.balance_wei = 2_000_000_000;
         let cw_service_fee_balance = 750_000_001;
         let disqualification_gauge = DisqualificationGaugeMock::default()
@@ -477,9 +477,9 @@ mod tests {
 
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_equal() {
-        let mut account_1 = make_non_guaranteed_qualified_payable(111);
+        let mut account_1 = make_meaningless_qualified_payable(111);
         account_1.bare_account.balance_wei = 2_000_000_000;
-        let mut account_2 = make_non_guaranteed_qualified_payable(333);
+        let mut account_2 = make_meaningless_qualified_payable(333);
         account_2.bare_account.balance_wei = 1_000_000_000;
         let cw_service_fee_balance = 750_000_000;
         let disqualification_gauge = DisqualificationGaugeMock::default()
@@ -503,13 +503,13 @@ mod tests {
         ErrorFactory: ServiceFeeSingleTXErrorFactory<Error>,
         Error: Debug + PartialEq,
     {
-        let mut account_1 = make_analyzed_account(111);
+        let mut account_1 = make_meaningless_analyzed_account(111);
         account_1.qualified_as.bare_account.balance_wei = 2_000_000_000;
         account_1.disqualification_limit_minor = 1_500_000_000;
-        let mut account_2 = make_analyzed_account(222);
+        let mut account_2 = make_meaningless_analyzed_account(222);
         account_2.qualified_as.bare_account.balance_wei = 1_000_050_000;
         account_2.disqualification_limit_minor = 1_000_000_101;
-        let mut account_3 = make_analyzed_account(333);
+        let mut account_3 = make_meaningless_analyzed_account(333);
         account_3.qualified_as.bare_account.balance_wei = 1_000_111_111;
         account_3.disqualification_limit_minor = 1_000_000_222;
         let cw_service_fee_balance = 1_000_000_100;

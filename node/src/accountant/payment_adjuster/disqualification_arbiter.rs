@@ -209,7 +209,7 @@ mod tests {
     use crate::accountant::payment_adjuster::test_utils::{
         make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
     };
-    use crate::accountant::test_utils::make_guaranteed_qualified_payables;
+    use crate::accountant::test_utils::make_qualified_payables;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
@@ -449,8 +449,7 @@ mod tests {
             pending_payable_opt: None,
         };
         let accounts = vec![account_1, account_2, account_3, account_4];
-        let qualified_payables =
-            make_guaranteed_qualified_payables(accounts, &payment_thresholds, now);
+        let qualified_payables = make_qualified_payables(accounts, &payment_thresholds, now);
         let analyzed_accounts = convert_collection(qualified_payables);
         let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
         let payment_adjuster = make_initialized_subject(
