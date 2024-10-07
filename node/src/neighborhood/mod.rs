@@ -3192,9 +3192,23 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        let assertion_msg = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood.exit_locations_opt,
+                    Some(HashMap::from([
+                        (1usize, vec!["CZ".to_string(), "SK".to_string()]),
+                        (2usize, vec!["AT".to_string(), "DE".to_string()]),
+                        (3usize, vec!["PL".to_string(), "HU".to_string()]),
+                    ]))
+                );
+                assert_eq!(neighborhood.fallback_routing, true);
+            }),
+        };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(message).unwrap();
+        subject_addr.try_send(assertion_msg).unwrap();
 
         System::current().stop();
         system.run();
@@ -3318,6 +3332,18 @@ mod tests {
                 );
             }),
         };
+        let assertion_msg_neighborhood = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood.exit_locations_opt,
+                    Some(HashMap::from([
+                        (1usize, vec!["CZ".to_string()]),
+                        (2usize, vec!["FR".to_string()]),
+                    ]))
+                );
+                assert_eq!(neighborhood.fallback_routing, false);
+            }),
+        };
         let request_2 = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![],
@@ -3373,6 +3399,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         subject_addr.try_send(message).unwrap();
         subject_addr.try_send(assertion_msg).unwrap();
+        subject_addr.try_send(assertion_msg_neighborhood).unwrap();
         subject_addr.try_send(message_2).unwrap();
         subject_addr.try_send(assertion_msg_2).unwrap();
 
