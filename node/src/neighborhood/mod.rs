@@ -1262,6 +1262,43 @@ impl Neighborhood {
         return_route_id
     }
 
+    pub fn find_exit_location<'a>(
+        &'a self,
+        source: &'a PublicKey,
+        minimum_hops: usize,
+        payload_size: usize,
+    ) -> Vec<&PublicKey> {  //HashMap<&PublicKey, Vec<>> { // Vec<(i64, Vec<&PublicKey>)
+        let mut minimum_undesirability = i64::MAX;
+        let initial_undesirability =
+            self.compute_initial_undesirability(source, payload_size as u64, RouteDirection::Over);
+        let over_routes = self
+            .routing_engine(
+                vec![source],
+                initial_undesirability,
+                None,
+                minimum_hops,
+                payload_size,
+                RouteDirection::Over,
+                &mut minimum_undesirability,
+                None,
+                true
+            );
+
+        let routes_exit = over_routes.into_iter().map(|segment| {
+            segment.nodes[segment.nodes.len()-1]
+        }).collect();
+
+        // let mut result = HashMap::from(over_routes.into_iter().map(|segment| {
+        //         (segment.nodes[segment.nodes.len()-1], ) // vec![(segment.undesirability,segment.nodes)]
+        // }).collect::<Vec<(&PublicKey, Vec<(i64, Vec<&PublicKey>)>)>>());
+
+
+
+
+        routes_exit
+        // result
+    }
+
     // Interface to main routing engine. Supply source key, target key--if any--in target_opt,
     // minimum hops, size of payload in bytes, the route direction, and the hostname if you know it.
     //
@@ -1291,6 +1328,7 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
+                false
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1313,8 +1351,9 @@ impl Neighborhood {
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
+        research_neighborhood: bool,
     ) -> Vec<ComputedRouteSegment<'a>> {
-        if undesirability > *minimum_undesirability {
+        if undesirability > *minimum_undesirability && !research_neighborhood {
             return vec![];
         }
         let first_node_key = prefix.first().expect("Empty prefix");
@@ -1335,7 +1374,7 @@ impl Neighborhood {
                 *minimum_undesirability = undesirability;
             }
             vec![ComputedRouteSegment::new(prefix, undesirability)]
-        } else if (hops_remaining == 0) && target_opt.is_none() {
+        } else if (hops_remaining == 0) && target_opt.is_none() && !research_neighborhood {
             // don't continue a targetless search past the minimum hop count
             vec![]
         } else {
@@ -1377,6 +1416,7 @@ impl Neighborhood {
                         direction,
                         minimum_undesirability,
                         hostname_opt,
+                        research_neighborhood
                     )
                 })
                 .collect()
@@ -1538,10 +1578,17 @@ impl Neighborhood {
     // TODO: GH-469
     fn handle_neighborhood_info_request(&self, client_id: u64, context_id: u64) {
         let mut response:HashMap<String, NodeInfo> = HashMap::new();
-
         let db = &self.neighborhood_database.clone();
         let db_keys = db.keys();
         let root_node = db.root().public_key();
+
+        let route = self.find_best_route_segment(root_node, None, 3, 10000, RouteDirection::Over, None);
+
+        eprintln!("route: {:#?}", route);
+
+
+
+
 
         for db_key in db_keys {
             let node_record = db.node_by_key(db_key).expect("Failed to get node record");
@@ -1554,6 +1601,7 @@ impl Neighborhood {
                 });
             }
         }
+
 
         let response_inner = UiCollectNeighborhoodInfoResponse {
             neighborhood_database: response
@@ -3260,6 +3308,93 @@ mod tests {
             "cannot calculate expected service, no keys provided in route segment"
         );
     }
+
+    /*
+           Database:
+
+           A---B---C---D---E
+           |   |   |   |   |
+           F---G---H---I---J
+           |   |   |   |   |
+           K---L---M---N---O
+           |   |   |   |   |
+           P---Q---R---S---T
+           |   |   |   |   |
+           U---V---W---X---Y
+
+           All these Nodes are standard-mode. L is the root Node.
+   */
+
+    #[test]
+    fn find_exit_location_test() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let mut make_row = |db: &mut NeighborhoodDatabase| {
+            let n1 = make_node(db);
+            let n2 = make_node(db);
+            let n3 = make_node(db);
+            let n4 = make_node(db);
+            let n5 = make_node(db);
+            db.add_arbitrary_full_neighbor(&n1, &n2);
+            db.add_arbitrary_full_neighbor(&n2, &n3);
+            db.add_arbitrary_full_neighbor(&n3, &n4);
+            db.add_arbitrary_full_neighbor(&n4, &n5);
+            (n1, n2, n3, n4, n5)
+        };
+        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
+            let (f1, f2, f3, f4, f5) = first_row;
+            let (s1, s2, s3, s4, s5) = second_row;
+            db.add_arbitrary_full_neighbor(f1, s1);
+            db.add_arbitrary_full_neighbor(f2, s2);
+            db.add_arbitrary_full_neighbor(f3, s3);
+            db.add_arbitrary_full_neighbor(f4, s4);
+            db.add_arbitrary_full_neighbor(f5, s5);
+        };
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
+            let root_node_key = db.root().public_key().clone();
+            let node = db.node_by_key(key).unwrap().clone();
+            db.root_mut().inner = node.inner.clone();
+            db.root_mut().metadata = node.metadata.clone();
+            db.remove_node(&root_node_key);
+        };
+        let (a, b, c, d, e) = make_row(db);
+        let (f, g, h, i, j) = make_row(db);
+        let (k, l, m, n, o) = make_row(db);
+        let (p, q, r, s, t) = make_row(db);
+        let (u, v, w, x, y) = make_row(db);
+        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
+        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
+        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
+        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
+        designate_root_node(db, &l);
+        let before = Instant::now();
+
+        let db_clone = db.clone();
+        let routes = subject.find_exit_location(&l, 3, 10_000);
+
+
+        // let node_key = key.clone();
+        // let country_code = db_clone.node_by_key(&node_key).unwrap().inner.country_code_opt.clone();
+        // eprintln!("Key: {}, country_code: {:?}", key, country_code);
+
+        let result_vec: Vec<(&PublicKey, String)> = routes.into_iter().map(|key| {
+            let country_code = db_clone.node_by_key(&key.clone()).unwrap().inner.country_code_opt.clone().unwrap();
+            (key, country_code)
+        }).collect();
+
+        let hash_result: HashMap<&PublicKey, String> = result_vec.into_iter().collect();
+
+        eprintln!("hash_result: {:#?}", hash_result);
+
+    }
+
+
 
     /*
             Database:
@@ -5878,19 +6013,66 @@ mod tests {
         let q = &make_node_record(3456, true);
         let r = &make_node_record(4567, false);
         let s = &make_node_record(5678, false);
-        let t = make_node_record(7777, false);
+        let t = &make_node_record(7777, false);
+        let a = &make_node_record(1111, false);  // half
+        let b = &make_node_record(2222, false);  // half
+        let c = &make_node_record(3333, false);
+        let d = &make_node_record(4444, false);
+
+
         let db = &mut subject.neighborhood_database;
         db.add_node(q.clone()).unwrap();
         db.add_node(t.clone()).unwrap();
         db.add_node(r.clone()).unwrap();
         db.add_node(s.clone()).unwrap();
-        let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
-            db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
+        db.add_node(a.clone()).unwrap();
+        db.add_node(b.clone()).unwrap();
+        db.add_node(c.clone()).unwrap();
+        db.add_node(d.clone()).unwrap();
+
+        println!("p: {} q: {} r: {} s: {} t: {} a: {} b: {} c: {} d: {}",
+                 p.public_key(),
+                 q.public_key(),
+                 r.public_key(),
+                 s.public_key(),
+                 t.public_key(),
+                 a.public_key(),
+                 b.public_key(),
+                 c.public_key(),
+                 d.public_key(),
+        );
+        println!("{:#?}", db);
+
+        // p: 5LD+wfgUUBbKEolBJiZXvxR3VpAVpjansF96JuYn1mw
+        // q: AwQFBg
+        // r: BAUGBw
+        // s: BQYHCA
+        // t: BwcHBw
+        // a: AQEBAQ
+        // b: AgICAg
+        // c: AwMDAw
+        // d: BAQEBA
+        // digraph db { "5LD+wfgUUBbKEolBJiZXvxR3VpAVpjansF96JuYn1mw" [label="AR v0\n5LD+wfgU\n9.9.9.9:9999"] [style=filled]; "AwMDAw" [label="AR v0\nAwMDAw"]; "BQYHCA" [label="AR v0\nBQYHCA"]; "BwcHBw" [label="AR v0\nBwcHBw"]; "BAQEBA" [label="AR v0\nBAQEBA"]; "BAUGBw" [label="AR v0\nBAUGBw"]; "AQEBAQ" [label="AR v0\nAQEBAQ"]; "AwQFBg" [label="AR v0\nAwQFBg\n3.4.5.6:3456"]; "AgICAg" [label="AR v0\nAgICAg"]; }
+
+        let mut edge = |a: &NodeRecord, b: &NodeRecord, c: bool| {
+            if c {
+                db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
+            } else {
+                db.add_arbitrary_half_neighbor(a.public_key(), b.public_key());
+            }
         };
-        dual_edge(p, q);
-        dual_edge(q, &t);
-        dual_edge(q, r);
-        dual_edge(r, s);
+
+        edge(p, q, true);
+        edge(q, t, true);
+        edge(q, r, true);
+        edge(r, s, true);
+        edge(t, c, true);
+        edge(r, d, true);
+        edge(p, r, true);
+        edge(p, a, false);
+        edge(r, b,false);
+
+        println!("{:#?}", db);
 
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -5918,9 +6100,13 @@ mod tests {
         let mut expected_response:HashMap<String, NodeInfo> = HashMap::new();
         // expected_response.insert("B+TPRn12lX9mt7Zvs/8gfx+rd1ko4xyjy4DRSEdoKKA".to_string(), NodeInfo{version:0,country_code_opt:Some("CH".to_string()),exit_service:true,unreachable_hosts:vec![]});
         expected_response.insert("BAUGBw".to_string(),NodeInfo{version:0, country_code_opt: Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("BwcHBw".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("BAQEBA".to_string(), NodeInfo{version:0,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("AwMDAw".to_string(), NodeInfo{version:0,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec![]});
         expected_response.insert("AwQFBg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
         expected_response.insert("BQYHCA".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("AQEBAQ".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("BwcHBw".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("AgICAg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
 
         let (message_to, _):(UiCollectNeighborhoodInfoResponse, u64) = FromMessageBody::fmb(message_opt.unwrap().body).unwrap();
         let response_inner = UiCollectNeighborhoodInfoResponse {
