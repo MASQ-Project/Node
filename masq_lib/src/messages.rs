@@ -848,9 +848,9 @@ conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct CountryCodes {
-    #[serde(rename = "CountryCodes")]
+    #[serde(rename = "countryCodes")]
     pub country_codes: Vec<String>,
-    #[serde(rename = "Priority")]
+    #[serde(rename = "priority")]
     pub priority: usize,
 }
 
@@ -870,24 +870,24 @@ impl From<(String, usize)> for CountryCodes {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ExitLocation {
-    #[serde(rename = "ExitLocation")]
+    #[serde(rename = "exitLocation")]
     exit_location: Vec<CountryCodes>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiSetExitLocationRequest {
-    #[serde(rename = "FallbackRouting")]
+    #[serde(rename = "fallbackRouting")]
     pub fallback_routing: bool,
-    #[serde(rename = "ExitLocations")]
+    #[serde(rename = "exitLocations")]
     pub exit_locations: Vec<CountryCodes>,
 }
 
-conversation_message!(UiSetExitLocationRequest, "ExitLocation");
+conversation_message!(UiSetExitLocationRequest, "exitLocation");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiSetExitLocationResponse {}
 
-conversation_message!(UiSetExitLocationResponse, "ExitLocation");
+conversation_message!(UiSetExitLocationResponse, "exitLocation");
 
 #[cfg(test)]
 mod tests {

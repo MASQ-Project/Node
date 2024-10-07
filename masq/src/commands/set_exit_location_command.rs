@@ -4,9 +4,9 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse};
-use masq_lib::shared_schema::common_validators;
+use masq_lib::shared_schema::{common_validators};
 use masq_lib::utils::ExpectValue;
-use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
+use masq_lib::as_any_ref_in_trait_impl;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetExitLocationCommand {
@@ -21,14 +21,11 @@ impl SetExitLocationCommand {
                 let exit_locations = matches
                     .value_of("country-codes")
                     .expectv("required param")
-                    .split("|") //TODO check it is required in clap
+                    .split("|")
                     .enumerate()
                     .map(|(index, code)| CountryCodes::from((code.to_string(), index)))
                     .collect();
-                let fallback_routing = match matches.value_of("fallback-routing") {
-                    Some(_) => true,
-                    None => false,
-                };
+                let fallback_routing = matches.is_present("fallback-routing");
                 Ok(SetExitLocationCommand {
                     exit_locations,
                     fallback_routing,
@@ -49,20 +46,38 @@ impl Command for SetExitLocationCommand {
 
         let _: UiSetExitLocationResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        short_writeln!(context.stdout(), "Parameter was successfully set");
         Ok(())
     }
 
     as_any_ref_in_trait_impl!();
 }
 
-const EXIT_LOACTION_ABOUT: &str = "TODO finish me! Sets Exit Location for Exit Node.";
+const EXIT_LOCATION_ABOUT: &str =
+    "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
+    that is, if there is no exit Node available in any of your preferred countries, you'll get an error. However, \
+    if you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
+    in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
+    available anywhere.\n\n\
+    Here are some example commands:\n\
+        masq> exit-location --country-codes --fallback-routing                    // disable exit-location \n\
+        masq> exit-location --fallback-routing                                    // disable exit-location \n\
+        masq> exit-location                                                       // disable exit-location \n\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       // fallback-routing is ON \n\
+        masq> exit-location --country-codes \"CZ|SK\"                             // fallback-routing is OFF\n";
 
-const COUNTRY_CODES_HELP: &str = "TODO finish me!";
+const COUNTRY_CODES_HELP: &str = "To obtain codes you cant use 'country-code-list' command. You can specify country codes followingly:\n\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       // fallback-routing is ON, CZ and PL countries has same priority, SK has lower prirority \n\
+        masq> exit-location --country-codes \"CZ|SK\"                             // fallback-routing is OFF, CZ and SK countries has different prirority\n";
+
+const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
+     in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
+     available anywhere. \n Here are some examples: \n\n\
+     masq> exit-location --country-codes \"CZ\" --fallback-routing              // Set exit-location for \"CZ\" country and enable fallback-routing \n\
+     masq> exit-location --fallback-routing                                    // disable exit-location \n";
 
 pub fn set_exit_location_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("exit-location")
-        .about(EXIT_LOACTION_ABOUT)
+        .about(EXIT_LOCATION_ABOUT)
         .arg(
             Arg::with_name("country-codes")
                 .long("country-codes")
@@ -73,10 +88,10 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("fallback-routing")
-                .help("Set whether you want to fallback on non-blocking routing for desired Exit Location.")
                 .long("fallback-routing")
                 .value_name("FALLBACK-ROUTING")
-                .default_value("true")
+                .help(FALLBACK_ROUTING_HELP)
+                .takes_value(false)
                 .required(false)
         )
 }
@@ -104,7 +119,7 @@ pub mod tests {
                     priority: 2,
                 },
                 CountryCodes {
-                    country_codes: vec!["PL".to_string(), "HU".to_string()],
+                    country_codes: vec!["PL".to_string()],
                     priority: 3,
                 },
             ],
@@ -113,12 +128,11 @@ pub mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
-        let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--country-codes".to_string(),
-            "CZ,SK|AT,DE|PL,HU".to_string(),
+            "CZ,SK|AT,DE|PL".to_string(),
             "--fallback-routing".to_string(),
         ])
         .unwrap();
@@ -134,7 +148,5 @@ pub mod tests {
         );
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
-        let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Parameter was successfully set\n");
     }
 }

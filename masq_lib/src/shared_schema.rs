@@ -48,18 +48,6 @@ pub const EARNING_WALLET_HELP: &str =
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
      careful to supply exactly the same one you supplied before.";
-pub const EXIT_LOCATION_HELP: &str =
-    "Choose your Exit Location for access the internet. You can choose from all countries, available in \
-    your Neighborhood. \n\
-    You can set exit-location --country-codes \"CZ\" without --fallback-routing argument and in that case, \
-    the fallback-routing will be set OFF. In case, you do not specify the --country-codes and neither --fallback-routing, \
-    then country-codes will be set OFF and fallback-routing will be set ON.\n\n\
-        exit-location --country-codes --fallback-routing                    disable exit-location\
-        exit-location --fallback-routing                                    disable exit-location\
-        exit-location                                                       disable exit-location\n\n\
-        exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       fallback-routing is ON \
-        exit-location --country-codes \"CZ|SK\"                             fallback-routing is OFF\
-    ";
 pub const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
      address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
@@ -319,14 +307,6 @@ pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
         .help(MIN_HOPS_HELP)
 }
 
-pub fn exit_location_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("exit-location")
-        .long("exit-location")
-        .value_name("EXIT-LOCATION")
-        .validator(common_validators::validate_exit_locations)
-        .help(EXIT_LOCATION_HELP)
-}
-
 #[cfg(not(target_os = "windows"))]
 pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("real-user")
@@ -368,16 +348,6 @@ fn common_parameter_with_separate_u64_values<'a>(name: &'a str, help: &'a str) -
         .max_values(1)
         .validator(common_validators::validate_separate_u64_values)
         .help(help)
-}
-
-fn exit_location_parameter<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("exit-location")
-        .long("exit-location")
-        .value_name("EXIT-LOCATION")
-        .min_values(0)
-        .max_values(1)
-        .validator(common_validators::validate_exit_locations)
-        .help(EXIT_LOCATION_HELP)
 }
 
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
@@ -433,7 +403,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         EARNING_WALLET_HELP,
         common_validators::validate_ethereum_address,
     ))
-    .arg(exit_location_parameter())
     .arg(
         Arg::with_name("fake-public-key")
             .long("fake-public-key")
@@ -786,19 +755,6 @@ mod tests {
              make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
-        );
-        assert_eq!(
-            EXIT_LOCATION_HELP,
-           "Choose your Exit Location for access the internet. You can choose from all countries, available in \
-            your Neighborhood. \n\
-            You can set exit-location --country-codes \"CZ\" without --fallback-routing argument and in that case, \
-            the fallback-routing will be set OFF. In case, you do not specify the --country-codes and neither --fallback-routing, \
-            then country-codes will be set OFF and fallback-routing will be set ON.\n\n\
-                exit-location --country-codes --fallback-routing                    disable exit-location\
-                exit-location --fallback-routing                                    disable exit-location\
-                exit-location                                                       disable exit-location\n\n\
-                exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       fallback-routing is ON \
-                exit-location --country-codes \"CZ|SK\"                             fallback-routing is OFF"
         );
         assert_eq!(
             DATA_DIRECTORY_HELP,

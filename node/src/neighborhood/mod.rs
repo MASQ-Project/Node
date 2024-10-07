@@ -1473,17 +1473,6 @@ impl Neighborhood {
             true => None,
             false => Some(exit_locations_by_priority.clone()),
         };
-
-        // You can set exit-location --country-codes "CZ" without --fallback-routing argument and in that case, tha fallback-routing will be set OFF. In case, you do
-        // not specify the --country-codes and neither --fallback-routing, then country-codes will be set OFF and fallback-routing will be set ON.
-
-        // exit-location --country-codes --fallback-routing                 // disable exit-location
-        // exit-location --fallback-routing                                 // disable exit-location
-        // exit-location                                                    // disable exit-location
-        //
-        // exit-location --country-codes "CZ,PL|SK" --fallback-routing      // fallback-routing is ON
-        // exit-location --country-codes "CZ|SK"                            // fallback-routing is OFF
-
         self.fallback_routing = message.fallback_routing;
         let fallback_status = match self.fallback_routing {
             true => "is",
@@ -3163,7 +3152,7 @@ mod tests {
     fn exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg()
     {
         init_test_logging();
-        let test_name = "exit_location_can_be_changed_using_exit_location_msg";
+        let test_name = "exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![
@@ -3234,7 +3223,7 @@ mod tests {
     #[test]
     fn exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg() {
         init_test_logging();
-        let test_name = "exit_location_can_be_changed_using_exit_location_msg";
+        let test_name = "exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![
@@ -3409,7 +3398,9 @@ mod tests {
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
             &format!("INFO: {}: Exit Location Set:", test_name),
         ]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![&format!(
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!(
             "{}",
             "Country Codes: [\"CZ\"] - Priority: 1;"
         )]);
