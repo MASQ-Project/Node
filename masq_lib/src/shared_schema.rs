@@ -48,6 +48,18 @@ pub const EARNING_WALLET_HELP: &str =
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
      careful to supply exactly the same one you supplied before.";
+pub const EXIT_LOCATION_HELP: &str =
+    "Choose your Exit Location for access the internet. You can choose from all countries, available in \
+    your Neighborhood. \n\
+    You can set exit-location --country-codes \"CZ\" without --fallback-routing argument and in that case, \
+    the fallback-routing will be set OFF. In case, you do not specify the --country-codes and neither --fallback-routing, \
+    then country-codes will be set OFF and fallback-routing will be set ON.\n\n\
+        exit-location --country-codes --fallback-routing                    disable exit-location\
+        exit-location --fallback-routing                                    disable exit-location\
+        exit-location                                                       disable exit-location\n\n\
+        exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       fallback-routing is ON \
+        exit-location --country-codes \"CZ|SK\"                             fallback-routing is OFF\
+    ";
 pub const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
      address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
@@ -307,6 +319,14 @@ pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
         .help(MIN_HOPS_HELP)
 }
 
+pub fn exit_location_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("exit-location")
+        .long("exit-location")
+        .value_name("EXIT-LOCATION")
+        .validator(common_validators::validate_exit_locations)
+        .help(EXIT_LOCATION_HELP)
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn real_user_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("real-user")
@@ -348,6 +368,16 @@ fn common_parameter_with_separate_u64_values<'a>(name: &'a str, help: &'a str) -
         .max_values(1)
         .validator(common_validators::validate_separate_u64_values)
         .help(help)
+}
+
+fn exit_location_parameter<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("exit-location")
+        .long("exit-location")
+        .value_name("EXIT-LOCATION")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_exit_locations)
+        .help(EXIT_LOCATION_HELP)
 }
 
 pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
@@ -403,6 +433,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         EARNING_WALLET_HELP,
         common_validators::validate_ethereum_address,
     ))
+    .arg(exit_location_parameter())
     .arg(
         Arg::with_name("fake-public-key")
             .long("fake-public-key")
@@ -484,6 +515,8 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
+    use csv::StringRecord;
+    use ip_country_lib::country_block_stream::CountryBlock;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -518,6 +551,43 @@ pub mod common_validators {
             Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
             _ => Err(clandestine_port),
         }
+    }
+
+    pub fn validate_country_code(country_code: String) -> Result<(), String> {
+        let country_range = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", country_code.as_str()]);
+
+        match CountryBlock::try_from(country_range) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
+        validate_pipe_separate_values(exit_location, |country: String| {
+            let mut collect_fails = "".to_string();
+            country.split(',').into_iter().for_each(|country_code| {
+                match validate_country_code(country_code.to_string()) {
+                    Ok(_) => (),
+                    Err(e) => collect_fails.push_str(&e),
+                }
+            });
+            match collect_fails.is_empty() {
+                true => Ok(()),
+                false => Err(collect_fails),
+            }
+        })
+    }
+
+    pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
+        validate_pipe_separate_values(values, |segment: String| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                        .to_string()
+                })
+                .map(|_| ())
+        })
     }
 
     pub fn validate_private_key(key: String) -> Result<(), String> {
@@ -606,16 +676,24 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
-        values_with_delimiters.split('|').try_for_each(|segment| {
-            segment
-                .parse::<u64>()
-                .map_err(|_| {
-                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
-                        .to_string()
-                })
-                .map(|_| ())
-        })
+    fn validate_pipe_separate_values(
+        values_with_delimiters: String,
+        closure: fn(String) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut error_collection = vec![];
+        values_with_delimiters
+            .split('|')
+            .into_iter()
+            .for_each(|segment| {
+                match closure(segment.to_string()) {
+                    Ok(_) => (),
+                    Err(msg) => error_collection.push(msg),
+                };
+            });
+        match error_collection.is_empty() {
+            true => Ok(()),
+            false => Err(error_collection.into_iter().collect::<String>()),
+        }
     }
 }
 
@@ -708,6 +786,19 @@ mod tests {
              make sure you haven't already set up a consuming wallet with a derivation path, and make sure that you always \
              supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
              hexadecimal digits."
+        );
+        assert_eq!(
+            EXIT_LOCATION_HELP,
+           "Choose your Exit Location for access the internet. You can choose from all countries, available in \
+            your Neighborhood. \n\
+            You can set exit-location --country-codes \"CZ\" without --fallback-routing argument and in that case, \
+            the fallback-routing will be set OFF. In case, you do not specify the --country-codes and neither --fallback-routing, \
+            then country-codes will be set OFF and fallback-routing will be set ON.\n\n\
+                exit-location --country-codes --fallback-routing                    disable exit-location\
+                exit-location --fallback-routing                                    disable exit-location\
+                exit-location                                                       disable exit-location\n\n\
+                exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       fallback-routing is ON \
+                exit-location --country-codes \"CZ|SK\"                             fallback-routing is OFF"
         );
         assert_eq!(
             DATA_DIRECTORY_HELP,
@@ -923,6 +1014,23 @@ mod tests {
              blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
              provided."
         )
+    }
+
+    #[test]
+    fn validate_exit_key_fails_on_not_valid_country_code() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR"));
+
+        assert_eq!(
+            result,
+            Err("'RR' is not a valid ISO3166 country code".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_exit_key_success() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK"));
+
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
