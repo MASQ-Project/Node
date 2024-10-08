@@ -62,18 +62,19 @@ const EXIT_LOCATION_ABOUT: &str =
         masq> exit-location --country-codes --fallback-routing                    // disable exit-location \n\
         masq> exit-location --fallback-routing                                    // disable exit-location \n\
         masq> exit-location                                                       // disable exit-location \n\n\
-        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       // fallback-routing is ON \n\
-        masq> exit-location --country-codes \"CZ|SK\"                             // fallback-routing is OFF\n";
+        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       // fallback-routing is ON, \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\"\n\
+        masq> exit-location --country-codes \"CZ|SK\"                             // fallback-routing is OFF, \"CZ\" and \"SK\" countries has different prirority\n";
 
-const COUNTRY_CODES_HELP: &str = "To obtain codes you cant use 'country-code-list' command. You can specify country codes followingly:\n\n\
-        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       // fallback-routing is ON, CZ and PL countries has same priority, SK has lower prirority \n\
-        masq> exit-location --country-codes \"CZ|SK\"                             // fallback-routing is OFF, CZ and SK countries has different prirority\n";
+// TODO update following help when GH-469 is done
+const COUNTRY_CODES_HELP: &str = "To obtain codes you cant use 'country-codes-list' command. You can specify country codes followingly:\n\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\"                          // \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\" \n\
+        masq> exit-location --country-codes \"CZ|SK\"                             // \"CZ\" and \"SK\" countries has different prirority\n";
 
 const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
      in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
      available anywhere. \n Here are some examples: \n\n\
-     masq> exit-location --country-codes \"CZ\" --fallback-routing              // Set exit-location for \"CZ\" country and enable fallback-routing \n\
-     masq> exit-location --fallback-routing                                    // disable exit-location \n";
+     masq> exit-location --country-codes \"CZ\" --fallback-routing              // Set exit-location for \"CZ\" country with fallback-routing on \n\
+     masq> exit-location --country-codes \"CZ\"                                 // Set exit-location for \"CZ\" country with fallback-routing off \n";
 
 pub fn set_exit_location_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("exit-location")
