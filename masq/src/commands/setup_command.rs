@@ -164,7 +164,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
     use crate::test_utils::mocks::{CommandContextMock, TerminalPassiveMock, TestStreamFactory};
-    use masq_lib::constants::{DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER};
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};

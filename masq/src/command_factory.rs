@@ -106,9 +106,9 @@ impl CommandFactoryReal {
 
 #[cfg(test)]
 mod tests {
-    use masq_lib::messages::CountryCodes;
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
+    use masq_lib::messages::CountryCodes;
 
     #[test]
     fn complains_about_unrecognized_subcommand() {
@@ -282,7 +282,10 @@ mod tests {
                 .downcast_ref::<SetExitLocationCommand>()
                 .unwrap(),
             &SetExitLocationCommand {
-                exit_locations: vec![CountryCodes { country_codes: vec!["CZ".to_string()], priority: 1 }],
+                exit_locations: vec![CountryCodes {
+                    country_codes: vec!["CZ".to_string()],
+                    priority: 1
+                }],
                 fallback_routing: false,
             }
         );

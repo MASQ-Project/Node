@@ -869,12 +869,6 @@ impl From<(String, usize)> for CountryCodes {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct ExitLocation {
-    #[serde(rename = "exitLocation")]
-    exit_location: Vec<CountryCodes>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiSetExitLocationRequest {
     #[serde(rename = "fallbackRouting")]
     pub fallback_routing: bool,

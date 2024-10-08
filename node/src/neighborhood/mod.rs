@@ -3223,7 +3223,8 @@ mod tests {
     #[test]
     fn exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg() {
         init_test_logging();
-        let test_name = "exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg";
+        let test_name =
+            "exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![
@@ -3400,10 +3401,8 @@ mod tests {
         ]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Exit Location Set:", test_name),
-            &format!(
-            "{}",
-            "Country Codes: [\"CZ\"] - Priority: 1;"
-        )]);
+            &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
+        ]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
             &format!("INFO: {}: Exit Location Unset.", test_name),
