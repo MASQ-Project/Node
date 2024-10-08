@@ -28,6 +28,7 @@ use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
+    #[allow(dead_code)]
     dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
@@ -42,12 +43,13 @@ impl ServerInitializer for ServerInitializerReal {
         let data_directory = value_m!(multi_config, "data-directory", String)
             .expect("ServerInitializer: Data directory not present in Multi Config");
 
+        // TODO: GH-525: This card should bring back the commented out code for dns_socket_server
         let result: RunModeResult = Ok(())
-            .combine_results(
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_privileged(&multi_config),
-            )
+            // .combine_results(
+            //     self.dns_socket_server
+            //         .as_mut()
+            //         .initialize_as_privileged(&multi_config),
+            // )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
@@ -60,11 +62,11 @@ impl ServerInitializer for ServerInitializerReal {
         self.privilege_dropper.drop_privileges(&real_user);
 
         result
-            .combine_results(
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_unprivileged(&multi_config, streams),
-            )
+            // .combine_results(
+            //     self.dns_socket_server
+            //         .as_mut()
+            //         .initialize_as_unprivileged(&multi_config, streams),
+            // )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
@@ -79,11 +81,12 @@ impl Future for ServerInitializerReal {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(self
-            .dns_socket_server
-            .as_mut()
-            .join(self.bootstrapper.as_mut())
-            .poll());
+        // try_ready!(self
+        //     .dns_socket_server
+        //     .as_mut()
+        //     .join(self.bootstrapper.as_mut())
+        //     .poll());
+        try_ready!(self.bootstrapper.as_mut().poll());
         Ok(Async::Ready(()))
     }
 }
@@ -726,7 +729,8 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
+    // TODO: GH-525: It should panic
+    // #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
     fn server_initializer_dns_socket_server_panics() {
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
@@ -840,8 +844,8 @@ pub mod tests {
         [
             bootstrapper_init_privileged_params_arc,
             bootstrapper_init_unprivileged_params_arc,
-            dns_socket_server_privileged_params_arc,
-            dns_socket_server_unprivileged_params_arc,
+            // dns_socket_server_privileged_params_arc, // TODO: GH-525: Fix me
+            // dns_socket_server_unprivileged_params_arc,
         ]
         .iter()
         .for_each(|arc_params| {
@@ -889,12 +893,13 @@ pub mod tests {
 
         let result = subject.go(&mut holder.streams(), &args);
 
+        // TODO: GH-525: Fix me
         assert_eq!(
             result,
             Err(ConfiguratorError::new(vec![
-                ParamError::new("dns-iap", "dns-iap-reason"),
+                // ParamError::new("dns-iap", "dns-iap-reason"),
                 ParamError::new("boot-iap", "boot-iap-reason"),
-                ParamError::new("dns-iau", "dns-iau-reason"),
+                // ParamError::new("dns-iau", "dns-iau-reason"),
                 ParamError::new("boot-iau", "boot-iau-reason")
             ]))
         );
