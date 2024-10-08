@@ -93,12 +93,16 @@ impl Future for ServerInitializerReal {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        // try_ready!(self
-        //     .dns_socket_server
-        //     .as_mut()
-        //     .join(self.bootstrapper.as_mut())
-        //     .poll());
-        try_ready!(self.bootstrapper.as_mut().poll());
+        match self.is_entry_dns_enabled {
+            true => {
+                try_ready!(self
+                    .dns_socket_server
+                    .as_mut()
+                    .join(self.bootstrapper.as_mut())
+                    .poll());
+            }
+            false => try_ready!(self.bootstrapper.as_mut().poll()),
+        }
         Ok(Async::Ready(()))
     }
 }
@@ -798,8 +802,7 @@ pub mod tests {
     }
 
     #[test]
-    // TODO: GH-525: It should panic
-    // #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
+    #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
     fn server_initializer_dns_socket_server_panics() {
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
@@ -813,7 +816,7 @@ pub mod tests {
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(dirs_wrapper),
-            is_entry_dns_enabled: false,
+            is_entry_dns_enabled: true,
         };
 
         let _ = subject.poll();
