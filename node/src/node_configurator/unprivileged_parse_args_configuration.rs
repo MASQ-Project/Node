@@ -37,7 +37,7 @@ pub trait UnprivilegedParseArgsConfiguration {
         unprivileged_config
             .blockchain_bridge_config
             .blockchain_service_url_opt =
-            if is_user_specified(multi_config, "blockchain-service-url") {
+            if has_user_specified(multi_config, "blockchain-service-url") {
                 value_m!(multi_config, "blockchain-service-url", String)
             } else {
                 match persistent_config.blockchain_service_url() {
@@ -48,7 +48,7 @@ pub trait UnprivilegedParseArgsConfiguration {
             };
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         unprivileged_config.blockchain_bridge_config.gas_price =
-            if is_user_specified(multi_config, "gas-price") {
+            if has_user_specified(multi_config, "gas-price") {
                 value_m!(multi_config, "gas-price", u64).expectv("gas price")
             } else {
                 match persistent_config.gas_price() {
@@ -57,6 +57,7 @@ pub trait UnprivilegedParseArgsConfiguration {
                 }
             };
         unprivileged_config.db_password_opt = value_m!(multi_config, "db-password", String);
+        unprivileged_config.entry_dns = has_user_specified(multi_config, "entry-dns");
         configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
@@ -614,7 +615,7 @@ fn set_db_password_at_first_mention(
     }
 }
 
-fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
+fn has_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
     multi_config.occurrences_of(parameter) > 0
 }
 
@@ -2621,6 +2622,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+    }
+
+    #[test]
+    fn unprivileged_configuration_handles_entry_dns() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+        let args = ["--ip", "1.2.3.4", "--entry-dns"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(bootstrapper_config.entry_dns, true);
+    }
+
+    #[test]
+    fn unprivileged_configuration_defaults_entry_dns() {
+        running_test();
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+        let args = ["--ip", "1.2.3.4"];
+        let mut bootstrapper_config = BootstrapperConfig::new();
+
+        subject
+            .unprivileged_parse_args(
+                &make_simplified_multi_config(args),
+                &mut bootstrapper_config,
+                &mut configure_default_persistent_config(
+                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
+                ),
+                &Logger::new("test"),
+            )
+            .unwrap();
+
+        assert_eq!(bootstrapper_config.entry_dns, false);
     }
 
     fn make_persistent_config(
