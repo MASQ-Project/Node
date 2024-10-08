@@ -615,7 +615,7 @@ fn set_db_password_at_first_mention(
     }
 }
 
-fn has_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
+pub fn has_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
     multi_config.occurrences_of(parameter) > 0
 }
 
