@@ -169,6 +169,7 @@ fn get_config_file_from_mc(
     data_directory_def: bool,
     dirs_wrapper: &dyn DirsWrapper,
 ) -> FieldPair<PathBuf> {
+    eprintln!("Data Directory: {:?}", data_directory);
     let mut panic: bool = false;
     let config_file = value_m!(multi_config, "config-file", PathBuf);
     match config_file {

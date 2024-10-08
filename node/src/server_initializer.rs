@@ -700,7 +700,7 @@ pub mod tests {
 
     #[test]
     fn go_updates_entry_dns_flag() {
-        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let _ = LogfileNameGuard::new(&PathBuf::from("go_updates_entry_dns_flag"));
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
@@ -727,7 +727,9 @@ pub mod tests {
 
     #[test]
     fn go_maintains_entry_dns_flag_disabled_if_absent_in_args() {
-        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let _ = LogfileNameGuard::new(&PathBuf::from(
+            "go_maintains_entry_dns_flag_disabled_if_absent_in_args",
+        ));
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
@@ -754,7 +756,7 @@ pub mod tests {
 
     #[test]
     fn exits_after_all_socket_servers_exit() {
-        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let _ = LogfileNameGuard::new(&PathBuf::from("exits_after_all_socket_servers_exit"));
         let dns_socket_server = CrashTestDummy::new(CrashPoint::Error, ());
         let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
@@ -844,7 +846,7 @@ pub mod tests {
 
     #[test]
     fn go_should_drop_privileges() {
-        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let _ = LogfileNameGuard::new(&PathBuf::from("go_should_drop_privileges"));
         let bootstrapper_init_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_privileged_params_arc = Arc::new(Mutex::new(vec![]));
@@ -934,7 +936,7 @@ pub mod tests {
 
     #[test]
     fn go_should_combine_errors() {
-        let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
+        let _ = LogfileNameGuard::new(&PathBuf::from("go_should_combine_errors"));
         let dns_socket_server = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Err(ConfiguratorError::required(
                 "dns-iap",
