@@ -22,7 +22,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
+use actix::{Actor, System};
 use actix::Context;
 use actix::Handler;
 use actix::Message;
@@ -33,10 +33,12 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
+use std::thread::panicking;
 use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 use web3::Transport;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -61,6 +63,14 @@ struct TransactionConfirmationTools {
 
 impl Actor for BlockchainBridge {
     type Context = Context<Self>;
+}
+
+impl Drop for BlockchainBridge {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for BlockchainBridge {

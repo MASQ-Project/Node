@@ -13,6 +13,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::io::{ReadBuf};
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -29,30 +30,35 @@ impl Future for StreamReader {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut buf: [u8; 16384] = [0; 16384];
+        let mut read_buf = ReadBuf::new(&mut buf);
         loop {
-            match self.stream.poll_read(cx, &mut buf) {
+            let prev_buf_len = read_buf.filled().len();
+            match self.stream.poll_read(cx, &mut read_buf) {
                 Poll::Pending => return Poll::Pending,
-                Poll::Ready(Ok(0)) => {
-                    // see RETURN VALUE section of recv man page (Unix)
-                    debug!(
+                Poll::Ready(Ok(_)) => {
+                    let len = read_buf.filled().len() - prev_buf_len;
+                    if len == 0 {
+                        // see RETURN VALUE section of recv man page (Unix)
+                        debug!(
                         self.logger,
                         "Stream from {} was closed: (0-byte read)", self.peer_addr
                     );
-                    self.shutdown();
-                    return Poll::Ready(Ok(()));
-                }
-                Poll::Ready(Ok(len)) => {
-                    if self.logger.trace_enabled() {
-                        trace!(
+                        self.shutdown();
+                        return Poll::Ready(Ok(()));
+                    }
+                    else {
+                        if self.logger.trace_enabled() {
+                            trace!(
                             self.logger,
                             "Read {}-byte chunk from {}: {}",
                             len,
                             self.peer_addr,
                             utils::to_string(&Vec::from(&buf[0..len]))
                         );
+                        }
+                        let stream_key = self.stream_key;
+                        self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
                     }
-                    let stream_key = self.stream_key;
-                    self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
                 }
                 Poll::Ready(Err(e)) => {
                     if indicates_dead_stream(e.kind()) {
@@ -168,7 +174,7 @@ mod tests {
 
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
-            system.run();
+            system.run().unwrap();
         });
 
         let proxy_client_sub = rx.recv().unwrap();
@@ -249,7 +255,7 @@ mod tests {
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
 
-            system.run();
+            system.run().unwrap();
         });
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
@@ -330,7 +336,7 @@ mod tests {
             sequencer,
         };
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let result = subject.poll();
 
@@ -364,7 +370,7 @@ mod tests {
 
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
-            system.run();
+            system.run().unwrap();
         });
 
         let proxy_client_sub = rx.recv().unwrap();

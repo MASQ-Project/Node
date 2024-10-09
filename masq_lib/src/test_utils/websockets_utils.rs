@@ -1,13 +1,11 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::NODE_UI_PROTOCOL;
-use crate::utils::localhost;
 use crate::websockets_handshake::{
     HandshakeResultTx, MASQWSClientHandshakeHandler, WSClientConnector,
 };
 use async_channel::{Receiver, Sender};
 use futures_util::TryFutureExt;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use workflow_websocket::client::Handshake;

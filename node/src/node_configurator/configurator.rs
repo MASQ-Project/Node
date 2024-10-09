@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::path::PathBuf;
-
-use actix::{Actor, Context, Handler, Recipient};
+use std::thread::panicking;
+use actix::{Actor, Context, Handler, Recipient, System};
 
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
@@ -40,6 +40,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -53,6 +54,14 @@ pub struct Configurator {
 
 impl Actor for Configurator {
     type Context = Context<Self>;
+}
+
+impl Drop for Configurator {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for Configurator {

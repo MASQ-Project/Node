@@ -4,12 +4,10 @@ use crate::command::StdStreams;
 use core::pin::Pin;
 use core::task::Poll;
 use itertools::{Either, Itertools};
-use std::cell::RefCell;
 use std::cmp::min;
 use std::io::Read;
 use std::io::Write;
-use std::io::{BufRead, Error};
-use std::ops::Deref;
+use std::io::{Error};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::vec::IntoIter;
@@ -28,10 +26,10 @@ pub struct ByteArrayWriterInner {
 }
 
 impl ByteArrayWriterInner {
-    fn new(flush_conscious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
+    fn new(flush_cautious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
         ByteArrayWriterInner {
             byte_array: vec![],
-            flush_separated_writes_opt: flush_conscious_mode.then_some(vec![]),
+            flush_separated_writes_opt: flush_cautious_mode.then_some(vec![]),
             next_error_opt,
         }
     }
@@ -62,11 +60,11 @@ impl ByteArrayWriterInner {
 }
 
 impl ByteArrayWriter {
-    pub fn new(flush_caucious_mode: bool) -> Self {
+    pub fn new(flush_cautious_mode: bool) -> Self {
         Self {
             inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner {
                 byte_array: vec![],
-                flush_separated_writes_opt: flush_caucious_mode.then_some(vec![]),
+                flush_separated_writes_opt: flush_cautious_mode.then_some(vec![]),
                 next_error_opt: None,
             })),
         }

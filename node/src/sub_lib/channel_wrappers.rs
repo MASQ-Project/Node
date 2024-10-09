@@ -1,9 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use async_trait::async_trait;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
+#[async_trait]
 pub trait ReceiverWrapper<T: Send>: Send {
     async fn recv(&mut self) -> Option<T>;
     fn try_recv(&mut self) -> Result<T, TryRecvError>;
@@ -13,6 +15,7 @@ pub struct ReceiverWrapperReal<T> {
     delegate: UnboundedReceiver<T>,
 }
 
+#[async_trait]
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperReal<T> {
     async fn recv(&mut self) -> Option<T> {
         self.delegate.recv().await

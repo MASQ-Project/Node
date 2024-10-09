@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-
+use std::thread::panicking;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
@@ -78,6 +78,7 @@ use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -109,6 +110,14 @@ pub struct Neighborhood {
 
 impl Actor for Neighborhood {
     type Context = Context<Self>;
+}
+
+impl Drop for Neighborhood {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for Neighborhood {

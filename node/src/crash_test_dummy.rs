@@ -43,7 +43,7 @@ where
 {
     type Output = Result<(), ()>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.crash_point {
             CrashPoint::None => Poll::Ready(Ok(())),
             CrashPoint::Message => Poll::Ready(Ok(())),

@@ -51,7 +51,7 @@ use crate::sub_lib::blockchain_bridge::{
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
+use actix::{Actor, System};
 use actix::Addr;
 use actix::AsyncContext;
 use actix::Context;
@@ -73,8 +73,10 @@ use std::fmt::Display;
 use std::ops::{Div, Mul};
 use std::path::Path;
 use std::rc::Rc;
+use std::thread::panicking;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
@@ -103,6 +105,14 @@ pub struct Accountant {
 
 impl Actor for Accountant {
     type Context = Context<Self>;
+}
+
+impl Drop for Accountant {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -1667,9 +1677,7 @@ mod tests {
         init_test_logging();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("someearningwallet");
-        let system = System::new(
-            "accountant_sends_request_to_blockchain_bridge_to_scan_for_received_payments",
-        );
+        let system = System::new();
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
@@ -2037,7 +2045,7 @@ mod tests {
         send_start_message!(subject_subs);
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
         TestLogHandler::new().exists_log_containing(
             &format!("{test_name}: Started with --scans off; declining to begin database and blockchain scans"),
@@ -2096,9 +2104,7 @@ mod tests {
             .non_pending_payables_result(accounts.clone())
             .non_pending_payables_result(vec![]);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
-        let system = System::new(
-            "scan_for_payable_message_does_not_trigger_payment_for_balances_below_the_curve",
-        );
+        let system = System::new();
         let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
         let report_accounts_payable_sub =
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
@@ -3171,7 +3177,7 @@ mod tests {
 
         send_start_message!(accountant_subs);
 
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
         let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0);
         assert!(mark_pending_payable_params.is_empty());
@@ -3342,7 +3348,7 @@ mod tests {
 
         let system = System::new();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let insert_fingerprint_params = insert_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *insert_fingerprint_params,

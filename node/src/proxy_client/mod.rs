@@ -31,7 +31,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
+use actix::{Actor, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -42,7 +42,9 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::thread::panicking;
 use std::time::SystemTime;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -64,6 +66,14 @@ pub struct ProxyClient {
 
 impl Actor for ProxyClient {
     type Context = Context<Self>;
+}
+
+impl Drop for ProxyClient {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for ProxyClient {

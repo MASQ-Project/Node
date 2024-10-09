@@ -39,7 +39,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Addr;
+use actix::{Addr, System};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -50,7 +50,9 @@ use masq_lib::utils::MutabilityConflictHelper;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
+use std::thread::panicking;
 use std::time::{Duration, SystemTime};
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -86,6 +88,14 @@ pub struct ProxyServer {
 
 impl Actor for ProxyServer {
     type Context = Context<Self>;
+}
+
+impl Drop for ProxyServer {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for ProxyServer {

@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+// TODO: This would probably be more profitable as an enum with three values.
 type PollReadResult = (Vec<u8>, Poll<io::Result<usize>>);
 
 #[derive(Default)]
@@ -63,6 +64,12 @@ impl ReadHalfWrapperMock {
 
     pub fn poll_read_ok(self, data: Vec<u8>) -> ReadHalfWrapperMock {
         self.poll_read_result(data.clone(), Poll::Ready(Ok(data.len())))
+    }
+
+    pub fn poll_read_final(self, data: Vec<u8>) -> ReadHalfWrapperMock {
+        self
+            .poll_read_result(data.clone(), Poll::Ready(Ok(data.len())))
+            .poll_read_result(vec![], Poll::Ready(Ok(0)))
     }
 }
 

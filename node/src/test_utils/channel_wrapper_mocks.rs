@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use async_trait::async_trait;
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>);
@@ -36,6 +37,7 @@ pub struct ReceiverWrapperMock<T> {
     pub try_recv_results: Vec<Result<T, TryRecvError>>,
 }
 
+#[async_trait]
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
     async fn recv(&mut self) -> Option<T> {
         self.recv_results.remove(0)

@@ -25,7 +25,7 @@ pub struct ConnectionInfo {
 
 #[async_trait]
 pub trait StreamConnector: Send {
-    async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> ConnectionInfo;
+    async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> Result<ConnectionInfo, io::Error>;
     fn connect_one(
         &self,
         ip_addrs: Vec<IpAddr>,
@@ -34,6 +34,7 @@ pub trait StreamConnector: Send {
         logger: &Logger,
     ) -> Result<ConnectionInfo, io::Error>;
     fn split_stream(&self, stream: TcpStream, logger: &Logger) -> Option<ConnectionInfo>;
+    fn dup(&self) -> Box<dyn StreamConnector>;
 }
 
 #[derive(Clone)]

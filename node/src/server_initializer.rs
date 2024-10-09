@@ -8,9 +8,7 @@ use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
 use backtrace::Backtrace;
-use flexi_logger::{
-    Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
-};
+use flexi_logger::{Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, LevelFilter, LogSpecBuilder, Logger, Naming, Record};
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
@@ -27,7 +25,7 @@ use tokio::task::{JoinSet};
 
 pub struct ServerInitializerReal {
     dns_socket_server: Box<dyn ConfiguredServer>,
-    bootstrapper: Box<dyn ConfiguredServer>,
+    bootstrapper: Box<dyn ConfiguredByPrivilege>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
@@ -44,7 +42,6 @@ impl ServerInitializer for ServerInitializerReal {
             )
             .combine_results(
                 self.bootstrapper
-                    .as_mut()
                     .initialize_as_privileged(&params.multi_config),
             );
 
@@ -61,15 +58,18 @@ impl ServerInitializer for ServerInitializerReal {
             )
             .combine_results(
                 self.bootstrapper
-                    .as_mut()
                     .initialize_as_unprivileged(&params.multi_config, streams),
             )
     }
 
-    fn spawn_futures(self) -> JoinSet<()> {
+    // TODO: This JoinSet used to have both the dns_socket_server and the bootstrapper in it.
+    // We couldn't figure out a good reason for the bootstrapper to be in, because there wasn't
+    // any future-oriented behavior in the bootstrapper; so we took it out. That leaves a single-
+    // element JoinSet, which is kind of silly. However, we want to delay the rearchitecture of
+    // ServerInitializer until after we have passing tests. So, for now, we're leaving this as is.
+    fn spawn_futures(self) -> JoinSet<io::Result<()>> {
         let mut join_set = JoinSet::new();
-        let _ = join_set.spawn(self.dns_socket_server);
-        let _ = join_set.spawn(self.bootstrapper);
+        let _ = join_set.spawn(self.dns_socket_server.make_server_future());
         join_set
     }
 
@@ -154,6 +154,12 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         log_level: LevelFilter,
         discriminant_opt: Option<&str>,
     ) {
+        let mut file_spec = FileSpec::default()
+            .directory(file_path.clone())
+            .suppress_timestamp();
+        if let Some(discriminant) = discriminant_opt {
+            file_spec = file_spec.discriminant(discriminant);
+        }
         let mut logger = Logger::with(
             LogSpecBuilder::new()
                 .default(log_level)
@@ -161,20 +167,15 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
                 .module("mio", LevelFilter::Off)
                 .build(),
         )
-        // .log_to_file()
-        .directory(file_path.clone())
+        .log_to_file(file_spec)
         .print_message()
         .duplicate_to_stderr(Duplicate::Info)
-        .suppress_timestamp()
         .format(format_function)
         .rotate(
             Criterion::Size(100_000_000),
             Naming::Numbers,
             Cleanup::KeepCompressedFiles(50),
         );
-        if let Some(discriminant) = discriminant_opt {
-            logger = logger.discriminant(discriminant);
-        }
         logger.start().expect("Logging subsystem failed to start");
         let privilege_dropper = PrivilegeDropperReal::new();
         let logfile_name = file_path.join(format!(
@@ -262,7 +263,7 @@ fn panic_hook(panic_info: AltPanicInfo) {
     } else {
         "<message indecipherable>".to_string()
     };
-    let logger = masq_lib::logger::Logger::new("PanicHandler");
+    let logger = logger::Logger::new("PanicHandler");
     error!(logger, "{} - {}", location, message);
     let backtrace = Backtrace::new();
     error!(logger, "{:?}", backtrace);
@@ -679,8 +680,8 @@ pub mod tests {
         tlh.exists_log_containing("ERROR: PanicHandler: file.txt:24:42 - I'm just a string slice");
     }
 
-    #[test]
-    fn exits_after_all_socket_servers_exit() {
+    #[tokio::test]
+    async fn exits_after_all_socket_servers_exit() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let dns_socket_server = CrashTestDummy::new(CrashPoint::Error, ());
         let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
@@ -693,8 +694,8 @@ pub mod tests {
             dirs_wrapper: Box::new(dirs_wrapper),
         };
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
-        let stdout = &mut ByteArrayWriter::new();
-        let stderr = &mut ByteArrayWriter::new();
+        let stdout = &mut ByteArrayWriter::new(false);
+        let stderr = &mut ByteArrayWriter::new(false);
         let streams = &mut StdStreams {
             stdin,
             stdout,
@@ -704,9 +705,15 @@ pub mod tests {
             .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
             .unwrap();
 
-        let res = subject.spawn_futures();
+        let mut join_set = subject.spawn_futures();
 
-        assert!(res.is_err());
+        let mut error = false;
+        while let Some(result) = join_set.join_next().await {
+            if result.is_err() {
+                error = true;
+            }
+        }
+        assert_eq!(error, true);
     }
 
     #[test]
@@ -780,8 +787,8 @@ pub mod tests {
             .drop_privileges_params(&drop_privileges_params_arc)
             .chown_params(&chown_params_arc);
         let stdin = &mut ByteArrayReader::new(&[0; 0]);
-        let stdout = &mut ByteArrayWriter::new();
-        let stderr = &mut ByteArrayWriter::new();
+        let stdout = &mut ByteArrayWriter::new(false);
+        let stderr = &mut ByteArrayWriter::new(false);
         let streams = &mut StdStreams {
             stdin,
             stdout,
@@ -867,7 +874,7 @@ pub mod tests {
         };
         let args =
             slice_of_strs_to_vec_of_strings(&["MASQNode", "--real-user", "123:123:/home/alice"]);
-        let stderr = ByteArrayWriter::new();
+        let stderr = ByteArrayWriter::new(false);
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;
 

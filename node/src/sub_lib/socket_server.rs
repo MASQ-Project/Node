@@ -16,6 +16,6 @@ pub trait ConfiguredByPrivilege {
     ) -> Result<(), ConfiguratorError>;
 }
 
-pub trait ConfiguredServer {
+pub trait ConfiguredServer: Send {
     async fn make_server_future(self) -> std::io::Result<()>;
 }

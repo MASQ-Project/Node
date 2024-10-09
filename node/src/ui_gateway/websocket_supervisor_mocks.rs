@@ -6,6 +6,7 @@ use actix::Recipient;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use async_trait::async_trait;
 
 #[derive(Default)]
 pub struct WebSocketSupervisorMock {

@@ -13,7 +13,7 @@ use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
 use crate::ui_gateway::websocket_supervisor::{
     WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
-use actix::Actor;
+use actix::{Actor, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -24,12 +24,14 @@ use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 use std::mem::replace;
+use std::thread::panicking;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,
-    websocket_supervisor: Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
+    websocket_supervisor_or_factory: Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     crashable: bool,
     logger: Logger,
@@ -39,7 +41,7 @@ impl UiGateway {
     pub fn new(config: &UiGatewayConfig, crashable: bool) -> UiGateway {
         UiGateway {
             port: config.ui_port,
-            websocket_supervisor: Either::Left(Box::new(WebsocketSupervisorFactoryReal)),
+            websocket_supervisor_or_factory: Either::Left(Box::new(WebsocketSupervisorFactoryReal)),
             incoming_message_recipients: vec![],
             crashable,
 
@@ -97,7 +99,7 @@ impl UiGateway {
 
     fn initiate_websocket_supervisor(&mut self, recipient: Recipient<NodeFromUiMessage>) {
         let ws = match self
-            .websocket_supervisor
+            .websocket_supervisor_or_factory
             .as_ref()
             .left()
             .as_ref()
@@ -107,12 +109,20 @@ impl UiGateway {
             Ok(wss) => Either::Right(wss),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
         };
-        let _ = replace(&mut self.websocket_supervisor, ws);
+        let _ = replace(&mut self.websocket_supervisor_or_factory, ws);
     }
 }
 
 impl Actor for UiGateway {
     type Context = Context<Self>;
+}
+
+impl Drop for UiGateway {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for UiGateway {
@@ -147,12 +157,12 @@ impl Handler<NodeToUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.websocket_supervisor
+        self.websocket_supervisor_or_factory
             .as_ref()
             .right()
             .as_ref()
             .expect("WebSocketSupervisor is uninitialized")
-            .send_msg(msg)
+            .send_msg(msg);
     }
 }
 
@@ -351,7 +361,7 @@ mod tests {
             .make_result(Ok(Box::new(websocket_supervisor)));
         let port = find_free_port();
         let mut subject = UiGateway::new(&UiGatewayConfig { ui_port: port }, false);
-        subject.websocket_supervisor = Either::Left(
+        subject.websocket_supervisor_or_factory = Either::Left(
             Box::new(websocket_supervisor_factory) as Box<dyn WebSocketSupervisorFactory>
         );
         let system = System::new();

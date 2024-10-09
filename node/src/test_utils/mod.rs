@@ -645,7 +645,7 @@ pub mod unshared_test_utils {
     pub fn make_simplified_multi_config<const T: usize>(args: [&str; T]) -> MultiConfig {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
-        let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();
+        let arg_matches = app_node().get_matches_from(app_args);
         MultiConfig::new_test_only(arg_matches)
     }
 

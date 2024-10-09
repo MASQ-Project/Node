@@ -27,7 +27,7 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
-use actix::{ActorTryFutureExt, Addr};
+use actix::{Addr};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -270,7 +270,7 @@ impl StreamHandlerPool {
             local_addr,
             peer_addr
         );
-        tokio::spawn(stream_reader);
+        tokio::spawn(stream_reader.run());
     }
 
     fn set_up_stream_writer(
@@ -284,7 +284,8 @@ impl StreamHandlerPool {
             .insert(StreamWriterKey::from(peer_addr), Some(tx));
 
         if is_clandestine {
-            tokio::spawn(StreamWriterUnsorted::new(write_stream, peer_addr, rx));
+            let stream_writer = StreamWriterUnsorted::new(write_stream, peer_addr, rx);
+            tokio::spawn(stream_writer.run());
         } else {
             tokio::spawn(StreamWriterSorted::new(write_stream, peer_addr, rx));
         };
@@ -499,7 +500,7 @@ impl StreamHandlerPool {
         };
 
         let packet_len = packet.data.len();
-        match tx_box.unbounded_send(packet) {
+        match tx_box.send(packet) {
             Err(e) => {
                 error!(
                     self.logger,
@@ -573,16 +574,20 @@ impl StreamHandlerPool {
         );
         let failure_handler = StreamStartFailureHandler::new(self, &msg, peer_addr);
         let success_handler = StreamStartSuccessHandler::new(self, msg, peer_addr);
+        let stream_connector = self.stream_connector.dup();
+        let logger = self.logger.clone();
 
-        let connect_future = self
-            .stream_connector
-            .connect(peer_addr, &self.logger)
-            .map(move |connection_info| success_handler.handle(connection_info))
-            .map_err(move |err| {
-                // connection was unsuccessful
-                failure_handler.handle(err)
-            });
-
+        let connect_future = async move {
+            match stream_connector.connect(peer_addr, &logger).await {
+                Ok(connection_info) => {
+                    success_handler.handle(connection_info);
+                },
+                Err(err) => {
+                    // connection was unsuccessful
+                    failure_handler.handle(err);
+                }
+            }
+        };
         debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
         tokio::spawn(connect_future);
     }

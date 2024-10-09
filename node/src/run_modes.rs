@@ -107,7 +107,7 @@ impl RunModes {
             err if err.kind() == clap::error::ErrorKind::DisplayHelp
                 || err.kind() == clap::error::ErrorKind::DisplayVersion =>
             {
-                writeln!(streams.stdout, "{}", err.message).expect("writeln failed");
+                writeln!(streams.stdout, "{:?}", err).expect("writeln failed");
                 ExitCode(0)
             }
             err => {
@@ -240,8 +240,9 @@ impl Runner for RunnerReal {
         let mut server_initializer = self.server_initializer_factory.make();
         server_initializer.go(streams, args)?;
         let _ = task::spawn(async {
-            let result = server_initializer.await;
-            match result {
+            // There's only one .join_next() here because there's only ever one future in the JoinSet.
+            let result = server_initializer.spawn_futures().join_next().await;
+            match result.expect("There should have been exactly one future in this JoinSet") {
                 Ok(x) => panic!(
                     "DNS server was never supposed to stop, but terminated with {:?}",
                     x
@@ -251,7 +252,7 @@ impl Runner for RunnerReal {
         });
         match system.run() {
             Ok(()) => Ok(()),
-            Err(e) => RunnerError::blah,
+            Err(_) => Err(RunnerError::Numeric(1)),
         }
     }
 
@@ -304,6 +305,7 @@ mod tests {
     use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+    use tokio::task::JoinSet;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
@@ -536,12 +538,14 @@ parm2 - msg2\n"
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
+        let mut join_set = JoinSet::new();
+        join_set.spawn(async { Err(()) });
         runner.server_initializer_factory = Box::new(
             ServerInitializerFactoryMock::default().make_result(Box::new(
                 ServerInitializerMock::default()
                     .go_result(Ok(()))
                     .go_params(&go_params_arc)
-                    .poll_result(Err(())),
+                    .spawn_futures_result(join_set),
             )),
         );
         subject.runner = Box::new(runner);

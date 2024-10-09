@@ -37,6 +37,10 @@ impl ResolverWrapperMock {
         }
     }
 
+    pub fn lookup_ip_success(self, ip_addrs: Vec<IpAddr>) -> Self {
+        self.lookup_ip_result(Ok(ip_addrs))
+    }
+
     pub fn lookup_ip_result(self, result: Result<Vec<IpAddr>, ResolveError>) -> Self {
         match result {
             Ok(ip_addrs) => {
@@ -106,7 +110,7 @@ impl ResolverWrapperFactoryMock {
         self
     }
 
-    pub fn make_parameters(
+    pub fn make_params(
         mut self,
         parameters: &Arc<Mutex<Vec<(ResolverConfig, ResolverOpts)>>>,
     ) -> ResolverWrapperFactoryMock {

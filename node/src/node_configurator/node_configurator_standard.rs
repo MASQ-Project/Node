@@ -772,7 +772,7 @@ mod tests {
             .configure(&make_simplified_multi_config(args))
             .unwrap();
 
-        assert_eq!(config.blockchain_bridge_config.chain, Chain::from("dev"));
+        assert_eq!(config.blockchain_bridge_config.chain, Chain::Dev);
     }
 
     #[test]

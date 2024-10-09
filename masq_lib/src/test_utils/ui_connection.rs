@@ -2,7 +2,6 @@
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
-use crate::test_utils::utils::make_rt;
 use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_protocol;
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
@@ -10,13 +9,26 @@ use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::net::SocketAddr;
-use workflow_websocket::client::{ConnectOptions, Message, WebSocket};
+use std::fmt;
+use workflow_websocket::client::{Message, WebSocket};
+use std::fmt::{Debug, Formatter};
 
 pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
     websocket: WebSocket,
     open_msg_received: bool
+}
+
+impl Debug for UiConnection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UiConnection")
+            .field("context_id", &self.context_id)
+            .field("local_addr", &self.local_addr)
+            .field("websocket", &"--unprintable--".to_string())
+            .field("open_msg_received", &self.open_msg_received)
+            .finish()
+    }
 }
 
 impl UiConnection {

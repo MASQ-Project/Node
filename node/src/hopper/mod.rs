@@ -4,6 +4,7 @@ mod consuming_service;
 pub mod live_cores_package;
 mod routing_service;
 
+use std::thread::panicking;
 use crate::bootstrapper::CryptDEPair;
 use crate::hopper::routing_service::RoutingServiceSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -12,7 +13,7 @@ use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{HopperConfig, NoLookupIncipientCoresPackage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use actix::Actor;
+use actix::{Actor, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -20,6 +21,7 @@ use consuming_service::ConsumingService;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "HOPPER";
 
@@ -36,6 +38,14 @@ pub struct Hopper {
 
 impl Actor for Hopper {
     type Context = Context<Self>;
+}
+
+impl Drop for Hopper {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for Hopper {

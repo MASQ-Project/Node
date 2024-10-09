@@ -31,19 +31,19 @@ pub struct ProcessPackageMessage {
     paying_wallet_opt: Option<Wallet>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Message, Debug, PartialEq)]
 #[rtype(result = "()")]
 pub struct DataWriteSuccess {
     stream_key: StreamKey,
     last_data: bool,
-    writer: Box<dyn AsyncWrite>,
+    writer: Box<dyn AsyncWrite + Send>,
 }
 
-#[derive(Message, Debug)]
+#[derive(Message, Debug, PartialEq)]
 #[rtype(result = "()")]
 pub struct DataReadSuccess {
     stream_key: StreamKey,
-    reader: Box<dyn AsyncRead>,
+    reader: Box<dyn AsyncRead + Send>,
     data: Vec<u8>,
 }
 
@@ -52,25 +52,42 @@ pub struct DataReadSuccess {
 pub struct DataWriteError {
     stream_key: StreamKey,
     last_data: bool,
-    writer: Box<dyn AsyncWrite>,
+    writer: Box<dyn AsyncWrite + Send>,
     error: io::Error,
+}
+
+impl PartialEq for DataWriteError {
+    fn eq(&self, other: &Self) -> bool {
+        todo!("Test-drive me");
+        self.stream_key == other.stream_key &&
+            self.last_data == other.last_data &&
+            self.error.kind() == other.error.kind()
+    }
 }
 
 #[derive(Message, Debug)]
 #[rtype(result = "()")]
 pub struct DataReadError {
     stream_key: StreamKey,
-    reader: Box<dyn AsyncRead>,
+    reader: Box<dyn AsyncRead + Send>,
     error: io::Error,
 }
 
-#[derive(Message)]
+impl PartialEq for DataReadError {
+    fn eq(&self, other: &Self) -> bool {
+        todo!("Test-drive me");
+        self.stream_key == other.stream_key &&
+            self.error.kind() == other.error.kind()
+    }
+}
+
+#[derive(Message, PartialEq)]
 #[rtype(result = "()")]
 pub struct AddStreamPair {
     stream_key: StreamKey,
     peer_addr: SocketAddr,
-    writer: Box<dyn AsyncWrite>,
-    reader: Box<dyn AsyncRead>,
+    writer: Box<dyn AsyncWrite + Send>,
+    reader: Box<dyn AsyncRead + Send>,
 }
 
 #[derive(Message, Debug)]
@@ -80,7 +97,14 @@ pub struct StreamCreationError {
     error: io::Error,
 }
 
-#[derive(Message, Debug)]
+impl PartialEq for StreamCreationError {
+    fn eq(&self, other: &Self) -> bool {
+        todo!("Test-drive me");
+        self.stream_key == other.stream_key && self.error.kind() == other.error.kind()
+    }
+}
+
+#[derive(Message, Debug, PartialEq)]
 #[rtype(result = "()")]
 pub struct KillStream {
     stream_key: StreamKey,
@@ -320,40 +344,40 @@ impl StreamHandlerPool {
     //     );
     // }
 
-    fn handle_data_write_success(&self, p0: DataWriteSuccess) {
+    fn handle_data_write_success(&self, success: DataWriteSuccess) {
         // Use the stream_key to find the right StreamPair
         // Put the writer back in the StreamPair
         // Inspect the StreamPair's queue; if there is anything in it, take out the first value and call handle_process_package() on it.
         todo!()
     }
 
-    fn handle_data_write_error(&self, p0: DataWriteError) {
+    fn handle_data_write_error(&self, error: DataWriteError) {
         // Use the stream_key to find the right StreamPair
         // Put the writer back in the StreamPair
         // Inspect the StreamPair's queue; if there is anything in it, take out the first value and call handle_process_package() on it.
         todo!()
     }
 
-    fn handle_data_read_success(&self, p0: DataReadSuccess) {
+    fn handle_data_read_success(&self, success: DataReadSuccess) {
         // Use the stream_key to find the right StreamPair
         // Pull out the existing sequence number and increment it
         // Transfer the data into an InboundServerData message and send it to the ProxyClient
         todo!()
     }
 
-    fn handle_data_read_error(&self, p0: DataReadError) {
+    fn handle_data_read_error(&self, error: DataReadError) {
         // If the failure is already logged, there's not much to do here
         todo!()
     }
 
-    fn handle_add_stream_pair(&self, p0: AddStreamPair) {
+    fn handle_add_stream_pair(&self, add_stream_pair: AddStreamPair) {
         // Use the stream_key to find the right StreamPair
         // Populate it with the rest of the message
         // If the StreamPair's queue isn't empty, pop the head of the queue and call handle_process_package with it
         todo!()
     }
 
-    fn handle_stream_creation_error(&self, p0: StreamCreationError) {
+    fn handle_stream_creation_error(&self, error: StreamCreationError) {
         // Use the stream_key to remove the right StreamPair
         // Create a DnsResolveFailure_0v1 message and send it to the ProxyClient.
 
@@ -369,7 +393,7 @@ impl StreamHandlerPool {
         todo!()
     }
 
-    fn handle_kill_stream(&self, p0: KillStream) {
+    fn handle_kill_stream(&self, msg: KillStream) {
         // Use the stream_key to find the correct StreamPair.
         // take() the AsyncRead and cancel it if it exists.
         // take() the AsyncWrite. If you don't get it, put the KillStream message back in the mailbox with a short delay.
@@ -848,6 +872,7 @@ mod tests {
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::cell::RefCell;
+    use std::io::Write;
     use std::net::IpAddr;
     use std::net::SocketAddr;
     use std::pin::Pin;
@@ -939,7 +964,7 @@ mod tests {
         ) -> Poll<io::Result<usize>> {
             let mut buffers = self.data_arc.lock().unwrap();
             let data = buffers.remove(0);
-            buf.write_all(data.as_slice());
+            buf.write_all(data.as_slice()).unwrap();
             Poll::Ready(Ok(buf.len()))
         }
     }
@@ -1096,7 +1121,7 @@ mod tests {
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let resolver_factory = ResolverWrapperFactoryMock::new()
             .make_params(&make_params_arc)
-            .make_result(resolver_wrapper);
+            .make_result(Box::new(resolver_wrapper));
         subject.resolver_factory = Box::new(resolver_factory);
         let (async_pair_factory, _) = AsyncPairFactoryMock::mock_and_outgoing_data(vec![]);
         subject.async_pair_factory = Box::new(async_pair_factory);
@@ -1156,7 +1181,7 @@ mod tests {
         let add_stream_pair_msg = shp_recording.get_record::<AddStreamPair>(0);
         assert_eq!(
             add_stream_pair_msg.peer_addr,
-            SocketAddr::from_str("2.3.4.5:80").uwnrap()
+            SocketAddr::from_str("2.3.4.5:80").unwrap()
         );
         assert_eq!(add_stream_pair_msg.stream_key, stream_key);
         let tlh = TestLogHandler {};
@@ -1271,8 +1296,7 @@ mod tests {
         let mut data_write_success_msg = shp_recording.get_record::<DataWriteSuccess>(0);
         assert_eq!(data_write_success_msg.stream_key, stream_key);
         assert_eq!(data_write_success_msg.last_data, false);
-        let outgoing_record_arc = async_write_data_arc.lock().unwrap().remove(0);
-        let outgoing_record = outgoing_record_arc.lock().unwrap().remove(0);
+        let outgoing_record = async_write_data_arc.lock().unwrap().remove(0);
         assert_eq!(*outgoing_record, data);
         let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
@@ -1366,8 +1390,7 @@ mod tests {
         let mut data_write_success_msg = shp_recording.get_record::<DataWriteSuccess>(0);
         assert_eq!(data_write_success_msg.stream_key, stream_key);
         assert_eq!(data_write_success_msg.last_data, true);
-        let outgoing_record_arc = async_write_data_arc.lock().unwrap().remove(0);
-        let outgoing_record = outgoing_record_arc.lock().unwrap().remove(0);
+        let outgoing_record = async_write_data_arc.lock().unwrap().remove(0);
         assert_eq!(*outgoing_record, data);
         let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
