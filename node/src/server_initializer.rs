@@ -19,6 +19,7 @@ use log::{log, Level};
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
 use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
+use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::io;
@@ -40,54 +41,67 @@ pub struct ServerInitializerReal {
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
         let multi_config = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        self.is_entry_dns_enabled = has_user_specified(&multi_config, "entry-dns");
+
+        let privileged_result = self.initialize_privileged(&multi_config);
+        self.drop_privileges(&multi_config);
+        let unprivileged_result = self.initialize_unprivileged(&multi_config, streams);
+
+        privileged_result.combine_results(unprivileged_result)
+    }
+
+    as_any_ref_in_trait_impl!();
+}
+
+impl ServerInitializerReal {
+    fn drop_privileges(&self, multi_config: &MultiConfig) {
         let real_user = value_m!(multi_config, "real-user", RealUser)
             .expect("ServerInitializer: Real user not present in Multi Config");
         let data_directory = value_m!(multi_config, "data-directory", String)
             .expect("ServerInitializer: Data directory not present in Multi Config");
-        self.is_entry_dns_enabled = has_user_specified(&multi_config, "entry-dns");
-
-        let privileged_result: RunModeResult = {
-            let result = self
-                .bootstrapper
-                .as_mut()
-                .initialize_as_privileged(&multi_config);
-
-            if self.is_entry_dns_enabled {
-                result.combine_results(
-                    self.dns_socket_server
-                        .as_mut()
-                        .initialize_as_privileged(&multi_config),
-                )
-            } else {
-                result
-            }
-        };
 
         self.privilege_dropper
             .chown(Path::new(data_directory.as_str()), &real_user);
-
         self.privilege_dropper.drop_privileges(&real_user);
-
-        let unprivileged_result: RunModeResult = {
-            let result = self
-                .bootstrapper
-                .as_mut()
-                .initialize_as_unprivileged(&multi_config, streams);
-
-            if self.is_entry_dns_enabled {
-                result.combine_results(
-                    self.dns_socket_server
-                        .as_mut()
-                        .initialize_as_unprivileged(&multi_config, streams),
-                )
-            } else {
-                result
-            }
-        };
-
-        privileged_result.combine_results(unprivileged_result)
     }
-    as_any_ref_in_trait_impl!();
+
+    fn initialize_privileged(&mut self, multi_config: &MultiConfig) -> RunModeResult {
+        let result = self
+            .bootstrapper
+            .as_mut()
+            .initialize_as_privileged(multi_config);
+
+        if self.is_entry_dns_enabled {
+            result.combine_results(
+                self.dns_socket_server
+                    .as_mut()
+                    .initialize_as_privileged(multi_config),
+            )
+        } else {
+            result
+        }
+    }
+
+    fn initialize_unprivileged(
+        &mut self,
+        multi_config: &MultiConfig,
+        streams: &mut StdStreams<'_>,
+    ) -> RunModeResult {
+        let result = self
+            .bootstrapper
+            .as_mut()
+            .initialize_as_unprivileged(multi_config, streams);
+
+        if self.is_entry_dns_enabled {
+            result.combine_results(
+                self.dns_socket_server
+                    .as_mut()
+                    .initialize_as_unprivileged(multi_config, streams),
+            )
+        } else {
+            result
+        }
+    }
 }
 
 impl Future for ServerInitializerReal {
