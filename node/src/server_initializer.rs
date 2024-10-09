@@ -899,6 +899,7 @@ pub mod tests {
                 "123:456:/home/alice",
                 "--dns-servers",
                 "5.5.6.6",
+                "--entry-dns",
             ]),
         );
 
@@ -921,8 +922,8 @@ pub mod tests {
         [
             bootstrapper_init_privileged_params_arc,
             bootstrapper_init_unprivileged_params_arc,
-            // dns_socket_server_privileged_params_arc, // TODO: GH-525: Fix me
-            // dns_socket_server_unprivileged_params_arc,
+            dns_socket_server_privileged_params_arc,
+            dns_socket_server_unprivileged_params_arc,
         ]
         .iter()
         .for_each(|arc_params| {
