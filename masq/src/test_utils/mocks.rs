@@ -3,9 +3,10 @@
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
+use crate::command_factory_factory::CommandFactoryFactory;
 use crate::command_processor::{
     CommandExecutionHelper, CommandExecutionHelperFactory, CommandProcessor,
-    CommandProcessorFactory,
+    CommandProcessorCommon, CommandProcessorFactory, ProcessorProvidingCommonComponents,
 };
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
@@ -13,7 +14,10 @@ use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, RedirectBroadcastHandleFactory,
     StandardBroadcastHandlerFactory,
 };
-use crate::communications::connection_manager::{ConnectionManagerBootstrapper, RedirectOrder};
+use crate::communications::client_listener_thread::WSClientHandle;
+use crate::communications::connection_manager::{
+    BroadcastReceiver, CloseSignalling, ConnectionManagerBootstrapper, RedirectOrder,
+};
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
@@ -24,10 +28,13 @@ use crate::terminal::{
 };
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
+use ctrlc::Error::System;
 use itertools::Either;
+use std::any::Any;
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::shared_schema::VecU64;
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayWriter, ByteArrayWriterInner,
     StringAssertionMethods,
@@ -35,21 +42,25 @@ use masq_lib::test_utils::fake_stream_holder::{
 use masq_lib::test_utils::websockets_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::localhost;
+use masq_lib::{arbitrary_id_stamp_in_trait_impl, implement_as_any, intentionally_blank, set_arbitrary_id_stamp_in_mock_impl};
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::future::Future;
 use std::io::{stdout, Read, Write};
 use std::ops::Not;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use workflow_websocket::client::{Ack, ConnectOptions, ConnectStrategy, Error, Message, Result as ClientResult, WebSocket, WebSocketConfig};
-use crate::communications::client_listener_thread::WSClientHandle;
+use workflow_websocket::client::{
+    Ack, ConnectOptions, ConnectStrategy, Error, Message, Result as ClientResult, WebSocket,
+    WebSocketConfig,
+};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -76,12 +87,15 @@ impl CommandFactoryMock {
     }
 }
 
+#[derive(Default)]
 pub struct CommandContextMock {
     active_port_results: RefCell<Vec<Option<u16>>>,
     send_one_way_params: Arc<Mutex<Vec<MessageBody>>>,
     send_one_way_results: RefCell<Vec<Result<(), ContextError>>>,
     transact_params: Arc<Mutex<Vec<(MessageBody, u64)>>>,
     transact_results: RefCell<Vec<Result<MessageBody, ContextError>>>,
+    close_params: Arc<Mutex<Vec<()>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 #[async_trait(?Send)]
@@ -108,21 +122,23 @@ impl CommandContext for CommandContextMock {
     }
 
     fn close(&self) {
-        unimplemented!()
+        self.close_params.lock().unwrap().push(())
     }
+
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
-impl Default for CommandContextMock {
-    fn default() -> Self {
-        Self {
-            active_port_results: RefCell::new(vec![]),
-            send_one_way_params: Arc::new(Mutex::new(vec![])),
-            send_one_way_results: RefCell::new(vec![]),
-            transact_params: Arc::new(Mutex::new(vec![])),
-            transact_results: RefCell::new(vec![]),
-        }
-    }
-}
+// impl Default for CommandContextMock {
+//     fn default() -> Self {
+//         Self {
+//             active_port_results: RefCell::new(vec![]),
+//             send_one_way_params: Arc::new(Mutex::new(vec![])),
+//             send_one_way_results: RefCell::new(vec![]),
+//             transact_params: Arc::new(Mutex::new(vec![])),
+//             transact_results: RefCell::new(vec![]),
+//         }
+//     }
+// }
 
 impl CommandContextMock {
     pub fn new() -> Self {
@@ -155,8 +171,11 @@ impl CommandContextMock {
     }
 
     pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        todo!()
+        self.close_params = params.clone();
+        self
     }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 #[derive(Default)]
@@ -168,10 +187,7 @@ pub struct CommandProcessorMock {
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorMock {
-    async fn process(
-        &mut self,
-        initial_subcommand_opt: Option<&[String]>,
-    ) -> Result<(), CommandError> {
+    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
         todo!()
         // self.process_params.lock().unwrap().push(command);
         // self.process_results.borrow_mut().remove(0)
@@ -187,6 +203,12 @@ impl CommandProcessor for CommandProcessorMock {
 
     fn close(&mut self) {
         self.close_params.lock().unwrap().push(());
+    }
+}
+
+impl ProcessorProvidingCommonComponents for CommandProcessorMock {
+    fn components(&mut self) -> &mut CommandProcessorCommon {
+        intentionally_blank!()
     }
 }
 
@@ -207,6 +229,24 @@ impl CommandProcessorMock {
 
     pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
         self.close_params = params.clone();
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct CommandFactoryFactoryMock {
+    make_results: RefCell<Vec<Box<dyn CommandFactory>>>,
+}
+
+impl CommandFactoryFactory for CommandFactoryFactoryMock {
+    fn make(&self) -> Box<dyn CommandFactory> {
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl CommandFactoryFactoryMock {
+    pub fn make_result(self, result: Box<dyn CommandFactory>) -> Self {
+        self.make_results.borrow_mut().push(result);
         self
     }
 }
@@ -258,18 +298,20 @@ pub struct CommandExecutionHelperFactoryMock {
 
 impl CommandExecutionHelperFactory for CommandExecutionHelperFactoryMock {
     fn make(&self) -> Box<dyn CommandExecutionHelper> {
-        todo!()
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl CommandExecutionHelperFactoryMock {
     pub fn make_result(self, result: Box<dyn CommandExecutionHelper>) -> Self {
-        todo!()
+        self.make_results.borrow_mut().push(result);
+        self
     }
 }
 
 #[derive(Default)]
 pub struct CommandExecutionHelperMock {
+    execute_command_params: Arc<Mutex<Vec<(Box<dyn Command>, ArbitraryIdStamp, ArbitraryIdStamp)>>>,
     execute_command_results: RefCell<Vec<Result<(), CommandError>>>,
 }
 
@@ -280,17 +322,27 @@ impl CommandExecutionHelper for CommandExecutionHelperMock {
         context: &dyn CommandContext,
         term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
-        todo!()
+        self.execute_command_params.lock().unwrap().push((
+            command,
+            context.arbitrary_id_stamp(),
+            term_interface.arbitrary_id_stamp(),
+        ));
+        self.execute_command_results.borrow_mut().remove(0)
     }
 }
 
 impl CommandExecutionHelperMock {
-    pub fn execute_command_params(mut self, params: &Arc<Mutex<Vec<Box<dyn Command>>>>) -> Self {
-        todo!()
+    pub fn execute_command_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Box<dyn Command>, ArbitraryIdStamp, ArbitraryIdStamp)>>>,
+    ) -> Self {
+        self.execute_command_params = params.clone();
+        self
     }
 
     pub fn execute_command_result(self, result: Result<(), CommandError>) -> Self {
-        todo!()
+        self.execute_command_results.borrow_mut().push(result);
+        self
     }
 }
 
@@ -335,6 +387,8 @@ impl Command for MockCommand {
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }
     }
+
+    implement_as_any!();
 }
 
 impl MockCommand {
@@ -514,13 +568,19 @@ impl MockCommand {
 // }
 
 #[derive(Default)]
-pub struct WSClientHandleMock{
-
+pub struct WSClientHandleMock {
+    send_params: Arc<Mutex<Vec<Message>>>,
+    send_results: Mutex<Vec<std::result::Result<(), Arc<Error>>>>,
 }
 
 #[async_trait]
-impl WSClientHandle for WSClientHandleMock{
+impl WSClientHandle for WSClientHandleMock {
     async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
+        self.send_params.lock().unwrap().push(msg);
+        self.send_results.lock().unwrap().remove(0)
+    }
+
+    async fn disconnect(&self) -> ClientResult<()> {
         todo!()
     }
 
@@ -538,6 +598,18 @@ impl WSClientHandle for WSClientHandleMock{
 
     fn is_event_loop_spinning(&self) -> bool {
         unimplemented!("is_event_loop_spinning() makes sense only at the real version")
+    }
+}
+
+impl WSClientHandleMock {
+    pub fn send_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
+        self.send_params = params.clone();
+        self
+    }
+
+    pub fn send_result(mut self, result: std::result::Result<(), Arc<Error>>) -> Self {
+        self.send_results.lock().unwrap().push(result);
+        self
     }
 }
 
@@ -560,9 +632,17 @@ impl StandardBroadcastHandlerMock {
     }
 }
 
+//TODO DO I need this guy???
 #[derive(Default)]
 pub struct StandardBroadcastHandlerFactoryMock {
-    make_params: Arc<Mutex<Vec<Option<Box<dyn WTermInterfaceImplementingSend>>>>>,
+    make_params: Arc<
+        Mutex<
+            Vec<(
+                Option<Box<dyn WTermInterfaceImplementingSend>>,
+                BroadcastReceiver<()>,
+            )>,
+        >,
+    >,
     make_results: Arc<Mutex<Vec<Box<dyn BroadcastHandler<MessageBody>>>>>,
 }
 
@@ -570,14 +650,17 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
     fn make(
         &self,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        close_sig: BroadcastReceiver<()>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         self.make_params
             .lock()
             .unwrap()
-            .push(terminal_interface_opt);
+            .push((terminal_interface_opt, close_sig));
         self.make_results.lock().unwrap().remove(0)
     }
 }
+
+// TODO missing params assert method
 
 impl StandardBroadcastHandlerFactoryMock {
     pub fn make_result(self, result: Box<dyn BroadcastHandler<MessageBody>>) -> Self {
@@ -668,20 +751,23 @@ pub struct TermInterfaceMock {
     stdin_opt: Option<StdinMock>,
     stdout: Arc<Mutex<Vec<String>>>,
     stderr: Arc<Mutex<Vec<String>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 #[derive(Default)]
 pub struct StdinMockBuilder {
-    results: Vec<Result<ReadInput, ReadError>>,
+    results: RefCell<Vec<Result<ReadInput, ReadError>>>,
 }
 
 impl StdinMockBuilder {
     pub fn read_line_result(mut self, result: Result<ReadInput, ReadError>) -> Self {
-        todo!()
+        self.results.borrow_mut().push(result);
+        self
     }
 
     pub fn build(self) -> StdinMock {
-        todo!()
+        let array_reader = AsyncByteArrayReader::new()
+        StdinMock::new()
     }
 }
 
@@ -733,6 +819,8 @@ impl WTermInterface for TermInterfaceMock {
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
         Self::set_up_assertable_write_utils(&self.stderr, WriteStreamType::Stderr)
     }
+
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl WTermInterfaceImplementingSend for TermInterfaceMock {}
@@ -790,6 +878,7 @@ impl TermInterfaceMock {
             stdin_opt,
             stdout: stdout.clone(),
             stderr: stderr.clone(),
+            arbitrary_id_stamp_opt: None,
         };
         let stream_handles = AsyncTestStreamHandles {
             stdin_opt: stdin_handle_opt,
@@ -813,6 +902,8 @@ impl TermInterfaceMock {
             FlushHandle::new(Arc::new(tokio::sync::Mutex::new(flush_handle_inner))),
         )
     }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 pub struct AsyncTestStreamHandles {
@@ -850,6 +941,22 @@ impl AsyncTestStreamHandles {
         Self::assert_empty_stream(&self.stderr, "stderr")
     }
 
+    pub async fn await_stdout_is_not_empty(&self) {
+        Self::wait_until_is_not_empty(&self.stdout, 3000, "stdout", None).await
+    }
+
+    pub async fn await_stderr_is_not_empty(&self) {
+        Self::wait_until_is_not_empty(&self.stderr, 3000, "stderr", None).await
+    }
+
+    pub async fn await_stdout_is_not_empty_or_panic_with_expected(&self, expected_value: &str) {
+        Self::wait_until_is_not_empty(&self.stdout, 3000, "stdout", Some(expected_value)).await
+    }
+
+    pub async fn await_stderr_is_not_empty_or_panic_with_expected(&self, expected_value: &str) {
+        Self::wait_until_is_not_empty(&self.stderr, 3000, "stderr", Some(expected_value)).await
+    }
+
     fn join_flushed(strings: Vec<String>) -> String {
         strings.into_iter().collect::<String>()
     }
@@ -865,6 +972,38 @@ impl AsyncTestStreamHandles {
             stream_name,
             received
         )
+    }
+
+    async fn wait_until_is_not_empty(
+        handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
+        hard_limit_ms: u64,
+        stream_name: &str,
+        expected_value_opt: Option<&str>,
+    ) {
+        let start = SystemTime::now();
+        let hard_limit = Duration::from_millis(hard_limit_ms);
+        while Self::check_is_empty(handle) {
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            if start.elapsed().unwrap() >= hard_limit {
+                panic!(
+                    "Waited for {} while we didn't find any output written in {}{}",
+                    hard_limit_ms,
+                    stream_name,
+                    expected_value_opt
+                        .map(|val| format!(": expected value was '{}'", val))
+                        .unwrap_or_else(|| String::new())
+                )
+            }
+        }
+    }
+
+    fn check_is_empty(handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>) -> bool {
+        match handle {
+            Either::Left(async_byte_array) => async_byte_array.is_empty(),
+            Either::Right(naked_string_containers) => {
+                naked_string_containers.lock().unwrap().is_empty()
+            }
+        }
     }
 
     fn drain_flushed_strings(
@@ -886,6 +1025,7 @@ impl AsyncTestStreamHandles {
 pub struct AsyncStdStreamsFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<AsyncStdStreams>>,
+    arbitrary_id_stamp_opt:Option<ArbitraryIdStamp>
 }
 
 impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryMock {
@@ -893,6 +1033,7 @@ impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryMock {
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl AsyncStdStreamsFactoryMock {
@@ -904,26 +1045,35 @@ impl AsyncStdStreamsFactoryMock {
         self.make_results.borrow_mut().push(result);
         self
     }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 #[derive(Default)]
 pub struct TerminalInterfaceFactoryMock {
-    make_params: Arc<Mutex<Vec<(bool, AsyncStdStreams)>>>,
-    make_result: RefCell<Vec<Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>>>,
+    make_params: Arc<Mutex<Vec<(bool, ArbitraryIdStamp)>>>,
+    make_results: RefCell<Vec<Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>>>,
 }
 
 impl TerminalInterfaceFactory for TerminalInterfaceFactoryMock {
     fn make(
         &self,
         is_interactive: bool,
-        streams_factory: Box<dyn AsyncStdStreamsFactory>,
+        streams_factory: &dyn AsyncStdStreamsFactory,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
-        todo!()
+        self.make_params
+            .lock()
+            .unwrap()
+            .push((is_interactive, streams_factory.arbitrary_id_stamp()));
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl TerminalInterfaceFactoryMock {
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(bool, AsyncStdStreams)>>>) -> Self {
+    pub fn make_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(bool, ArbitraryIdStamp)>>>,
+    ) -> Self {
         self.make_params = params.clone();
         self
     }
@@ -932,7 +1082,7 @@ impl TerminalInterfaceFactoryMock {
         self,
         result: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
     ) -> Self {
-        self.make_result.borrow_mut().push(result);
+        self.make_results.borrow_mut().push(result);
         self
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::masq_short_writeln;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
@@ -9,7 +10,6 @@ use futures::future::join_all;
 use itertools::Itertools;
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
-use crate::masq_short_writeln;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,

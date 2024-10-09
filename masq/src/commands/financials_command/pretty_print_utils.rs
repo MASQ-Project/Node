@@ -6,10 +6,10 @@ pub(in crate::commands::financials_command) mod restricted {
     };
     use crate::commands::financials_command::parsing_and_value_dressing::restricted::convert_masq_from_gwei_and_dress_well;
     use crate::commands::financials_command::FinancialsCommand;
+    use crate::masq_short_writeln;
     use crate::terminal::TerminalWriter;
     use futures::future::join_all;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
-    use crate::masq_short_writeln;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use std::fmt::{Debug, Display};
     use std::io::Write;

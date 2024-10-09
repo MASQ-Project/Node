@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::masq_short_writeln;
 use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
@@ -12,7 +13,6 @@ use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 #[cfg(test)]
 use std::any::Any;
 use std::sync::Arc;
-use crate::masq_short_writeln;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {

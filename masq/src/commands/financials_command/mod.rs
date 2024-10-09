@@ -22,10 +22,10 @@ use crate::commands::financials_command::pretty_print_utils::restricted::{
     StringValuesFormattableAccount,
 };
 use crate::commands::parameter_columns_formatting::dump_parameter_line;
+use crate::masq_short_writeln;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::ArgMatches;
-use crate::masq_short_writeln;
 use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, TopRecordsOrdering,
     UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse,

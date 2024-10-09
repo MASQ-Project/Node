@@ -214,25 +214,25 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, UiShutdownResponse {}.tmb(42));
-        let outgoing_message = make_rt().block_on(message_body_send_rx.recv()).unwrap();
+        let outgoing_message = message_body_send_rx.recv().await.unwrap();
         assert_eq!(
             outgoing_message,
             OutgoingMessageType::ConversationMessage(UiShutdownRequest {}.tmb(42))
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(
         expected = "Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeConversation::send() instead."
     )]
-    fn transact_rejects_fire_and_forget_message() {
+    async fn transact_rejects_fire_and_forget_message() {
         let (subject, _, _) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
         };
 
-        let _ = subject.transact(message.tmb(0), 1000);
+        let _ = subject.transact(message.tmb(0), 1000).await;
     }
 
     #[tokio::test]
@@ -298,7 +298,7 @@ mod tests {
         let result = subject.transact(UiShutdownRequest {}.tmb(0), 1000).await;
 
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        let outgoing_message = match make_rt().block_on(message_body_send_rx.recv()).unwrap() {
+        let outgoing_message = match message_body_send_rx.recv().await.unwrap() {
             OutgoingMessageType::ConversationMessage(message_body) => message_body,
             x => panic!("Expected ConversationMessage; got {:?}", x),
         };
@@ -358,17 +358,19 @@ mod tests {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
         };
-        let _ = message_body_send_tx.send(Err(FiredAndForgotten));
+        message_body_send_tx
+            .send(Err(FiredAndForgotten))
+            .await
+            .unwrap();
 
         subject.send(message.clone().tmb(0)).await.unwrap();
 
-        let (outgoing_message, context_id) =
-            match make_rt().block_on(message_body_send_rx.recv()).unwrap() {
-                OutgoingMessageType::FireAndForgetMessage(message_body, context_id) => {
-                    (message_body, context_id)
-                }
-                x => panic!("Expected FireAndForgetMessage, got {:?}", x),
-            };
+        let (outgoing_message, context_id) = match message_body_send_rx.recv().await.unwrap() {
+            OutgoingMessageType::FireAndForgetMessage(message_body, context_id) => {
+                (message_body, context_id)
+            }
+            x => panic!("Expected FireAndForgetMessage, got {:?}", x),
+        };
         assert_eq!(
             UiUnmarshalError::fmb(outgoing_message).unwrap(),
             (message, 0)
@@ -376,15 +378,15 @@ mod tests {
         assert_eq!(context_id, 42);
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(
         expected = "Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead."
     )]
-    fn send_rejects_conversation_message() {
+    async fn send_rejects_conversation_message() {
         let (mut subject, _, _) = make_subject();
         let message = UiShutdownRequest {};
 
-        let _ = subject.send(message.tmb(0));
+        let _ = subject.send(message.tmb(0)).await;
     }
 
     #[tokio::test]

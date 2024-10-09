@@ -4,13 +4,13 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::masq_short_writeln;
 use crate::terminal::WTermInterface;
 use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
 use masq_lib::implement_as_any;
-use crate::masq_short_writeln;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 #[cfg(test)]
 use std::any::Any;

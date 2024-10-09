@@ -2,14 +2,14 @@
 
 use crate::messages::NODE_UI_PROTOCOL;
 use crate::websockets_handshake::{
-    HandshakeResultTx, MASQWSClientHandshakeHandler, WSClientConnector,
+    ws_url, HandshakeResultTx, MASQWSClientHandshakeHandler, WSClientConnInitiator,
 };
 use async_channel::{Receiver, Sender};
 use futures_util::TryFutureExt;
 use std::sync::Arc;
 use std::time::Duration;
-use workflow_websocket::client::Handshake;
 use workflow_websocket::client::{Ack, Message, WebSocket};
+use workflow_websocket::client::{ConnectOptions, Handshake, WebSocketConfig};
 
 pub async fn establish_ws_conn_with_handshake(port: u16) -> WebSocket {
     establish_ws_conn_with_arbitrary_protocol(port, NODE_UI_PROTOCOL)
@@ -21,7 +21,7 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
     port: u16,
     protocol: &'static str,
 ) -> Result<WebSocket, String> {
-    let mut connector = WSClientConnector::new(port);
+    let mut connector = WSClientConnInitiator::new(port);
     connector.global_timeout = Duration::from_millis(4_000);
     connector.prepare_handshake_procedure =
         Box::new(|tx: HandshakeResultTx| -> Arc<dyn Handshake> {
@@ -39,6 +39,21 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
 
 pub async fn websocket_utils(port: u16) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
     let ws = establish_ws_conn_with_handshake(port).await;
+    arrange_utils(ws)
+}
+
+pub async fn websocket_utils_without_handshake(
+    port: u16,
+) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
+    let url = ws_url(port);
+    let config = WebSocketConfig::default();
+    let ws = WebSocket::new(Some(&url), Some(config)).unwrap();
+    let connect_options = ConnectOptions::default();
+    ws.connect(connect_options).await.unwrap();
+    arrange_utils(ws)
+}
+
+fn arrange_utils(ws: WebSocket) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
     let talker_half = ws.sender_tx().clone();
     let listener_half = ws.receiver_rx().clone();
     (ws, talker_half, listener_half)

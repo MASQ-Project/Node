@@ -334,7 +334,7 @@ impl AsyncWrite for AsyncByteArrayWriter {
         self: Pin<&mut Self>,
         _: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        Poll::Ready(Ok(()))
     }
     fn poll_shutdown(
         self: Pin<&mut Self>,
@@ -360,6 +360,13 @@ impl AsyncByteArrayWriter {
     }
     pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
         self.inner_arc.clone()
+    }
+    pub fn is_empty(&self) -> bool {
+        let lock = self.inner_arc.lock().unwrap();
+        match lock.flush_separated_writes_opt.as_ref() {
+            Some(flushes) => flushes.is_empty(),
+            None => lock.byte_array.is_empty(),
+        }
     }
     pub fn get_bytes(&self) -> Vec<u8> {
         self.inner_arc.lock().unwrap().byte_array.clone()
@@ -414,8 +421,12 @@ impl AsyncByteArrayReader {
         self.byte_array_reader_inner.lock().unwrap().byte_arrays.push(input);
     }
 
-    pub fn reading_attempted(&self) -> bool {
-        todo!()
+    pub fn reading_attempts(&self) -> usize {
+        self.byte_array_reader_inner
+            .lock()
+            .unwrap()
+            .byte_arrays
+            .len()
     }
 
     pub fn reject_next_write(&mut self, error: Error) {
