@@ -336,7 +336,6 @@ pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
     pub suppress_initial_scans: bool,
-    pub entry_dns: bool,
     pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -371,7 +370,6 @@ impl BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
             dns_servers: vec![],
-            entry_dns: false,
             scan_intervals_opt: None,
             suppress_initial_scans: false,
             crash_point: CrashPoint::None,

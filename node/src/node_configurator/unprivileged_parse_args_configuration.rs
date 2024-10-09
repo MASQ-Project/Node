@@ -57,7 +57,6 @@ pub trait UnprivilegedParseArgsConfiguration {
                 }
             };
         unprivileged_config.db_password_opt = value_m!(multi_config, "db-password", String);
-        unprivileged_config.entry_dns = has_user_specified(multi_config, "entry-dns");
         configure_accountant_config(multi_config, unprivileged_config, persistent_config)?;
         unprivileged_config.mapping_protocol_opt =
             compute_mapping_protocol_opt(multi_config, persistent_config, logger);
@@ -2622,48 +2621,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(bootstrapper_config.suppress_initial_scans, false);
-    }
-
-    #[test]
-    fn unprivileged_configuration_handles_entry_dns() {
-        running_test();
-        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4", "--entry-dns"];
-        let mut bootstrapper_config = BootstrapperConfig::new();
-
-        subject
-            .unprivileged_parse_args(
-                &make_simplified_multi_config(args),
-                &mut bootstrapper_config,
-                &mut configure_default_persistent_config(
-                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
-                ),
-                &Logger::new("test"),
-            )
-            .unwrap();
-
-        assert_eq!(bootstrapper_config.entry_dns, true);
-    }
-
-    #[test]
-    fn unprivileged_configuration_defaults_entry_dns() {
-        running_test();
-        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4"];
-        let mut bootstrapper_config = BootstrapperConfig::new();
-
-        subject
-            .unprivileged_parse_args(
-                &make_simplified_multi_config(args),
-                &mut bootstrapper_config,
-                &mut configure_default_persistent_config(
-                    ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL | RATE_PACK,
-                ),
-                &Logger::new("test"),
-            )
-            .unwrap();
-
-        assert_eq!(bootstrapper_config.entry_dns, false);
     }
 
     fn make_persistent_config(
