@@ -109,6 +109,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
 }
 
 pub mod tests {
+    use super::*;
     use crate::commands::commands_common::{Command, STANDARD_COMMAND_TIMEOUT_MILLIS};
     use crate::commands::set_exit_location_command::SetExitLocationCommand;
     use crate::test_utils::mocks::CommandContextMock;
