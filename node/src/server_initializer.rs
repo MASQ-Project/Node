@@ -46,21 +46,21 @@ impl ServerInitializer for ServerInitializerReal {
             .expect("ServerInitializer: Data directory not present in Multi Config");
         self.is_entry_dns_enabled = has_user_specified(&multi_config, "entry-dns");
 
-        let bootstrapper_result: RunModeResult = self
-            .bootstrapper
-            .as_mut()
-            .initialize_as_privileged(&multi_config);
-        let result: RunModeResult = match self.is_entry_dns_enabled {
-            true => {
-                let dns_socket_server_result = self
-                    .dns_socket_server
-                    .as_mut()
-                    .initialize_as_privileged(&multi_config);
-                Ok(())
-                    .combine_results(dns_socket_server_result)
-                    .combine_results(bootstrapper_result)
+        let privileged_result: RunModeResult = {
+            let result = self
+                .bootstrapper
+                .as_mut()
+                .initialize_as_privileged(&multi_config);
+
+            if self.is_entry_dns_enabled {
+                result.combine_results(
+                    self.dns_socket_server
+                        .as_mut()
+                        .initialize_as_privileged(&multi_config),
+                )
+            } else {
+                result
             }
-            false => bootstrapper_result,
         };
 
         self.privilege_dropper
@@ -68,22 +68,24 @@ impl ServerInitializer for ServerInitializerReal {
 
         self.privilege_dropper.drop_privileges(&real_user);
 
-        let bootstrapper_result_unprivileged: RunModeResult = self
-            .bootstrapper
-            .as_mut()
-            .initialize_as_unprivileged(&multi_config, streams);
-        match self.is_entry_dns_enabled {
-            true => {
-                let dns_socket_server_result_unprivileged = self
-                    .dns_socket_server
-                    .as_mut()
-                    .initialize_as_unprivileged(&multi_config, streams);
+        let unprivileged_result: RunModeResult = {
+            let result = self
+                .bootstrapper
+                .as_mut()
+                .initialize_as_unprivileged(&multi_config, streams);
+
+            if self.is_entry_dns_enabled {
+                result.combine_results(
+                    self.dns_socket_server
+                        .as_mut()
+                        .initialize_as_unprivileged(&multi_config, streams),
+                )
+            } else {
                 result
-                    .combine_results(dns_socket_server_result_unprivileged)
-                    .combine_results(bootstrapper_result_unprivileged)
             }
-            false => result.combine_results(bootstrapper_result_unprivileged),
-        }
+        };
+
+        privileged_result.combine_results(unprivileged_result)
     }
     as_any_ref_in_trait_impl!();
 }
@@ -979,10 +981,10 @@ pub mod tests {
         assert_eq!(
             result,
             Err(ConfiguratorError::new(vec![
-                ParamError::new("dns-iap", "dns-iap-reason"),
                 ParamError::new("boot-iap", "boot-iap-reason"),
+                ParamError::new("dns-iap", "dns-iap-reason"),
+                ParamError::new("boot-iau", "boot-iau-reason"),
                 ParamError::new("dns-iau", "dns-iau-reason"),
-                ParamError::new("boot-iau", "boot-iau-reason")
             ]))
         );
     }
