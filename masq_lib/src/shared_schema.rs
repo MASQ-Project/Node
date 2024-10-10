@@ -50,7 +50,10 @@ pub const EARNING_WALLET_HELP: &str =
      (case-insensitive). If you already have a derivation-path earning wallet, don't supply this. \
      If you have supplied an earning wallet address before, either don't supply it again or be \
      careful to supply exactly the same one you supplied before.";
-pub const ENTRY_DNS_HELP: &str = "Specify whether to use entry DNS.";
+pub const ENTRY_DNS_HELP: &str = "Specify whether to use entry DNS. If you can't use HTTP proxying \
+     to reroute your client's traffic through MASQ's Node, you can specify --entry-dns to start up \
+     MASQ's local DNS server; but you will also need to subvert your network stack's DNS traffic \
+     using dns_utility. This practice is not recommended but may be necessary in certain situations.";
 pub const IP_ADDRESS_HELP: &str = "The public IP address of your MASQ Node: that is, the IPv4 \
      address at which other Nodes can contact yours. If you're running your Node behind \
      a router, this will be the IP address of the router. If this IP address starts with 192.168 or 10.0, \
@@ -750,7 +753,13 @@ mod tests {
              If you have supplied an earning wallet address before, either don't supply it again or be \
              careful to supply exactly the same one you supplied before."
         );
-        assert_eq!(ENTRY_DNS_HELP, "Specify whether to use entry DNS.");
+        assert_eq!(
+            ENTRY_DNS_HELP,
+            "Specify whether to use entry DNS. If you can't use HTTP proxying \
+             to reroute your client's traffic through MASQ's Node, you can specify --entry-dns to start up \
+             MASQ's local DNS server; but you will also need to subvert your network stack's DNS traffic \
+             using dns_utility. This practice is not recommended but may be necessary in certain situations."
+        );
         assert_eq!(
             IP_ADDRESS_HELP,
             "The public IP address of your MASQ Node: that is, the IPv4 \

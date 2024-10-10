@@ -66,20 +66,19 @@ impl ServerInitializerReal {
     }
 
     fn initialize_privileged(&mut self, multi_config: &MultiConfig) -> RunModeResult {
-        let result = self
-            .bootstrapper
-            .as_mut()
-            .initialize_as_privileged(multi_config);
+        let result = match self.is_entry_dns_enabled {
+            true => self
+                .dns_socket_server
+                .as_mut()
+                .initialize_as_privileged(multi_config),
+            false => Ok(()),
+        };
 
-        if self.is_entry_dns_enabled {
-            result.combine_results(
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_privileged(multi_config),
-            )
-        } else {
-            result
-        }
+        result.combine_results(
+            self.bootstrapper
+                .as_mut()
+                .initialize_as_privileged(multi_config),
+        )
     }
 
     fn initialize_unprivileged(
@@ -87,20 +86,19 @@ impl ServerInitializerReal {
         multi_config: &MultiConfig,
         streams: &mut StdStreams<'_>,
     ) -> RunModeResult {
-        let result = self
-            .bootstrapper
-            .as_mut()
-            .initialize_as_unprivileged(multi_config, streams);
+        let result = match self.is_entry_dns_enabled {
+            true => self
+                .dns_socket_server
+                .as_mut()
+                .initialize_as_unprivileged(multi_config, streams),
+            false => Ok(()),
+        };
 
-        if self.is_entry_dns_enabled {
-            result.combine_results(
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_unprivileged(multi_config, streams),
-            )
-        } else {
-            result
-        }
+        result.combine_results(
+            self.bootstrapper
+                .as_mut()
+                .initialize_as_unprivileged(multi_config, streams),
+        )
     }
 }
 
@@ -995,10 +993,10 @@ pub mod tests {
         assert_eq!(
             result,
             Err(ConfiguratorError::new(vec![
-                ParamError::new("boot-iap", "boot-iap-reason"),
                 ParamError::new("dns-iap", "dns-iap-reason"),
-                ParamError::new("boot-iau", "boot-iau-reason"),
+                ParamError::new("boot-iap", "boot-iap-reason"),
                 ParamError::new("dns-iau", "dns-iau-reason"),
+                ParamError::new("boot-iau", "boot-iau-reason"),
             ]))
         );
     }
