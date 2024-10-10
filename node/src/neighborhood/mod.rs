@@ -1479,41 +1479,40 @@ impl Neighborhood {
             false => "NOT",
         };
         let nodes = self.neighborhood_database.nodes_mut();
-        if nodes.len() > 1 {
-            for node_record in nodes {
-                let country_code = match node_record.inner.country_code_opt.as_ref() {
-                    Some(code) => code.clone(),
-                    None => "ZZ".to_string(),
-                };
-                for (exit_priority, exit_countries) in &exit_locations_by_priority {
-                    if exit_countries.contains(&country_code) {
-                        node_record.metadata.country_undesirability =
-                            1_000 * (*exit_priority - 1) as u32;
-                    }
-                    if !self.exit_countries.contains(
-                        node_record
-                            .inner
-                            .country_code_opt
-                            .as_ref()
-                            .expect("expected Country Code"),
-                    ) {
-                        node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
-                    }
-                    // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
-                    // --country-codes "CZ|DE" --falback-routing
-                    // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 2000
-                    // --country-codes "CZ|DE"
-                    // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 100_000_000
-                }
-            }
-        } else {
-            let location_set = ExitLocationSet(exit_locations_by_priority);
+        if nodes.len() < 2 {
             info!(
                 self.logger,
-                "{}",
-                format!("Neihborhood is empty, no exit Nodes are available in countries: {}.", location_set)
+                "Neighborhood is empty, no exit Nodes are available.",
             );
+            return;
         }
+        for node_record in nodes {
+            let country_code = match node_record.inner.country_code_opt.as_ref() {
+                Some(code) => code.clone(),
+                None => "ZZ".to_string(),
+            };
+            for (exit_priority, exit_countries) in &exit_locations_by_priority {
+                if exit_countries.contains(&country_code) {
+                    node_record.metadata.country_undesirability =
+                        1_000 * (*exit_priority - 1) as u32;
+                }
+                if !self.exit_countries.contains(
+                    node_record
+                        .inner
+                        .country_code_opt
+                        .as_ref()
+                        .expect("expected Country Code"),
+                ) {
+                    node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
+                }
+                // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
+                // --country-codes "CZ|DE" --falback-routing
+                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 2000
+                // --country-codes "CZ|DE"
+                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 100_000_000
+            }
+        }
+
         let location_set = ExitLocationSet(exit_locations_by_priority);
         let exit_location_status = match self.exit_locations_opt {
             Some(_) => "Exit Location Set:",
