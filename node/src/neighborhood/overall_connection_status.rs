@@ -93,21 +93,28 @@ impl ConnectionProgress {
     }
 
     pub fn handle_pass_gossip(&mut self, logger: &Logger, new_pass_target: IpAddr) {
-        if self.connection_stage != ConnectionStage::TcpConnectionEstablished {
-            panic!(
-                "Can't update the stage from {:?} to {:?}",
-                self.connection_stage,
-                ConnectionStage::StageZero
-            )
-        };
-
-        debug!(
-            logger,
-            "Pass gossip received from Node with IP Address {:?} to a Node with IP Address {:?}. \
-            Hence, updating the connection stage of the new Node to StageZero.",
-            self.current_peer_addr,
-            new_pass_target
+        let preliminary_msg = format!(
+            "Pass gossip received from Node with IP Address {:?} to a Node with IP Address {:?}",
+            self.current_peer_addr, new_pass_target,
         );
+        match self.connection_stage {
+            ConnectionStage::StageZero => {
+                error!(
+                    logger,
+                    "{preliminary_msg}. Requested to update the stage from StageZero to StageZero.",
+                )
+            }
+            ConnectionStage::TcpConnectionEstablished => {
+                debug!(
+                    logger,
+                    "{preliminary_msg}. Updating the stage from TcpConnectionEstablished to StageZero.",
+                )
+            }
+            _ => panic!(
+                "{preliminary_msg}. Can't update the stage from {:?} to StageZero",
+                self.connection_stage,
+            ),
+        }
 
         self.connection_stage = ConnectionStage::StageZero;
         self.current_peer_addr = new_pass_target;
@@ -351,13 +358,13 @@ mod tests {
     #[test]
     fn connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order() {
         init_test_logging();
+        let test_name =
+            "connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order";
         let ip_addr = make_ip(1);
         let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
         let pass_target = make_ip(2);
-        let logger = Logger::new(
-            "connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order",
-        );
+        let logger = Logger::new(test_name);
         subject.update_stage(&logger, ConnectionStage::TcpConnectionEstablished);
 
         subject.handle_pass_gossip(&logger, pass_target);
@@ -372,29 +379,58 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-                "DEBUG: connection_progress_handles_pass_gossip_correctly_and\
-                _performs_logging_in_order: The connection stage \
+                "DEBUG: {test_name}: The connection stage \
                 for Node with IP address {:?} has been updated from {:?} to {:?}.",
                 ip_addr,
                 ConnectionStage::StageZero,
                 ConnectionStage::TcpConnectionEstablished
             ),
             &format!(
-                "DEBUG: connection_progress_handles_pass_gossip_correctly_and_performs_logging\
-                _in_order: Pass gossip received from Node with IP Address {:?} to a Node with \
-                IP Address {:?}. Hence, updating the connection stage of the new Node to StageZero.",
+                "DEBUG: {test_name}: Pass gossip received from Node with IP Address {:?} to a Node with \
+                IP Address {:?}. Updating the stage from TcpConnectionEstablished to StageZero.",
                 ip_addr, pass_target
             ),
         ]);
     }
 
     #[test]
-    #[should_panic(expected = "Can't update the stage from StageZero to StageZero")]
+    // #[should_panic(expected = "Can't update the stage from StageZero to StageZero")]
+    fn connection_progress_logs_error_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
+    ) {
+        init_test_logging();
+        let test_name = "connection_progress_logs_error_while_handling_pass_gossip_in_case_tcp_connection_is_not_established";
+        let ip_addr = make_ip(1);
+        let initial_node_descriptor = make_node_descriptor(ip_addr);
+        let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
+        let pass_target = make_ip(2);
+
+        subject.handle_pass_gossip(&Logger::new(test_name), pass_target);
+
+        assert_eq!(
+            subject,
+            ConnectionProgress {
+                initial_node_descriptor,
+                current_peer_addr: pass_target,
+                connection_stage: ConnectionStage::StageZero
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: Pass gossip received from Node with IP Address 1.1.1.1 to a Node \
+            with IP Address 1.1.1.2. Requested to update the stage from StageZero to StageZero."
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Pass gossip received from Node with IP Address 1.1.1.1 to a Node \
+        with IP Address 1.1.1.2. Can't update the stage from NeighborshipEstablished to StageZero"
+    )]
     fn connection_progress_panics_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
     ) {
         let ip_addr = make_ip(1);
         let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor);
+        subject.connection_stage = ConnectionStage::NeighborshipEstablished;
         let pass_target = make_ip(2);
 
         subject.handle_pass_gossip(&Logger::new("test"), pass_target);
