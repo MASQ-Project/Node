@@ -12,7 +12,7 @@ pub mod generate_wallets_command;
 pub mod recover_wallets_command;
 pub mod scan_command;
 pub mod set_configuration_command;
-pub mod set_exit_location_command;
+pub mod exit_location_command;
 pub mod setup_command;
 pub mod shutdown_command;
 pub mod start_command;

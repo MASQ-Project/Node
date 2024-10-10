@@ -13,7 +13,7 @@ use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::scan_command::ScanCommand;
 use crate::commands::set_configuration_command::SetConfigurationCommand;
-use crate::commands::set_exit_location_command::SetExitLocationCommand;
+use crate::commands::exit_location_command::SetExitLocationCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;

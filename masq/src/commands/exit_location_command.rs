@@ -111,7 +111,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
 #[cfg(test)]
 pub mod tests {
     use crate::commands::commands_common::{Command, STANDARD_COMMAND_TIMEOUT_MILLIS};
-    use crate::commands::set_exit_location_command::SetExitLocationCommand;
+    use crate::commands::exit_location_command::SetExitLocationCommand;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{
         CountryCodes, ToMessageBody, UiSetExitLocationRequest, UiSetExitLocationResponse,
