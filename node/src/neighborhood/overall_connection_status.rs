@@ -394,7 +394,6 @@ mod tests {
     }
 
     #[test]
-    // #[should_panic(expected = "Can't update the stage from StageZero to StageZero")]
     fn connection_progress_logs_error_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
     ) {
         init_test_logging();
