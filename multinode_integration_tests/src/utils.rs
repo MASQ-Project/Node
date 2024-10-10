@@ -147,7 +147,7 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
             signature: CryptData::new(b""),
         };
         let ip_addr = masq_node.node_addr().ip_addr();
-        let country_code = get_node_location(Some(ip_addr), &COUNTRY_CODE_FINDER);
+        let country_code = get_node_location(Some(ip_addr));
         if let Some(cc) = country_code {
             agr.inner.country_code_opt = Some(cc.country_code)
         };
