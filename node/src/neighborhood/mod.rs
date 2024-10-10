@@ -9,8 +9,9 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
@@ -23,6 +24,7 @@ use actix::{Addr, AsyncContext};
 use itertools::Itertools;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
+    UiSetExitLocationRequest,
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -48,7 +50,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
@@ -56,6 +57,7 @@ use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
@@ -106,6 +108,9 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
+    exit_locations_opt: Option<HashMap<usize, Vec<String>>>,
+    exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
+    fallback_routing: bool,
 }
 
 impl Actor for Neighborhood {
@@ -388,7 +393,9 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
+        if let Ok((message, _)) = UiSetExitLocationRequest::fmb(msg.body.clone()) {
+            self.handle_exit_location_message(message);
+        } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
@@ -495,6 +502,9 @@ impl Neighborhood {
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
+            exit_locations_opt: None,
+            exit_countries: vec![],
+            fallback_routing: true,
         }
     }
 
@@ -1448,6 +1458,79 @@ impl Neighborhood {
         undesirability + node_undesirability
     }
 
+    fn handle_exit_location_message(&mut self, message: UiSetExitLocationRequest) {
+        let exit_locations_by_priority: HashMap<usize, Vec<String>> = message
+            .exit_locations
+            .into_iter()
+            .map(|cc| {
+                for code in &cc.country_codes {
+                    self.exit_countries.push(code.clone());
+                }
+                (cc.priority, cc.country_codes)
+            })
+            .collect();
+        self.exit_locations_opt = match exit_locations_by_priority.is_empty() {
+            true => None,
+            false => Some(exit_locations_by_priority.clone()),
+        };
+        self.fallback_routing = message.fallback_routing;
+        let fallback_status = match self.fallback_routing {
+            true => "is",
+            false => "NOT",
+        };
+        let nodes = self.neighborhood_database.nodes_mut();
+        for node_record in nodes {
+            let country_code = match node_record.inner.country_code_opt.as_ref() {
+                Some(code) => code.clone(),
+                None => "ZZ".to_string(),
+            };
+            for (exit_priority, exit_countries) in &exit_locations_by_priority {
+                if exit_countries.contains(&country_code) {
+                    node_record.metadata.country_undesirability =
+                        1_000 * (*exit_priority - 1) as u32;
+                }
+                if !self.exit_countries.contains(
+                    node_record
+                        .inner
+                        .country_code_opt
+                        .as_ref()
+                        .expect("expected Country Code"),
+                ) {
+                    node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
+                }
+                // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
+                // --country-codes "CZ|DE" --falback-routing
+                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 2000
+                // --country-codes "CZ|DE"
+                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 100_000_000
+            }
+        }
+        let exit_location_status = match self.exit_locations_opt {
+            Some(_) => "Exit Location Set:",
+            None => "Exit Location Unset.",
+        };
+        match self.exit_locations_opt {
+            Some(_) => (),
+            None => {
+                let nodes = self.neighborhood_database.nodes_mut();
+                for node_record in nodes {
+                    node_record.metadata.country_undesirability = 0u32;
+                }
+            }
+        }
+        let location_set = ExitLocationSet(exit_locations_by_priority);
+        info!(
+            self.logger,
+            "{}",
+            format!("Fallback Routing {} Set.", fallback_status)
+        );
+        info!(
+            self.logger,
+            "{}",
+            format!("{}{}", exit_location_status, location_set)
+        );
+    }
+
     fn handle_gossip_reply(
         &self,
         gossip: Gossip_0v1,
@@ -1669,7 +1752,9 @@ mod tests {
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
+    use masq_lib::messages::{
+        CountryCodes, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
+    };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -1755,11 +1840,10 @@ mod tests {
             vec![make_node_descriptor(make_ip(2))],
             rate_pack(100),
         );
-        let country = "ZZ".to_string();
         let neighborhood_config = NeighborhoodConfig {
             mode,
             min_hops,
-            country,
+            exit_locations_opt: None,
         };
 
         let subject = Neighborhood::new(
@@ -1792,7 +1876,7 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_locations_opt: None,
             },
             earning_wallet.clone(),
             None,
@@ -1818,7 +1902,7 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+                exit_locations_opt: None,
             },
             earning_wallet.clone(),
             None,
@@ -1840,7 +1924,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1870,7 +1954,7 @@ mod tests {
                         DEFAULT_RATE_PACK.clone(),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1910,7 +1994,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1963,7 +2047,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2044,7 +2128,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_locations_opt: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2514,7 +2598,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_locations_opt: None,
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2592,7 +2676,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -3062,6 +3146,267 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: The value of min_hops (2-hop -> 4-hop) and db_patch_size (3 -> 4) has been changed"
         ));
+    }
+
+    #[test]
+    fn exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg()
+    {
+        init_test_logging();
+        let test_name = "exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg";
+        let request = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![
+                CountryCodes {
+                    country_codes: vec!["CZ".to_string(), "SK".to_string()],
+                    priority: 1,
+                },
+                CountryCodes {
+                    country_codes: vec!["AT".to_string(), "DE".to_string()],
+                    priority: 2,
+                },
+                CountryCodes {
+                    country_codes: vec!["PL".to_string(), "HU".to_string()],
+                    priority: 3,
+                },
+            ],
+        };
+        let message = NodeFromUiMessage {
+            client_id: 0,
+            body: request.tmb(0),
+        };
+        let system = System::new(test_name);
+        let (ui_gateway, _, _) = make_recorder();
+        let mut subject = make_standard_subject();
+        subject.exit_locations_opt = None;
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        let assertion_msg = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood.exit_locations_opt,
+                    Some(HashMap::from([
+                        (1usize, vec!["CZ".to_string(), "SK".to_string()]),
+                        (2usize, vec!["AT".to_string(), "DE".to_string()]),
+                        (3usize, vec!["PL".to_string(), "HU".to_string()]),
+                    ]))
+                );
+                assert_eq!(neighborhood.fallback_routing, true);
+            }),
+        };
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(message).unwrap();
+        subject_addr.try_send(assertion_msg).unwrap();
+
+        System::current().stop();
+        system.run();
+
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Fallback Routing is Set.", test_name),
+            &format!("INFO: {}: Exit Location Set:", test_name),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!("{}", "Country Codes: [\"CZ\", \"SK\"] - Priority: 1;"),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!("{}", "Country Codes: [\"AT\", \"DE\"] - Priority: 2;"),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!("{}", "Country Codes: [\"PL\", \"HU\"] - Priority: 3;"),
+        ]);
+    }
+
+    #[test]
+    fn exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg() {
+        init_test_logging();
+        let test_name =
+            "exit_location_is_set_and_unset_with_fallback_routing_using_exit_location_msg";
+        let request = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![
+                CountryCodes {
+                    country_codes: vec!["CZ".to_string()],
+                    priority: 1,
+                },
+                CountryCodes {
+                    country_codes: vec!["FR".to_string()],
+                    priority: 2,
+                },
+            ],
+        };
+        let message = NodeFromUiMessage {
+            client_id: 0,
+            body: request.tmb(0),
+        };
+        let mut subject = make_standard_subject();
+        let system = System::new(test_name);
+        let (ui_gateway, _, _) = make_recorder();
+
+        subject.exit_locations_opt = None;
+        subject.logger = Logger::new(test_name);
+
+        let q = &mut make_node_record(3456, true);
+        q.inner.country_code_opt = Some("CZ".to_string());
+        let r = &make_node_record(4567, false);
+        let s = &make_node_record(5678, false);
+        let t = &make_node_record(7777, false);
+        let db = &mut subject.neighborhood_database.clone();
+        db.add_node(q.clone()).unwrap();
+        db.add_node(t.clone()).unwrap();
+        db.add_node(r.clone()).unwrap();
+        db.add_node(s.clone()).unwrap();
+        let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
+            db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
+        };
+        dual_edge(&subject.neighborhood_database.root(), q);
+        dual_edge(q, t);
+        dual_edge(q, r);
+        dual_edge(r, s);
+        subject.neighborhood_database = db.clone();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        let q_public_key = q.inner.public_key.clone();
+        let r_public_key = r.inner.public_key.clone();
+        let s_public_key = s.inner.public_key.clone();
+        let t_public_key = t.inner.public_key.clone();
+        let q_public_key_2 = q.inner.public_key.clone();
+        let r_public_key_2 = r.inner.public_key.clone();
+        let s_public_key_2 = s.inner.public_key.clone();
+        let t_public_key_2 = t.inner.public_key.clone();
+        let assertion_msg = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&q_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, country is with Priority: 1"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&r_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    1_000_000u32,
+                    "We expecting 1 000 000, country is not requested for exit location"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&s_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    1_000u32,
+                    "We expecting 1 000, country is with Priority: 2"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&t_public_key)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    1_000_000u32,
+                    "We expecting 1 000 000, country is not requested for exit location"
+                );
+            }),
+        };
+        let assertion_msg_neighborhood = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood.exit_locations_opt,
+                    Some(HashMap::from([
+                        (1usize, vec!["CZ".to_string()]),
+                        (2usize, vec!["FR".to_string()]),
+                    ]))
+                );
+                assert_eq!(neighborhood.fallback_routing, false);
+            }),
+        };
+        let request_2 = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![],
+        };
+        let message_2 = NodeFromUiMessage {
+            client_id: 0,
+            body: request_2.tmb(0),
+        };
+        let assertion_msg_2 = AssertionsMessage {
+            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&q_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&r_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&s_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+                assert_eq!(
+                    neighborhood
+                        .neighborhood_database
+                        .node_by_key(&t_public_key_2)
+                        .unwrap()
+                        .metadata
+                        .country_undesirability,
+                    0u32,
+                    "We expecting zero, exit_location was unset"
+                );
+            }),
+        };
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(message).unwrap();
+        subject_addr.try_send(assertion_msg).unwrap();
+        subject_addr.try_send(assertion_msg_neighborhood).unwrap();
+        subject_addr.try_send(message_2).unwrap();
+        subject_addr.try_send(assertion_msg_2).unwrap();
+
+        System::current().stop();
+        system.run();
+
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
+            &format!("INFO: {}: Exit Location Set:", test_name),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Exit Location Set:", test_name),
+            &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
+        ]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("INFO: {}: Fallback Routing is Set.", test_name),
+            &format!("INFO: {}: Exit Location Unset.", test_name),
+        ]);
     }
 
     #[test]
@@ -3575,7 +3920,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string(),
+                        exit_locations_opt: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -3976,7 +4321,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_locations_opt: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -4722,7 +5067,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string(),
+                        exit_locations_opt: None,
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -4786,7 +5131,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -4844,7 +5189,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -4888,7 +5233,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -5079,7 +5424,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        exit_locations_opt: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5142,7 +5487,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        exit_locations_opt: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5210,7 +5555,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        country: "ZZ".to_string()
+                        exit_locations_opt: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5275,7 +5620,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string()
+                    exit_locations_opt: None,
                 },
                 node_record.earning_wallet(),
                 None,
@@ -5788,7 +6133,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -6159,7 +6504,7 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
+            exit_locations_opt: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
@@ -6184,7 +6529,7 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    country: "ZZ".to_string(),
+                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,

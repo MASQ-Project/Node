@@ -225,7 +225,7 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         Ok(mode) => Ok(NeighborhoodConfig {
             mode,
             min_hops,
-            country: "ZZ".to_string(),
+            exit_locations_opt: None,
         }),
         Err(e) => Err(e),
     }
@@ -722,7 +722,7 @@ mod tests {
                     DEFAULT_RATE_PACK
                 ),
                 min_hops: Hops::OneHop,
-                country: "ZZ".to_string()
+                exit_locations_opt: None,
             })
         );
     }
@@ -858,7 +858,7 @@ mod tests {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
                 min_hops: Hops::ThreeHops,
-                country: _,
+                ..
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
