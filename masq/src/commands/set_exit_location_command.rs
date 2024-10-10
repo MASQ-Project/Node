@@ -22,19 +22,19 @@ impl SetExitLocationCommand {
                     true => matches
                         .value_of("country-codes")
                         .expectv("required param")
-                        .split("|")
+                        .split('|')
                         .enumerate()
                         .map(|(index, code)| CountryCodes::from((code.to_string(), index)))
                         .collect(),
                     false => vec![],
                 };
-                let fallback_routing = match (
-                    matches.is_present("fallback-routing"),
-                    matches.is_present("country-codes"),
-                ) {
-                    (false, true) => false,
-                    _ => true,
-                };
+                let fallback_routing = !matches!(
+                    (
+                        matches.is_present("fallback-routing"),
+                        matches.is_present("country-codes")
+                    ),
+                    (false, true)
+                );
                 Ok(SetExitLocationCommand {
                     exit_locations,
                     fallback_routing,
@@ -50,7 +50,7 @@ impl Command for SetExitLocationCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiSetExitLocationRequest {
             exit_locations: self.exit_locations.clone(),
-            fallback_routing: self.fallback_routing.clone(),
+            fallback_routing: self.fallback_routing,
         };
 
         let _: UiSetExitLocationResponse =
