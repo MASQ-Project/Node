@@ -388,7 +388,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
-    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")

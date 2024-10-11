@@ -8,6 +8,36 @@ use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocati
 use masq_lib::shared_schema::common_validators;
 use masq_lib::utils::ExpectValue;
 
+const EXIT_LOCATION_ABOUT: &str =
+    "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
+    that is, if there is no exit Node available in any of your preferred countries, you'll get an error. However, \
+    if you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
+    in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
+    available anywhere.\n\n\
+    Here are some example commands:\n\
+        masq> exit-location                     // disable exit-location \n\
+        masq> exit-location --fallback-routing  // disable exit-location \n\
+        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n// fallback-routing is ON, \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\"\n\
+        masq> exit-location --country-codes \"CZ|SK\"       \n// fallback-routing is OFF, \"CZ\" and \"SK\" countries has different prirority\n";
+
+// TODO update following help when GH-469 is done
+const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
+        Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
+        for a group of countries is the same, separate those countries by commas (,).\n\
+        To obtain codes you cant use 'country-codes-list' command. You can specify country codes followingly:\n\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\"        // \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\" \n\
+        masq> exit-location --country-codes \"CZ|SK\"           // \"CZ\" and \"SK\" countries has different prirority\n";
+
+const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
+     in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
+     available anywhere. \n Here are some examples: \n\n\
+     masq> exit-location --country-codes \"CZ\" --fallback-routing  // Set exit-location for \"CZ\" country with fallback-routing on \n\
+     masq> exit-location --country-codes \"CZ\"                     // Set exit-location for \"CZ\" country with fallback-routing off \n";
+
+pub fn exit_location_subcommand() -> App<'static, 'static> {
+    SubCommand::with_name("exit-location").about(EXIT_LOCATION_ABOUT)
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetExitLocationCommand {
     pub exit_locations: Vec<CountryCodes>,
@@ -60,32 +90,6 @@ impl Command for SetExitLocationCommand {
 
     as_any_ref_in_trait_impl!();
 }
-
-const EXIT_LOCATION_ABOUT: &str =
-    "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
-    that is, if there is no exit Node available in any of your preferred countries, you'll get an error. However, \
-    if you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
-    in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
-    available anywhere.\n\n\
-    Here are some example commands:\n\
-        masq> exit-location                                                       // disable exit-location \n\
-        masq> exit-location --fallback-routing                                    // disable exit-location \n\n\
-        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing       // fallback-routing is ON, \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\"\n\
-        masq> exit-location --country-codes \"CZ|SK\"                             // fallback-routing is OFF, \"CZ\" and \"SK\" countries has different prirority\n";
-
-// TODO update following help when GH-469 is done
-const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
-        Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
-        for a group of countries is the same, separate those countries by commas (,).\n\
-        To obtain codes you cant use 'country-codes-list' command. You can specify country codes followingly:\n\n\
-        masq> exit-location --country-codes \"CZ,PL|SK\"                          // \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\" \n\
-        masq> exit-location --country-codes \"CZ|SK\"                             // \"CZ\" and \"SK\" countries has different prirority\n";
-
-const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
-     in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
-     available anywhere. \n Here are some examples: \n\n\
-     masq> exit-location --country-codes \"CZ\" --fallback-routing              // Set exit-location for \"CZ\" country with fallback-routing on \n\
-     masq> exit-location --country-codes \"CZ\"                                 // Set exit-location for \"CZ\" country with fallback-routing off \n";
 
 pub fn set_exit_location_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("exit-location")

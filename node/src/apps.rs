@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{
     chain_arg, data_directory_arg, db_password_arg, real_user_arg, shared_app, ui_port_arg,
-    DB_PASSWORD_HELP,
+    DATA_DIRECTORY_HELP, DB_PASSWORD_HELP,
 };
 use masq_lib::utils::DATA_DIRECTORY_DAEMON_HELP;
 
@@ -36,7 +36,9 @@ pub fn app_daemon() -> App<'static, 'static> {
 }
 
 pub fn app_node() -> App<'static, 'static> {
-    shared_app(app_head().after_help(NODE_HELP_TEXT)).arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
+    shared_app(app_head().after_help(NODE_HELP_TEXT))
+        .arg(data_directory_arg(DATA_DIRECTORY_HELP.as_str()))
+        .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
 pub fn app_config_dumper() -> App<'static, 'static> {

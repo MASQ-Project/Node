@@ -1530,12 +1530,10 @@ impl Neighborhood {
         info!(
             self.logger,
             "{}",
-            format!("Fallback Routing {} Set.", fallback_status)
-        );
-        info!(
-            self.logger,
-            "{}",
-            format!("{}{}", exit_location_status, location_set)
+            format!(
+                "Fallback Routing {} Set.\n{}{}",
+                fallback_status, exit_location_status, location_set
+            )
         );
     }
 
