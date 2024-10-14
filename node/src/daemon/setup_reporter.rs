@@ -69,7 +69,7 @@ pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) 
         .collect::<SetupCluster>()
 }
 
-fn daemon_shared_app() -> App {
+fn daemon_shared_app() -> App<'static, 'static> {
     shared_app(app_head()).arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
