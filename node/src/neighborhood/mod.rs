@@ -1531,7 +1531,7 @@ impl Neighborhood {
             self.logger,
             "{}",
             format!(
-                "Fallback Routing {} Set.\n{}{}",
+                "Fallback Routing {} Set. {}{}",
                 fallback_status, exit_location_status, location_set
             )
         );
@@ -3185,6 +3185,24 @@ mod tests {
         let mut subject = make_standard_subject();
         subject.exit_locations_opt = None;
         subject.logger = Logger::new(test_name);
+        let q = &mut make_node_record(3456, true);
+        q.inner.country_code_opt = Some("CZ".to_string());
+        let r = &make_node_record(4567, false);
+        let s = &make_node_record(5678, false);
+        let t = &make_node_record(7777, false);
+        let db = &mut subject.neighborhood_database.clone();
+        db.add_node(q.clone()).unwrap();
+        db.add_node(t.clone()).unwrap();
+        db.add_node(r.clone()).unwrap();
+        db.add_node(s.clone()).unwrap();
+        let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
+            db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
+        };
+        dual_edge(&subject.neighborhood_database.root(), q);
+        dual_edge(q, t);
+        dual_edge(q, r);
+        dual_edge(r, s);
+        subject.neighborhood_database = db.clone();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         let assertion_msg = AssertionsMessage {
@@ -3208,20 +3226,20 @@ mod tests {
         System::current().stop();
         system.run();
 
+        TestLogHandler::new().assert_logs_contain_in_order(vec![&format!(
+            "INFO: {}: Fallback Routing is Set. Exit Location Set:",
+            test_name
+        )]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Fallback Routing is Set.", test_name),
-            &format!("INFO: {}: Exit Location Set:", test_name),
-        ]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Exit Location Set:", test_name),
+            &"Exit Location Set:".to_string(),
             &format!("{}", "Country Codes: [\"CZ\", \"SK\"] - Priority: 1;"),
         ]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Exit Location Set:", test_name),
+            &"Exit Location Set:".to_string(),
             &format!("{}", "Country Codes: [\"AT\", \"DE\"] - Priority: 2;"),
         ]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Exit Location Set:", test_name),
+            &"Exit Location Set:".to_string(),
             &format!("{}", "Country Codes: [\"PL\", \"HU\"] - Priority: 3;"),
         ]);
     }
@@ -3403,15 +3421,15 @@ mod tests {
 
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
-            &format!("INFO: {}: Exit Location Set:", test_name),
+            &"Exit Location Set:".to_string(),
         ]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Exit Location Set:", test_name),
+            &"Exit Location Set:".to_string(),
             &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
         ]);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
-            &format!("INFO: {}: Exit Location Unset.", test_name),
+            &"Exit Location Unset.".to_string(),
         ]);
     }
 

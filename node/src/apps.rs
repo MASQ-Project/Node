@@ -37,7 +37,7 @@ pub fn app_daemon() -> App<'static, 'static> {
 
 pub fn app_node() -> App<'static, 'static> {
     shared_app(app_head().after_help(NODE_HELP_TEXT))
-        .arg(data_directory_arg(DATA_DIRECTORY_HELP.as_str()))
+        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
         .arg(ui_port_arg(&DAEMON_UI_PORT_HELP))
 }
 
