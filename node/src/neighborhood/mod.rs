@@ -1761,6 +1761,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
+    use pretty_hex::PrettyHex;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -3333,7 +3334,6 @@ mod tests {
 
            All these Nodes are standard-mode. L is the root Node.
    */
-    // TODO: Add some non-standard nodes (consume only)
     #[test]
     fn find_exit_location_test() {
         let mut subject = make_standard_subject();
@@ -3353,7 +3353,7 @@ mod tests {
             db.add_arbitrary_full_neighbor(&n1, &n2);
             db.add_arbitrary_full_neighbor(&n2, &n3);
             db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_full_neighbor(&n4, &n5);
+            db.add_arbitrary_half_neighbor(&n4, &n5);
             (n1, n2, n3, n4, n5)
         };
         let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
@@ -3361,9 +3361,9 @@ mod tests {
             let (s1, s2, s3, s4, s5) = second_row;
             db.add_arbitrary_full_neighbor(f1, s1);
             db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_full_neighbor(f3, s3);
-            db.add_arbitrary_full_neighbor(f4, s4);
-            db.add_arbitrary_full_neighbor(f5, s5);
+            db.add_arbitrary_half_neighbor(f3, s3);
+            db.add_arbitrary_half_neighbor(f4, s4);
+            db.add_arbitrary_half_neighbor(f5, s5);
         };
         let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
             let root_node_key = db.root().public_key().clone();
@@ -3382,46 +3382,56 @@ mod tests {
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
-        // let before = Instant::now();
         let db_clone = db.clone();
+
         let routes = subject.find_exit_location(&l, 3, 10_000);
 
         let total_exit_nodes = routes.len();
-        assert_eq!(total_exit_nodes, 14);
-
-        // TODO: change pubkey to the let name instead of from...
-
-        let n_node_record = routes.get(&n).unwrap();
-        let expected_route_1_public_key_1 = PublicKey::from(vec![1,0,1,1]);
-        let expected_route_1_public_key_2 = PublicKey::from(vec![1,0,0,6]);
-        let expected_route_1_public_key_3 = PublicKey::from(vec![1,0,0,7]);
-        let expected_route_1_public_key_4 = PublicKey::from(vec![1,0,1,2]);
-        let expected_route_1_public_key_5 = PublicKey::from(vec![1,0,1,3]);
-        let expected_route_2_public_key_1 = PublicKey::from(vec![1,0,1,1]);
-        let expected_route_2_public_key_2 = PublicKey::from(vec![1,0,1,6]);
-        let expected_route_2_public_key_3 = PublicKey::from(vec![1,0,1,7]);
-        let expected_route_2_public_key_4 = PublicKey::from(vec![1,0,1,2]);
-        let expected_route_2_public_key_5 = PublicKey::from(vec![1,0,1,3]);
-
-
-        let expected_route_1 = (vec![
-            &expected_route_1_public_key_1,
-            &expected_route_1_public_key_2,
-            &expected_route_1_public_key_3,
-            &expected_route_1_public_key_4,
-            &expected_route_1_public_key_5,
-        ], 40_465_238i64);
-        let expected_route_2 = (vec![
-            &expected_route_2_public_key_1,
-            &expected_route_2_public_key_2,
-            &expected_route_2_public_key_3,
-            &expected_route_2_public_key_4,
-            &expected_route_2_public_key_5,
-        ], 40_665_258i64);
-
-        assert!(n_node_record.routes.contains(&expected_route_1));
-        assert!(n_node_record.routes.contains(&expected_route_2));
-
+        let w_node_record = routes.get(&w).unwrap();
+        let i_node_record = routes.get(&i).unwrap();
+        let f_node_record = routes.get(&f).unwrap();
+        let s_node_record = routes.get(&s).unwrap();
+        let v_node_record = routes.get(&v).unwrap();
+        let b_node_record = routes.get(&b).unwrap();
+        let c_node_record = routes.get(&c).unwrap();
+        let a_node_record = routes.get(&a).unwrap();
+        let r_node_record = routes.get(&r).unwrap();
+        let h_node_record = routes.get(&h).unwrap();
+        let p_node_record = routes.get(&p).unwrap();
+        let u_node_record = routes.get(&u).unwrap();
+        let w_node_expected_route_1 = (vec![&l, &q, &v, &w], 30_643_859i64);
+        let i_node_expected_route_1 = (vec![&l, &g, &h, &i], 30_263_821i64);
+        let f_node_expected_route_1 = (vec![&l, &q, &p, &k, &f], 40_545_246i64);
+        let s_node_expected_route_1 = (vec![&l, &q, &r, &s], 30_563_851i64);
+        let v_node_expected_route_1 = (vec![&l, &k, &p, &q, &v], 40_705_262i64);
+        let b_node_expected_route_1 = (vec![&l, &k, &f, &g, &b], 40_305_222i64);
+        let c_node_expected_route_1 = (vec![&l, &g, &b, &c], 30_143_809i64);
+        let a_node_expected_route_1 = (vec![&l, &k, &f, &a], 30_203_815i64);
+        let a_node_expected_route_2 = (vec![&l, &g, &f, &a], 30_163_811i64);
+        let a_node_expected_route_3 = (vec![&l, &g, &b, &a], 30_123_807i64);
+        let r_node_expected_route_1 = (vec![&l, &k, &p, &q, &r], 40_665_258i64);
+        let h_node_expected_route_1 = (vec![&l, &k, &f, &g, &h], 40_365_228i64);
+        let p_node_expected_route_1 = (vec![&l, &g, &f, &k, &p], 40_445_236i64);
+        let u_node_expected_route_1 = (vec![&l, &k, &p, &u], 30_503_845i64);
+        let u_node_expected_route_2 = (vec![&l, &q, &v, &u], 30_623_857i64);
+        let u_node_expected_route_3 = (vec![&l, &q, &p, &u], 30_563_851i64);
+        assert_eq!(total_exit_nodes, 12);
+        assert!(w_node_record.routes.contains(&w_node_expected_route_1));
+        assert!(i_node_record.routes.contains(&i_node_expected_route_1));
+        assert!(f_node_record.routes.contains(&f_node_expected_route_1));
+        assert!(s_node_record.routes.contains(&s_node_expected_route_1));
+        assert!(v_node_record.routes.contains(&v_node_expected_route_1));
+        assert!(b_node_record.routes.contains(&b_node_expected_route_1));
+        assert!(c_node_record.routes.contains(&c_node_expected_route_1));
+        assert!(a_node_record.routes.contains(&a_node_expected_route_1));
+        assert!(a_node_record.routes.contains(&a_node_expected_route_2));
+        assert!(a_node_record.routes.contains(&a_node_expected_route_3));
+        assert!(r_node_record.routes.contains(&r_node_expected_route_1));
+        assert!(h_node_record.routes.contains(&h_node_expected_route_1));
+        assert!(p_node_record.routes.contains(&p_node_expected_route_1));
+        assert!(u_node_record.routes.contains(&u_node_expected_route_1));
+        assert!(u_node_record.routes.contains(&u_node_expected_route_2));
+        assert!(u_node_record.routes.contains(&u_node_expected_route_3));
     }
 
 
