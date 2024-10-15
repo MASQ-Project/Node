@@ -1,6 +1,6 @@
 [package]
 name = "node"
-version = "0.8.1"
+version = "0.8.2"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 description = "MASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
