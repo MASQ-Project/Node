@@ -1565,6 +1565,7 @@ dependencies = [
  "csv",
  "itertools 0.13.0",
  "lazy_static",
+ "test_utilities",
 ]
 
 [[package]]
@@ -3654,6 +3655,10 @@ dependencies = [
  "phf",
  "phf_codegen",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"

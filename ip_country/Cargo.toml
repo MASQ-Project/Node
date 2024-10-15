@@ -13,7 +13,7 @@ workspace = "../node"
 csv = "1.3.0"
 itertools = "0.13.0"
 lazy_static = "1.4.0"
-
+test_utilities = { path = "../test_utilities"}
 
 [[bin]]
 name = "ip_country"
