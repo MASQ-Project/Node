@@ -6048,15 +6048,27 @@ mod tests {
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
         subject.persistent_config_opt = Some(Box::new(persistent_config));
-        let p = &subject.neighborhood_database.root().clone();
-        let q = &make_node_record(3456, true);
-        let r = &make_node_record(4567, false);
-        let s = &make_node_record(5678, false);
-        let t = &make_node_record(7777, false);
-        let a = &make_node_record(1111, false);  // half
-        let b = &make_node_record(2222, false);  // half
-        let c = &make_node_record(3333, false);
-        let d = &make_node_record(4444, false);
+        let p = subject.neighborhood_database.root().clone();
+        let mut q = make_node_record(3456, true);
+        let mut r = make_node_record(4567, false);
+        let mut s = make_node_record(5678, false);
+        let mut t = make_node_record(7777, false);
+        let mut a = make_node_record(1111, false);  // half
+        let mut b = make_node_record(2222, false);  // half
+        let mut c = make_node_record(3333, false);
+        let mut d = make_node_record(4444, false);
+        q.set_version(2);
+        r.set_version(3);
+        s.set_version(10);
+        t.set_version(11);
+        a.set_version(15);
+        b.set_version(16);
+        c.set_version(27);
+        d.set_version(6);
+        a.metadata.unreachable_hosts.insert("example.com".to_string());
+        b.metadata.unreachable_hosts.insert("x.com".to_string());
+        c.metadata.unreachable_hosts.insert("masq.ai".to_string());
+        d.metadata.unreachable_hosts.insert("rust-lang.org".to_string());
         let db = &mut subject.neighborhood_database;
         db.add_node(q.clone()).unwrap();
         db.add_node(t.clone()).unwrap();
@@ -6073,15 +6085,15 @@ mod tests {
                 db.add_arbitrary_half_neighbor(a.public_key(), b.public_key());
             }
         };
-        edge(p, q, true);
-        edge(q, t, true);
-        edge(q, r, true);
-        edge(r, s, true);
-        edge(t, c, true);
-        edge(r, d, true);
-        edge(p, r, true);
-        edge(p, a, false);
-        edge(r, b,false);
+        edge(&p, &q, true);
+        edge(&q, &t, true);
+        edge(&q, &r, true);
+        edge(&r, &s, true);
+        edge(&t, &c, true);
+        edge(&r, &d, true);
+        edge(&p, &r, true);
+        edge(&p, &a, false);
+        edge(&r, &b,false);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -6105,15 +6117,14 @@ mod tests {
             .get_record_opt::<NodeToUiMessage>(0)
             .cloned();
         let mut expected_response:HashMap<String, NodeInfo> = HashMap::new();
-        // TODO: Add db record of version & unreachable_hosts
-        expected_response.insert("BAUGBw".to_string(),NodeInfo{version:0, country_code_opt: Some("US".to_string()),exit_service:false,unreachable_hosts:vec![]});
-        expected_response.insert("BAQEBA".to_string(), NodeInfo{version:0,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AwMDAw".to_string(), NodeInfo{version:0,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AwQFBg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:false,unreachable_hosts:vec![]});
-        expected_response.insert("BQYHCA".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AQEBAQ".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:false,unreachable_hosts:vec![]});
-        expected_response.insert("BwcHBw".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AgICAg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:false,unreachable_hosts:vec![]});
+        expected_response.insert("BAUGBw".to_string(),NodeInfo{version:3, country_code_opt: Some("US".to_string()),exit_service:false,unreachable_hosts:vec![]}); // r
+        expected_response.insert("BAQEBA".to_string(), NodeInfo{version:6,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec!["rust-lang.org".to_string()]});   // d
+        expected_response.insert("AwMDAw".to_string(), NodeInfo{version:27,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec!["masq.ai".to_string()]});  // c
+        expected_response.insert("AwQFBg".to_string(), NodeInfo{version:2,country_code_opt:Some("FR".to_string()),exit_service:false,unreachable_hosts:vec![]});  // q
+        expected_response.insert("BQYHCA".to_string(), NodeInfo{version:10,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});  // s
+        expected_response.insert("AQEBAQ".to_string(), NodeInfo{version:15,country_code_opt:Some("US".to_string()),exit_service:false,unreachable_hosts:vec!["example.com".to_string()]}); // a
+        expected_response.insert("BwcHBw".to_string(), NodeInfo{version:11,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});  // t
+        expected_response.insert("AgICAg".to_string(), NodeInfo{version:16,country_code_opt:Some("FR".to_string()),exit_service:false,unreachable_hosts:vec!["x.com".to_string()]}); // b
         let (message_to, _):(UiCollectNeighborhoodInfoResponse, u64) = FromMessageBody::fmb(message_opt.unwrap().body).unwrap();
         let response_inner = UiCollectNeighborhoodInfoResponse {
             neighborhood_database: expected_response
