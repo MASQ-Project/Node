@@ -82,6 +82,11 @@ pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
 pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExitLocationsRoutes<'a> {
+    routes: Vec<(Vec<&'a PublicKey>, i64)>
+}
+
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper_opt: Option<Recipient<IncipientCoresPackage>>,
@@ -1262,12 +1267,14 @@ impl Neighborhood {
         return_route_id
     }
 
+
+
     pub fn find_exit_location<'a>(
         &'a self,
         source: &'a PublicKey,
         minimum_hops: usize,
         payload_size: usize,
-    ) -> Vec<&PublicKey> {  //HashMap<&PublicKey, Vec<>> { // Vec<(i64, Vec<&PublicKey>)
+    ) -> HashMap<PublicKey, ExitLocationsRoutes> {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, RouteDirection::Over);
@@ -1284,19 +1291,23 @@ impl Neighborhood {
                 true
             );
 
-        let routes_exit = over_routes.into_iter().map(|segment| {
-            segment.nodes[segment.nodes.len()-1]
-        }).collect();
+        let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
 
-        // let mut result = HashMap::from(over_routes.into_iter().map(|segment| {
-        //         (segment.nodes[segment.nodes.len()-1], ) // vec![(segment.undesirability,segment.nodes)]
-        // }).collect::<Vec<(&PublicKey, Vec<(i64, Vec<&PublicKey>)>)>>());
-
-
-
-
-        routes_exit
-        // result
+        over_routes.into_iter().for_each(|segment| {
+            let exit_node = segment.nodes[segment.nodes.len()-1];
+            result_exit
+                .entry(exit_node.clone())
+                .and_modify(|e|
+                    e.routes.push((segment.nodes.clone(), segment.undesirability)))
+                .or_insert(ExitLocationsRoutes{
+                        routes: vec![(
+                            segment.nodes.clone(),
+                            segment.undesirability)
+                        ]
+                    }
+                );
+        });
+        result_exit
     }
 
     // Interface to main routing engine. Supply source key, target key--if any--in target_opt,
@@ -1581,14 +1592,11 @@ impl Neighborhood {
         let db = &self.neighborhood_database.clone();
         let db_keys = db.keys();
         let root_node = db.root().public_key();
-
-        let route = self.find_best_route_segment(root_node, None, 3, 10000, RouteDirection::Over, None);
-
-        eprintln!("route: {:#?}", route);
-
-
-
-
+        let exit_locations = self.find_exit_location(
+            root_node,
+            self.min_hops as usize,
+            10_000
+        );
 
         for db_key in db_keys {
             let node_record = db.node_by_key(db_key).expect("Failed to get node record");
@@ -1596,12 +1604,11 @@ impl Neighborhood {
                 response.insert(node_record.inner.public_key.to_string(), NodeInfo{
                     version: node_record.inner.version,
                     country_code_opt: node_record.inner.country_code_opt.clone(),
-                    exit_service: node_record.inner.accepts_connections,
+                    exit_service: exit_locations.contains_key(&node_record.inner.public_key),
                     unreachable_hosts: node_record.metadata.unreachable_hosts.clone().into_iter().collect(),
                 });
             }
         }
-
 
         let response_inner = UiCollectNeighborhoodInfoResponse {
             neighborhood_database: response
@@ -1723,6 +1730,7 @@ enum UndesirabilityType<'hostname> {
     ExitAndRouteResponse,
 }
 
+#[derive(Debug)]
 struct ComputedRouteSegment<'a> {
     pub nodes: Vec<&'a PublicKey>,
     pub undesirability: i64,
@@ -1816,6 +1824,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessageTarget::ClientId;
+
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -3324,7 +3333,7 @@ mod tests {
 
            All these Nodes are standard-mode. L is the root Node.
    */
-
+    // TODO: Add some non-standard nodes (consume only)
     #[test]
     fn find_exit_location_test() {
         let mut subject = make_standard_subject();
@@ -3373,24 +3382,45 @@ mod tests {
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
-        let before = Instant::now();
-
+        // let before = Instant::now();
         let db_clone = db.clone();
         let routes = subject.find_exit_location(&l, 3, 10_000);
 
+        let total_exit_nodes = routes.len();
+        assert_eq!(total_exit_nodes, 14);
 
-        // let node_key = key.clone();
-        // let country_code = db_clone.node_by_key(&node_key).unwrap().inner.country_code_opt.clone();
-        // eprintln!("Key: {}, country_code: {:?}", key, country_code);
+        // TODO: change pubkey to the let name instead of from...
 
-        let result_vec: Vec<(&PublicKey, String)> = routes.into_iter().map(|key| {
-            let country_code = db_clone.node_by_key(&key.clone()).unwrap().inner.country_code_opt.clone().unwrap();
-            (key, country_code)
-        }).collect();
+        let n_node_record = routes.get(&n).unwrap();
+        let expected_route_1_public_key_1 = PublicKey::from(vec![1,0,1,1]);
+        let expected_route_1_public_key_2 = PublicKey::from(vec![1,0,0,6]);
+        let expected_route_1_public_key_3 = PublicKey::from(vec![1,0,0,7]);
+        let expected_route_1_public_key_4 = PublicKey::from(vec![1,0,1,2]);
+        let expected_route_1_public_key_5 = PublicKey::from(vec![1,0,1,3]);
+        let expected_route_2_public_key_1 = PublicKey::from(vec![1,0,1,1]);
+        let expected_route_2_public_key_2 = PublicKey::from(vec![1,0,1,6]);
+        let expected_route_2_public_key_3 = PublicKey::from(vec![1,0,1,7]);
+        let expected_route_2_public_key_4 = PublicKey::from(vec![1,0,1,2]);
+        let expected_route_2_public_key_5 = PublicKey::from(vec![1,0,1,3]);
 
-        let hash_result: HashMap<&PublicKey, String> = result_vec.into_iter().collect();
 
-        eprintln!("hash_result: {:#?}", hash_result);
+        let expected_route_1 = (vec![
+            &expected_route_1_public_key_1,
+            &expected_route_1_public_key_2,
+            &expected_route_1_public_key_3,
+            &expected_route_1_public_key_4,
+            &expected_route_1_public_key_5,
+        ], 40_465_238i64);
+        let expected_route_2 = (vec![
+            &expected_route_2_public_key_1,
+            &expected_route_2_public_key_2,
+            &expected_route_2_public_key_3,
+            &expected_route_2_public_key_4,
+            &expected_route_2_public_key_5,
+        ], 40_665_258i64);
+
+        assert!(n_node_record.routes.contains(&expected_route_1));
+        assert!(n_node_record.routes.contains(&expected_route_2));
 
     }
 
@@ -6008,7 +6038,6 @@ mod tests {
             .set_past_neighbors_params(&set_past_neighbors_params_arc)
             .set_past_neighbors_result(Ok(()));
         subject.persistent_config_opt = Some(Box::new(persistent_config));
-
         let p = &subject.neighborhood_database.root().clone();
         let q = &make_node_record(3456, true);
         let r = &make_node_record(4567, false);
@@ -6018,8 +6047,6 @@ mod tests {
         let b = &make_node_record(2222, false);  // half
         let c = &make_node_record(3333, false);
         let d = &make_node_record(4444, false);
-
-
         let db = &mut subject.neighborhood_database;
         db.add_node(q.clone()).unwrap();
         db.add_node(t.clone()).unwrap();
@@ -6029,31 +6056,6 @@ mod tests {
         db.add_node(b.clone()).unwrap();
         db.add_node(c.clone()).unwrap();
         db.add_node(d.clone()).unwrap();
-
-        println!("p: {} q: {} r: {} s: {} t: {} a: {} b: {} c: {} d: {}",
-                 p.public_key(),
-                 q.public_key(),
-                 r.public_key(),
-                 s.public_key(),
-                 t.public_key(),
-                 a.public_key(),
-                 b.public_key(),
-                 c.public_key(),
-                 d.public_key(),
-        );
-        println!("{:#?}", db);
-
-        // p: 5LD+wfgUUBbKEolBJiZXvxR3VpAVpjansF96JuYn1mw
-        // q: AwQFBg
-        // r: BAUGBw
-        // s: BQYHCA
-        // t: BwcHBw
-        // a: AQEBAQ
-        // b: AgICAg
-        // c: AwMDAw
-        // d: BAQEBA
-        // digraph db { "5LD+wfgUUBbKEolBJiZXvxR3VpAVpjansF96JuYn1mw" [label="AR v0\n5LD+wfgU\n9.9.9.9:9999"] [style=filled]; "AwMDAw" [label="AR v0\nAwMDAw"]; "BQYHCA" [label="AR v0\nBQYHCA"]; "BwcHBw" [label="AR v0\nBwcHBw"]; "BAQEBA" [label="AR v0\nBAQEBA"]; "BAUGBw" [label="AR v0\nBAUGBw"]; "AQEBAQ" [label="AR v0\nAQEBAQ"]; "AwQFBg" [label="AR v0\nAwQFBg\n3.4.5.6:3456"]; "AgICAg" [label="AR v0\nAgICAg"]; }
-
         let mut edge = |a: &NodeRecord, b: &NodeRecord, c: bool| {
             if c {
                 db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
@@ -6061,7 +6063,6 @@ mod tests {
                 db.add_arbitrary_half_neighbor(a.public_key(), b.public_key());
             }
         };
-
         edge(p, q, true);
         edge(q, t, true);
         edge(q, r, true);
@@ -6071,9 +6072,6 @@ mod tests {
         edge(p, r, true);
         edge(p, a, false);
         edge(r, b,false);
-
-        println!("{:#?}", db);
-
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -6096,18 +6094,16 @@ mod tests {
         let message_opt = ui_gateway_recording
             .get_record_opt::<NodeToUiMessage>(0)
             .cloned();
-
         let mut expected_response:HashMap<String, NodeInfo> = HashMap::new();
-        // expected_response.insert("B+TPRn12lX9mt7Zvs/8gfx+rd1ko4xyjy4DRSEdoKKA".to_string(), NodeInfo{version:0,country_code_opt:Some("CH".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("BAUGBw".to_string(),NodeInfo{version:0, country_code_opt: Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        // TODO: Add db record of version & unreachable_hosts
+        expected_response.insert("BAUGBw".to_string(),NodeInfo{version:0, country_code_opt: Some("US".to_string()),exit_service:false,unreachable_hosts:vec![]});
         expected_response.insert("BAQEBA".to_string(), NodeInfo{version:0,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec![]});
         expected_response.insert("AwMDAw".to_string(), NodeInfo{version:0,country_code_opt:Some("AU".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AwQFBg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("AwQFBg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:false,unreachable_hosts:vec![]});
         expected_response.insert("BQYHCA".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AQEBAQ".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
+        expected_response.insert("AQEBAQ".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:false,unreachable_hosts:vec![]});
         expected_response.insert("BwcHBw".to_string(), NodeInfo{version:0,country_code_opt:Some("US".to_string()),exit_service:true,unreachable_hosts:vec![]});
-        expected_response.insert("AgICAg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:true,unreachable_hosts:vec![]});
-
+        expected_response.insert("AgICAg".to_string(), NodeInfo{version:0,country_code_opt:Some("FR".to_string()),exit_service:false,unreachable_hosts:vec![]});
         let (message_to, _):(UiCollectNeighborhoodInfoResponse, u64) = FromMessageBody::fmb(message_opt.unwrap().body).unwrap();
         let response_inner = UiCollectNeighborhoodInfoResponse {
             neighborhood_database: expected_response

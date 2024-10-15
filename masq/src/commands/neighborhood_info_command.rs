@@ -88,7 +88,7 @@ mod tests {
                 "public_key_1".to_string(),
                 NodeInfo {
                     version: 252,
-                    country_code: "UK".to_string(),
+                    country_code_opt: Some("UK".to_string()),
                     exit_service: true,
                     unreachable_hosts: vec!["facebook.com".to_string(), "x.com".to_string()],
                 },
@@ -97,7 +97,7 @@ mod tests {
                 "public_key_2".to_string(),
                 NodeInfo {
                     version: 5,
-                    country_code: "CZ".to_string(),
+                    country_code_opt: Some("CZ".to_string()),
                     exit_service: false,
                     unreachable_hosts: vec!["facebook.com".to_string(), "x.com".to_string()],
                 },
