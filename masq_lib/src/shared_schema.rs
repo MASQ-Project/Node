@@ -483,8 +483,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
-    use csv::StringRecord;
-    use ip_country_lib::country_block_stream::CountryBlock;
+    use ip_country_lib::countries::INDEX_BY_ISO3166;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -521,20 +520,18 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_country_code(country_code: String) -> Result<(), String> {
-        let country_range = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", country_code.as_str()]);
-
-        match CountryBlock::try_from(country_range) {
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
+    pub fn validate_country_code(country_code: &String) -> Result<(), String> {
+        match INDEX_BY_ISO3166.contains_key(country_code) {
+            true => Ok(()),
+            false => Err(format!("'{}' is not a valid ISO3166 country code", country_code)),
         }
     }
 
     pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
-        validate_pipe_separate_values(exit_location, |country: String| {
+        validate_pipe_separated_values(exit_location, |country: String| {
             let mut collect_fails = "".to_string();
             country.split(',').into_iter().for_each(|country_code| {
-                match validate_country_code(country_code.to_string()) {
+                match validate_country_code(&country_code.to_string()) {
                     Ok(_) => (),
                     Err(e) => collect_fails.push_str(&e),
                 }
@@ -547,11 +544,11 @@ pub mod common_validators {
     }
 
     pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
-        validate_pipe_separate_values(values, |segment: String| {
+        validate_pipe_separated_values(values, |segment: String| {
             segment
                 .parse::<u64>()
                 .map_err(|_| {
-                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                    "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
                         .to_string()
                 })
                 .map(|_| ())
@@ -644,7 +641,7 @@ pub mod common_validators {
         }
     }
 
-    fn validate_pipe_separate_values(
+    fn validate_pipe_separated_values(
         values_with_delimiters: String,
         closure: fn(String) -> Result<(), String>,
     ) -> Result<(), String> {

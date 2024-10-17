@@ -855,15 +855,13 @@ pub struct CountryCodes {
 }
 
 impl From<(String, usize)> for CountryCodes {
-    fn from(item: (String, usize)) -> Self {
+    fn from((item, priority): (String, usize)) -> Self {
         CountryCodes {
-            country_codes: item
-                .0
-                .split(',')
+            country_codes: item.split(',')
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect::<Vec<String>>(),
-            priority: item.1 + 1,
+            priority: priority + 1,
         }
     }
 }
