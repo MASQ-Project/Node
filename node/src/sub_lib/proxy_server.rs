@@ -9,6 +9,7 @@ use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::utils::MessageScheduler;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
@@ -68,6 +69,11 @@ pub struct AddRouteResultMessage {
     pub result: Result<RouteQueryResponse, String>,
 }
 
+#[derive(Message, Debug, PartialEq, Eq)]
+pub struct StreamKeyPurge {
+    pub stream_key: StreamKey,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
@@ -79,6 +85,7 @@ pub struct ProxyServerSubs {
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
     pub route_result_sub: Recipient<AddRouteResultMessage>,
+    pub schedule_stream_key_purge: Recipient<MessageScheduler<StreamKeyPurge>>,
 }
 
 impl Debug for ProxyServerSubs {
@@ -110,6 +117,7 @@ mod tests {
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
             route_result_sub: recipient!(recorder, AddRouteResultMessage),
+            schedule_stream_key_purge: recipient!(recorder, MessageScheduler<StreamKeyPurge>),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");

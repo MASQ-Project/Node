@@ -3,10 +3,9 @@ use crate::sub_lib::proxy_client::InboundServerData;
 use crate::sub_lib::sequencer::Sequencer;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
-use crate::sub_lib::utils;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
 use tokio::prelude::Async;
@@ -17,6 +16,7 @@ pub struct StreamReader {
     proxy_client_sub: Recipient<InboundServerData>,
     stream: Box<dyn ReadHalfWrapper>,
     stream_killer: Sender<(StreamKey, u64)>,
+    shutdown_signal: Receiver<()>,
     peer_addr: SocketAddr,
     logger: Logger,
     sequencer: Sequencer,
@@ -29,6 +29,13 @@ impl Future for StreamReader {
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
         let mut buf: [u8; 16384] = [0; 16384];
         loop {
+            if self.shutdown_signal.try_recv().is_ok() {
+                info!(
+                    self.logger,
+                    "Shutting down for stream: {:?}", self.stream_key
+                );
+                return Ok(Async::Ready(()));
+            }
             match self.stream.poll_read(&mut buf) {
                 Ok(Async::NotReady) => return Ok(Async::NotReady),
                 Ok(Async::Ready(0)) => {
@@ -44,10 +51,9 @@ impl Future for StreamReader {
                     if self.logger.trace_enabled() {
                         trace!(
                             self.logger,
-                            "Read {}-byte chunk from {}: {}",
+                            "Read {}-byte chunk from {}",
                             len,
-                            self.peer_addr,
-                            utils::to_string(&Vec::from(&buf[0..len]))
+                            self.peer_addr
                         );
                     }
                     let stream_key = self.stream_key;
@@ -82,15 +88,19 @@ impl StreamReader {
         proxy_client_sub: Recipient<InboundServerData>,
         stream: Box<dyn ReadHalfWrapper>,
         stream_killer: Sender<(StreamKey, u64)>,
+        shutdown_signal: Receiver<()>,
         peer_addr: SocketAddr,
     ) -> StreamReader {
+        let logger = Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]);
+        debug!(logger, "Initialised StreamReader");
         StreamReader {
             stream_key,
             proxy_client_sub,
             stream,
             stream_killer,
+            shutdown_signal,
             peer_addr,
-            logger: Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]),
+            logger,
             sequencer: Sequencer::new(),
         }
     }
@@ -120,7 +130,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
-    use actix::System;
+    use actix::{Actor, System};
     use crossbeam_channel::unbounded;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -175,6 +185,7 @@ mod tests {
             proxy_client_sub,
             stream,
             stream_killer,
+            shutdown_signal: unbounded().1,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
@@ -253,15 +264,12 @@ mod tests {
         });
         let proxy_client_sub = rx.recv().unwrap();
         let (stream_killer, stream_killer_params) = unbounded();
-        let mut subject = StreamReader {
-            stream_key: StreamKey::make_meaningless_stream_key(),
-            proxy_client_sub,
-            stream: Box::new(stream),
-            stream_killer,
-            peer_addr: SocketAddr::from_str("5.7.9.0:95").unwrap(),
-            logger: Logger::new("test"),
-            sequencer: Sequencer::new(),
-        };
+        let peer_addr = SocketAddr::from_str("5.7.9.0:95").unwrap();
+        let mut subject = make_subject();
+        subject.proxy_client_sub = proxy_client_sub;
+        subject.stream = Box::new(stream);
+        subject.stream_killer = stream_killer;
+        subject.peer_addr = peer_addr;
 
         let result = subject.poll();
 
@@ -274,7 +282,7 @@ mod tests {
                 stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 0,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+                source: peer_addr,
                 data: b"HTTP/1.1 200".to_vec()
             }
         );
@@ -284,7 +292,7 @@ mod tests {
                 stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 1,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+                source: peer_addr,
                 data: b" OK\r\n\r\nHTTP/1.1 40".to_vec()
             }
         );
@@ -294,7 +302,7 @@ mod tests {
                 stream_key: StreamKey::make_meaningless_stream_key(),
                 last_data: false,
                 sequence_number: 2,
-                source: SocketAddr::from_str("5.7.9.0:95").unwrap(),
+                source: peer_addr,
                 data: b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()
             }
         );
@@ -312,49 +320,53 @@ mod tests {
     #[test]
     fn receiving_0_bytes_kills_stream() {
         init_test_logging();
+        let test_name = "receiving_0_bytes_kills_stream";
         let stream_key = StreamKey::make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
         stream.poll_read_results = vec![(vec![], Ok(Async::Ready(0)))];
-
-        let system = System::new("receiving_0_bytes_sends_empty_cores_response_and_kills_stream");
-        let peer_actors = peer_actors_builder().build();
+        let peer_addr = SocketAddr::from_str("5.3.4.3:654").unwrap();
+        let system = System::new(test_name);
         let mut sequencer = Sequencer::new();
         sequencer.next_sequence_number();
         sequencer.next_sequence_number();
 
         let mut subject = StreamReader {
             stream_key,
-            proxy_client_sub: peer_actors.proxy_client_opt.unwrap().inbound_server_data,
+            proxy_client_sub: make_recorder().0.start().recipient(),
             stream: Box::new(stream),
             stream_killer,
-            peer_addr: SocketAddr::from_str("5.3.4.3:654").unwrap(),
-            logger: Logger::new("test"),
+            shutdown_signal: unbounded().1,
+            peer_addr,
+            logger: Logger::new(test_name),
             sequencer,
         };
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let result = subject.poll();
 
         assert_eq!(result, Ok(Async::Ready(())));
         assert_eq!(kill_stream_params.try_recv().unwrap(), (stream_key, 2));
-        TestLogHandler::new()
-            .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Stream from {peer_addr} was closed: (0-byte read)"
+        ));
     }
 
     #[test]
     fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
         init_test_logging();
+        let test_name = "non_dead_stream_read_errors_log_but_do_not_shut_down";
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let (stream_killer, _) = unbounded();
         let mut stream = ReadHalfWrapperMock::new();
+        let http_response = b"HTTP/1.1 200 OK\r\n\r\n";
         stream.poll_read_results = vec![
             (vec![], Err(Error::from(ErrorKind::Other))),
             (
-                Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
-                Ok(Async::Ready(b"HTTP/1.1 200 OK\r\n\r\n".len())),
+                http_response.to_vec(),
+                Ok(Async::Ready(http_response.len())),
             ),
             (vec![], Err(Error::from(ErrorKind::BrokenPipe))),
         ];
@@ -371,13 +383,15 @@ mod tests {
         });
 
         let proxy_client_sub = rx.recv().unwrap();
+        let peer_addr = SocketAddr::from_str("6.5.4.1:8325").unwrap();
         let mut subject = StreamReader {
             stream_key,
             proxy_client_sub,
             stream: Box::new(stream),
             stream_killer,
-            peer_addr: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-            logger: Logger::new("test"),
+            shutdown_signal: unbounded().1,
+            peer_addr,
+            logger: Logger::new(test_name),
             sequencer: Sequencer::new(),
         };
 
@@ -386,18 +400,50 @@ mod tests {
         assert_eq!(result, Err(()));
         proxy_client_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing(
-            "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other error",
+            &format!("WARN: {test_name}: Continuing after read error on stream from {peer_addr}: other error"),
         );
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
-                stream_key: StreamKey::make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
-                source: SocketAddr::from_str("6.5.4.1:8325").unwrap(),
-                data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec()
+                source: peer_addr,
+                data: http_response.to_vec()
             }
         );
+    }
+
+    #[test]
+    fn stream_reader_shuts_down_when_it_receives_the_shutdown_signal() {
+        init_test_logging();
+        let test_name = "stream_reader_shuts_down_when_it_receives_the_shutdown_signal";
+        let (shutdown_tx, shutdown_rx) = unbounded();
+        let mut subject = make_subject();
+        subject.shutdown_signal = shutdown_rx;
+        subject.logger = Logger::new(test_name);
+        shutdown_tx.send(()).unwrap();
+
+        let result = subject.poll();
+
+        assert_eq!(result, Ok(Async::Ready(())));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {test_name}: Shutting down for stream: {:?}",
+            subject.stream_key
+        ));
+    }
+
+    pub fn make_subject() -> StreamReader {
+        StreamReader {
+            stream_key: StreamKey::make_meaningless_stream_key(),
+            proxy_client_sub: make_recorder().0.start().recipient(),
+            stream: Box::new(ReadHalfWrapperMock::new()),
+            stream_killer: unbounded().0,
+            shutdown_signal: unbounded().1,
+            peer_addr: SocketAddr::from_str("9.8.7.6:5432").unwrap(),
+            logger: Logger::new("test"),
+            sequencer: Sequencer::new(),
+        }
     }
 }
