@@ -8,6 +8,7 @@ use crate::commands::configuration_command::ConfigurationCommand;
 use crate::commands::connection_status_command::ConnectionStatusCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
+use crate::commands::exit_location_command::SetExitLocationCommand;
 use crate::commands::financials_command::FinancialsCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
@@ -52,6 +53,10 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
+            "exit-location" => match SetExitLocationCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
             "financials" => match FinancialsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
@@ -103,6 +108,7 @@ impl CommandFactoryReal {
 mod tests {
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
+    use masq_lib::messages::CountryCodes;
 
     #[test]
     fn complains_about_unrecognized_subcommand() {
@@ -254,6 +260,33 @@ mod tests {
             &SetConfigurationCommand {
                 name: "gas-price".to_string(),
                 value: "20".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn factory_produces_exit_location() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject
+            .make(&[
+                "exit-location".to_string(),
+                "--country-codes".to_string(),
+                "CZ".to_string(),
+            ])
+            .unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<SetExitLocationCommand>()
+                .unwrap(),
+            &SetExitLocationCommand {
+                exit_locations: vec![CountryCodes {
+                    country_codes: vec!["CZ".to_string()],
+                    priority: 1
+                }],
+                fallback_routing: false,
             }
         );
     }

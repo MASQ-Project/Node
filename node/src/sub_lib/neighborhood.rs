@@ -27,6 +27,7 @@ use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_UR
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
@@ -380,6 +381,38 @@ pub enum Hops {
     SixHops = 6,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExitLocation {
+    pub country_code: Vec<String>,
+    pub priority: usize,
+}
+
+pub struct ExitLocationSet(pub HashMap<usize, Vec<String>>);
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_code, self.priority
+        )
+    }
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for (i, exit_location) in self.0.iter() {
+            write!(
+                f,
+                " Country Codes: {:?} - Priority: {};",
+                exit_location.as_slice(),
+                *i
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl FromStr for Hops {
     type Err = String;
 
@@ -406,7 +439,7 @@ impl Display for Hops {
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
     pub min_hops: Hops,
-    pub country: String,
+    pub exit_locations_opt: Option<HashMap<Vec<String>, usize>>,
 }
 
 lazy_static! {
