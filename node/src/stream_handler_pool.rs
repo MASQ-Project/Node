@@ -375,8 +375,30 @@ impl StreamHandlerPool {
             stream_writer_key
         );
         let report_to_counterpart = match self.stream_writers.remove(&stream_writer_key) {
-            None | Some(None) => false,
-            Some(Some(_sender_wrapper)) => true,
+            None => {
+                trace!(
+                    self.logger,
+                    "While handling RemoveStreamMsg: Stream Writers did not contain any entry for key {}",
+                    stream_writer_key
+                );
+                false
+            }
+            Some(None) => {
+                trace!(
+                    self.logger,
+                    "While handling RemoveStreamMsg: Stream Writers contain an entry for key {}, but stream writer is missing",
+                    stream_writer_key
+                );
+                true
+            }
+            Some(Some(_sender_wrapper)) => {
+                trace!(
+                    self.logger,
+                    "While handling RemoveStreamMsg: Stream Writers contained an entry for key {}, also found stream writer; removing",
+                    stream_writer_key
+                );
+                true
+            }
         };
         let stream_shutdown_msg = StreamShutdownMsg {
             peer_addr: msg.peer_addr,
@@ -1297,7 +1319,7 @@ mod tests {
             &StreamShutdownMsg {
                 peer_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                report_to_counterpart: false
+                report_to_counterpart: true
             }
         );
     }

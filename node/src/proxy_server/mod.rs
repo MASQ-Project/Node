@@ -230,7 +230,7 @@ impl Handler<StreamKeyPurge> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: StreamKeyPurge, _ctx: &mut Self::Context) -> Self::Result {
-        self.purge_stream_key(&msg.stream_key);
+        self.purge_stream_key(&msg.stream_key, "scheduled message");
     }
 }
 
@@ -326,12 +326,7 @@ impl ProxyServer {
     }
 
     fn retire_stream_key(&mut self, stream_key: &StreamKey) {
-        warning!(
-            self.logger,
-            "Retiring stream key {}: DnsResolveFailure",
-            stream_key
-        );
-        self.purge_stream_key(stream_key);
+        self.purge_stream_key(stream_key, "DNS resolution failure");
     }
 
     fn send_dns_failure_response_to_the_browser(
@@ -542,11 +537,7 @@ impl ProxyServer {
                     })
                     .expect("Dispatcher is dead");
                 if last_data {
-                    debug!(
-                        self.logger,
-                        "Received last data for the stream key {stream_key}."
-                    );
-                    self.purge_stream_key(&stream_key);
+                    self.purge_stream_key(&stream_key, "last data received from the exit node");
                 }
             }
             None => {
@@ -645,11 +636,7 @@ impl ProxyServer {
                 error!(self.logger, "{}", e)
             };
         } else {
-            debug!(
-                self.logger,
-                "Retiring stream key {}: StreamShutdownMsg for peer {}", &stream_key, msg.peer_addr
-            );
-            self.purge_stream_key(&stream_key);
+            self.purge_stream_key(&stream_key, "the reason that client closed the stream");
         }
     }
 
@@ -676,8 +663,11 @@ impl ProxyServer {
         }
     }
 
-    fn purge_stream_key(&mut self, stream_key: &StreamKey) {
-        debug!(self.logger, "Retiring stream key {}", &stream_key);
+    fn purge_stream_key(&mut self, stream_key: &StreamKey, reason: &str) {
+        debug!(
+            self.logger,
+            "Retiring stream key {} due to {}", &stream_key, reason
+        );
         let _ = self.keys_and_addrs.remove_a(stream_key);
         let _ = self.stream_key_routes.remove(stream_key);
         let _ = self.tunneled_hosts.remove(stream_key);
@@ -3670,7 +3660,7 @@ mod tests {
         assert_eq!(transmit_data_msg.data, b"16 bytes of data".to_vec());
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Received last data for the stream key {:?}.",
+            "DEBUG: {test_name}: Retiring stream key {:?} due to last data received from the exit node",
             stream_key
         ));
         tlh.exists_log_containing(&format!(
@@ -5303,7 +5293,7 @@ mod tests {
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params.len(), 3);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Retiring stream key {stream_key_clone}: DnsResolveFailure"
+            "DEBUG: {test_name}: Retiring stream key {stream_key_clone} due to DNS resolution failure"
         ));
     }
 
