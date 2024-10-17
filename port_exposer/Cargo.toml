@@ -1,6 +1,6 @@
 [package]
 name = "port_exposer"
-version = "0.8.1"
+version = "0.8.2"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
