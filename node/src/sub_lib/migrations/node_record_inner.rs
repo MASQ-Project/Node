@@ -55,6 +55,7 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                 let mut accepts_connections_opt: Option<bool> = None;
                 let mut routes_data_opt: Option<bool> = None;
                 let mut version_opt: Option<u32> = None;
+                let mut country_code_opt: Option<String> = None;
                 map.keys().for_each(|k| {
                     let v = map.get(k).expect("Disappeared");
                     match (k, v) {
@@ -96,6 +97,12 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                                 _ => (),
                             }
                         }
+                        (Value::Text(field_name), Value::Text(field_value)) => {
+                            match field_name.as_str() {
+                                "country_code" => country_code_opt = Some(field_value.clone()),
+                                _ => (),
+                            }
+                        }
                         _ => (),
                     }
                 });
@@ -120,6 +127,7 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                 );
                 check_field(&mut missing_fields, "routes_data", &routes_data_opt);
                 check_field(&mut missing_fields, "version", &version_opt);
+                check_field(&mut missing_fields, "country_code", &country_code_opt);
                 if !missing_fields.is_empty() {
                     unimplemented!("{:?}", missing_fields.clone())
                 }
@@ -131,6 +139,7 @@ impl TryFrom<&Value> for NodeRecordInner_0v1 {
                     accepts_connections: accepts_connections_opt.expect("public_key disappeared"),
                     routes_data: routes_data_opt.expect("public_key disappeared"),
                     version: version_opt.expect("public_key disappeared"),
+                    country_code_opt,
                 })
             }
             _ => Err(StepError::SemanticError(format!(
@@ -173,6 +182,7 @@ mod tests {
             pub accepts_connections: bool,
             pub routes_data: bool,
             pub version: u32,
+            pub country_code: Option<String>,
             pub another_field: String,
             pub yet_another_field: u64,
         }
@@ -186,6 +196,7 @@ mod tests {
             accepts_connections: false,
             routes_data: true,
             version: 42,
+            country_code_opt: Some("AU".to_string()),
         };
         let future_nri = ExampleFutureNRI {
             public_key: expected_nri.public_key.clone(),
@@ -195,6 +206,7 @@ mod tests {
             accepts_connections: expected_nri.accepts_connections,
             routes_data: expected_nri.routes_data,
             version: expected_nri.version,
+            country_code: expected_nri.country_code_opt.clone(),
             another_field: "These are the times that try men's souls".to_string(),
             yet_another_field: 1234567890,
         };
