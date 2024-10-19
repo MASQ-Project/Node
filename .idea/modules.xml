@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/automap/automap.iml" filepath="$PROJECT_DIR$/automap/automap.iml" />
       <module fileurl="file://$PROJECT_DIR$/dns_utility/dns_utility.iml" filepath="$PROJECT_DIR$/dns_utility/dns_utility.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ip_country/ip_country.iml" filepath="$PROJECT_DIR$/ip_country/ip_country.iml" />
       <module fileurl="file://$PROJECT_DIR$/masq/masq.iml" filepath="$PROJECT_DIR$/masq/masq.iml" />
       <module fileurl="file://$PROJECT_DIR$/masq_lib/masq_lib.iml" filepath="$PROJECT_DIR$/masq_lib/masq_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" filepath="$PROJECT_DIR$/multinode_integration_tests/multinode_integration_tests.iml" />
