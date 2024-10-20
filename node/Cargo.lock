@@ -2132,6 +2132,7 @@ dependencies = [
  "regex",
  "rlp",
  "rpassword",
+ "rstest",
  "rusqlite",
  "rustc-hex",
  "secp256k1",
@@ -3044,6 +3045,19 @@ checksum = "ffc936cf8a7ea60c58f030fd36a612a48f440610214dc54bc36431f9ea0c3efb"
 dependencies = [
  "libc",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "rstest"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c77c86a545c460cffcb2e5f558392e2e6a1edcc9d463cf092bf4ec3c7990641d"
+dependencies = [
+ "cfg-if 1.0.0",
+ "proc-macro2 1.0.59",
+ "quote 1.0.28",
+ "rustc_version 0.3.3",
+ "syn 1.0.85",
 ]
 
 [[package]]

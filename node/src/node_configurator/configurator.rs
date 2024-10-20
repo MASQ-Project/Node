@@ -914,6 +914,7 @@ mod tests {
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
+    use rstest::rstest;
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -2126,8 +2127,13 @@ mod tests {
         assert_eq!(*check_start_block_params, vec![Some(166666)]);
     }
 
-    #[test]
-    fn handle_set_configuration_accepts_none_to_unset_start_block() {
+    #[rstest]
+    #[case("none")]
+    #[case("None")]
+    #[case("nOnE")]
+    #[case("NoNe")]
+    #[case("NONE")]
+    fn handle_set_configuration_accepts_none_to_unset_start_block(#[case] cfgValue: &str) {
         init_test_logging();
         let test_name = "handle_set_configuration_accepts_none_to_unset_start_block";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2142,7 +2148,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = UiSetConfigurationRequest {
             name: "start-block".to_string(),
-            value: "none".to_string(),
+            value: cfgValue.to_string(),
         };
         let context_id = 4444;
 
