@@ -92,19 +92,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_transaction_receipt(
-        &self,
-        hash: H256,
-    ) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>> {
-        Box::new(
-            self.web3
-                .eth()
-                .transaction_receipt(hash)
-                .map_err(|e| QueryFailed(e.to_string())),
-        )
-    }
-
-    fn get_transaction_receipt_batch(
+    fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
@@ -432,79 +420,6 @@ mod tests {
     }
 
     #[test]
-    fn transaction_receipt_works() {
-        let port = find_free_port();
-        let tx_hash =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
-        let block_hash =
-            H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
-                .unwrap();
-        let block_number = U64::from_str("b0328d").unwrap();
-        let cumulative_gas_used = U256::from_str("60ef").unwrap();
-        let gas_used = U256::from_str("60ef").unwrap();
-        let status = U64::from(0);
-        let tx_receipt_response = ReceiptResponseBuilder::default()
-            .transaction_hash(tx_hash)
-            .block_hash(block_hash)
-            .block_number(block_number)
-            .cumulative_gas_used(cumulative_gas_used)
-            .gas_used(gas_used)
-            .status(status)
-            .build();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .raw_response(tx_receipt_response)
-            .start();
-        let subject = make_blockchain_interface_web3(Some(port));
-
-        let result = subject
-            .lower_interface()
-            .get_transaction_receipt(tx_hash)
-            .wait();
-
-        let expected_receipt = TransactionReceipt {
-            transaction_hash: tx_hash,
-            transaction_index: Default::default(),
-            block_hash: Some(block_hash),
-            block_number: Some(block_number),
-            cumulative_gas_used,
-            gas_used: Some(gas_used),
-            contract_address: None,
-            logs: vec![],
-            status: Some(status),
-            root: None,
-            logs_bloom: Default::default(),
-        };
-        assert_eq!(result, Ok(Some(expected_receipt)));
-    }
-
-    #[test]
-    fn get_transaction_receipt_handles_errors() {
-        let port = find_free_port();
-        let subject = make_blockchain_interface_web3(Some(port));
-        let tx_hash = make_tx_hash(4564546);
-
-        let actual_error = subject
-            .lower_interface()
-            .get_transaction_receipt(tx_hash)
-            .wait()
-            .unwrap_err();
-        let error_message = if let BlockchainError::QueryFailed(em) = actual_error {
-            em
-        } else {
-            panic!("Expected BlockchainError::QueryFailed(msg)");
-        };
-        assert_string_contains(
-            error_message.as_str(),
-            "Transport error: Error(Connect, Os { code: ",
-        );
-        assert_string_contains(
-            error_message.as_str(),
-            ", kind: ConnectionRefused, message: ",
-        );
-    }
-
-    #[test]
     fn transaction_receipt_batch_works() {
         let port = find_free_port();
         let tx_hash_1 =
@@ -554,7 +469,7 @@ mod tests {
 
         let result = subject
             .lower_interface()
-            .get_transaction_receipt_batch(tx_hash_vec)
+            .get_transaction_receipt_in_batch(tx_hash_vec)
             .wait()
             .unwrap();
 
@@ -599,7 +514,7 @@ mod tests {
 
         let result = subject
             .lower_interface()
-            .get_transaction_receipt_batch(tx_hash_vec)
+            .get_transaction_receipt_in_batch(tx_hash_vec)
             .wait()
             .unwrap_err();
 

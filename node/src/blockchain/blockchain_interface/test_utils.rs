@@ -62,14 +62,7 @@ impl LowBlockchainInt for LowBlockchainIntMock {
         unimplemented!("not needed so far")
     }
 
-    fn get_transaction_receipt(
-        &self,
-        _hash: H256,
-    ) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>> {
-        unimplemented!("not needed so far")
-    }
-
-    fn get_transaction_receipt_batch(
+    fn get_transaction_receipt_in_batch(
         &self,
         _hash_vec: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {

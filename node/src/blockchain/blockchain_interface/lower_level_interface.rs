@@ -7,7 +7,7 @@ use ethereum_types::{H256, U64};
 use futures::Future;
 use web3::contract::Contract;
 use web3::transports::Http;
-use web3::types::{Address, Filter, Log, TransactionReceipt, U256};
+use web3::types::{Address, Filter, Log, U256};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
@@ -38,14 +38,9 @@ pub trait LowBlockchainInt {
         address: Address,
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_transaction_receipt(
-        &self,
-        hash: H256,
-    ) -> Box<dyn Future<Item = Option<TransactionReceipt>, Error = BlockchainError>>;
-
-    fn get_transaction_receipt_batch(
-        &self,
-        hash_vec: Vec<H256>,
+    fn get_transaction_receipt_in_batch(
+                                         &self,
+                                         hash_vec: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
 
     fn get_contract(&self) -> Contract<Http>;

@@ -393,7 +393,7 @@ impl BlockchainBridge {
         Box::new(
             self.blockchain_interface
                 .lower_interface()
-                .get_transaction_receipt_batch(transaction_hashes)
+                .get_transaction_receipt_in_batch(transaction_hashes)
                 .map_err(move |e| e.to_string())
                 .and_then(move |transaction_receipts_results| {
                     let length = transaction_receipts_results.len();

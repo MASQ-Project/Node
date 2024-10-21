@@ -1597,6 +1597,10 @@ mod tests {
                 context_id: 4321,
             })
         );
+        assert_eq!(
+            payments_instructions.agent.arbitrary_id_stamp(),
+            agent_id_stamp
+        );
         assert_eq!(blockchain_bridge_recording.len(), 1);
         test_use_of_the_same_logger(&logger_clone, test_name)
         // adjust_payments() did not need a prepared result which means it wasn't reached
@@ -1709,6 +1713,10 @@ mod tests {
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
+        assert_eq!(
+            payments_instructions.agent.arbitrary_id_stamp(),
+            agent_id_stamp_second_phase
+        );
         assert_eq!(
             payments_instructions.affordable_accounts,
             affordable_accounts
@@ -3510,7 +3518,6 @@ mod tests {
             )
             .end_batch()
             .start();
-
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let return_all_errorless_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3628,8 +3635,6 @@ mod tests {
                 no_rowid_results: vec![],
             });
         let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
-            .insert_fingerprints_result(Ok(()))
-            .insert_fingerprints_result(Ok(()))
             .return_all_errorless_fingerprints_params(&return_all_errorless_fingerprints_params_arc)
             .return_all_errorless_fingerprints_result(vec![])
             .return_all_errorless_fingerprints_result(vec![
@@ -3706,9 +3711,7 @@ mod tests {
 
         assert_eq!(system.run(), 0);
         let mut mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
-
         let mut one_set_of_mark_pending_payable_params = mark_pending_payable_params.remove(0);
-
         assert!(mark_pending_payable_params.is_empty());
         let first_payable = one_set_of_mark_pending_payable_params.remove(0);
         assert_eq!(first_payable.0, wallet_account_1);
@@ -3864,7 +3867,6 @@ mod tests {
         let amount_1 = 12345;
         let hash_2 = make_tx_hash(0x1b207);
         let amount_2 = 87654;
-
         let hash_and_amount_1 = HashAndAmount {
             hash: hash_1,
             amount: amount_1,
@@ -3873,7 +3875,6 @@ mod tests {
             hash: hash_2,
             amount: amount_2,
         };
-
         let init_params = vec![hash_and_amount_1, hash_and_amount_2];
         let init_fingerprints_msg = PendingPayableFingerprintSeeds {
             batch_wide_timestamp: timestamp,
