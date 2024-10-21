@@ -9,7 +9,7 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
@@ -50,13 +50,13 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
 use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{ExitLocation, UpdateNodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
@@ -86,6 +86,13 @@ pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
 pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 
+#[derive(Debug, PartialEq)]
+pub enum ExitPreference {
+    Nothing,
+    ExitCountryWithFallback,
+    ExitCountryNoFallback,
+}
+
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
     hopper_opt: Option<Recipient<IncipientCoresPackage>>,
@@ -108,9 +115,8 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
-    exit_locations_opt: Option<HashMap<usize, Vec<String>>>,
     exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
-    fallback_routing: bool,
+    exit_location_preference: ExitPreference,
 }
 
 impl Actor for Neighborhood {
@@ -502,9 +508,8 @@ impl Neighborhood {
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
-            exit_locations_opt: None,
             exit_countries: vec![],
-            fallback_routing: true,
+            exit_location_preference: ExitPreference::Nothing,
         }
     }
 
@@ -1459,24 +1464,32 @@ impl Neighborhood {
     }
 
     fn handle_exit_location_message(&mut self, message: UiSetExitLocationRequest) {
-        let exit_locations_by_priority: HashMap<usize, Vec<String>> = message
+        let exit_locations_by_priority: Vec<ExitLocation> = message
             .exit_locations
             .into_iter()
             .map(|cc| {
                 for code in &cc.country_codes {
                     self.exit_countries.push(code.clone());
                 }
-                (cc.priority, cc.country_codes)
+                ExitLocation {
+                    country_code: cc.country_codes,
+                    priority: cc.priority,
+                }
             })
             .collect();
-        self.exit_locations_opt = match exit_locations_by_priority.is_empty() {
-            true => None,
-            false => Some(exit_locations_by_priority.clone()),
+        self.exit_location_preference = match (
+            message.fallback_routing,
+            exit_locations_by_priority.is_empty(),
+        ) {
+            (true, true) => ExitPreference::Nothing,
+            (true, false) => ExitPreference::ExitCountryWithFallback,
+            (false, false) => ExitPreference::ExitCountryNoFallback,
+            (false, true) => ExitPreference::Nothing,
         };
-        self.fallback_routing = message.fallback_routing;
-        let fallback_status = match self.fallback_routing {
-            true => "is",
-            false => "NOT",
+        let fallback_status = match self.exit_location_preference {
+            ExitPreference::Nothing => "is",
+            ExitPreference::ExitCountryWithFallback => "is",
+            ExitPreference::ExitCountryNoFallback => "NOT",
         };
         let nodes = self.neighborhood_database.nodes_mut();
         if nodes.len() < 2 {
@@ -1491,18 +1504,12 @@ impl Neighborhood {
                 Some(code) => code.clone(),
                 None => "ZZ".to_string(),
             };
-            for (exit_priority, exit_countries) in &exit_locations_by_priority {
-                if exit_countries.contains(&country_code) {
+            for exit_location in &exit_locations_by_priority {
+                if exit_location.country_code.contains(&country_code) {
                     node_record.metadata.country_undesirability =
-                        1_000 * (*exit_priority - 1) as u32;
+                        1_000 * (exit_location.priority - 1) as u32;
                 }
-                if !self.exit_countries.contains(
-                    node_record
-                        .inner
-                        .country_code_opt
-                        .as_ref()
-                        .expect("expected Country Code"),
-                ) {
+                if !self.exit_countries.contains(&country_code) {
                     node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
                 }
                 // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
@@ -1512,21 +1519,20 @@ impl Neighborhood {
                 // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 100_000_000
             }
         }
-
-        let location_set = ExitLocationSet(exit_locations_by_priority);
-        let exit_location_status = match self.exit_locations_opt {
-            Some(_) => "Exit Location Set:",
-            None => "Exit Location Unset.",
-        };
-        match self.exit_locations_opt {
-            Some(_) => (),
-            None => {
+        match &exit_locations_by_priority.is_empty() {
+            false => (),
+            true => {
                 let nodes = self.neighborhood_database.nodes_mut();
                 for node_record in nodes {
                     node_record.metadata.country_undesirability = 0u32;
                 }
             }
         }
+        let location_set = ExitLocationSet(exit_locations_by_priority);
+        let exit_location_status = match location_set.0.is_empty() {
+            false => "Exit Location Set: ",
+            true => "Exit Location Unset.",
+        };
         info!(
             self.logger,
             "{}",
@@ -1846,11 +1852,7 @@ mod tests {
             vec![make_node_descriptor(make_ip(2))],
             rate_pack(100),
         );
-        let neighborhood_config = NeighborhoodConfig {
-            mode,
-            min_hops,
-            exit_locations_opt: None,
-        };
+        let neighborhood_config = NeighborhoodConfig { mode, min_hops };
 
         let subject = Neighborhood::new(
             main_cryptde(),
@@ -1882,7 +1884,6 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                exit_locations_opt: None,
             },
             earning_wallet.clone(),
             None,
@@ -1908,7 +1909,6 @@ mod tests {
                 ))
                 .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                exit_locations_opt: None,
             },
             earning_wallet.clone(),
             None,
@@ -1930,7 +1930,6 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1960,7 +1959,6 @@ mod tests {
                         DEFAULT_RATE_PACK.clone(),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -2000,7 +1998,6 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2053,7 +2050,6 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2134,7 +2130,6 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            exit_locations_opt: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2604,7 +2599,6 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            exit_locations_opt: None,
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2682,7 +2676,6 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 earning_wallet.clone(),
                 None,
@@ -3183,7 +3176,6 @@ mod tests {
         let system = System::new(test_name);
         let (ui_gateway, _, _) = make_recorder();
         let mut subject = make_standard_subject();
-        subject.exit_locations_opt = None;
         subject.logger = Logger::new(test_name);
         let q = &mut make_node_record(3456, true);
         q.inner.country_code_opt = Some("CZ".to_string());
@@ -3208,14 +3200,20 @@ mod tests {
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood.exit_locations_opt,
-                    Some(HashMap::from([
-                        (1usize, vec!["CZ".to_string(), "SK".to_string()]),
-                        (2usize, vec!["AT".to_string(), "DE".to_string()]),
-                        (3usize, vec!["PL".to_string(), "HU".to_string()]),
-                    ]))
+                    neighborhood.exit_countries,
+                    vec![
+                        "CZ".to_string(),
+                        "SK".to_string(),
+                        "AT".to_string(),
+                        "DE".to_string(),
+                        "PL".to_string(),
+                        "HU".to_string()
+                    ]
                 );
-                assert_eq!(neighborhood.fallback_routing, true);
+                assert_eq!(
+                    neighborhood.exit_location_preference,
+                    ExitPreference::ExitCountryWithFallback
+                );
             }),
         };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -3270,7 +3268,6 @@ mod tests {
         let system = System::new(test_name);
         let (ui_gateway, _, _) = make_recorder();
 
-        subject.exit_locations_opt = None;
         subject.logger = Logger::new(test_name);
 
         let q = &mut make_node_record(3456, true);
@@ -3348,13 +3345,13 @@ mod tests {
         let assertion_msg_neighborhood = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood.exit_locations_opt,
-                    Some(HashMap::from([
-                        (1usize, vec!["CZ".to_string()]),
-                        (2usize, vec!["FR".to_string()]),
-                    ]))
+                    neighborhood.exit_countries,
+                    vec!["CZ".to_string(), "FR".to_string()]
                 );
-                assert_eq!(neighborhood.fallback_routing, false);
+                assert_eq!(
+                    neighborhood.exit_location_preference,
+                    ExitPreference::ExitCountryNoFallback
+                );
             }),
         };
         let request_2 = UiSetExitLocationRequest {
@@ -3944,7 +3941,6 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        exit_locations_opt: None,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -4345,7 +4341,6 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            exit_locations_opt: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -5091,7 +5086,6 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        exit_locations_opt: None,
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -5155,7 +5149,6 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -5213,7 +5206,6 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -5257,7 +5249,6 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: min_hops_in_neighborhood,
-                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -5448,7 +5439,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        exit_locations_opt: None,
+
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5511,7 +5502,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        exit_locations_opt: None,
+
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5579,7 +5570,7 @@ mod tests {
                             rate_pack(100),
                         ),
                         min_hops: MIN_HOPS_FOR_TEST,
-                        exit_locations_opt: None,
+
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5644,7 +5635,7 @@ mod tests {
                         rate_pack(100),
                     ),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
+
                 },
                 node_record.earning_wallet(),
                 None,
@@ -6157,7 +6148,6 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,
@@ -6528,7 +6518,6 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            exit_locations_opt: None,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
@@ -6553,7 +6542,6 @@ mod tests {
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
                     min_hops: MIN_HOPS_FOR_TEST,
-                    exit_locations_opt: None,
                 },
                 make_wallet("earning"),
                 None,

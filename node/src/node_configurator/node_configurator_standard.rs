@@ -685,7 +685,6 @@ mod tests {
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
                 min_hops: Hops::ThreeHops,
-                exit_locations_opt: None,
             }
         );
         assert_eq!(

@@ -1868,7 +1868,6 @@ dependencies = [
  "clap",
  "const_format",
  "crossbeam-channel 0.5.1",
- "csv",
  "dirs 4.0.0",
  "ethereum-types",
  "ip_country",

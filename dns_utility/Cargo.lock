@@ -744,6 +744,7 @@ dependencies = [
  "csv",
  "itertools 0.13.0",
  "lazy_static",
+ "test_utilities",
 ]
 
 [[package]]
@@ -899,7 +900,6 @@ dependencies = [
  "clap",
  "const_format",
  "crossbeam-channel 0.5.8",
- "csv",
  "dirs",
  "ethereum-types",
  "ip_country",
@@ -1693,6 +1693,10 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"

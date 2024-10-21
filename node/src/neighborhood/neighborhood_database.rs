@@ -583,9 +583,9 @@ mod tests {
         );
         subject.add_node(node_a.clone()).unwrap();
         subject.add_node(node_b.clone()).unwrap();
-
         let mut num: u16 = 7890;
         let mut keys_nums: Vec<(PublicKey, u16)> = vec![];
+
         let mutable_nodes = subject.nodes_mut();
         for node in mutable_nodes {
             node.metadata.node_addr_opt = Some(NodeAddr::new(

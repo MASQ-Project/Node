@@ -157,12 +157,10 @@ pub fn neighborhood_from_nodes(
                 *root.rate_pack(),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            exit_locations_opt: None,
         },
         None => NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
             min_hops: MIN_HOPS_FOR_TEST,
-            exit_locations_opt: None,
         },
     };
     config.earning_wallet = root.earning_wallet();

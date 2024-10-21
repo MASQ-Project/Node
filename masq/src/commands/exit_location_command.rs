@@ -6,7 +6,6 @@ use clap::{App, Arg, SubCommand};
 use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::shared_schema::common_validators;
-use masq_lib::utils::ExpectValue;
 
 const EXIT_LOCATION_ABOUT: &str =
     "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
@@ -15,18 +14,18 @@ const EXIT_LOCATION_ABOUT: &str =
     in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
     available anywhere.\n\n\
     Here are some example commands:\n\
-        masq> exit-location                     // disable exit-location \n\
-        masq> exit-location --fallback-routing  // disable exit-location \n\
-        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n// fallback-routing is ON, \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\"\n\
-        masq> exit-location --country-codes \"CZ|SK\"       \n// fallback-routing is OFF, \"CZ\" and \"SK\" countries has different prirority\n";
+        masq> exit-location                     // disable exit-location preferences\n\
+        masq> exit-location --fallback-routing  // disable exit-location preferences\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n// fallback-routing is ON, \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" have priority \"2\"\n\
+        masq> exit-location --country-codes \"CZ|SK\"       \n// fallback-routing is OFF, \"CZ\" and \"SK\" countries have different priority\n";
 
 // TODO update following help when GH-469 is done
 const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
         Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
         for a group of countries is the same, separate those countries by commas (,).\n\
-        To obtain codes you cant use 'country-codes-list' command. You can specify country codes followingly:\n\n\
-        masq> exit-location --country-codes \"CZ,PL|SK\"        // \"CZ\" and \"PL\" countries has same priority \"1\", \"SK\" has prirority \"2\" \n\
-        masq> exit-location --country-codes \"CZ|SK\"           // \"CZ\" and \"SK\" countries has different prirority\n";
+        To obtain codes, you can use the 'country-codes-list' command. You can specify country codes as follows:\n\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\"        // \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\" \n\
+        masq> exit-location --country-codes \"CZ|SK\"           // \"CZ\" and \"SK\" countries have different priority\n";
 
 const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
      in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
@@ -50,9 +49,9 @@ impl SetExitLocationCommand {
             Ok(matches) => {
                 let exit_locations = match matches.is_present("country-codes") {
                     true => matches
-                        .value_of("country-codes")
-                        .expectv("required param")
-                        .split('|')
+                        .values_of("country-codes")
+                        .expect("Expected Country Codes")
+                        .into_iter()
                         .enumerate()
                         .map(|(index, code)| CountryCodes::from((code.to_string(), index)))
                         .collect(),
@@ -98,6 +97,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
             Arg::with_name("country-codes")
                 .long("country-codes")
                 .value_name("COUNTRY-CODES")
+                .value_delimiter("|")
                 .validator(common_validators::validate_exit_locations)
                 .help(COUNTRY_CODES_HELP)
                 .required(false),
@@ -124,6 +124,22 @@ pub mod tests {
 
     #[test]
     fn can_deserialize_ui_set_exit_location() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
+        let stderr_arc = context.stderr_arc();
+        let subject = SetExitLocationCommand::new(&[
+            "exit-location".to_string(),
+            "--country-codes".to_string(),
+            "CZ,SK|AT,DE|PL".to_string(),
+            "--fallback-routing".to_string(),
+        ])
+        .unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
         let expected_request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![
@@ -141,22 +157,6 @@ pub mod tests {
                 },
             ],
         };
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
-        let stderr_arc = context.stderr_arc();
-        let subject = SetExitLocationCommand::new(&[
-            "exit-location".to_string(),
-            "--country-codes".to_string(),
-            "CZ,SK|AT,DE|PL".to_string(),
-            "--fallback-routing".to_string(),
-        ])
-        .unwrap();
-
-        let result = subject.execute(&mut context);
-
-        assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);
         assert_eq!(
@@ -169,13 +169,6 @@ pub mod tests {
 
     #[test]
     fn providing_no_fallback_cause_exit_location_blocking_routing_request() {
-        let expected_request = UiSetExitLocationRequest {
-            fallback_routing: false,
-            exit_locations: vec![CountryCodes {
-                country_codes: vec!["CZ".to_string()],
-                priority: 1,
-            }],
-        };
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -191,6 +184,13 @@ pub mod tests {
         let result = subject.execute(&mut context);
 
         assert_eq!(result, Ok(()));
+        let expected_request = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["CZ".to_string()],
+                priority: 1,
+            }],
+        };
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);
         assert_eq!(
@@ -203,10 +203,6 @@ pub mod tests {
 
     #[test]
     fn providing_no_arguments_cause_exit_location_reset_request() {
-        let expected_request = UiSetExitLocationRequest {
-            fallback_routing: true,
-            exit_locations: vec![],
-        };
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -217,6 +213,10 @@ pub mod tests {
         let result = subject.execute(&mut context);
 
         assert_eq!(result, Ok(()));
+        let expected_request = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![],
+        };
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);
         assert_eq!(

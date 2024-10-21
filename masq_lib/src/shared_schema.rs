@@ -523,7 +523,10 @@ pub mod common_validators {
     pub fn validate_country_code(country_code: &String) -> Result<(), String> {
         match INDEX_BY_ISO3166.contains_key(country_code) {
             true => Ok(()),
-            false => Err(format!("'{}' is not a valid ISO3166 country code", country_code)),
+            false => Err(format!(
+                "'{}' is not a valid ISO3166 country code",
+                country_code
+            )),
         }
     }
 

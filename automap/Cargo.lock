@@ -929,6 +929,7 @@ dependencies = [
  "csv",
  "itertools 0.13.0",
  "lazy_static",
+ "test_utilities",
 ]
 
 [[package]]
@@ -1096,7 +1097,6 @@ dependencies = [
  "clap",
  "const_format",
  "crossbeam-channel 0.5.8",
- "csv",
  "dirs",
  "ethereum-types",
  "ip_country",
@@ -1967,6 +1967,10 @@ checksum = "be55cf8942feac5c765c2c993422806843c9a9a45d4d5c407ad6dd2ea95eb9b6"
 dependencies = [
  "winapi-util",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"
