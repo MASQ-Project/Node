@@ -130,25 +130,3 @@ impl BufRead for ByteArrayReader {
         }
     }
 }
-
-pub struct FakeStreamHolder {
-    pub stdin: ByteArrayReader,
-    pub stdout: ByteArrayWriter,
-    pub stderr: ByteArrayWriter,
-}
-
-impl Default for FakeStreamHolder {
-    fn default() -> Self {
-        FakeStreamHolder {
-            stdin: ByteArrayReader::new(&[0; 0]),
-            stdout: ByteArrayWriter::new(),
-            stderr: ByteArrayWriter::new(),
-        }
-    }
-}
-
-impl FakeStreamHolder {
-    pub fn new() -> FakeStreamHolder {
-        Self::default()
-    }
-}

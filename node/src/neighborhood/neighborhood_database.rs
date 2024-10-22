@@ -588,8 +588,9 @@ mod tests {
 
         let mutable_nodes = subject.nodes_mut();
         for node in mutable_nodes {
+            let (seg1, seg2, seg3, seg4) = make_segments(num);
             node.metadata.node_addr_opt = Some(NodeAddr::new(
-                &make_segmented_ip(make_segments(num)),
+                &make_segmented_ip(seg1, seg2, seg3, seg4),
                 &[num],
             ));
             keys_nums.push((node.inner.public_key.clone(), num));
@@ -597,6 +598,7 @@ mod tests {
         }
 
         for (pub_key, num) in keys_nums {
+            let (seg1, seg2, seg3, seg4) = make_segments(num);
             assert_eq!(
                 &subject
                     .node_by_key(&pub_key)
@@ -605,7 +607,7 @@ mod tests {
                     .metadata
                     .node_addr_opt,
                 &Some(NodeAddr::new(
-                    &make_segmented_ip(make_segments(num)),
+                    &make_segmented_ip(seg1, seg2, seg3, seg4),
                     &[num]
                 ))
             );

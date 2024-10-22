@@ -134,7 +134,7 @@ fn write_value(
 mod tests {
     use super::*;
     use std::io::{Error, ErrorKind};
-    use test_utilities::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
+    use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
 
     static PROPER_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
 1.0.0.0,1.0.0.255,AU

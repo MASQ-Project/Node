@@ -911,6 +911,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "test_utilities",
  "time 0.3.20",
  "tiny-hderive",
  "toml",

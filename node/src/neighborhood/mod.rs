@@ -9,12 +9,6 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::HashSet;
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
@@ -24,11 +18,17 @@ use actix::{Addr, AsyncContext};
 use itertools::Itertools;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
-    UiSetExitLocationRequest,
+    UiSetExitLocationRequest, UiSetExitLocationResponse,
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
+use std::collections::HashSet;
+use std::convert::TryFrom;
+use std::fmt::Debug;
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+use std::string::ToString;
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -84,7 +84,10 @@ use node_record::NodeRecord;
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
 pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
+pub const UNREACHABLE_COUNTRY_PENALTY: u32 = 100_000_000;
+pub const COUNTRY_UNDESIRABILITY_FACTOR: u32 = 1_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
+pub const ZZ_COUNTRY_CODE_STRING: &str = "ZZ";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExitPreference {
@@ -399,8 +402,8 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((message, _)) = UiSetExitLocationRequest::fmb(msg.body.clone()) {
-            self.handle_exit_location_message(message);
+        if let Ok((message, context_id)) = UiSetExitLocationRequest::fmb(msg.body.clone()) {
+            self.handle_exit_location_message(message, client_id, context_id);
         } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
@@ -1463,7 +1466,12 @@ impl Neighborhood {
         undesirability + node_undesirability
     }
 
-    fn handle_exit_location_message(&mut self, message: UiSetExitLocationRequest) {
+    fn handle_exit_location_message(
+        &mut self,
+        message: UiSetExitLocationRequest,
+        client_id: u64,
+        context_id: u64,
+    ) {
         let exit_locations_by_priority: Vec<ExitLocation> = message
             .exit_locations
             .into_iter()
@@ -1502,26 +1510,27 @@ impl Neighborhood {
         for node_record in nodes {
             let country_code = match node_record.inner.country_code_opt.as_ref() {
                 Some(code) => code.clone(),
-                None => "ZZ".to_string(),
+                None => ZZ_COUNTRY_CODE_STRING.to_string(),
             };
             for exit_location in &exit_locations_by_priority {
-                if exit_location.country_code.contains(&country_code) {
+                if exit_location.country_code.contains(&country_code)
+                    && country_code != ZZ_COUNTRY_CODE_STRING
+                {
                     node_record.metadata.country_undesirability =
-                        1_000 * (exit_location.priority - 1) as u32;
+                        COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
                 }
-                if !self.exit_countries.contains(&country_code) {
-                    node_record.metadata.country_undesirability = 1_000_000u32; //TODO change for constant COUNTRY_CODE_PENALTY
+                if self.exit_location_preference == ExitPreference::ExitCountryWithFallback
+                    && !self.exit_countries.contains(&country_code)
+                    || country_code == ZZ_COUNTRY_CODE_STRING
+                {
+                    node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
                 }
-                // TODO implement of reset of country_undesirability to 0 on all nodes when user disable exit-location
-                // --country-codes "CZ|DE" --falback-routing
-                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 2000
-                // --country-codes "CZ|DE"
-                // CZ = 0, DE = 1000, ALL OTHER COUNTRIES = 100_000_000
             }
         }
         match &exit_locations_by_priority.is_empty() {
             false => (),
             true => {
+                self.exit_countries = vec![];
                 let nodes = self.neighborhood_database.nodes_mut();
                 for node_record in nodes {
                     node_record.metadata.country_undesirability = 0u32;
@@ -1541,6 +1550,15 @@ impl Neighborhood {
                 fallback_status, exit_location_status, location_set
             )
         );
+        let message = NodeToUiMessage {
+            target: MessageTarget::ClientId(client_id),
+            body: UiSetExitLocationResponse {}.tmb(context_id),
+        };
+        self.node_to_ui_recipient_opt
+            .as_ref()
+            .expect("UI Gateway is unbound")
+            .try_send(message)
+            .expect("UiGateway is dead");
     }
 
     fn handle_gossip_reply(
@@ -3164,7 +3182,7 @@ mod tests {
                     priority: 2,
                 },
                 CountryCodes {
-                    country_codes: vec!["PL".to_string(), "HU".to_string()],
+                    country_codes: vec!["PL".to_string()],
                     priority: 3,
                 },
             ],
@@ -3207,7 +3225,6 @@ mod tests {
                         "AT".to_string(),
                         "DE".to_string(),
                         "PL".to_string(),
-                        "HU".to_string()
                     ]
                 );
                 assert_eq!(
@@ -3224,21 +3241,12 @@ mod tests {
         System::current().stop();
         system.run();
 
-        TestLogHandler::new().assert_logs_contain_in_order(vec![&format!(
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!(
             "INFO: {}: Fallback Routing is Set. Exit Location Set:",
             test_name
-        )]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &"Exit Location Set:".to_string(),
-            &format!("{}", "Country Codes: [\"CZ\", \"SK\"] - Priority: 1;"),
-        ]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &"Exit Location Set:".to_string(),
-            &format!("{}", "Country Codes: [\"AT\", \"DE\"] - Priority: 2;"),
-        ]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &"Exit Location Set:".to_string(),
-            &format!("{}", "Country Codes: [\"PL\", \"HU\"] - Priority: 3;"),
+            ),
+            &"Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3;"
         ]);
     }
 
@@ -3260,20 +3268,19 @@ mod tests {
                 },
             ],
         };
-        let message = NodeFromUiMessage {
-            client_id: 0,
-            body: request.tmb(0),
+        let set_exit_location_message = NodeFromUiMessage {
+            client_id: 8765,
+            body: request.tmb(1234),
         };
         let mut subject = make_standard_subject();
         let system = System::new(test_name);
-        let (ui_gateway, _, _) = make_recorder();
-
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         subject.logger = Logger::new(test_name);
-
         let q = &mut make_node_record(3456, true);
         q.inner.country_code_opt = Some("CZ".to_string());
         let r = &make_node_record(4567, false);
-        let s = &make_node_record(5678, false);
+        let s = &mut make_node_record(5678, false);
+        s.inner.country_code_opt = Some("FR".to_string());
         let t = &make_node_record(7777, false);
         let db = &mut subject.neighborhood_database.clone();
         db.add_node(q.clone()).unwrap();
@@ -3294,11 +3301,7 @@ mod tests {
         let r_public_key = r.inner.public_key.clone();
         let s_public_key = s.inner.public_key.clone();
         let t_public_key = t.inner.public_key.clone();
-        let q_public_key_2 = q.inner.public_key.clone();
-        let r_public_key_2 = r.inner.public_key.clone();
-        let s_public_key_2 = s.inner.public_key.clone();
-        let t_public_key_2 = t.inner.public_key.clone();
-        let assertion_msg = AssertionsMessage {
+        let assert_country_undesirability_populated = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood
@@ -3317,8 +3320,8 @@ mod tests {
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    1_000_000u32,
-                    "We expecting 1 000 000, country is not requested for exit location"
+                    0u32,
+                    "We expecting 0, country is not considered for exit location, so country_undesirability doesn't matter"
                 );
                 assert_eq!(
                     neighborhood
@@ -3337,12 +3340,12 @@ mod tests {
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    1_000_000u32,
-                    "We expecting 1 000 000, country is not requested for exit location"
+                    0u32,
+                    "We expecting 0, country is not considered for exit location, so country_undesirability doesn't matter"
                 );
             }),
         };
-        let assertion_msg_neighborhood = AssertionsMessage {
+        let assert_neighborhood_exit_location = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood.exit_countries,
@@ -3358,11 +3361,15 @@ mod tests {
             fallback_routing: true,
             exit_locations: vec![],
         };
-        let message_2 = NodeFromUiMessage {
-            client_id: 0,
-            body: request_2.tmb(0),
+        let clear_exit_location_message = NodeFromUiMessage {
+            client_id: 6543,
+            body: request_2.tmb(7894),
         };
-        let assertion_msg_2 = AssertionsMessage {
+        let q_public_key_2 = q.inner.public_key.clone();
+        let r_public_key_2 = r.inner.public_key.clone();
+        let s_public_key_2 = s.inner.public_key.clone();
+        let t_public_key_2 = t.inner.public_key.clone();
+        let assert_country_undesirability_and_exit_preference_cleared = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood
@@ -3404,27 +3411,52 @@ mod tests {
                     0u32,
                     "We expecting zero, exit_location was unset"
                 );
+                assert_eq!(neighborhood.exit_countries.is_empty(), true);
+                assert_eq!(
+                    neighborhood.exit_location_preference,
+                    ExitPreference::Nothing
+                )
             }),
         };
+
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr.try_send(message).unwrap();
-        subject_addr.try_send(assertion_msg).unwrap();
-        subject_addr.try_send(assertion_msg_neighborhood).unwrap();
-        subject_addr.try_send(message_2).unwrap();
-        subject_addr.try_send(assertion_msg_2).unwrap();
+        subject_addr.try_send(set_exit_location_message).unwrap();
+        subject_addr
+            .try_send(assert_country_undesirability_populated)
+            .unwrap();
+        subject_addr
+            .try_send(assert_neighborhood_exit_location)
+            .unwrap();
+        subject_addr.try_send(clear_exit_location_message).unwrap();
+        subject_addr
+            .try_send(assert_country_undesirability_and_exit_preference_cleared)
+            .unwrap();
 
         System::current().stop();
         system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let record_one: &NodeToUiMessage = ui_gateway_recording.get_record(0);
+        let record_two: &NodeToUiMessage = ui_gateway_recording.get_record(1);
 
+        assert_eq!(ui_gateway_recording.len(), 2);
+        assert_eq!(
+            record_one,
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(8765),
+                body: UiSetExitLocationResponse {}.tmb(1234),
+            }
+        );
+        assert_eq!(
+            record_two,
+            &NodeToUiMessage {
+                target: MessageTarget::ClientId(6543),
+                body: UiSetExitLocationResponse {}.tmb(7894),
+            }
+        );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
             &"Exit Location Set:".to_string(),
-        ]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &"Exit Location Set:".to_string(),
-            &format!("{}", "Country Codes: [\"CZ\"] - Priority: 1;"),
-        ]);
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &"Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2;",
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
             &"Exit Location Unset.".to_string(),
         ]);
