@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn initialize_web3_interface_works() {
         let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
+        let blockchain_client_server = MBCSBuilder::new(port)
             .response("0x3B9ACA00".to_string(), 0)// gas_price = 10000000000
             .response("0xFF40".to_string(), 0)
             .response(
@@ -83,6 +83,14 @@ mod tests {
             .wait()
             .unwrap();
 
+        // TODO: GH-543 will improve MBCS to be stronger by validating each response via its request parameters.
+        let mbcs_requests = blockchain_client_server.requests();
+        assert_eq! (mbcs_requests, vec! [
+            "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\ncontent-length: 60\r\nhost: 127.0.0.1:32768\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_gasPrice\",\"params\":[],\"id\":0}".to_string(),
+            "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\ncontent-length: 115\r\nhost: 127.0.0.1:32768\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"0x0000000000000000000000000000000000313233\",\"latest\"],\"id\":1}".to_string(),
+            "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\ncontent-length: 200\r\nhost: 127.0.0.1:32768\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{\"data\":\"0x70a082310000000000000000000000000000000000000000000000000000000000313233\",\"to\":\"0xee9a352f6aac4af1a5b9f467f6a93e0ffbe9dd35\"},\"latest\"],\"id\":2}".to_string(),
+            "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\ncontent-length: 125\r\nhost: 127.0.0.1:32768\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionCount\",\"params\":[\"0x0000000000000000000000000000000000313233\",\"pending\"],\"id\":3}".to_string()
+        ]);
         assert_eq!(blockchain_agent.consuming_wallet(), &wallet);
         assert_eq!(blockchain_agent.agreed_fee_per_computation_unit(), 2);
     }

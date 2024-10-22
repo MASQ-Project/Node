@@ -158,7 +158,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             get_gas_price
                 .map_err(BlockchainAgentBuildError::GasPrice)
                 .and_then(move |gas_price_wei| {
-                    eprintln!("gas_price_wei: {}", gas_price_wei);
                     get_transaction_fee_balance
                         .map_err(move |e| {
                             BlockchainAgentBuildError::TransactionFeeBalance(wallet_address, e)
