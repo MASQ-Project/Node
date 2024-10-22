@@ -208,8 +208,8 @@ mod tests {
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_LITERAL;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-    use crate::blockchain::test_utils::{make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder};
-    use crate::test_utils::{assert_string_contains, make_wallet};
+    use crate::blockchain::test_utils::{make_blockchain_interface_web3, ReceiptResponseBuilder};
+    use crate::test_utils::make_wallet;
 
     #[test]
     fn get_transaction_fee_balance_works() {

@@ -10,7 +10,7 @@ pub mod overall_connection_status;
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
-use std::net::{AddrParseError, IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use actix::Context;

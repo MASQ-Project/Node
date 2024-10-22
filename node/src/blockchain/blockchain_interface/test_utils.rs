@@ -12,7 +12,7 @@ use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use web3::contract::Contract;
 use web3::transports::Http;
-use web3::types::{Address, Filter, Log, TransactionReceipt};
+use web3::types::{Address, Filter, Log};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
