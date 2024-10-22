@@ -2133,7 +2133,7 @@ mod tests {
     #[case("nOnE")]
     #[case("NoNe")]
     #[case("NONE")]
-    fn handle_set_configuration_accepts_none_to_unset_start_block(#[case] cfgValue: &str) {
+    fn handle_set_configuration_accepts_none_to_unset_start_block(#[case] cfg_value: &str) {
         init_test_logging();
         let test_name = "handle_set_configuration_accepts_none_to_unset_start_block";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2148,7 +2148,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let msg = UiSetConfigurationRequest {
             name: "start-block".to_string(),
-            value: cfgValue.to_string(),
+            value: cfg_value.to_string(),
         };
         let context_id = 4444;
 
