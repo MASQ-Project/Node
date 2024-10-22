@@ -1138,7 +1138,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1150,7 +1150,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1162,7 +1162,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
