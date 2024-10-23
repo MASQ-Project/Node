@@ -380,6 +380,38 @@ pub enum Hops {
     SixHops = 6,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExitLocation {
+    pub country_code: Vec<String>,
+    pub priority: usize,
+}
+
+pub struct ExitLocationSet(pub Vec<ExitLocation>);
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_code, self.priority
+        )
+    }
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for exit_location in self.0.iter() {
+            write!(
+                f,
+                "Country Codes: {:?} - Priority: {}; ",
+                exit_location.country_code.as_slice(),
+                exit_location.priority
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl FromStr for Hops {
     type Err = String;
 
@@ -406,7 +438,6 @@ impl Display for Hops {
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
     pub min_hops: Hops,
-    pub country: String,
 }
 
 lazy_static! {

@@ -52,6 +52,7 @@ serde_cbor = "0.11.2"
 sha1 = "0.6.0"
 sodiumoxide = "0.2.2"
 sysinfo = "0.21.1"
+test_utilities = { path = "../test_utilities"}
 tiny-bip39 = "0.8.2"
 tiny-hderive = "0.3.0"
 thousands = "0.2.0"
