@@ -1855,6 +1855,7 @@ dependencies = [
  "nix 0.23.1",
  "num",
  "regex",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "websocket",
