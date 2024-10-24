@@ -19,7 +19,6 @@ linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
 num = "0.4.0"
 regex = "1.5.4"
-test_utilities = { path = "../test_utilities" }
 thousands = "0.2.0"
 websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
 ctrlc = "3.2.1"
@@ -29,6 +28,7 @@ nix = "0.23.0"
 
 [dev-dependencies]
 atty = "0.2.14"
+test_utilities = { path = "../test_utilities" }
 
 [lib]
 name = "masq_cli_lib"
