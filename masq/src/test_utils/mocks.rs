@@ -15,7 +15,6 @@ use linefeed::memory::MemoryTerminal;
 use linefeed::{Interface, ReadResult, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
-use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use std::fmt::Arguments;
@@ -23,6 +22,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+use test_utilities::byte_array_reader_writer::{ByteArrayWriter, ByteArrayWriterInner};
 
 pub const TRANSACT_TIMEOUT_MILLIS_FOR_TESTS: u64 = DEFAULT_TRANSACT_TIMEOUT_MILLIS;
 

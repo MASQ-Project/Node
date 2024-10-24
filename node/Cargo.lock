@@ -1565,6 +1565,7 @@ dependencies = [
  "csv",
  "itertools 0.13.0",
  "lazy_static",
+ "test_utilities",
 ]
 
 [[package]]
@@ -1854,6 +1855,7 @@ dependencies = [
  "nix 0.23.1",
  "num",
  "regex",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "websocket",
@@ -1867,7 +1869,6 @@ dependencies = [
  "clap",
  "const_format",
  "crossbeam-channel 0.5.1",
- "csv",
  "dirs 4.0.0",
  "ethereum-types",
  "ip_country",
@@ -1879,6 +1880,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "test_utilities",
  "time 0.3.11",
  "tiny-hderive",
  "toml",
@@ -2189,6 +2191,7 @@ dependencies = [
  "sodiumoxide",
  "sysinfo",
  "system-configuration",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "tiny-bip39",
@@ -3654,6 +3657,10 @@ dependencies = [
  "phf",
  "phf_codegen",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"
