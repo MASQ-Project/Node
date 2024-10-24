@@ -3,7 +3,7 @@
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
-const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
+const RUN_DIAGNOSTICS_FOR_DEVS: bool = false;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 58;
 
@@ -49,7 +49,7 @@ pub fn diagnostics<F1, F2>(
     F1: FnOnce() -> String,
     F2: FnOnce() -> String,
 {
-    if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
+    if RUN_DIAGNOSTICS_FOR_DEVS {
         let subject_column_length = if subject_renderer_opt.is_some() {
             WALLET_ADDRESS_LENGTH + 2
         } else {
@@ -82,7 +82,7 @@ pub fn collection_diagnostics<DebuggableAccount: Debug>(
     label: &str,
     accounts: &[DebuggableAccount],
 ) {
-    if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
+    if RUN_DIAGNOSTICS_FOR_DEVS {
         eprintln!("{}", label);
         accounts
             .iter()
@@ -212,10 +212,10 @@ pub mod ordinary_diagnostic_functions {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS;
+    use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::RUN_DIAGNOSTICS_FOR_DEVS;
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS, false);
+        assert_eq!(RUN_DIAGNOSTICS_FOR_DEVS, false);
     }
 }

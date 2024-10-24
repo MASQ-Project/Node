@@ -8,21 +8,23 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::DisqualificationLimitProvidingAccount;
 use crate::accountant::QualifiedPayableAccount;
 
-// If passing along without PA just to BlockchainBridge
+// Accounts that pass through the checks in PA and dart to BlockchainBridge right away
 impl From<QualifiedPayableAccount> for PayableAccount {
     fn from(qualified_payable: QualifiedPayableAccount) -> Self {
         qualified_payable.bare_account
     }
 }
 
-// After transaction fee adjustment while no need to go off with the other fee, and so we keep
-// the original balance, drop the weights etc.
+// Transaction fee adjustment just done, but no need to go off with the other fee, so we only
+// extract the original payable accounts of those retained after the adjustment. PA is done and can
+// begin to return.
 impl From<WeightedPayable> for PayableAccount {
     fn from(weighted_account: WeightedPayable) -> Self {
         weighted_account.analyzed_account.qualified_as.bare_account
     }
 }
 
+// When the consuming balance is being exhausted to zero. This represents the PA's resulted values.
 impl From<AdjustedAccountBeforeFinalization> for PayableAccount {
     fn from(non_finalized_adjustment: AdjustedAccountBeforeFinalization) -> Self {
         let mut account = non_finalized_adjustment.original_account;
@@ -31,15 +33,15 @@ impl From<AdjustedAccountBeforeFinalization> for PayableAccount {
     }
 }
 
-// Preparing "remaining, unresolved accounts" for another iteration that always begins with
-// WeightedPayable types
+// Makes "remaining unresolved accounts" ready for another recursion that always begins with
+// structures in the type of WeightedPayable
 impl From<UnconfirmedAdjustment> for WeightedPayable {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
         unconfirmed_adjustment.weighted_account
     }
 }
 
-// Used after the unconfirmed adjustment pass through all confirmations
+// Used if an unconfirmed adjustment passes the confirmation
 impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
     fn from(unconfirmed_adjustment: UnconfirmedAdjustment) -> Self {
         let proposed_adjusted_balance_minor =
@@ -59,9 +61,9 @@ impl From<UnconfirmedAdjustment> for AdjustedAccountBeforeFinalization {
     }
 }
 
-// This is used when we detect that the upcoming iterations begins with a surplus in the remaining
-// unallocated CW service fee, and therefore we grant the remaining accounts with the full balance
-// they requested
+// When we detect that the upcoming iterations will begin with a surplus in the remaining
+// unallocated CW service fee, therefore the remaining accounts' balances are automatically granted
+// an amount that equals to their disqualification limit (and can be later provided with even more)
 impl From<WeightedPayable> for AdjustedAccountBeforeFinalization {
     fn from(weighted_account: WeightedPayable) -> Self {
         let limited_adjusted_balance = weighted_account.disqualification_limit();
@@ -85,7 +87,7 @@ mod tests {
     use crate::accountant::AnalyzedPayableAccount;
 
     #[test]
-    fn conversion_between_non_finalized_account_and_payable_account_is_implemented() {
+    fn conversion_between_non_finalized_account_and_payable_account() {
         let mut original_payable_account = make_payable_account(123);
         original_payable_account.balance_wei = 200_000_000;
         let non_finalized_account = AdjustedAccountBeforeFinalization::new(
@@ -142,13 +144,19 @@ mod tests {
         let mut original_payable_account = make_payable_account(123);
         original_payable_account.balance_wei = 200_000_000;
         let mut weighted_account = prepare_weighted_account(original_payable_account.clone());
-        weighted_account.weight = 321654;
-        let unconfirmed_adjustment = UnconfirmedAdjustment::new(weighted_account, 111_222_333);
+        let weight = 321654;
+        weighted_account.weight = weight;
+        let proposed_adjusted_balance_minor = 111_222_333;
+        let unconfirmed_adjustment =
+            UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance_minor);
 
         let result = AdjustedAccountBeforeFinalization::from(unconfirmed_adjustment);
 
-        let expected_result =
-            AdjustedAccountBeforeFinalization::new(original_payable_account, 321654, 111_222_333);
+        let expected_result = AdjustedAccountBeforeFinalization::new(
+            original_payable_account,
+            weight,
+            proposed_adjusted_balance_minor,
+        );
         assert_eq!(result, expected_result)
     }
 }

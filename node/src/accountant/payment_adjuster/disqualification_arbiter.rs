@@ -120,9 +120,10 @@ impl DisqualificationArbiter {
 pub struct DisqualificationSuspectedAccount<'account> {
     pub wallet: &'account Wallet,
     pub weight: u128,
-    // The rest is for an INFO log
+    // The rest is for diagnostics and logging
     pub proposed_adjusted_balance_minor: u128,
     pub disqualification_limit_minor: u128,
+    pub initial_account_balance_minor: u128,
 }
 
 impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
@@ -134,6 +135,7 @@ impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
             weight: unconfirmed_account.weighted_account.weight,
             proposed_adjusted_balance_minor: unconfirmed_account.proposed_adjusted_balance_minor,
             disqualification_limit_minor: unconfirmed_account.disqualification_limit_minor(),
+            initial_account_balance_minor: unconfirmed_account.balance_minor(),
         }
     }
 }

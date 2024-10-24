@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 pub trait PaymentAdjusterInner {
     fn now(&self) -> SystemTime;
-    fn largest_exceeding_balance_recently_qualified(&self) -> u128;
+    fn max_portion_of_balance_over_threshold_in_qualified_payables(&self) -> u128;
     fn transaction_fee_count_limit_opt(&self) -> Option<u16>;
     fn original_cw_service_fee_balance_minor(&self) -> u128;
     fn unallocated_cw_service_fee_balance_minor(&self) -> u128;
@@ -14,7 +14,7 @@ pub trait PaymentAdjusterInner {
 pub struct PaymentAdjusterInnerReal {
     now: SystemTime,
     transaction_fee_count_limit_opt: Option<u16>,
-    largest_exceeding_balance_recently_qualified: u128,
+    max_portion_of_balance_over_threshold_in_qualified_payables: u128,
     original_cw_service_fee_balance_minor: u128,
     unallocated_cw_service_fee_balance_minor: u128,
 }
@@ -24,12 +24,12 @@ impl PaymentAdjusterInnerReal {
         now: SystemTime,
         transaction_fee_count_limit_opt: Option<u16>,
         cw_service_fee_balance_minor: u128,
-        largest_exceeding_balance_recently_qualified: u128,
+        max_portion_of_balance_over_threshold_in_qualified_payables: u128,
     ) -> Self {
         Self {
             now,
             transaction_fee_count_limit_opt,
-            largest_exceeding_balance_recently_qualified,
+            max_portion_of_balance_over_threshold_in_qualified_payables,
             original_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
             unallocated_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
         }
@@ -41,8 +41,8 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerReal {
         self.now
     }
 
-    fn largest_exceeding_balance_recently_qualified(&self) -> u128 {
-        self.largest_exceeding_balance_recently_qualified
+    fn max_portion_of_balance_over_threshold_in_qualified_payables(&self) -> u128 {
+        self.max_portion_of_balance_over_threshold_in_qualified_payables
     }
 
     fn transaction_fee_count_limit_opt(&self) -> Option<u16> {
@@ -80,9 +80,9 @@ impl PaymentAdjusterInner for PaymentAdjusterInnerNull {
         PaymentAdjusterInnerNull::panicking_operation("now()")
     }
 
-    fn largest_exceeding_balance_recently_qualified(&self) -> u128 {
+    fn max_portion_of_balance_over_threshold_in_qualified_payables(&self) -> u128 {
         PaymentAdjusterInnerNull::panicking_operation(
-            "largest_exceeding_balance_recently_qualified()",
+            "max_portion_of_balance_over_threshold_in_qualified_payables()",
         )
     }
 
@@ -114,12 +114,12 @@ mod tests {
         let now = SystemTime::now();
         let transaction_fee_count_limit_opt = Some(3);
         let cw_service_fee_balance = 123_456_789;
-        let largest_exceeding_balance_recently_qualified = 44_555_666;
+        let max_portion_of_balance_over_threshold_in_qualified_payables = 44_555_666;
         let result = PaymentAdjusterInnerReal::new(
             now,
             transaction_fee_count_limit_opt,
             cw_service_fee_balance,
-            largest_exceeding_balance_recently_qualified,
+            max_portion_of_balance_over_threshold_in_qualified_payables,
         );
 
         assert_eq!(result.now, now);
@@ -136,8 +136,8 @@ mod tests {
             cw_service_fee_balance
         );
         assert_eq!(
-            result.largest_exceeding_balance_recently_qualified,
-            largest_exceeding_balance_recently_qualified
+            result.max_portion_of_balance_over_threshold_in_qualified_payables,
+            max_portion_of_balance_over_threshold_in_qualified_payables
         )
     }
 
@@ -153,13 +153,13 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the largest_exceeding_balance_recently_qualified() \
+        expected = "Broken code: Called the null implementation of the max_portion_of_balance_over_threshold_in_qualified_payables() \
     method in PaymentAdjusterInner"
     )]
-    fn inner_null_calling_largest_exceeding_balance_recently_qualified() {
+    fn inner_null_calling_max_portion_of_balance_over_threshold_in_qualified_payables() {
         let subject = PaymentAdjusterInnerNull::default();
 
-        let _ = subject.largest_exceeding_balance_recently_qualified();
+        let _ = subject.max_portion_of_balance_over_threshold_in_qualified_payables();
     }
 
     #[test]

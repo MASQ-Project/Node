@@ -151,14 +151,10 @@ pub fn info_log_for_disqualified_account(
 ) {
     info!(
         logger,
-        "Shortage of MASQ in your consuming wallet will impact payable {}, ruled out from this \
-        round of payments. The proposed adjustment {} wei was below the disqualification limit \
-        {} wei",
+        "Ready payment to {} was eliminated to spare MASQ for those higher prioritized. {} wei owed \
+        at the moment.",
         account.wallet,
-        account
-            .proposed_adjusted_balance_minor
-            .separate_with_commas(),
-        account.disqualification_limit_minor.separate_with_commas()
+        account.initial_account_balance_minor.separate_with_commas(),
     )
 }
 
@@ -169,8 +165,8 @@ pub fn log_adjustment_by_service_fee_is_required(
 ) {
     warning!(
         logger,
-        "Total of {} wei in MASQ was ordered while the consuming wallet held only {} wei of MASQ \
-        token. Adjustment of their count or balances is required.",
+        "Mature payables amount to {} MASQ wei while the consuming wallet holds only {} wei. \
+        Adjustment in their count or balances is necessary.",
         payables_sum.separate_with_commas(),
         cw_service_fee_balance.separate_with_commas()
     );
@@ -186,12 +182,12 @@ pub fn log_insufficient_transaction_fee_balance(
 ) {
     warning!(
         logger,
-        "Transaction fee balance of {} wei is not going to cover the anticipated fee to send {} \
-        transactions, with {} wei required per one. Maximum count is set to {}. Adjustment must be \
-        performed.",
+        "Transaction fee balance of {} wei cannot cover the anticipated {} wei for {} \
+        transactions. Maximal count is set to {}. Adjustment must be performed.",
         transaction_fee_minor.separate_with_commas(),
+        (cw_required_transactions_count as u128 * txn_fee_required_per_txn_minor)
+            .separate_with_commas(),
         cw_required_transactions_count,
-        txn_fee_required_per_txn_minor.separate_with_commas(),
         limiting_count
     );
     info!(logger, "{}", REFILL_RECOMMENDATION)
@@ -203,14 +199,9 @@ pub fn log_transaction_fee_adjustment_ok_but_by_service_fee_undoable(logger: &Lo
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
     use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
-        info_log_for_disqualified_account, LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY,
-        REFILL_RECOMMENDATION,
+        LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY, REFILL_RECOMMENDATION,
     };
-    use crate::test_utils::make_wallet;
-    use masq_lib::logger::Logger;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn constants_are_correct() {
@@ -226,29 +217,5 @@ mod tests {
             balance to be applied on the adjusted set, but discovered a shortage of \
             MASQ not to suffice even for a single transaction. Operation is aborting."
         )
-    }
-
-    #[test]
-    fn disqualification_log_properly_formatted() {
-        init_test_logging();
-        let test_name = "disqualification_log_properly_formatted";
-        let logger = Logger::new(test_name);
-        let wallet = make_wallet("aaa");
-        let disqualified_account = DisqualificationSuspectedAccount {
-            wallet: &wallet,
-            weight: 0,
-            proposed_adjusted_balance_minor: 1_555_666_777,
-            disqualification_limit_minor: 2_000_000_000,
-        };
-
-        info_log_for_disqualified_account(&logger, &disqualified_account);
-
-        TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: Shortage of MASQ in your consuming wallet will impact payable \
-            0x0000000000000000000000000000000000616161, ruled out from this round of payments. \
-            The proposed adjustment 1,555,666,777 wei was below the disqualification limit \
-            2,000,000,000 wei",
-            test_name
-        ));
     }
 }

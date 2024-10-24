@@ -116,13 +116,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let agent = setup.agent;
         let initial_service_fee_balance_minor = agent.service_fee_balance_minor();
         let required_adjustment = setup.adjustment_analysis.adjustment;
-        let largest_exceeding_balance_recently_qualified =
+        let max_portion_of_balance_over_threshold_in_qualified_payables =
             find_largest_exceeding_balance(&analyzed_payables);
 
         self.initialize_inner(
             initial_service_fee_balance_minor,
             required_adjustment,
-            largest_exceeding_balance_recently_qualified,
+            max_portion_of_balance_over_threshold_in_qualified_payables,
             now,
         );
 
@@ -166,7 +166,7 @@ impl PaymentAdjusterReal {
         &mut self,
         cw_service_fee_balance: u128,
         required_adjustment: Adjustment,
-        largest_exceeding_balance_recently_qualified: u128,
+        max_portion_of_balance_over_threshold_in_qualified_payables: u128,
         now: SystemTime,
     ) {
         let transaction_fee_limitation_opt = match required_adjustment {
@@ -180,7 +180,7 @@ impl PaymentAdjusterReal {
             now,
             transaction_fee_limitation_opt,
             cw_service_fee_balance,
-            largest_exceeding_balance_recently_qualified,
+            max_portion_of_balance_over_threshold_in_qualified_payables,
         );
 
         self.inner = Box::new(inner);
@@ -612,13 +612,13 @@ mod tests {
     ) {
         let mut subject = PaymentAdjusterReal::default();
         let cw_service_fee_balance = 111_222_333_444;
-        let largest_exceeding_balance_recently_qualified = 3_555_666;
+        let max_portion_of_balance_over_threshold_in_qualified_payables = 3_555_666;
         let now = SystemTime::now();
 
         subject.initialize_inner(
             cw_service_fee_balance,
             required_adjustment,
-            largest_exceeding_balance_recently_qualified,
+            max_portion_of_balance_over_threshold_in_qualified_payables,
             now,
         );
 
@@ -636,8 +636,10 @@ mod tests {
             cw_service_fee_balance
         );
         assert_eq!(
-            subject.inner.largest_exceeding_balance_recently_qualified(),
-            largest_exceeding_balance_recently_qualified
+            subject
+                .inner
+                .max_portion_of_balance_over_threshold_in_qualified_payables(),
+            max_portion_of_balance_over_threshold_in_qualified_payables
         )
     }
 
@@ -735,7 +737,7 @@ mod tests {
                 agreed_transaction_fee_per_computed_unit_major: 100,
                 number_of_accounts,
                 estimated_transaction_fee_units_per_transaction: 55_000,
-                cw_transaction_fee_balance_major: 100 * 3 * 55_000 - 1,
+                cw_transaction_fee_balance_major: (((100 * 3 * 55_000) * 115) / 100) - 1,
             }),
         );
         let analyzed_payables = convert_collection(qualified_payables.clone());
@@ -753,9 +755,9 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Transaction fee balance of 16,499,999,000,000,000 wei is not \
-            going to cover the anticipated fee to send 3 transactions, with 6,325,000,000,000,000 \
-            wei required per one. Maximum count is set to 2. Adjustment must be performed."
+            "WARN: {test_name}: Transaction fee balance of 18,974,999,000,000,000 wei cannot cover \
+            the anticipated 18,975,000,000,000,000 wei for 3 transactions. Maximal count is set to 2. \
+            Adjustment must be performed."
         ));
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
@@ -793,9 +795,11 @@ mod tests {
             )))
         );
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(&format!("WARN: {test_name}: Total of 100,000,\
-        000,001 wei in MASQ was ordered while the consuming wallet held only 100,000,000,000 wei of \
-        MASQ token. Adjustment of their count or balances is required."));
+        log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Mature payables \
+        amount to 100,000,000,001 MASQ wei while the consuming wallet holds only 100,000,000,000 \
+        wei. Adjustment in their count or balances is necessary."
+        ));
         log_handler.exists_log_containing(&format!(
             "INFO: {test_name}: Please be aware that abandoning your debts is going to result in \
             delinquency bans. In order to consume services without limitations, you will need to \
@@ -1132,12 +1136,12 @@ mod tests {
         wallet_of_expected_outweighed: Wallet,
         original_balance_of_outweighed_account: u128,
     ) {
-        let garbage_largest_exceeding_balance_recently_qualified = 123456789;
+        let garbage_max_portion_of_balance_over_threshold_in_qualified_payables = 123456789;
         subject.inner = Box::new(PaymentAdjusterInnerReal::new(
             SystemTime::now(),
             None,
             cw_service_fee_balance_minor,
-            garbage_largest_exceeding_balance_recently_qualified,
+            garbage_max_portion_of_balance_over_threshold_in_qualified_payables,
         ));
         let unconfirmed_adjustments = AdjustmentComputer::default()
             .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
@@ -1247,7 +1251,7 @@ mod tests {
         let err = match result {
             Err(e) => e,
             Ok(ok) => panic!(
-                "we expected to get an error but it was ok: {:?}",
+                "we expected to get an error, but it was ok: {:?}",
                 ok.affordable_accounts
             ),
         };
@@ -1367,29 +1371,23 @@ mod tests {
             Err(e) => e,
         };
         assert_eq!(err, PaymentAdjusterError::AllAccountsEliminated);
-        let expected_log = |wallet: &str, proposed_adjusted_balance_in_this_iteration: u64| {
+        let expected_log = |wallet: &str| {
             format!(
-                "INFO: {test_name}: Shortage of MASQ in your consuming wallet will impact payable \
-                {wallet}, ruled out from this round of payments. The proposed adjustment {} wei was \
-                below the disqualification limit {} wei",
-                proposed_adjusted_balance_in_this_iteration.separate_with_commas(),
+                "INFO: {test_name}: Ready payment to {wallet} was eliminated to spare MASQ for \
+                those higher prioritized. {} wei owed at the moment.",
                 (*MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR).separate_with_commas()
             )
         };
         let log_handler = TestLogHandler::new();
-        // Notice that the proposals grow as one disqualified account drops out in each iteration
-        log_handler.exists_log_containing(&expected_log(
+        [
             "0x000000000000000000000000000000626c616830",
-            333,
-        ));
-        log_handler.exists_log_containing(&expected_log(
             "0x000000000000000000000000000000626c616831",
-            499,
-        ));
-        log_handler.exists_log_containing(&expected_log(
             "0x000000000000000000000000000000626c616832",
-            999,
-        ));
+        ]
+        .into_iter()
+        .for_each(|address| {
+            let _ = log_handler.exists_log_containing(&expected_log(address));
+        });
     }
 
     fn meaningless_timestamp() -> SystemTime {
@@ -1716,10 +1714,9 @@ mod tests {
         );
         assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Shortage of MASQ in your consuming wallet will impact payable \
-            0x0000000000000000000000000000000000676869, ruled out from this round of payments. \
-            The proposed adjustment 189,999,999,999,999,944 wei was below the disqualification \
-            limit 300,000,000,000,000,000 wei"
+            "INFO: {test_name}: Ready payment to 0x0000000000000000000000000000000000676869 was \
+            eliminated to spare MASQ for those higher prioritized. 600,000,000,000,000,000 wei owed \
+            at the moment."
         ));
         test_inner_was_reset_to_null(subject)
     }
@@ -1852,9 +1849,9 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-                "WARN: {test_name}: Total of 411,000,000,000,000,000,000 wei in MASQ was \
-            ordered while the consuming wallet held only 70,999,999,999,999,999,999 wei of MASQ \
-            token. Adjustment of their count or balances is required."
+                "WARN: {test_name}: Mature payables amount to 411,000,000,000,000,000,000 MASQ \
+                wei while the consuming wallet holds only 70,999,999,999,999,999,999 wei. \
+                Adjustment in their count or balances is necessary."
             ),
             &format!(
                 "INFO: {test_name}: Please be aware that abandoning your debts is going to \
@@ -2191,13 +2188,13 @@ mod tests {
         cw_service_fee_balance_minor: u128,
     ) -> Vec<WeightedPayable> {
         let analyzed_payables = convert_collection(qualified_payables);
-        let largest_exceeding_balance_recently_qualified =
+        let max_portion_of_balance_over_threshold_in_qualified_payables =
             find_largest_exceeding_balance(&analyzed_payables);
         let mut subject = make_initialized_subject(
             Some(now),
             Some(cw_service_fee_balance_minor),
             None,
-            Some(largest_exceeding_balance_recently_qualified),
+            Some(max_portion_of_balance_over_threshold_in_qualified_payables),
             None,
         );
         let perform_adjustment_by_service_fee_params_arc = Arc::new(Mutex::new(Vec::new()));

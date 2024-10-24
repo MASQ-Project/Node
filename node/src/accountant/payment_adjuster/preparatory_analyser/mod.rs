@@ -448,8 +448,8 @@ mod tests {
         ];
         assert_eq!(&determine_limit_params[0..2], expected_params);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet \
-            held only {} wei of MASQ token. Adjustment of their count or balances is required.",
+            "WARN: {test_name}: Mature payables amount to {} MASQ wei while the consuming wallet \
+            holds only {} wei. Adjustment in their count or balances is necessary.",
             total_amount_required.separate_with_commas(),
             cw_service_fee_balance.separate_with_commas()
         ));
@@ -615,8 +615,9 @@ mod tests {
             },
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet held \
-            only {}", service_fee_totally_required_minor.separate_with_commas(),
+            "WARN: {test_name}: Mature payables amount to {} MASQ wei while the consuming wallet \
+            holds only {}",
+            service_fee_totally_required_minor.separate_with_commas(),
             (cw_service_fee_balance_minor - 2).separate_with_commas()
         ));
     }
