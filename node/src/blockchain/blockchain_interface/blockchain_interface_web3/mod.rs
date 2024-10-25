@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-mod batch_payable_tools;
 pub mod lower_level_interface_web3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
@@ -94,6 +93,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 let response_block_number = match response_block_number_result {
                     Ok(block_number) => {
                         debug!(logger, "Latest block number: {}", block_number.as_u64());
+                        // TODO: GH-744: This could be Eths type U64 instead of u64
                         block_number.as_u64()
                     }
                     Err(_) => {
@@ -123,6 +123,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                     .build();
                 lower_level_interface.get_transaction_logs(filter)
                     .then(move |logs| {
+                        // TODO: GH-744:  change the word Transactions for Logs and also to use trace! instead of debug!
                         debug!(logger, "Transaction retrieval completed: {:?}", logs);
                         future::result::<RetrievedBlockchainTransactions, BlockchainError>(
                             match logs {
@@ -463,6 +464,24 @@ mod tests {
                 ]
             }
         )
+
+        // TODO: GH-543: Improve MBCS so we can confirm the calls we make are the correct ones.
+        //       Example of older code
+        //       let requests = test_server.requests_so_far();
+        //         let bodies: Vec<String> = requests
+        //             .into_iter()
+        //             .map(|request| serde_json::from_slice(&request.body()).unwrap())
+        //             .map(|b: Value| serde_json::to_string(&b).unwrap())
+        //             .collect();
+        //         let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        //         let expected_body_suffix = r#""]}]}]"#;
+        //         let expected_body = format!(
+        //             "{}{}{}",
+        //             expected_body_prefix,
+        //             &to[2..],
+        //             expected_body_suffix
+        //         );
+        //         assert_eq!(bodies, vec!(expected_body));
     }
 
     #[test]
@@ -492,27 +511,34 @@ mod tests {
                 transactions: vec![]
             })
         );
+
+
+        // TODO: GH-543: Improve MBCS so we can confirm the calls we make are the correct ones.
+        //       Example of older code
+        //         let requests = test_server.requests_so_far();
+        //         let bodies: Vec<String> = requests
+        //             .into_iter()
+        //             .map(|request| serde_json::from_slice(&request.body()).unwrap())
+        //             .map(|b: Value| serde_json::to_string(&b).unwrap())
+        //             .collect();
+        //         let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        //         let expected_body_suffix = r#""]}]}]"#;
+        //         let expected_body = format!(
+        //             "{}{}{}",
+        //             expected_body_prefix,
+        //             &to[2..],
+        //             expected_body_suffix
+        //         );
+        //         assert_eq!(bodies, vec!(expected_body));
     }
 
     #[test]
     #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
+    fn retrieving_address_of_uninitialised_wallet_panics(
     ) {
-        let port = find_free_port();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc");
 
-        let result = subject
-            .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
-                555u64,
-                Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc").address(),
-            )
-            .wait();
-
-        assert_eq!(
-            result.expect_err("Expected an Err, got Ok"),
-            BlockchainError::InvalidAddress
-        );
+        subject.address();
     }
 
     #[test]

@@ -654,6 +654,8 @@ impl PendingPayableScanner {
         msg: ReportTransactionReceipts,
         logger: &Logger,
     ) -> PendingPayableScanReport {
+        // TODO: We want to ensure that failed transactions are not marked still pending,
+        // and also adjust log levels accordingly.
         fn handle_none_receipt(
             mut scan_report: PendingPayableScanReport,
             payable: PendingPayableFingerprint,
@@ -879,6 +881,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
                             warning!(logger, "{:?} update max_block_count to {}. Scheduling next scan with that limit.", e, max_block_count);
                         },
                         |e| {
+                            // TODO: GH-744: This should be changed into a panic
                             warning!(logger, "Writing max_block_count failed: {:?}", e);
                         },
                     )
@@ -946,7 +949,6 @@ impl ReceivableScanner {
                     new_start_block, e
                 ),
             }
-            debug!(logger, "Updated start block to: {}", new_start_block)
         } else {
             let mut txn = self
                 .receivable_dao

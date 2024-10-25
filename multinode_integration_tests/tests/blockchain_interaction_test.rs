@@ -59,7 +59,7 @@ fn debtors_are_credited_once_but_not_twice() {
             }],
             1,
         )
-        .run_on_docker()
+        .run_in_docker()
         .start();
     // Start a real Node pointing at the mock blockchain client with a start block of 1000
     let node_config = NodeStartupConfigBuilder::standard()

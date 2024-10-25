@@ -127,6 +127,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
+    // TODO: GH-744: this should be just get_contract_address, we only need the address.
     fn get_contract(&self) -> Contract<Http> {
         self.contract.clone()
     }

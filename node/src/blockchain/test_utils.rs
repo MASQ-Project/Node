@@ -15,8 +15,6 @@ use crate::blockchain::blockchain_interface::data_structures::{
     ProcessedPayableFallible, RetrievedBlockchainTransactions,
 };
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-// use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
-use crate::blockchain::blockchain_interface::test_utils::LowBlockchainIntMock;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
@@ -63,6 +61,7 @@ pub fn make_meaningless_seed() -> Seed {
     Seed::new(&mnemonic, "passphrase")
 }
 
+// TODO: GH-744: Look into removing options form port. and in places were are have defined port as None, just define a port anyway.
 pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
     let port = port_opt.unwrap_or_else(|| find_free_port());
     let chain = Chain::PolyMainnet;
@@ -186,7 +185,7 @@ impl ReceiptResponseBuilder {
 
         let rpc_response = RpcResponse {
             json_rpc: "2.0".to_string(),
-            id: 0,
+            id: 1,
             result: transaction_receipt,
         };
         serde_json::to_string(&rpc_response).unwrap()
@@ -215,7 +214,7 @@ pub struct BlockchainInterfaceMock {
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results:
         RefCell<Vec<Result<Option<TransactionReceipt>, BlockchainError>>>,
-    lower_interface_result: Option<Box<LowBlockchainIntMock>>,
+    lower_interface_result: Option<Box<dyn LowBlockchainInt>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
     get_chain_results: RefCell<Vec<Chain>>,
     get_batch_web3_results: RefCell<Vec<Web3<Batch<Http>>>>,
@@ -346,7 +345,7 @@ impl BlockchainInterfaceMock {
 
     pub fn lower_interface_results(
         mut self,
-        aggregated_results: Box<LowBlockchainIntMock>,
+        aggregated_results: Box<dyn LowBlockchainInt>,
     ) -> Self {
         self.lower_interface_result = Some(aggregated_results);
         self

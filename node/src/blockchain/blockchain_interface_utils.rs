@@ -1,4 +1,7 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+// TODO: GH-744: At the end of the review rename this file to: web3_blockchain_interface_utils.rs
+// TODO: GH-744: Or we should move this file into blockchain_interface_web3
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
@@ -329,6 +332,7 @@ pub fn send_payables_within_batch(
     );
 }
 
+// TODO: GH-744: Migrate this to blockchain/blockchain_bridge.rs and remove pub
 pub fn calculate_fallback_start_block_number(start_block_number: u64, max_block_count: u64) -> u64 {
     if max_block_count == u64::MAX {
         start_block_number + 1u64
@@ -341,6 +345,7 @@ pub fn convert_wei_to_gwei(wei: U256) -> u64 {
     (wei / U256::from(GWEI_UNIT)).as_u64() + 1
 }
 
+// TODO: GH-744: This function could be part of the trait BlockchainAgent (so gas_limit_const_part can go away)
 pub fn create_blockchain_agent_web3(
     gas_limit_const_part: u64,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
