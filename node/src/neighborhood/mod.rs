@@ -1472,19 +1472,7 @@ impl Neighborhood {
         client_id: u64,
         context_id: u64,
     ) {
-        let exit_locations_by_priority: Vec<ExitLocation> = message
-            .exit_locations
-            .into_iter()
-            .map(|cc| {
-                for code in &cc.country_codes {
-                    self.exit_countries.push(code.clone());
-                }
-                ExitLocation {
-                    country_code: cc.country_codes,
-                    priority: cc.priority,
-                }
-            })
-            .collect();
+        let exit_locations_by_priority: Vec<ExitLocation> = self.extract_exit_locations_from_message(&message);
         self.exit_location_preference = match (
             message.fallback_routing,
             exit_locations_by_priority.is_empty(),
@@ -1495,61 +1483,29 @@ impl Neighborhood {
             (false, true) => ExitPreference::Nothing,
         };
         let fallback_status = match self.exit_location_preference {
-            ExitPreference::Nothing => "is",
-            ExitPreference::ExitCountryWithFallback => "is",
-            ExitPreference::ExitCountryNoFallback => "NOT",
+            ExitPreference::Nothing => "Fallback Routing is Set.",
+            ExitPreference::ExitCountryWithFallback => "Fallback Routing is Set.",
+            ExitPreference::ExitCountryNoFallback => "Fallback Routing NOT Set.",
         };
-        let nodes = self.neighborhood_database.nodes_mut();
-        if nodes.len() < 2 {
-            info!(
-                self.logger,
-                "Neighborhood is empty, no exit Nodes are available.",
-            );
-            return;
-        }
-        for node_record in nodes {
-            let country_code = match node_record.inner.country_code_opt.as_ref() {
-                Some(code) => code.clone(),
-                None => ZZ_COUNTRY_CODE_STRING.to_string(),
-            };
-            for exit_location in &exit_locations_by_priority {
-                if exit_location.country_code.contains(&country_code)
-                    && country_code != ZZ_COUNTRY_CODE_STRING
-                {
-                    node_record.metadata.country_undesirability =
-                        COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
-                }
-                if self.exit_location_preference == ExitPreference::ExitCountryWithFallback
-                    && !self.exit_countries.contains(&country_code)
-                    || country_code == ZZ_COUNTRY_CODE_STRING
-                {
-                    node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
-                }
-            }
-        }
-        match &exit_locations_by_priority.is_empty() {
-            false => (),
+        match self.neighborhood_database.keys().len() > 1 {
             true => {
-                self.exit_countries = vec![];
-                let nodes = self.neighborhood_database.nodes_mut();
-                for node_record in nodes {
-                    node_record.metadata.country_undesirability = 0u32;
-                }
-            }
+                self.set_country_undesirability(&exit_locations_by_priority);
+                let location_set = ExitLocationSet { locations: exit_locations_by_priority };
+                let exit_location_status = match location_set.locations.is_empty() {
+                    false => "Exit location set: ",
+                    true => "Exit location unset.",
+                };
+                info!(
+                    self.logger,
+                    "{} {}{}",
+                    fallback_status, exit_location_status, location_set
+                );
+            },
+            false => info!(
+                        self.logger,
+                        "Neighborhood is empty, no exit Nodes are available.",
+                    ),
         }
-        let location_set = ExitLocationSet(exit_locations_by_priority);
-        let exit_location_status = match location_set.0.is_empty() {
-            false => "Exit Location Set: ",
-            true => "Exit Location Unset.",
-        };
-        info!(
-            self.logger,
-            "{}",
-            format!(
-                "Fallback Routing {} Set. {}{}",
-                fallback_status, exit_location_status, location_set
-            )
-        );
         let message = NodeToUiMessage {
             target: MessageTarget::ClientId(client_id),
             body: UiSetExitLocationResponse {}.tmb(context_id),
@@ -1559,6 +1515,58 @@ impl Neighborhood {
             .expect("UI Gateway is unbound")
             .try_send(message)
             .expect("UiGateway is dead");
+    }
+
+    fn set_country_undesirability(&mut self, exit_locations_by_priority: &Vec<ExitLocation>) {
+        let nodes = self.neighborhood_database.nodes_mut();
+        match !&exit_locations_by_priority.is_empty() {
+            true => {
+                for node_record in nodes {
+                    let country_code = match node_record.inner.country_code_opt.as_ref() {
+                        Some(code) => code.clone(),
+                        None => ZZ_COUNTRY_CODE_STRING.to_string(),
+                    };
+                    for exit_location in exit_locations_by_priority {
+                        if exit_location.country_codes.contains(&country_code)
+                            && country_code != ZZ_COUNTRY_CODE_STRING
+                        {
+                            node_record.metadata.country_undesirability =
+                                COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
+                        }
+                        if (self.exit_location_preference == ExitPreference::ExitCountryWithFallback
+                            && !self.exit_countries.contains(&country_code))
+                            || country_code == ZZ_COUNTRY_CODE_STRING
+                        {
+                            node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
+                        }
+                    }
+                }
+            },
+            false => {
+                self.exit_countries = vec![];
+                for node_record in nodes {
+                    node_record.metadata.country_undesirability = 0u32;
+                }
+            }
+        }
+    }
+
+    fn extract_exit_locations_from_message(&mut self, message: &UiSetExitLocationRequest) -> Vec<ExitLocation> {
+        let exit_location_vec = message
+            .to_owned()
+            .exit_locations
+            .into_iter()
+            .map(|cc| {
+                for code in &cc.country_codes {
+                    self.exit_countries.push(code.clone());
+                }
+                ExitLocation {
+                    country_codes: cc.country_codes,
+                    priority: cc.priority,
+                }
+            })
+            .collect();
+        exit_location_vec
     }
 
     fn handle_gossip_reply(
@@ -3320,7 +3328,7 @@ mod tests {
 
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-            "INFO: {}: Fallback Routing is Set. Exit Location Set:",
+            "INFO: {}: Fallback Routing is Set. Exit location set:",
             test_name
             ),
             &"Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3;"
@@ -3532,10 +3540,10 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
-            &"Exit Location Set:".to_string(),
+            &"Exit location set:".to_string(),
             &"Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2;",
             &format!("INFO: {}: Fallback Routing is Set.", test_name),
-            &"Exit Location Unset.".to_string(),
+            &"Exit location unset.".to_string(),
         ]);
     }
 

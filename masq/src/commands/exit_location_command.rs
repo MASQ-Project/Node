@@ -16,14 +16,14 @@ const EXIT_LOCATION_ABOUT: &str =
     Here are some example commands:\n\
         masq> exit-location                     // disable exit-location preferences\n\
         masq> exit-location --fallback-routing  // disable exit-location preferences\n\
-        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n\t// fallback-routing is ON, \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" have priority \"2\"\n\
+        masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n\t// fallback-routing is ON, \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\"\n\
         masq> exit-location --country-codes \"CZ|SK\"       \n\t// fallback-routing is OFF, \"CZ\" and \"SK\" countries have different priority\n";
 
-// TODO update following help when GH-469 is done
+// TODO update following help when GH-469 is done with `To obtain codes, you can use the 'country-codes-list' (469 car command) command.`
 const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
         Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
         for a group of countries is the same, separate those countries by commas (,).\n\
-        To obtain codes, you can use the 'country-codes-list' command. You can specify country codes as follows:\n\n\
+        You can specify country codes as follows:\n\n\
         masq> exit-location --country-codes \"CZ,PL|SK\"        \n\t// \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\" \n\
         masq> exit-location --country-codes \"CZ|SK\"           \n\t// \"CZ\" and \"SK\" countries have different priority\n\n";
 
@@ -168,7 +168,7 @@ pub mod tests {
     }
 
     #[test]
-    fn providing_no_fallback_cause_exit_location_blocking_routing_request() {
+    fn absence_of_fallback_routing_produces_fallback_routing_false() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)

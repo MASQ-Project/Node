@@ -382,29 +382,31 @@ pub enum Hops {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExitLocation {
-    pub country_code: Vec<String>,
+    pub country_codes: Vec<String>,
     pub priority: usize,
 }
 
-pub struct ExitLocationSet(pub Vec<ExitLocation>);
+pub struct ExitLocationSet {
+    pub locations: Vec<ExitLocation>
+}
 
 impl Display for ExitLocation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "Country Codes: {:?}, Priority: {};",
-            self.country_code, self.priority
+            self.country_codes, self.priority
         )
     }
 }
 
 impl Display for ExitLocationSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for exit_location in self.0.iter() {
+        for exit_location in self.locations.iter() {
             write!(
                 f,
                 "Country Codes: {:?} - Priority: {}; ",
-                exit_location.country_code.as_slice(),
+                exit_location.country_codes,
                 exit_location.priority
             )?;
         }

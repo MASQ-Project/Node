@@ -583,18 +583,18 @@ mod tests {
         );
         subject.add_node(node_a.clone()).unwrap();
         subject.add_node(node_b.clone()).unwrap();
-        let mut num: u16 = 7890;
+        let mut iterator: u16 = 7890;
         let mut keys_nums: Vec<(PublicKey, u16)> = vec![];
 
         let mutable_nodes = subject.nodes_mut();
         for node in mutable_nodes {
-            let (seg1, seg2, seg3, seg4) = make_segments(num);
+            let (seg1, seg2, seg3, seg4) = make_segments(iterator);
             node.metadata.node_addr_opt = Some(NodeAddr::new(
                 &make_segmented_ip(seg1, seg2, seg3, seg4),
-                &[num],
+                &[iterator],
             ));
-            keys_nums.push((node.inner.public_key.clone(), num));
-            num += 1;
+            keys_nums.push((node.inner.public_key.clone(), iterator));
+            iterator += 1;
         }
 
         for (pub_key, num) in keys_nums {
