@@ -25,13 +25,13 @@ const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node sh
         for a group of countries is the same, separate those countries by commas (,).\n\
         To obtain codes, you can use the 'country-codes-list' command. You can specify country codes as follows:\n\n\
         masq> exit-location --country-codes \"CZ,PL|SK\"        \n\t// \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\" \n\
-        masq> exit-location --country-codes \"CZ|SK\"           \n\t// \"CZ\" and \"SK\" countries have different priority\n";
+        masq> exit-location --country-codes \"CZ|SK\"           \n\t// \"CZ\" and \"SK\" countries have different priority\n\n";
 
 const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
      in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
      available anywhere. \n Here are some examples: \n\n\
      masq> exit-location --country-codes \"CZ\" --fallback-routing  \n\t// Set exit-location for \"CZ\" country with fallback-routing on \n\
-     masq> exit-location --country-codes \"CZ\"                     \n\t// Set exit-location for \"CZ\" country with fallback-routing off \n";
+     masq> exit-location --country-codes \"CZ\"                     \n\t// Set exit-location for \"CZ\" country with fallback-routing off \n\n";
 
 pub fn exit_location_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("exit-location").about(EXIT_LOCATION_ABOUT)
