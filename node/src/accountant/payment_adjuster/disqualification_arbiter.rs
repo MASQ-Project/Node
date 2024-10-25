@@ -9,7 +9,6 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::Unconfi
 use crate::accountant::QualifiedPayableAccount;
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
-use std::cmp::Ordering;
 
 pub struct DisqualificationArbiter {
     disqualification_gauge: Box<dyn DisqualificationGauge>,
@@ -101,18 +100,10 @@ impl DisqualificationArbiter {
     fn find_account_with_smallest_weight<'accounts>(
         accounts: &'accounts [DisqualificationSuspectedAccount],
     ) -> &'accounts DisqualificationSuspectedAccount<'accounts> {
-        let first_account = accounts.first().expect("collection was empty");
-        accounts.iter().fold(
-            first_account,
-            |with_smallest_weight_so_far, current| match Ord::cmp(
-                &current.weight,
-                &with_smallest_weight_so_far.weight,
-            ) {
-                Ordering::Less => current,
-                Ordering::Greater => with_smallest_weight_so_far,
-                Ordering::Equal => with_smallest_weight_so_far,
-            },
-        )
+        accounts
+            .iter()
+            .min_by_key(|account| account.weight)
+            .expect("an empty collection of accounts")
     }
 }
 
@@ -135,7 +126,7 @@ impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
             weight: unconfirmed_account.weighted_account.weight,
             proposed_adjusted_balance_minor: unconfirmed_account.proposed_adjusted_balance_minor,
             disqualification_limit_minor: unconfirmed_account.disqualification_limit_minor(),
-            initial_account_balance_minor: unconfirmed_account.balance_minor(),
+            initial_account_balance_minor: unconfirmed_account.initial_balance_minor(),
         }
     }
 }
@@ -159,41 +150,58 @@ impl DisqualificationGauge for DisqualificationGaugeReal {
         threshold_intercept_minor: u128,
         permanent_debt_allowed_minor: u128,
     ) -> u128 {
+        // This signs that the debt lies in the horizontal area of the payment thresholds.
+        // Such are mandatory to be paid in their whole size.
         if threshold_intercept_minor == permanent_debt_allowed_minor {
             return account_balance_minor;
         }
-        let exceeding_debt_part = account_balance_minor - threshold_intercept_minor;
-        if DisqualificationGaugeReal::qualifies_for_double_margin(
+        Self::determine_adequate_minimal_payment(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
-        ) {
-            exceeding_debt_part + 2 * permanent_debt_allowed_minor
-        } else {
-            exceeding_debt_part + permanent_debt_allowed_minor
-        }
+        )
     }
 }
 
 impl DisqualificationGaugeReal {
-    const FIRST_CONDITION_COEFFICIENT: u128 = 2;
-    const SECOND_CONDITION_COEFFICIENT: u128 = 2;
-    fn qualifies_for_double_margin(
+    const FIRST_QUAL_COND_COEF: u128 = 2;
+    const SECOND_QUAL_COND_COEF: u128 = 2;
+    const MULTIPLIER_FOR_THICKER_MARGIN: u128 = 2;
+
+    fn qualifies_for_thicker_margin(
         account_balance_minor: u128,
         threshold_intercept_minor: u128,
         permanent_debt_allowed_minor: u128,
     ) -> bool {
         let exceeding_threshold = account_balance_minor - threshold_intercept_minor;
         let considered_forgiven = threshold_intercept_minor - permanent_debt_allowed_minor;
-        let minimal_payment_accepted = exceeding_threshold + permanent_debt_allowed_minor;
+        let minimal_acceptable_payment = exceeding_threshold + permanent_debt_allowed_minor;
 
-        let first_condition =
-            minimal_payment_accepted >= Self::FIRST_CONDITION_COEFFICIENT * considered_forgiven;
+        let condition_of_debt_fast_growth =
+            minimal_acceptable_payment >= Self::FIRST_QUAL_COND_COEF * considered_forgiven;
 
-        let second_condition = considered_forgiven
-            >= Self::SECOND_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
+        let condition_of_position_on_rather_the_left_half_of_the_slope =
+            considered_forgiven >= Self::SECOND_QUAL_COND_COEF * permanent_debt_allowed_minor;
 
-        first_condition && second_condition
+        condition_of_debt_fast_growth && condition_of_position_on_rather_the_left_half_of_the_slope
+    }
+
+    fn determine_adequate_minimal_payment(
+        account_balance_minor: u128,
+        threshold_intercept_minor: u128,
+        permanent_debt_allowed_minor: u128,
+    ) -> u128 {
+        let debt_part_over_the_threshold = account_balance_minor - threshold_intercept_minor;
+        if DisqualificationGaugeReal::qualifies_for_thicker_margin(
+            account_balance_minor,
+            threshold_intercept_minor,
+            permanent_debt_allowed_minor,
+        ) {
+            debt_part_over_the_threshold
+                + Self::MULTIPLIER_FOR_THICKER_MARGIN * permanent_debt_allowed_minor
+        } else {
+            debt_part_over_the_threshold + permanent_debt_allowed_minor
+        }
     }
 }
 
@@ -220,17 +228,18 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(DisqualificationGaugeReal::FIRST_CONDITION_COEFFICIENT, 2);
-        assert_eq!(DisqualificationGaugeReal::SECOND_CONDITION_COEFFICIENT, 2)
+        assert_eq!(DisqualificationGaugeReal::FIRST_QUAL_COND_COEF, 2);
+        assert_eq!(DisqualificationGaugeReal::SECOND_QUAL_COND_COEF, 2);
+        assert_eq!(DisqualificationGaugeReal::MULTIPLIER_FOR_THICKER_MARGIN, 2)
     }
 
     #[test]
-    fn qualifies_for_double_margin_granted_on_both_conditions_returning_equals() {
+    fn qualifies_for_thicker_margin_granted_on_both_conditions_returning_equals() {
         let account_balance_minor = 6_000_000_000;
         let threshold_intercept_minor = 3_000_000_000;
         let permanent_debt_allowed_minor = 1_000_000_000;
 
-        let result = DisqualificationGaugeReal::qualifies_for_double_margin(
+        let result = DisqualificationGaugeReal::qualifies_for_thicker_margin(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
@@ -240,12 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn qualifies_for_double_margin_granted_on_first_condition_bigger_second_equal() {
+    fn qualifies_for_thicker_margin_granted_on_first_condition_bigger_second_equal() {
         let account_balance_minor = 6_000_000_001;
         let threshold_intercept_minor = 3_000_000_000;
         let permanent_debt_allowed_minor = 1_000_000_000;
 
-        let result = DisqualificationGaugeReal::qualifies_for_double_margin(
+        let result = DisqualificationGaugeReal::qualifies_for_thicker_margin(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
@@ -255,12 +264,12 @@ mod tests {
     }
 
     #[test]
-    fn qualifies_for_double_margin_granted_on_first_condition_equal_second_bigger() {
+    fn qualifies_for_thicker_margin_granted_on_first_condition_equal_second_bigger() {
         let account_balance_minor = 6_000_000_003;
         let threshold_intercept_minor = 3_000_000_001;
         let permanent_debt_allowed_minor = 1_000_000_000;
 
-        let result = DisqualificationGaugeReal::qualifies_for_double_margin(
+        let result = DisqualificationGaugeReal::qualifies_for_thicker_margin(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
@@ -270,12 +279,12 @@ mod tests {
     }
 
     #[test]
-    fn qualifies_for_double_margin_granted_on_both_conditions_returning_bigger() {
+    fn qualifies_for_thicker_margin_granted_on_both_conditions_returning_bigger() {
         let account_balance_minor = 6_000_000_004;
         let threshold_intercept_minor = 3_000_000_001;
         let permanent_debt_allowed_minor = 1_000_000_000;
 
-        let result = DisqualificationGaugeReal::qualifies_for_double_margin(
+        let result = DisqualificationGaugeReal::qualifies_for_thicker_margin(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
@@ -285,12 +294,12 @@ mod tests {
     }
 
     #[test]
-    fn qualifies_for_double_margin_declined_on_first_condition() {
+    fn qualifies_for_thicker_margin_declined_on_first_condition() {
         let account_balance_minor = 5_999_999_999;
         let threshold_intercept_minor = 3_000_000_000;
         let permanent_debt_allowed_minor = 1_000_000_000;
 
-        let result = DisqualificationGaugeReal::qualifies_for_double_margin(
+        let result = DisqualificationGaugeReal::qualifies_for_thicker_margin(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
@@ -300,12 +309,12 @@ mod tests {
     }
 
     #[test]
-    fn qualifies_for_double_margin_declined_on_second_condition() {
+    fn qualifies_for_thicker_margin_declined_on_second_condition() {
         let account_balance_minor = 6_000_000_000;
         let threshold_intercept_minor = 2_999_999_999;
         let permanent_debt_allowed_minor = 1_000_000_000;
 
-        let result = DisqualificationGaugeReal::qualifies_for_double_margin(
+        let result = DisqualificationGaugeReal::qualifies_for_thicker_margin(
             account_balance_minor,
             threshold_intercept_minor,
             permanent_debt_allowed_minor,
@@ -417,6 +426,7 @@ mod tests {
         payment_thresholds.threshold_interval_sec = 10_000;
         let logger = Logger::new(test_name);
         let wallet_1 = make_wallet("abc");
+        // Meaning we're operating in the horizontal area defined by "permanent debt allowed"
         let common_timestamp = from_time_t(
             (payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
@@ -470,8 +480,10 @@ mod tests {
             .find_an_account_to_disqualify_in_this_iteration(&unconfirmed_adjustments, &logger);
 
         unconfirmed_adjustments.iter().for_each(|payable| {
-            // Condition of disqualification at the horizontal threshold
-            assert!(payable.proposed_adjusted_balance_minor < 120_000_000_000)
+            // In the horizontal area, the disqualification limit equals to the entire debt size.
+            // This check says that every account qualified for disqualification but only one
+            // will eventually be chosen
+            assert!(payable.proposed_adjusted_balance_minor < payable.initial_balance_minor())
         });
         assert_eq!(result, wallet_3);
     }
@@ -489,10 +501,9 @@ mod tests {
     }
 
     fn make_dsq_suspected_accounts(
-        accounts_and_dsq_edges: &[UnconfirmedAdjustment],
+        accounts: &[UnconfirmedAdjustment],
     ) -> Vec<DisqualificationSuspectedAccount> {
-        let with_referred_accounts: Vec<&UnconfirmedAdjustment> =
-            accounts_and_dsq_edges.iter().collect();
+        let with_referred_accounts: Vec<&UnconfirmedAdjustment> = accounts.iter().collect();
         convert_collection(with_referred_accounts)
     }
 }

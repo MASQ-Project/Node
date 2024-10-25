@@ -23,14 +23,14 @@ impl WeightedPayable {
         &self.analyzed_account.qualified_as.bare_account.wallet
     }
 
-    pub fn balance_minor(&self) -> u128 {
+    pub fn initial_balance_minor(&self) -> u128 {
         self.analyzed_account.qualified_as.bare_account.balance_wei
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AdjustmentIterationResult {
-    pub decided_accounts: DecidedAccounts,
+    pub decided_accounts_opt: Option<Vec<AdjustedAccountBeforeFinalization>>,
     pub remaining_undecided_accounts: Vec<WeightedPayable>,
 }
 
@@ -56,12 +56,6 @@ impl RecursionResults {
             .chain(self.downstream_decided_accounts.into_iter())
             .collect()
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum DecidedAccounts {
-    LowGainingAccountEliminated,
-    SomeAccountsProcessed(Vec<AdjustedAccountBeforeFinalization>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -103,8 +97,8 @@ impl UnconfirmedAdjustment {
         self.weighted_account.wallet()
     }
 
-    pub fn balance_minor(&self) -> u128 {
-        self.weighted_account.balance_minor()
+    pub fn initial_balance_minor(&self) -> u128 {
+        self.weighted_account.initial_balance_minor()
     }
 
     pub fn disqualification_limit_minor(&self) -> u128 {
@@ -114,14 +108,14 @@ impl UnconfirmedAdjustment {
     }
 }
 
-pub struct TransactionCountsBy16bits {
+pub struct AffordableAndRequiredTxCounts {
     pub affordable: u16,
     pub required: u16,
 }
 
-impl TransactionCountsBy16bits {
+impl AffordableAndRequiredTxCounts {
     pub fn new(max_possible_tx_count: U256, number_of_accounts: usize) -> Self {
-        TransactionCountsBy16bits {
+        AffordableAndRequiredTxCounts {
             affordable: u16::try_from(max_possible_tx_count).unwrap_or(u16::MAX),
             required: u16::try_from(number_of_accounts).unwrap_or(u16::MAX),
         }
@@ -131,7 +125,7 @@ impl TransactionCountsBy16bits {
 #[cfg(test)]
 mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, RecursionResults, TransactionCountsBy16bits,
+        AdjustedAccountBeforeFinalization, AffordableAndRequiredTxCounts, RecursionResults,
     };
     use crate::accountant::test_utils::make_payable_account;
     use ethereum_types::U256;
@@ -167,12 +161,14 @@ mod tests {
     #[test]
     fn there_is_u16_ceiling_for_possible_tx_count() {
         let corrections_from_u16_max = [-3_i8, -1, 0, 1, 10];
-        let result = corrections_from_u16_max
+        let prepared_input_numbers = corrections_from_u16_max
             .into_iter()
             .map(plus_minus_correction_for_u16_max)
-            .map(U256::from)
+            .map(U256::from);
+        let result = prepared_input_numbers
             .map(|max_possible_tx_count| {
-                let detected_tx_counts = TransactionCountsBy16bits::new(max_possible_tx_count, 123);
+                let detected_tx_counts =
+                    AffordableAndRequiredTxCounts::new(max_possible_tx_count, 123);
                 detected_tx_counts.affordable
             })
             .collect::<Vec<_>>();
@@ -186,12 +182,13 @@ mod tests {
     #[test]
     fn there_is_u16_ceiling_for_required_number_of_accounts() {
         let corrections_from_u16_max = [-9_i8, -1, 0, 1, 5];
-        let result = corrections_from_u16_max
+        let right_input_numbers = corrections_from_u16_max
             .into_iter()
-            .map(plus_minus_correction_for_u16_max)
+            .map(plus_minus_correction_for_u16_max);
+        let result = right_input_numbers
             .map(|required_tx_count_usize| {
                 let detected_tx_counts =
-                    TransactionCountsBy16bits::new(U256::from(123), required_tx_count_usize);
+                    AffordableAndRequiredTxCounts::new(U256::from(123), required_tx_count_usize);
                 detected_tx_counts.required
             })
             .collect::<Vec<_>>();

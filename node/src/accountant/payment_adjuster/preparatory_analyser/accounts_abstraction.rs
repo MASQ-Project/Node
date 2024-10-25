@@ -13,7 +13,7 @@ where
 }
 
 pub trait BalanceProvidingAccount {
-    fn balance_minor(&self) -> u128;
+    fn initial_balance_minor(&self) -> u128;
 }
 
 pub trait DisqualificationLimitProvidingAccount {
@@ -30,8 +30,8 @@ impl DisqualificationAnalysableAccount<WeightedPayable> for WeightedPayable {
 }
 
 impl BalanceProvidingAccount for WeightedPayable {
-    fn balance_minor(&self) -> u128 {
-        self.analyzed_account.balance_minor()
+    fn initial_balance_minor(&self) -> u128 {
+        self.analyzed_account.initial_balance_minor()
     }
 }
 
@@ -48,8 +48,8 @@ impl DisqualificationLimitProvidingAccount for AnalyzedPayableAccount {
 }
 
 impl BalanceProvidingAccount for AnalyzedPayableAccount {
-    fn balance_minor(&self) -> u128 {
-        self.qualified_as.balance_minor()
+    fn initial_balance_minor(&self) -> u128 {
+        self.qualified_as.initial_balance_minor()
     }
 }
 
@@ -64,7 +64,7 @@ impl DisqualificationAnalysableAccount<AnalyzedPayableAccount> for QualifiedPaya
 }
 
 impl BalanceProvidingAccount for QualifiedPayableAccount {
-    fn balance_minor(&self) -> u128 {
+    fn initial_balance_minor(&self) -> u128 {
         self.bare_account.balance_wei
     }
 }

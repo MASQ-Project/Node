@@ -31,14 +31,11 @@ use crate::accountant::payment_adjuster::inner::{
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     accounts_before_and_after_debug,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
-    LowGainingAccountEliminated, SomeAccountsProcessed,
-};
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, AdjustmentIterationResult, RecursionResults, WeightedPayable};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
     dump_unaffordable_accounts_by_transaction_fee,
     exhaust_cw_balance_entirely, find_largest_exceeding_balance,
-    sum_as, zero_affordable_accounts_found,
+    sum_as, no_affordable_accounts_found,
 };
 use crate::accountant::payment_adjuster::preparatory_analyser::{LateServiceFeeSingleTxErrorFactory, PreparatoryAnalyzer};
 use crate::accountant::payment_adjuster::service_fee_adjuster::{
@@ -200,7 +197,7 @@ impl PaymentAdjusterReal {
             TransactionAndServiceFeeAdjustmentRunner {},
         )?;
 
-        if zero_affordable_accounts_found(&processed_accounts) {
+        if no_affordable_accounts_found(&processed_accounts) {
             return Err(PaymentAdjusterError::AllAccountsEliminated);
         }
 
@@ -307,15 +304,15 @@ impl PaymentAdjusterReal {
         adjustment_iteration_result: AdjustmentIterationResult,
     ) -> RecursionResults {
         let remaining_undecided_accounts = adjustment_iteration_result.remaining_undecided_accounts;
-        let here_decided_accounts = match adjustment_iteration_result.decided_accounts {
-            LowGainingAccountEliminated => {
+        let here_decided_accounts = match adjustment_iteration_result.decided_accounts_opt {
+            None => {
                 if remaining_undecided_accounts.is_empty() {
                     return RecursionResults::new(vec![], vec![]);
                 }
 
                 vec![]
             }
-            SomeAccountsProcessed(decided_accounts) => {
+            Some(decided_accounts) => {
                 if remaining_undecided_accounts.is_empty() {
                     return RecursionResults::new(decided_accounts, vec![]);
                 }
@@ -556,7 +553,6 @@ mod tests {
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
     use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY;
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::SomeAccountsProcessed;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustmentIterationResult, WeightedPayable,
     };
@@ -2204,7 +2200,7 @@ mod tests {
             // This is just a sentinel that allows us to shorten the adjustment execution.
             // We care only for the params captured inside the container from above
             .perform_adjustment_by_service_fee_result(AdjustmentIterationResult {
-                decided_accounts: SomeAccountsProcessed(vec![]),
+                decided_accounts_opt: Some(vec![]),
                 remaining_undecided_accounts: vec![],
             });
         subject.service_fee_adjuster = Box::new(service_fee_adjuster_mock);

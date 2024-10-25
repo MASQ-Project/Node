@@ -1,18 +1,13 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::DecidedAccounts::{
-    LowGainingAccountEliminated, SomeAccountsProcessed,
-};
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustedAccountBeforeFinalization, AdjustmentIterationResult, UnconfirmedAdjustment,
     WeightedPayable,
 };
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::
 ordinary_diagnostic_functions::{proposed_adjusted_balance_diagnostics};
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    compute_mul_coefficient_preventing_fractional_numbers, weights_total,
-};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{compute_mul_coefficient_preventing_fractional_numbers, sum_as};
 use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::utils::convert_collection;
@@ -104,7 +99,7 @@ impl ServiceFeeAdjusterReal {
             let pre_processed_decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
                 convert_collection(thriving_competitors);
             Either::Right(AdjustmentIterationResult {
-                decided_accounts: SomeAccountsProcessed(pre_processed_decided_accounts),
+                decided_accounts_opt: Some(pre_processed_decided_accounts),
                 remaining_undecided_accounts,
             })
         }
@@ -126,7 +121,7 @@ impl ServiceFeeAdjusterReal {
         let remaining_reverted = convert_collection(remaining);
 
         AdjustmentIterationResult {
-            decided_accounts: LowGainingAccountEliminated,
+            decided_accounts_opt: None,
             remaining_undecided_accounts: remaining_reverted,
         }
     }
@@ -173,7 +168,9 @@ impl AdjustmentComputer {
         weighted_accounts: Vec<WeightedPayable>,
         unallocated_cw_service_fee_balance_minor: u128,
     ) -> Vec<UnconfirmedAdjustment> {
-        let weights_total = weights_total(&weighted_accounts);
+        let weights_total = sum_as(&weighted_accounts, |weighted_account| {
+            weighted_account.weight
+        });
         let cw_service_fee_balance = unallocated_cw_service_fee_balance_minor;
 
         let multiplication_coefficient =

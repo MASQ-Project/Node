@@ -8,11 +8,9 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
     log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    TransactionCountsBy16bits, WeightedPayable,
+    AffordableAndRequiredTxCounts, WeightedPayable,
 };
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    find_smallest_u128, sum_as,
-};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::{
     BalanceProvidingAccount, DisqualificationLimitProvidingAccount,
 };
@@ -208,11 +206,11 @@ impl PreparatoryAnalyzer {
         cw_transaction_fee_balance_minor: U256,
         txn_fee_required_per_txn_minor: u128,
         number_of_qualified_accounts: usize,
-    ) -> TransactionCountsBy16bits {
+    ) -> AffordableAndRequiredTxCounts {
         let max_possible_tx_count_u256 =
             cw_transaction_fee_balance_minor / U256::from(txn_fee_required_per_txn_minor);
 
-        TransactionCountsBy16bits::new(max_possible_tx_count_u256, number_of_qualified_accounts)
+        AffordableAndRequiredTxCounts::new(max_possible_tx_count_u256, number_of_qualified_accounts)
     }
 
     fn check_adjustment_possibility<AnalyzableAccounts, ErrorFactory, Error>(
@@ -264,7 +262,7 @@ impl PreparatoryAnalyzer {
     where
         Account: BalanceProvidingAccount,
     {
-        sum_as(payables, |account| account.balance_minor())
+        sum_as(payables, |account| account.initial_balance_minor())
     }
 
     fn is_service_fee_adjustment_needed<Account>(
@@ -292,12 +290,11 @@ impl PreparatoryAnalyzer {
     where
         Account: DisqualificationLimitProvidingAccount,
     {
-        find_smallest_u128(
-            &accounts
-                .iter()
-                .map(|account| account.disqualification_limit())
-                .collect::<Vec<u128>>(),
-        )
+        accounts
+            .iter()
+            .map(|account| account.disqualification_limit())
+            .min()
+            .expect("No account to consider")
     }
 }
 
@@ -338,8 +335,9 @@ pub struct LateServiceFeeSingleTxErrorFactory {
 impl LateServiceFeeSingleTxErrorFactory {
     pub fn new(unadjusted_accounts: &[WeightedPayable]) -> Self {
         let original_number_of_accounts = unadjusted_accounts.len();
-        let original_service_fee_required_total_minor =
-            sum_as(unadjusted_accounts, |account| account.balance_minor());
+        let original_service_fee_required_total_minor = sum_as(unadjusted_accounts, |account| {
+            account.initial_balance_minor()
+        });
         Self {
             original_number_of_accounts,
             original_service_fee_required_total_minor,
@@ -558,7 +556,9 @@ mod tests {
             make_weighed_account(1011),
         ];
         let original_number_of_accounts = original_accounts.len();
-        let initial_sum = sum_as(&original_accounts, |account| account.balance_minor());
+        let initial_sum = sum_as(&original_accounts, |account| {
+            account.initial_balance_minor()
+        });
         let error_factory = LateServiceFeeSingleTxErrorFactory::new(&original_accounts);
         let expected_error_preparer = |number_of_accounts, _, cw_service_fee_balance_minor| {
             PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {

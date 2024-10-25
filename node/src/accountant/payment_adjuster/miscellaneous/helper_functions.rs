@@ -1,5 +1,6 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::iter::Sum;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
@@ -9,7 +10,7 @@ use crate::accountant::payment_adjuster::miscellaneous::data_structures::{Adjust
 use crate::accountant::{AnalyzedPayableAccount};
 use itertools::{Either, Itertools};
 
-pub fn zero_affordable_accounts_found(
+pub fn no_affordable_accounts_found(
     accounts: &Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
 ) -> bool {
     match accounts {
@@ -20,23 +21,17 @@ pub fn zero_affordable_accounts_found(
 
 pub fn sum_as<N, T, F>(collection: &[T], arranger: F) -> N
 where
-    N: From<u128>,
-    F: Fn(&T) -> u128,
+    N: Sum<N>,
+    F: Fn(&T) -> N,
 {
-    collection.iter().map(arranger).sum::<u128>().into()
-}
-
-pub fn weights_total(weights_and_accounts: &[WeightedPayable]) -> u128 {
-    sum_as(weights_and_accounts, |weighted_account| {
-        weighted_account.weight
-    })
+    collection.iter().map(arranger).sum::<N>()
 }
 
 pub fn dump_unaffordable_accounts_by_transaction_fee(
     weighted_accounts: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
 ) -> Vec<WeightedPayable> {
-    let sorted_accounts = sort_in_descendant_order_by_weights(weighted_accounts);
+    let sorted_accounts = sort_in_descending_order_by_weights(weighted_accounts);
 
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
@@ -54,7 +49,7 @@ pub fn dump_unaffordable_accounts_by_transaction_fee(
         .collect()
 }
 
-fn sort_in_descendant_order_by_weights(unsorted: Vec<WeightedPayable>) -> Vec<WeightedPayable> {
+fn sort_in_descending_order_by_weights(unsorted: Vec<WeightedPayable>) -> Vec<WeightedPayable> {
     unsorted
         .into_iter()
         .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
@@ -79,19 +74,7 @@ pub fn find_largest_exceeding_balance(qualified_accounts: &[AnalyzedPayableAccou
                 .expect("should be: balance > intercept!")
         })
         .collect::<Vec<u128>>();
-    find_largest_u128(&diffs)
-}
-
-fn find_largest_u128(slice: &[u128]) -> u128 {
-    slice
-        .iter()
-        .fold(0, |largest_so_far, num| largest_so_far.max(*num))
-}
-
-pub fn find_smallest_u128(slice: &[u128]) -> u128 {
-    slice
-        .iter()
-        .fold(u128::MAX, |smallest_so_far, num| smallest_so_far.min(*num))
+    *diffs.iter().max().expect("No account found")
 }
 
 pub fn exhaust_cw_balance_entirely(
@@ -102,7 +85,7 @@ pub fn exhaust_cw_balance_entirely(
         account_info.proposed_adjusted_balance_minor
     });
 
-    let cw_reminder = original_cw_service_fee_balance_minor
+    let cw_remaining = original_cw_service_fee_balance_minor
         .checked_sub(adjusted_balances_total)
         .unwrap_or_else(|| {
             panic!(
@@ -111,7 +94,7 @@ pub fn exhaust_cw_balance_entirely(
             )
         });
 
-    let init = ConsumingWalletExhaustingStatus::new(cw_reminder);
+    let init = ConsumingWalletExhaustingStatus::new(cw_remaining);
     approved_accounts
         .into_iter()
         .sorted_by(|info_a, info_b| Ord::cmp(&info_b.weight, &info_a.weight))
@@ -126,7 +109,7 @@ fn run_cw_exhausting_on_possibly_sub_optimal_adjusted_balances(
     status: ConsumingWalletExhaustingStatus,
     non_finalized_account: AdjustedAccountBeforeFinalization,
 ) -> ConsumingWalletExhaustingStatus {
-    if status.remainder != 0 {
+    if !status.is_cw_exhausted_to_0() {
         let balance_gap_minor = non_finalized_account
             .original_account
             .balance_wei
@@ -139,15 +122,20 @@ fn run_cw_exhausting_on_possibly_sub_optimal_adjusted_balances(
                     non_finalized_account.original_account.balance_wei
                 )
             });
-        let possible_extra_addition = if balance_gap_minor < status.remainder {
+        let possible_extra_addition = if balance_gap_minor < status.remaining_cw_balance {
             balance_gap_minor
         } else {
-            status.remainder
+            status.remaining_cw_balance
         };
 
         exhausting_cw_balance_diagnostics(&non_finalized_account, possible_extra_addition);
 
-        status.handle_balance_update_and_add(non_finalized_account, possible_extra_addition)
+        let updated_non_finalized_account = ConsumingWalletExhaustingStatus::update_account_balance(
+            non_finalized_account,
+            possible_extra_addition,
+        );
+        let updated_status = status.reduce_cw_balance_remaining(possible_extra_addition);
+        updated_status.add(updated_non_finalized_account)
     } else {
         not_exhausting_cw_balance_diagnostics(&non_finalized_account);
 
@@ -156,32 +144,36 @@ fn run_cw_exhausting_on_possibly_sub_optimal_adjusted_balances(
 }
 
 struct ConsumingWalletExhaustingStatus {
-    remainder: u128,
+    remaining_cw_balance: u128,
     accounts_finalized_so_far: Vec<PayableAccount>,
 }
 
 impl ConsumingWalletExhaustingStatus {
-    fn new(remainder: u128) -> Self {
+    fn new(remaining_cw_balance: u128) -> Self {
         Self {
-            remainder,
+            remaining_cw_balance,
             accounts_finalized_so_far: vec![],
         }
     }
 
-    fn handle_balance_update_and_add(
-        mut self,
-        mut non_finalized_account_info: AdjustedAccountBeforeFinalization,
-        possible_extra_addition: u128,
-    ) -> Self {
-        let corrected_adjusted_account_before_finalization = {
-            non_finalized_account_info.proposed_adjusted_balance_minor += possible_extra_addition;
-            non_finalized_account_info
-        };
-        self.remainder = self
-            .remainder
-            .checked_sub(possible_extra_addition)
+    fn is_cw_exhausted_to_0(&self) -> bool {
+        self.remaining_cw_balance == 0
+    }
+
+    fn reduce_cw_balance_remaining(mut self, subtrahend: u128) -> Self {
+        self.remaining_cw_balance = self
+            .remaining_cw_balance
+            .checked_sub(subtrahend)
             .expect("we hit zero");
-        self.add(corrected_adjusted_account_before_finalization)
+        self
+    }
+
+    fn update_account_balance(
+        mut non_finalized_account: AdjustedAccountBeforeFinalization,
+        addition: u128,
+    ) -> AdjustedAccountBeforeFinalization {
+        non_finalized_account.proposed_adjusted_balance_minor += addition;
+        non_finalized_account
     }
 
     fn add(mut self, non_finalized_account_info: AdjustedAccountBeforeFinalization) -> Self {
@@ -197,8 +189,8 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         compute_mul_coefficient_preventing_fractional_numbers,
         dump_unaffordable_accounts_by_transaction_fee, exhaust_cw_balance_entirely,
-        find_largest_exceeding_balance, find_largest_u128, find_smallest_u128,
-        zero_affordable_accounts_found, ConsumingWalletExhaustingStatus,
+        find_largest_exceeding_balance, no_affordable_accounts_found,
+        ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
     use crate::accountant::test_utils::{make_meaningless_analyzed_account, make_payable_account};
@@ -208,15 +200,15 @@ mod tests {
     use std::time::SystemTime;
 
     #[test]
-    fn found_zero_affordable_accounts_found_returns_true_for_non_finalized_accounts() {
-        let result = zero_affordable_accounts_found(&Either::Left(vec![]));
+    fn no_affordable_accounts_found_found_returns_true_for_non_finalized_accounts() {
+        let result = no_affordable_accounts_found(&Either::Left(vec![]));
 
         assert_eq!(result, true)
     }
 
     #[test]
-    fn zero_affordable_accounts_found_returns_false_for_non_finalized_accounts() {
-        let result = zero_affordable_accounts_found(&Either::Left(vec![
+    fn no_affordable_accounts_found_returns_false_for_non_finalized_accounts() {
+        let result = no_affordable_accounts_found(&Either::Left(vec![
             AdjustedAccountBeforeFinalization::new(make_payable_account(456), 5678, 1234),
         ]));
 
@@ -224,46 +216,17 @@ mod tests {
     }
 
     #[test]
-    fn found_zero_affordable_accounts_returns_true_for_finalized_accounts() {
-        let result = zero_affordable_accounts_found(&Either::Right(vec![]));
+    fn no_affordable_accounts_found_returns_true_for_finalized_accounts() {
+        let result = no_affordable_accounts_found(&Either::Right(vec![]));
 
         assert_eq!(result, true)
     }
 
     #[test]
-    fn found_zero_affordable_accounts_returns_false_for_finalized_accounts() {
-        let result =
-            zero_affordable_accounts_found(&Either::Right(vec![make_payable_account(123)]));
+    fn no_affordable_accounts_found_returns_false_for_finalized_accounts() {
+        let result = no_affordable_accounts_found(&Either::Right(vec![make_payable_account(123)]));
 
         assert_eq!(result, false)
-    }
-
-    #[test]
-    fn find_largest_u128_begins_with_zero() {
-        let result = find_largest_u128(&[]);
-
-        assert_eq!(result, 0)
-    }
-
-    #[test]
-    fn find_largest_u128_works() {
-        let result = find_largest_u128(&[45, 2, 456565, 0, 2, 456565, 456564]);
-
-        assert_eq!(result, 456565)
-    }
-
-    #[test]
-    fn find_smallest_u128_begins_with_u128_max() {
-        let result = find_smallest_u128(&[]);
-
-        assert_eq!(result, u128::MAX)
-    }
-
-    #[test]
-    fn find_smallest_u128_works() {
-        let result = find_smallest_u128(&[45, 1112, 456565, 3, 7, 456565, 456564]);
-
-        assert_eq!(result, 3)
     }
 
     #[test]
@@ -357,7 +320,7 @@ mod tests {
 
         let result = ConsumingWalletExhaustingStatus::new(cw_balance_remainder);
 
-        assert_eq!(result.remainder, cw_balance_remainder);
+        assert_eq!(result.remaining_cw_balance, cw_balance_remainder);
         assert_eq!(result.accounts_finalized_so_far, vec![])
     }
 

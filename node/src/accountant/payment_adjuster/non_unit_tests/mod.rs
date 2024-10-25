@@ -313,7 +313,9 @@ fn try_generating_qualified_payables_and_cw_balance(
         try_make_qualified_payables_by_applied_thresholds(payables, &thresholds_to_be_used, now);
 
     let balance_average = {
-        let sum: u128 = sum_as(&qualified_payables, |account| account.balance_minor());
+        let sum: u128 = sum_as(&qualified_payables, |account| {
+            account.initial_balance_minor()
+        });
         sum / accounts_count as u128
     };
     let cw_service_fee_balance_minor = {
@@ -322,8 +324,9 @@ fn try_generating_qualified_payables_and_cw_balance(
         let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
         balance_average / multiplier as u128 * number_of_pieces
     };
-    let required_service_fee_total: u128 =
-        sum_as(&qualified_payables, |account| account.balance_minor());
+    let required_service_fee_total: u128 = sum_as(&qualified_payables, |account| {
+        account.initial_balance_minor()
+    });
     if required_service_fee_total <= cw_service_fee_balance_minor {
         None
     } else {

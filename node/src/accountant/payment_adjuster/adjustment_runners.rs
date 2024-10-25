@@ -54,7 +54,7 @@ impl AdjustmentRunner for ServiceFeeOnlyAdjustmentRunner {
         weighted_accounts: Vec<WeightedPayable>,
     ) -> Self::ReturnType {
         let check_sum: u128 = sum_as(&weighted_accounts, |weighted_account| {
-            weighted_account.balance_minor()
+            weighted_account.initial_balance_minor()
         });
 
         let unallocated_cw_balance = payment_adjuster
