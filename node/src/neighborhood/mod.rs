@@ -3203,43 +3203,43 @@ mod tests {
         let (ui_gateway, _, _) = make_recorder();
         let mut subject = make_standard_subject();
         subject.logger = Logger::new(test_name);
-        let q = &mut make_node_record(3456, true);
-        q.inner.country_code_opt = Some("CZ".to_string());
-        let r = &mut make_node_record(4567, true);
-        r.inner.country_code_opt = Some("US".to_string());
-        let s = &mut make_node_record(5678, true);
-        s.inner.country_code_opt = Some("SK".to_string());
-        let t = &mut make_node_record(7777, true);
-        t.inner.country_code_opt = Some("DE".to_string());
-        let u = &mut make_node_record(1325, true);
-        u.inner.country_code_opt = Some("AT".to_string());
-        let v = &mut make_node_record(2543, true);
-        v.inner.country_code_opt = Some("PL".to_string());
+        let cz = &mut make_node_record(3456, true);
+        cz.inner.country_code_opt = Some("CZ".to_string());
+        let us = &mut make_node_record(4567, true);
+        us.inner.country_code_opt = Some("US".to_string());
+        let sk = &mut make_node_record(5678, true);
+        sk.inner.country_code_opt = Some("SK".to_string());
+        let de = &mut make_node_record(7777, true);
+        de.inner.country_code_opt = Some("DE".to_string());
+        let at = &mut make_node_record(1325, true);
+        at.inner.country_code_opt = Some("AT".to_string());
+        let pl = &mut make_node_record(2543, true);
+        pl.inner.country_code_opt = Some("PL".to_string());
         let db = &mut subject.neighborhood_database.clone();
-        db.add_node(q.clone()).unwrap();
-        db.add_node(t.clone()).unwrap();
-        db.add_node(r.clone()).unwrap();
-        db.add_node(s.clone()).unwrap();
-        db.add_node(u.clone()).unwrap();
-        db.add_node(v.clone()).unwrap();
+        db.add_node(cz.clone()).unwrap();
+        db.add_node(de.clone()).unwrap();
+        db.add_node(us.clone()).unwrap();
+        db.add_node(sk.clone()).unwrap();
+        db.add_node(at.clone()).unwrap();
+        db.add_node(pl.clone()).unwrap();
         let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
             db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
         };
-        dual_edge(&subject.neighborhood_database.root(), q);
-        dual_edge(q, t);
-        dual_edge(q, r);
-        dual_edge(r, s);
-        dual_edge(r, u);
-        dual_edge(u, v);
+        dual_edge(&subject.neighborhood_database.root(), cz);
+        dual_edge(cz, de);
+        dual_edge(cz, us);
+        dual_edge(us, sk);
+        dual_edge(us, at);
+        dual_edge(at, pl);
         subject.neighborhood_database = db.clone();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        let q_public_key = q.inner.public_key.clone();
-        let r_public_key = r.inner.public_key.clone();
-        let s_public_key = s.inner.public_key.clone();
-        let t_public_key = t.inner.public_key.clone();
-        let u_public_key = u.inner.public_key.clone();
-        let v_public_key = v.inner.public_key.clone();
+        let cz_public_key = cz.inner.public_key.clone();
+        let us_public_key = us.inner.public_key.clone();
+        let sk_public_key = sk.inner.public_key.clone();
+        let de_public_key = de.inner.public_key.clone();
+        let at_public_key = at.inner.public_key.clone();
+        let pl_public_key = pl.inner.public_key.clone();
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
@@ -3259,62 +3259,62 @@ mod tests {
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&q_public_key)
+                        .node_by_key(&cz_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "q We expecting 0, country is not considered for exit location, so country_undesirability doesn't matter"
+                    "cz We expecting 0, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&r_public_key)
+                        .node_by_key(&us_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "r We expecting 1_00_000_000, country is considered for exit location in fallback"
+                    "us We expecting {}, country is considered for exit location in fallback", UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&s_public_key)
+                        .node_by_key(&sk_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "s We expecting 0, country is with Priority: 1"
+                    "sk We expecting 0, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&t_public_key)
+                        .node_by_key(&de_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    1_000u32,
-                    "t We expecting 1 000, country is with Priority: 2"
+                    1 * COUNTRY_UNDESIRABILITY_FACTOR,
+                    "de We expecting {}, country is with Priority: 2", 1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&u_public_key)
+                        .node_by_key(&at_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    1_000u32,
-                    "u We expecting 1 000, country is with Priority: 2"
+                    1 * COUNTRY_UNDESIRABILITY_FACTOR,
+                    "at We expecting {}, country is with Priority: 2", 1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&v_public_key)
+                        .node_by_key(&pl_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    2_000u32,
-                    "v We expecting 2 000, country is with Priority: 3"
+                    2 * COUNTRY_UNDESIRABILITY_FACTOR,
+                    "pl We expecting {}, country is with Priority: 3", 2 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
             }),
         };
@@ -3361,42 +3361,42 @@ mod tests {
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         subject.logger = Logger::new(test_name);
-        let q = &mut make_node_record(3456, true);
-        q.inner.country_code_opt = Some("CZ".to_string());
+        let cz = &mut make_node_record(3456, true);
+        cz.inner.country_code_opt = Some("CZ".to_string());
         let r = &make_node_record(4567, false);
-        let s = &mut make_node_record(5678, false);
-        s.inner.country_code_opt = Some("FR".to_string());
+        let fr = &mut make_node_record(5678, false);
+        fr.inner.country_code_opt = Some("FR".to_string());
         let t = &make_node_record(7777, false);
         let db = &mut subject.neighborhood_database.clone();
-        db.add_node(q.clone()).unwrap();
+        db.add_node(cz.clone()).unwrap();
         db.add_node(t.clone()).unwrap();
         db.add_node(r.clone()).unwrap();
-        db.add_node(s.clone()).unwrap();
+        db.add_node(fr.clone()).unwrap();
         let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
             db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
         };
-        dual_edge(&subject.neighborhood_database.root(), q);
-        dual_edge(q, t);
-        dual_edge(q, r);
-        dual_edge(r, s);
+        dual_edge(&subject.neighborhood_database.root(), cz);
+        dual_edge(cz, t);
+        dual_edge(cz, r);
+        dual_edge(r, fr);
         subject.neighborhood_database = db.clone();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        let q_public_key = q.inner.public_key.clone();
+        let cz_public_key = cz.inner.public_key.clone();
         let r_public_key = r.inner.public_key.clone();
-        let s_public_key = s.inner.public_key.clone();
+        let fr_public_key = fr.inner.public_key.clone();
         let t_public_key = t.inner.public_key.clone();
         let assert_country_undesirability_populated = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&q_public_key)
+                        .node_by_key(&cz_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting zero, country is with Priority: 1"
+                    "CZ - We expecting zero, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood
@@ -3411,12 +3411,12 @@ mod tests {
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&s_public_key)
+                        .node_by_key(&fr_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    1_000u32,
-                    "We expecting 1 000, country is with Priority: 2"
+                    1 * COUNTRY_UNDESIRABILITY_FACTOR,
+                    "FR - We expecting {}, country is with Priority: 2", 1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
@@ -3450,16 +3450,16 @@ mod tests {
             client_id: 6543,
             body: request_2.tmb(7894),
         };
-        let q_public_key_2 = q.inner.public_key.clone();
+        let cz_public_key_2 = cz.inner.public_key.clone();
         let r_public_key_2 = r.inner.public_key.clone();
-        let s_public_key_2 = s.inner.public_key.clone();
+        let fr_public_key_2 = fr.inner.public_key.clone();
         let t_public_key_2 = t.inner.public_key.clone();
         let assert_country_undesirability_and_exit_preference_cleared = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&q_public_key_2)
+                        .node_by_key(&cz_public_key_2)
                         .unwrap()
                         .metadata
                         .country_undesirability,
@@ -3479,7 +3479,7 @@ mod tests {
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&s_public_key_2)
+                        .node_by_key(&fr_public_key_2)
                         .unwrap()
                         .metadata
                         .country_undesirability,
