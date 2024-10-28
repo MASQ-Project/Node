@@ -387,7 +387,7 @@ pub struct ExitLocation {
 }
 
 pub struct ExitLocationSet {
-    pub locations: Vec<ExitLocation>
+    pub locations: Vec<ExitLocation>,
 }
 
 impl Display for ExitLocation {
@@ -406,8 +406,7 @@ impl Display for ExitLocationSet {
             write!(
                 f,
                 "Country Codes: {:?} - Priority: {}; ",
-                exit_location.country_codes,
-                exit_location.priority
+                exit_location.country_codes, exit_location.priority
             )?;
         }
         Ok(())

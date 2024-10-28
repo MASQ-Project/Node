@@ -1472,7 +1472,8 @@ impl Neighborhood {
         client_id: u64,
         context_id: u64,
     ) {
-        let exit_locations_by_priority: Vec<ExitLocation> = self.extract_exit_locations_from_message(&message);
+        let exit_locations_by_priority: Vec<ExitLocation> =
+            self.extract_exit_locations_from_message(&message);
         self.exit_location_preference = match (
             message.fallback_routing,
             exit_locations_by_priority.is_empty(),
@@ -1490,21 +1491,22 @@ impl Neighborhood {
         match self.neighborhood_database.keys().len() > 1 {
             true => {
                 self.set_country_undesirability(&exit_locations_by_priority);
-                let location_set = ExitLocationSet { locations: exit_locations_by_priority };
+                let location_set = ExitLocationSet {
+                    locations: exit_locations_by_priority,
+                };
                 let exit_location_status = match location_set.locations.is_empty() {
                     false => "Exit location set: ",
                     true => "Exit location unset.",
                 };
                 info!(
                     self.logger,
-                    "{} {}{}",
-                    fallback_status, exit_location_status, location_set
+                    "{} {}{}", fallback_status, exit_location_status, location_set
                 );
-            },
+            }
             false => info!(
-                        self.logger,
-                        "Neighborhood is empty, no exit Nodes are available.",
-                    ),
+                self.logger,
+                "Neighborhood is empty, no exit Nodes are available.",
+            ),
         }
         let message = NodeToUiMessage {
             target: MessageTarget::ClientId(client_id),
@@ -1533,15 +1535,17 @@ impl Neighborhood {
                             node_record.metadata.country_undesirability =
                                 COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
                         }
-                        if (self.exit_location_preference == ExitPreference::ExitCountryWithFallback
+                        if (self.exit_location_preference
+                            == ExitPreference::ExitCountryWithFallback
                             && !self.exit_countries.contains(&country_code))
                             || country_code == ZZ_COUNTRY_CODE_STRING
                         {
-                            node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
+                            node_record.metadata.country_undesirability =
+                                UNREACHABLE_COUNTRY_PENALTY;
                         }
                     }
                 }
-            },
+            }
             false => {
                 self.exit_countries = vec![];
                 for node_record in nodes {
@@ -1551,7 +1555,10 @@ impl Neighborhood {
         }
     }
 
-    fn extract_exit_locations_from_message(&mut self, message: &UiSetExitLocationRequest) -> Vec<ExitLocation> {
+    fn extract_exit_locations_from_message(
+        &mut self,
+        message: &UiSetExitLocationRequest,
+    ) -> Vec<ExitLocation> {
         let exit_location_vec = message
             .to_owned()
             .exit_locations
@@ -3274,7 +3281,8 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "us We expecting {}, country is considered for exit location in fallback", UNREACHABLE_COUNTRY_PENALTY
+                    "us We expecting {}, country is considered for exit location in fallback",
+                    UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood
@@ -3294,7 +3302,8 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "de We expecting {}, country is with Priority: 2", 1 * COUNTRY_UNDESIRABILITY_FACTOR
+                    "de We expecting {}, country is with Priority: 2",
+                    1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
@@ -3304,7 +3313,8 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "at We expecting {}, country is with Priority: 2", 1 * COUNTRY_UNDESIRABILITY_FACTOR
+                    "at We expecting {}, country is with Priority: 2",
+                    1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
@@ -3314,7 +3324,8 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     2 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "pl We expecting {}, country is with Priority: 3", 2 * COUNTRY_UNDESIRABILITY_FACTOR
+                    "pl We expecting {}, country is with Priority: 3",
+                    2 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
             }),
         };
@@ -3416,7 +3427,8 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "FR - We expecting {}, country is with Priority: 2", 1 * COUNTRY_UNDESIRABILITY_FACTOR
+                    "FR - We expecting {}, country is with Priority: 2",
+                    1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
