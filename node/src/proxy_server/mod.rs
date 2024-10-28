@@ -615,12 +615,12 @@ impl ProxyServer {
             }
             Some(sk) => sk,
         };
+        self.schedule_stream_key_purge(stream_key);
         if msg.report_to_counterpart {
             debug!(
                 self.logger,
                 "Reporting shutdown of {} to counterpart", &stream_key
             );
-            self.schedule_stream_key_purge(stream_key);
             let ibcd = InboundClientData {
                 timestamp: SystemTime::now(),
                 peer_addr: msg.peer_addr,
@@ -635,8 +635,6 @@ impl ProxyServer {
             {
                 error!(self.logger, "{}", e)
             };
-        } else {
-            self.purge_stream_key(&stream_key, "the reason that client closed the stream");
         }
     }
 
@@ -3747,6 +3745,25 @@ mod tests {
 
     #[test]
     fn proxy_server_schedules_stream_key_purge_once_shutdown_order_is_received_for_stream() {
+        let common_msg = StreamShutdownMsg {
+            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: 0,
+                sequence_number: 0,
+            }),
+            report_to_counterpart: true,
+        };
+        stream_is_purged_with_a_delay(StreamShutdownMsg {
+            report_to_counterpart: true,
+            ..common_msg.clone()
+        });
+        stream_is_purged_with_a_delay(StreamShutdownMsg {
+            report_to_counterpart: false,
+            ..common_msg
+        });
+    }
+
+    fn stream_is_purged_with_a_delay(msg: StreamShutdownMsg) {
         /*
         +------------------------------------------------------------------+
         | (0ms)                                                            |
@@ -3773,7 +3790,7 @@ mod tests {
         */
 
         init_test_logging();
-        let test_name =
+        let unique_identifier =
             "proxy_server_schedules_stream_key_purge_once_shutdown_order_is_received_for_stream";
         let cryptde = main_cryptde();
         let stream_key_purge_delay_in_millis = 500;
@@ -3786,13 +3803,12 @@ mod tests {
             false,
         );
         subject.stream_key_purge_delay = Duration::from_millis(stream_key_purge_delay_in_millis);
-        subject.logger = Logger::new(test_name);
+        subject.logger = Logger::new(&unique_identifier);
         subject.subs = Some(make_proxy_server_out_subs());
-        let stream_key = StreamKey::make_meaningful_stream_key(test_name);
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = StreamKey::make_meaningful_stream_key(&unique_identifier);
         subject
             .keys_and_addrs
-            .insert(stream_key.clone(), socket_addr.clone());
+            .insert(stream_key.clone(), msg.peer_addr.clone());
         subject.stream_key_routes.insert(
             stream_key.clone(),
             RouteQueryResponse {
@@ -3816,20 +3832,12 @@ mod tests {
         let schedule_stream_key_purge_sub = proxy_server_addr.clone().recipient();
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_purge_sub;
-        let system = System::new(test_name);
+        let system = System::new(unique_identifier);
         let bind_msg = BindMessage { peer_actors };
         proxy_server_addr.try_send(bind_msg).unwrap();
         let time_before_sending_package = SystemTime::now();
-        let stream_shutdown_msg = StreamShutdownMsg {
-            peer_addr: socket_addr,
-            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                reception_port: 0,
-                sequence_number: 0,
-            }),
-            report_to_counterpart: true,
-        };
 
-        proxy_server_addr.try_send(stream_shutdown_msg).unwrap();
+        proxy_server_addr.try_send(msg).unwrap();
 
         let time_after_sending_package = time_before_sending_package
             .checked_add(Duration::from_secs(1))
@@ -3849,7 +3857,7 @@ mod tests {
                 assert!(!proxy_server.stream_key_routes.is_empty());
                 assert!(!proxy_server.tunneled_hosts.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
-                    "DEBUG: {test_name}: Client closed stream referenced by stream key {:?}, \
+                    "DEBUG: {unique_identifier}: Client closed stream referenced by stream key {:?}, \
                     which was tunneling to the host \"hostname\". \
                     It will be purged after {stream_key_purge_delay_in_millis}ms.",
                     stream_key
@@ -3869,7 +3877,7 @@ mod tests {
                 assert!(proxy_server.tunneled_hosts.is_empty());
                 assert!(proxy_server.stream_key_ttl.is_empty());
                 TestLogHandler::new().exists_log_containing(&format!(
-                    "DEBUG: {test_name}: Retiring stream key {:?}",
+                    "DEBUG: {unique_identifier}: Retiring stream key {:?}",
                     stream_key
                 ));
                 System::current().stop();
