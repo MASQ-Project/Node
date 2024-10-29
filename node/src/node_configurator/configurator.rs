@@ -914,7 +914,6 @@ mod tests {
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
-    use rstest::rstest;
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -2127,22 +2126,26 @@ mod tests {
         assert_eq!(*check_start_block_params, vec![Some(166666)]);
     }
 
-    #[rstest]
-    #[case("none")]
-    #[case("None")]
-    #[case("nOnE")]
-    #[case("NoNe")]
-    #[case("NONE")]
-    fn handle_set_configuration_accepts_none_to_unset_start_block(#[case] cfg_value: &str) {
+    #[test]
+    fn handle_none_cases() {
+        vec!["none", "None", "nOnE", "NoNe", "NONE"]
+            .iter()
+            .for_each(|value| handle_set_configuration_accepts_none_to_unset_start_block(value));
+    }
+
+    fn handle_set_configuration_accepts_none_to_unset_start_block(cfg_value: &str) {
         init_test_logging();
-        let test_name = "handle_set_configuration_accepts_none_to_unset_start_block";
+        let test_name = format!(
+            "handle_set_configuration_accepts_{}_to_unset_start_block",
+            &cfg_value
+        );
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
         let mut subject = make_subject(Some(persistent_config));
-        subject.logger = Logger::new(test_name);
+        subject.logger = Logger::new(test_name.as_str());
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
