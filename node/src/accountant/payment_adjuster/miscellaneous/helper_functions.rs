@@ -233,15 +233,21 @@ mod tests {
     fn find_largest_exceeding_balance_works() {
         let mut account_1 = make_meaningless_analyzed_account(111);
         account_1.qualified_as.bare_account.balance_wei = 5_000_000_000;
-        account_1.qualified_as.payment_threshold_intercept_minor = 2_000_000_000;
+        account_1.qualified_as.payment_threshold_intercept_minor = 2_000_000_001;
         let mut account_2 = make_meaningless_analyzed_account(222);
-        account_2.qualified_as.bare_account.balance_wei = 4_000_000_000;
-        account_2.qualified_as.payment_threshold_intercept_minor = 800_000_000;
-        let qualified_accounts = &[account_1, account_2];
+        account_2.qualified_as.bare_account.balance_wei = 5_000_000_000;
+        account_2.qualified_as.payment_threshold_intercept_minor = 2_000_000_001;
+        let mut account_3 = make_meaningless_analyzed_account(333);
+        account_3.qualified_as.bare_account.balance_wei = 5_000_000_000;
+        account_3.qualified_as.payment_threshold_intercept_minor = 1_999_999_999;
+        let mut account_4 = make_meaningless_analyzed_account(444);
+        account_4.qualified_as.bare_account.balance_wei = 5_000_000_000;
+        account_4.qualified_as.payment_threshold_intercept_minor = 2_000_000_000;
+        let qualified_accounts = &[account_1, account_2, account_3, account_4];
 
         let result = find_largest_exceeding_balance(qualified_accounts);
 
-        assert_eq!(result, 4_000_000_000 - 800_000_000)
+        assert_eq!(result, 5_000_000_000 - 1_999_999_999)
     }
 
     #[test]
@@ -272,8 +278,10 @@ mod tests {
         let result =
             compute_mul_coefficient_preventing_fractional_numbers(cw_service_fee_balance_minor);
 
-        let expected_result = u128::MAX / cw_service_fee_balance_minor;
-        assert_eq!(result, expected_result)
+        let expected_result_conceptually = u128::MAX / cw_service_fee_balance_minor;
+        let expected_result_exact = 27562873980751681962171264100016;
+        assert_eq!(result, expected_result_exact);
+        assert_eq!(expected_result_exact, expected_result_conceptually)
     }
 
     fn make_non_finalized_adjusted_account(
