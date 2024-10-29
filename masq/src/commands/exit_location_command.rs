@@ -19,7 +19,7 @@ const EXIT_LOCATION_ABOUT: &str =
         masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n\t// fallback-routing is ON, \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\"\n\
         masq> exit-location --country-codes \"CZ|SK\"       \n\t// fallback-routing is OFF, \"CZ\" and \"SK\" countries have different priority\n";
 
-// TODO update following help when GH-469 is done with `To obtain codes, you can use the 'country-codes-list' (469 car command) command.`
+// TODO update following help when GH-469 is done with `To obtain codes, you can use the 'country-codes-list' (469 card command) command.`
 const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
         Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
         for a group of countries is the same, separate those countries by commas (,).\n\

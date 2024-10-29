@@ -35,7 +35,6 @@ log_recipient_test = []
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 nix = "0.23.0"
 
-
 [lib]
 name = "masq_lib"
 path = "src/lib.rs"
