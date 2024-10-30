@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
-use crate::neighborhood::AccessibleGossipRecord;
+use crate::neighborhood::{AccessibleGossipRecord, ExitTools};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
@@ -273,6 +273,7 @@ impl DebutHandler {
         }
         let debut_node_addr_opt = debuting_agr.node_addr_opt.clone();
         let debuting_node = NodeRecord::from(debuting_agr);
+        // TODO 468 make debuting_node mut and add country_undesirability to its metadata
         let debut_node_key = database
             .add_node(debuting_node)
             .expect("Debuting Node suddenly appeared in database");
@@ -685,6 +686,7 @@ impl GossipHandler for IntroductionHandler {
                 .as_ref()
                 .expect("IP Address not found for the Node Addr.")
                 .ip_addr();
+            // TODO 468 pass the NeighborhoodMetadata into update_database
             match self.update_database(database, cryptde, introducer) {
                 Ok(_) => (),
                 Err(e) => {
@@ -870,6 +872,8 @@ impl IntroductionHandler {
             }
             None => {
                 let new_introducer = NodeRecord::from(introducer);
+                //TODO 468 add country undesirability
+                //TODO probably make one function to use on all places
                 debug!(
                     self.logger,
                     "Adding introducer {} to database", introducer_key
@@ -980,10 +984,12 @@ impl GossipHandler for StandardGossipHandler {
         let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.db_patch_size);
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
+        // TODO 468 get structs from neighborhood metadata
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
             database,
             &filtered_agrs,
             gossip_source,
+            neighborhood_metadata.exit_tools_opt.clone(),
         );
         db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
         db_changed =
@@ -1095,6 +1101,7 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
+        exit_tools_opt: Option<ExitTools>
     ) -> bool {
         let all_keys = database
             .keys()
@@ -1112,7 +1119,12 @@ impl StandardGossipHandler {
                 }
             })
             .for_each(|agr| {
-                let node_record = NodeRecord::from(agr);
+                let mut node_record = NodeRecord::from(agr);
+                // TODO modify for country undesirability in node_record (make it mut)
+                match &exit_tools_opt {
+                    Some(exit_tools) => exit_tools.assign_nodes_country_undesirability(&mut node_record),
+                    None => ()
+                }
                 trace!(
                     self.logger,
                     "Discovered new Node {:?}: {:?}",
@@ -1370,7 +1382,7 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
+    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, ExitLocation};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
@@ -1387,6 +1399,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use crate::neighborhood::{ExitPreference, ExitTools, UNREACHABLE_COUNTRY_PENALTY};
 
     #[test]
     fn constants_have_correct_values() {
@@ -1407,6 +1420,7 @@ mod tests {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
             db_patch_size: DB_PATCH_SIZE_FOR_TEST,
+            exit_tools_opt: None,
         }
     }
 
@@ -2407,6 +2421,14 @@ mod tests {
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.exit_tools_opt = Some(ExitTools {
+            exit_countries: vec!["FR".to_string()],
+            exit_location_preference: ExitPreference::ExitCountryWithFallback,
+            exit_locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["FR".to_string()],
+                priority: 1,
+            }]),
+        });
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let system = System::new("test");
 
@@ -2419,6 +2441,8 @@ mod tests {
             neighborhood_metadata,
         );
 
+        assert_eq!(dest_db.node_by_key(node_a.public_key()).unwrap().metadata.country_undesirability, 0u32);
+        assert_eq!(dest_db.node_by_key(node_b.public_key()).unwrap().metadata.country_undesirability, UNREACHABLE_COUNTRY_PENALTY);
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(GossipAcceptanceResult::Accepted, handle_result);
         assert_eq!(

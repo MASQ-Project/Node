@@ -89,11 +89,59 @@ pub const COUNTRY_UNDESIRABILITY_FACTOR: u32 = 1_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 pub const ZZ_COUNTRY_CODE_STRING: &str = "ZZ";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ExitPreference {
     Nothing,
     ExitCountryWithFallback,
     ExitCountryNoFallback,
+}
+
+#[derive(Clone)]
+pub struct ExitTools {
+    exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
+    exit_location_preference: ExitPreference,
+    exit_locations_opt: Option<Vec<ExitLocation>>,
+}
+
+impl ExitTools {
+    fn new() -> ExitTools {
+        ExitTools {
+            exit_countries: vec![],
+            exit_location_preference: ExitPreference::Nothing,
+            exit_locations_opt: None,
+        }
+    }
+
+    pub fn assign_nodes_country_undesirability(
+        &self,
+        node_record: &mut NodeRecord)
+    {
+        let country_code = match node_record.inner.country_code_opt.as_ref() {
+            Some(code) => code.clone(),
+            None => ZZ_COUNTRY_CODE_STRING.to_string(),
+        };
+        match &self.exit_locations_opt {
+            Some(exit_locations_by_priority) => {
+                for exit_location in exit_locations_by_priority {
+                    if exit_location.country_codes.contains(&country_code)
+                        && country_code != ZZ_COUNTRY_CODE_STRING
+                    {
+                        node_record.metadata.country_undesirability =
+                            COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
+                    }
+                    if (self.exit_location_preference
+                        == ExitPreference::ExitCountryWithFallback
+                        && !self.exit_countries.contains(&country_code))
+                        || country_code == ZZ_COUNTRY_CODE_STRING
+                    {
+                        node_record.metadata.country_undesirability =
+                            UNREACHABLE_COUNTRY_PENALTY;
+                    }
+                }
+            },
+            None => ()
+        }
+    }
 }
 
 pub struct Neighborhood {
@@ -118,8 +166,7 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
-    exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
-    exit_location_preference: ExitPreference,
+    exit_tools: ExitTools,
 }
 
 impl Actor for Neighborhood {
@@ -186,7 +233,7 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
     }
 }
 
-impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
+    impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
     type Result = ();
 
     fn handle(
@@ -511,8 +558,7 @@ impl Neighborhood {
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
-            exit_countries: vec![],
-            exit_location_preference: ExitPreference::Nothing,
+            exit_tools: ExitTools::new(),
         }
     }
 
@@ -811,7 +857,9 @@ impl Neighborhood {
             connection_progress_peers: self.overall_connection_status.get_peer_addrs(),
             cpm_recipient,
             db_patch_size: self.db_patch_size,
+            exit_tools_opt: Some(self.exit_tools.clone()),
         };
+        // TODO 468 clone all needed structs from Neighborhood to NeighborhoodMetadata and send it in
         let acceptance_result = self.gossip_acceptor.handle(
             &mut self.neighborhood_database,
             agrs,
@@ -1474,7 +1522,7 @@ impl Neighborhood {
     ) {
         let exit_locations_by_priority: Vec<ExitLocation> =
             self.extract_exit_locations_from_message(&message);
-        self.exit_location_preference = match (
+        self.exit_tools.exit_location_preference = match (
             message.fallback_routing,
             exit_locations_by_priority.is_empty(),
         ) {
@@ -1483,11 +1531,12 @@ impl Neighborhood {
             (false, false) => ExitPreference::ExitCountryNoFallback,
             (false, true) => ExitPreference::Nothing,
         };
-        let fallback_status = match self.exit_location_preference {
-            ExitPreference::Nothing => "Fallback Routing is Set.",
-            ExitPreference::ExitCountryWithFallback => "Fallback Routing is Set.",
-            ExitPreference::ExitCountryNoFallback => "Fallback Routing NOT Set.",
+        let fallback_status = match self.exit_tools.exit_location_preference {
+            ExitPreference::Nothing => "Fallback Routing is set.",
+            ExitPreference::ExitCountryWithFallback => "Fallback Routing is set.",
+            ExitPreference::ExitCountryNoFallback => "Fallback Routing NOT set.",
         };
+        self.exit_tools.exit_locations_opt = Some(exit_locations_by_priority.clone());
         match self.neighborhood_database.keys().len() > 1 {
             true => {
                 self.set_country_undesirability(&exit_locations_by_priority);
@@ -1524,30 +1573,11 @@ impl Neighborhood {
         match !&exit_locations_by_priority.is_empty() {
             true => {
                 for node_record in nodes {
-                    let country_code = match node_record.inner.country_code_opt.as_ref() {
-                        Some(code) => code.clone(),
-                        None => ZZ_COUNTRY_CODE_STRING.to_string(),
-                    };
-                    for exit_location in exit_locations_by_priority {
-                        if exit_location.country_codes.contains(&country_code)
-                            && country_code != ZZ_COUNTRY_CODE_STRING
-                        {
-                            node_record.metadata.country_undesirability =
-                                COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
-                        }
-                        if (self.exit_location_preference
-                            == ExitPreference::ExitCountryWithFallback
-                            && !self.exit_countries.contains(&country_code))
-                            || country_code == ZZ_COUNTRY_CODE_STRING
-                        {
-                            node_record.metadata.country_undesirability =
-                                UNREACHABLE_COUNTRY_PENALTY;
-                        }
-                    }
+                    self.exit_tools.assign_nodes_country_undesirability(node_record)
                 }
             }
             false => {
-                self.exit_countries = vec![];
+                self.exit_tools.exit_countries = vec![];
                 for node_record in nodes {
                     node_record.metadata.country_undesirability = 0u32;
                 }
@@ -1565,7 +1595,7 @@ impl Neighborhood {
             .into_iter()
             .map(|cc| {
                 for code in &cc.country_codes {
-                    self.exit_countries.push(code.clone());
+                    self.exit_tools.exit_countries.push(code.clone());
                 }
                 ExitLocation {
                     country_codes: cc.country_codes,
@@ -3250,7 +3280,7 @@ mod tests {
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood.exit_countries,
+                    neighborhood.exit_tools.exit_countries,
                     vec![
                         "CZ".to_string(),
                         "SK".to_string(),
@@ -3260,7 +3290,7 @@ mod tests {
                     ]
                 );
                 assert_eq!(
-                    neighborhood.exit_location_preference,
+                    neighborhood.exit_tools.exit_location_preference,
                     ExitPreference::ExitCountryWithFallback
                 );
                 assert_eq!(
@@ -3339,7 +3369,7 @@ mod tests {
 
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-            "INFO: {}: Fallback Routing is Set. Exit location set:",
+            "INFO: {}: Fallback Routing is set. Exit location set:",
             test_name
             ),
             &"Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3;"
@@ -3445,11 +3475,11 @@ mod tests {
         let assert_neighborhood_exit_location = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood.exit_countries,
+                    neighborhood.exit_tools.exit_countries,
                     vec!["CZ".to_string(), "FR".to_string()]
                 );
                 assert_eq!(
-                    neighborhood.exit_location_preference,
+                    neighborhood.exit_tools.exit_location_preference,
                     ExitPreference::ExitCountryNoFallback
                 );
             }),
@@ -3508,9 +3538,9 @@ mod tests {
                     0u32,
                     "We expecting zero, exit_location was unset"
                 );
-                assert_eq!(neighborhood.exit_countries.is_empty(), true);
+                assert_eq!(neighborhood.exit_tools.exit_countries.is_empty(), true);
                 assert_eq!(
-                    neighborhood.exit_location_preference,
+                    neighborhood.exit_tools.exit_location_preference,
                     ExitPreference::Nothing
                 )
             }),
@@ -3551,10 +3581,10 @@ mod tests {
             }
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Fallback Routing NOT Set.", test_name),
+            &format!("INFO: {}: Fallback Routing NOT set.", test_name),
             &"Exit location set:".to_string(),
             &"Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2;",
-            &format!("INFO: {}: Fallback Routing is Set.", test_name),
+            &format!("INFO: {}: Fallback Routing is set.", test_name),
             &"Exit location unset.".to_string(),
         ]);
     }
