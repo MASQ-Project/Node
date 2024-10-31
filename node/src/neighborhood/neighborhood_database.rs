@@ -7,7 +7,7 @@ use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordError, NodeRecordInputs};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::neighborhood::{NeighborhoodMode};
+use crate::sub_lib::neighborhood::NeighborhoodMode;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;

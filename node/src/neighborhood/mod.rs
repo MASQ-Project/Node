@@ -96,6 +96,7 @@ pub enum ExitPreference {
     ExitCountryNoFallback,
 }
 
+//TODO rename for UserExitPreferences
 #[derive(Clone)]
 pub struct ExitTools {
     exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
@@ -106,16 +107,14 @@ pub struct ExitTools {
 impl ExitTools {
     fn new() -> ExitTools {
         ExitTools {
+            //TODO remove exit from members names
             exit_countries: vec![],
             exit_location_preference: ExitPreference::Nothing,
             exit_locations_opt: None,
         }
     }
 
-    pub fn assign_nodes_country_undesirability(
-        &self,
-        node_record: &mut NodeRecord)
-    {
+    pub fn assign_nodes_country_undesirability(&self, node_record: &mut NodeRecord) {
         let country_code = match node_record.inner.country_code_opt.as_ref() {
             Some(code) => code.clone(),
             None => ZZ_COUNTRY_CODE_STRING.to_string(),
@@ -129,17 +128,15 @@ impl ExitTools {
                         node_record.metadata.country_undesirability =
                             COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
                     }
-                    if (self.exit_location_preference
-                        == ExitPreference::ExitCountryWithFallback
+                    if (self.exit_location_preference == ExitPreference::ExitCountryWithFallback
                         && !self.exit_countries.contains(&country_code))
                         || country_code == ZZ_COUNTRY_CODE_STRING
                     {
-                        node_record.metadata.country_undesirability =
-                            UNREACHABLE_COUNTRY_PENALTY;
+                        node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
                     }
                 }
-            },
-            None => ()
+            }
+            None => (),
         }
     }
 }
@@ -233,7 +230,7 @@ impl Handler<ConfigurationChangeMessage> for Neighborhood {
     }
 }
 
-    impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
+impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
     type Result = ();
 
     fn handle(
@@ -1573,7 +1570,8 @@ impl Neighborhood {
         match !&exit_locations_by_priority.is_empty() {
             true => {
                 for node_record in nodes {
-                    self.exit_tools.assign_nodes_country_undesirability(node_record)
+                    self.exit_tools
+                        .assign_nodes_country_undesirability(node_record)
                 }
             }
             false => {
