@@ -165,7 +165,13 @@ impl GossipHandler for DebutHandler {
                 source_node_addr,
             );
         }
-        if let Ok(result) = self.try_accept_debut(cryptde, database, &source_agr, gossip_source, neighborhood_metadata.exit_tools_opt) {
+        if let Ok(result) = self.try_accept_debut(
+            cryptde,
+            database,
+            &source_agr,
+            gossip_source,
+            neighborhood_metadata.exit_tools_opt,
+        ) {
             return result;
         }
         debug!(self.logger, "Seeking neighbor for Pass");
@@ -276,7 +282,7 @@ impl DebutHandler {
         let mut debuting_node = NodeRecord::from(debuting_agr);
         match exit_tools_opt {
             Some(exit_tools) => exit_tools.assign_nodes_country_undesirability(&mut debuting_node),
-            None => ()
+            None => (),
         }
 
         // TODO 468 make debuting_node mut and add country_undesirability to its metadata
@@ -693,7 +699,12 @@ impl GossipHandler for IntroductionHandler {
                 .expect("IP Address not found for the Node Addr.")
                 .ip_addr();
             // TODO 468 pass the NeighborhoodMetadata into update_database
-            match self.update_database(database, cryptde, introducer, neighborhood_metadata.exit_tools_opt) {
+            match self.update_database(
+                database,
+                cryptde,
+                introducer,
+                neighborhood_metadata.exit_tools_opt,
+            ) {
                 Ok(_) => (),
                 Err(e) => {
                     return GossipAcceptanceResult::Ban(format!(
@@ -853,7 +864,7 @@ impl IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         cryptde: &dyn CryptDE,
         introducer: AccessibleGossipRecord,
-        exit_tools_opt: Option<ExitTools>
+        exit_tools_opt: Option<ExitTools>,
     ) -> Result<bool, String> {
         let introducer_key = introducer.inner.public_key.clone();
         match database.node_by_key_mut(&introducer_key) {
@@ -881,7 +892,9 @@ impl IntroductionHandler {
                 let mut new_introducer = NodeRecord::from(introducer);
                 //TODO 468 add country undesirability
                 match exit_tools_opt {
-                    Some(exit_tools) => exit_tools.assign_nodes_country_undesirability(&mut new_introducer),
+                    Some(exit_tools) => {
+                        exit_tools.assign_nodes_country_undesirability(&mut new_introducer)
+                    }
                     None => (),
                 }
                 //TODO probably make one function to use on all places
@@ -1394,7 +1407,9 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
-    use crate::neighborhood::{COUNTRY_UNDESIRABILITY_FACTOR, ExitPreference, ExitTools, UNREACHABLE_COUNTRY_PENALTY};
+    use crate::neighborhood::{
+        ExitPreference, ExitTools, COUNTRY_UNDESIRABILITY_FACTOR, UNREACHABLE_COUNTRY_PENALTY,
+    };
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{
         ConnectionProgressEvent, ConnectionProgressMessage, ExitLocation,
@@ -3108,7 +3123,10 @@ Length: 24 (0x18) bytes
         let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
-        assert_eq!(reference_node.metadata.country_undesirability, UNREACHABLE_COUNTRY_PENALTY);
+        assert_eq!(
+            reference_node.metadata.country_undesirability,
+            UNREACHABLE_COUNTRY_PENALTY
+        );
         reference_node.metadata.country_undesirability = 0u32;
         assert_node_records_eq(reference_node, &debut_node, before, after);
     }

@@ -1587,7 +1587,7 @@ impl Neighborhood {
         &mut self,
         message: &UiSetExitLocationRequest,
     ) -> Vec<ExitLocation> {
-        let exit_location_vec = message
+        message
             .to_owned()
             .exit_locations
             .into_iter()
@@ -1600,8 +1600,7 @@ impl Neighborhood {
                     priority: cc.priority,
                 }
             })
-            .collect();
-        exit_location_vec
+            .collect()
     }
 
     fn handle_gossip_reply(
