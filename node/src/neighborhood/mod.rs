@@ -3578,11 +3578,9 @@ mod tests {
             }
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("INFO: {}: Fallback Routing NOT set.", test_name),
-            &"Exit location set:".to_string(),
+            &format!("INFO: {}: Fallback Routing NOT set. Exit location set:", test_name),
             &"Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2;",
-            &format!("INFO: {}: Fallback Routing is set.", test_name),
-            &"Exit location unset.".to_string(),
+            &format!("INFO: {}: Fallback Routing is set. Exit location unset.", test_name),
         ]);
     }
 
