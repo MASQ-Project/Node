@@ -73,7 +73,7 @@ pub fn merged_output_data(
         .map(
             |((rpc_result, hash_and_amount), account)| match rpc_result {
                 Ok(_rpc_result) => {
-                    // TODO: This rpc_result should be validated
+                    // TODO: GH-547: This rpc_result should be validated
                     ProcessedPayableFallible::Correct(PendingPayable {
                         recipient_wallet: account.wallet.clone(),
                         hash: hash_and_amount.hash,
@@ -128,11 +128,10 @@ pub fn sign_transaction_data(amount: u128, recipient_wallet: Wallet) -> [u8; 68]
 
 pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     let base_gas_limit = BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain);
-    let gas_limit = ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+    ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
         acc + if v == &0u8 { 4 } else { 68 }
     }))
-    .expect("Internal error");
-    gas_limit
+    .expect("Internal error")
 }
 
 pub fn sign_transaction(
@@ -147,7 +146,7 @@ pub fn sign_transaction(
     let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
     let gas_price_in_wei = to_wei(gas_price_in_gwei);
-    // If you flip gas_price or nonce to None this function will start making RPC calls (Do it at your own risk).
+    // Warning: If you set gas_price or nonce to None in transaction_parameters, sign_transaction will start making RPC calls which we don't want (Do it at your own risk).
     let transaction_parameters = TransactionParameters {
         nonce: Some(nonce),
         to: Some(chain.rec().contract),
@@ -159,7 +158,7 @@ pub fn sign_transaction(
     };
     let key = consuming_wallet
         .prepare_secp256k1_secret()
-        .expect("Consuming wallet doesnt contain a secret key");
+        .expect("Consuming wallet doesn't contain a secret key");
 
     sign_transaction_locally(web3_batch, transaction_parameters, &key)
 }
@@ -173,10 +172,10 @@ pub fn sign_transaction_locally(
         || transaction_parameters.chain_id.is_none()
         || transaction_parameters.gas_price.is_none()
     {
-        panic!("Signing should be done locally");
+        panic!("We don't want to fetch any values while signing");
     }
 
-    // This wait call doesn't actually make any RPC call and signing is done locally.
+    // This wait call doesn't actually make any RPC call as long as nonce, chain_id & gas_price are set.
     web3_batch
         .accounts()
         .sign_transaction(transaction_parameters, key)
@@ -184,7 +183,7 @@ pub fn sign_transaction_locally(
         .expect("Web call wasn't allowed")
 }
 
-pub fn handle_new_transaction(
+pub fn sign_and_append_payment(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
     recipient_wallet: Wallet,
@@ -211,7 +210,7 @@ pub fn append_signed_transaction_to_batch(web3_batch: Web3<Batch<Http>>, raw_tra
     web3_batch.eth().send_raw_transaction(raw_transaction);
 }
 
-pub fn sign_and_append_payment(
+pub fn handle_new_transaction(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
@@ -219,7 +218,7 @@ pub fn sign_and_append_payment(
     gas_price: u64,
     account: PayableAccount,
 ) -> HashAndAmount {
-    let hash = handle_new_transaction(
+    let hash = sign_and_append_payment(
         chain,
         web3_batch,
         account.wallet.clone(),
@@ -253,7 +252,7 @@ pub fn sign_and_append_multiple_payments(
             pending_nonce
         );
 
-        let hash_and_amount = sign_and_append_payment(
+        let hash_and_amount = handle_new_transaction(
             chain,
             web3_batch.clone(),
             consuming_wallet.clone(),
@@ -268,6 +267,9 @@ pub fn sign_and_append_multiple_payments(
     hash_and_amount_list
 }
 
+// TODO: GH-744: Use reference to logger, and check other functions are also using a reference to logger.
+// TODO: GH-744: check if we can use a reference to web3_batch also.
+// TODO: GH-744: same for accounts, can we also use a reference?
 #[allow(clippy::too_many_arguments)]
 pub fn send_payables_within_batch(
     logger: Logger,
@@ -461,8 +463,9 @@ mod tests {
         );
     }
 
+    // TODO: GH-744: Review this test. with the test above, do we really need both?
     #[test]
-    fn handle_new_transaction_works() {
+    fn sign_and_append_payment_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -483,7 +486,8 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
         let web3_batch = Web3::new(Batch::new(transport));
-        let result = handle_new_transaction(
+
+        let result = sign_and_append_payment(
             chain,
             web3_batch.clone(),
             account.wallet,
@@ -494,7 +498,6 @@ mod tests {
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
-
         assert_eq!(
             result,
             H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2")
@@ -508,8 +511,10 @@ mod tests {
         );
     }
 
+
+    // TODO: GH-744: Review this test and the test below it, do we really need both?
     #[test]
-    fn sign_and_append_payment_works() {
+    fn handle_new_transaction_works() {
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
@@ -524,7 +529,7 @@ mod tests {
         let account = make_payable_account(1);
         let amount = account.balance_wei;
 
-        let result = sign_and_append_payment(
+        let result = handle_new_transaction(
             chain,
             web3_batch,
             consuming_wallet,
@@ -696,6 +701,112 @@ mod tests {
         )
     }
 
+    // TODO: GH-744 Change gas_price & nonce from 1 to something else
+    #[test]
+    fn send_payables_within_batch_works() {
+        init_test_logging();
+        let test_name = "send_payables_within_batch_works";
+        let port = find_free_port();
+        let (_event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+            .unwrap();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .response("rpc_result".to_string(), 7)
+            .response("rpc_result_2".to_string(), 8)
+            .end_batch()
+            .start();
+        let web3_batch = Web3::new(Batch::new(transport));
+        let (accountant, _, accountant_recording) = make_recorder();
+        let logger = Logger::new(test_name);
+        let chain = DEFAULT_CHAIN;
+        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
+        let gas_price = 1u64;
+        let pending_nonce: U256 = 1.into();
+        let new_fingerprints_recipient = accountant.start().recipient();
+        let accounts_1 = make_payable_account(1);
+        let accounts_2 = make_payable_account(2);
+        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
+        let system = System::new(test_name);
+        let timestamp_before = SystemTime::now();
+
+        let result = send_payables_within_batch(
+            logger,
+            chain,
+            web3_batch,
+            consuming_wallet.clone(),
+            gas_price.clone(),
+            pending_nonce,
+            new_fingerprints_recipient,
+            accounts.clone(),
+        )
+            .wait();
+
+        System::current().stop();
+        system.run();
+        let timestamp_after = SystemTime::now();
+        let accountant_recording_result = accountant_recording.lock().unwrap();
+        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        assert_eq!(accountant_recording_result.len(), 1);
+        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
+        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
+        assert_eq!(
+            ppfs_message.hashes_and_balances,
+            vec![
+                HashAndAmount {
+                    hash: H256::from_str(
+                        "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
+                    )
+                        .unwrap(),
+                    amount: accounts_1.balance_wei
+                },
+                HashAndAmount {
+                    hash: H256::from_str(
+                        "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
+                    )
+                        .unwrap(),
+                    amount: accounts_2.balance_wei
+                },
+            ]
+        );
+        let processed_payments = result.unwrap();
+        assert_eq!(
+            processed_payments[0],
+            ProcessedPayableFallible::Correct(PendingPayable {
+                recipient_wallet: accounts_1.wallet,
+                hash: H256::from_str(
+                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
+                )
+                    .unwrap()
+            })
+        );
+        assert_eq!(
+            processed_payments[1],
+            ProcessedPayableFallible::Correct(PendingPayable {
+                recipient_wallet: accounts_2.wallet,
+                hash: H256::from_str(
+                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
+                )
+                    .unwrap()
+            })
+        );
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(
+            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
+                     consuming_wallet,
+                     chain.rec().contract,
+                     chain.rec().num_chain_id,
+                     gas_price
+            )
+        );
+        tlh.exists_log_containing(&format!(
+            "INFO: {test_name}: {}",
+            transmission_log(chain, &accounts, gas_price)
+        ));
+    }
+
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
         let port = find_free_port();
@@ -752,9 +863,9 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x000000000000000000006261645f77616c6c6574).\")"
+        expected = "Consuming wallet doesn't contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x000000000000000000006261645f77616c6c6574).\")"
     )]
-    fn sign_transaction_panics_on_signing_itself() {
+    fn sign_transaction_panics_due_to_lack_of_secret_key() {
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -777,111 +888,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn send_payables_within_batch_works() {
-        init_test_logging();
-        let test_name = "send_payables_within_batch_works";
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .response("rpc_result_2".to_string(), 7)
-            .end_batch()
-            .start();
-        let web3_batch = Web3::new(Batch::new(transport));
-        let (accountant, _, accountant_recording) = make_recorder();
-        let logger = Logger::new(test_name);
-        let chain = DEFAULT_CHAIN;
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1u64;
-        let pending_nonce: U256 = 1.into();
-        let new_fingerprints_recipient = accountant.start().recipient();
-        let accounts_1 = make_payable_account(1);
-        let accounts_2 = make_payable_account(2);
-        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
-        let system = System::new(test_name);
-        let timestamp_before = SystemTime::now();
-
-        let result = send_payables_within_batch(
-            logger,
-            chain,
-            web3_batch,
-            consuming_wallet.clone(),
-            gas_price.clone(),
-            pending_nonce,
-            new_fingerprints_recipient,
-            accounts.clone(),
-        )
-        .wait();
-
-        System::current().stop();
-        system.run();
-        let tlh = TestLogHandler::new();
-        let timestamp_after = SystemTime::now();
-        let recording_result = accountant_recording.lock().unwrap();
-        let processed_payments = result.unwrap();
-        let message = recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(recording_result.len(), 1);
-        assert!(timestamp_before <= message.batch_wide_timestamp);
-        assert!(timestamp_after >= message.batch_wide_timestamp);
-        assert_eq!(
-            message.hashes_and_balances,
-            vec![
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
-                    )
-                    .unwrap(),
-                    amount: accounts_1.balance_wei
-                },
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
-                    )
-                    .unwrap(),
-                    amount: accounts_2.balance_wei
-                },
-            ]
-        );
-        assert_eq!(
-            processed_payments[0],
-            ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: accounts_1.wallet,
-                hash: H256::from_str(
-                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
-                )
-                .unwrap()
-            })
-        );
-        assert_eq!(
-            processed_payments[1],
-            ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: accounts_2.wallet,
-                hash: H256::from_str(
-                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
-                )
-                .unwrap()
-            })
-        );
-        tlh.exists_log_containing(
-            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
-                     consuming_wallet,
-                     chain.rec().contract,
-                     chain.rec().num_chain_id,
-                     gas_price
-            )
-        );
-        tlh.exists_log_containing(&format!(
-            "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
-        ));
-    }
-
+    // TODO: GH-744: Find the tests similar to this one and refactor them to remove duplicated code.
     #[test]
     fn send_payables_within_batch_all_payments_fail() {
         init_test_logging();
@@ -904,7 +911,7 @@ mod tests {
                 429,
                 "The requests per second (RPS) of your requests are higher than your plan allows."
                     .to_string(),
-                7,
+                8,
             )
             .end_batch()
             .start();
@@ -936,16 +943,14 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let tlh = TestLogHandler::new();
         let timestamp_after = SystemTime::now();
-        let recording_result = accountant_recording.lock().unwrap();
-        let processed_payments = result.unwrap();
-        let message = recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(recording_result.len(), 1);
-        assert!(timestamp_before <= message.batch_wide_timestamp);
-        assert!(timestamp_after >= message.batch_wide_timestamp);
+        let accountant_recording_result = accountant_recording.lock().unwrap();
+        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        assert_eq!(accountant_recording_result.len(), 1);
+        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
+        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
         assert_eq!(
-            message.hashes_and_balances,
+            ppfs_message.hashes_and_balances,
             vec![
                 HashAndAmount {
                     hash: H256::from_str(
@@ -963,6 +968,7 @@ mod tests {
                 },
             ]
         );
+        let processed_payments = result.unwrap();
         assert_eq!(processed_payments[0], Failed(RpcPayableFailure{
             rpc_error: Rpc(Error {
                 code: ServerError(429),
@@ -981,6 +987,7 @@ mod tests {
             recipient_wallet: accounts_2.wallet,
             hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
         }));
+        let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
                      consuming_wallet,
@@ -1017,7 +1024,6 @@ mod tests {
             .end_batch()
             .start();
         let web3_batch = Web3::new(Batch::new(transport.clone()));
-
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
@@ -1045,16 +1051,14 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let tlh = TestLogHandler::new();
         let timestamp_after = SystemTime::now();
-        let recording_result = accountant_recording.lock().unwrap();
-        let processed_payments = result.unwrap();
-        let message = recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(recording_result.len(), 1);
-        assert!(timestamp_before <= message.batch_wide_timestamp);
-        assert!(timestamp_after >= message.batch_wide_timestamp);
+        let accountant_recording_result = accountant_recording.lock().unwrap();
+        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        assert_eq!(accountant_recording_result.len(), 1);
+        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
+        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
         assert_eq!(
-            message.hashes_and_balances,
+            ppfs_message.hashes_and_balances,
             vec![
                 HashAndAmount {
                     hash: H256::from_str(
@@ -1072,6 +1076,7 @@ mod tests {
                 },
             ]
         );
+        let processed_payments = result.unwrap();
         assert_eq!(
             processed_payments[0],
             ProcessedPayableFallible::Correct(PendingPayable {
@@ -1091,6 +1096,7 @@ mod tests {
             recipient_wallet: accounts_2.wallet,
             hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
         }));
+        let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
                      consuming_wallet,
@@ -1151,36 +1157,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Consuming wallet doesnt contain a secret key: Signature(\"Cannot sign with non-keypair wallet: Address(0x00000000636f6e73756d696e675f77616c6c6574).\")"
-    )]
-    fn sign_transaction_panics_on_bad_consuming_wallet() {
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let chain = DEFAULT_CHAIN;
-        let amount = 11_222_333_444;
-        let gas_price_in_gwei = 123000000000_u64;
-        let nonce = U256::from(5);
-        let recipient_wallet = make_wallet("recipient_wallet");
-        let consuming_wallet = make_wallet("consuming_wallet");
-
-        let _result = sign_transaction(
-            chain,
-            Web3::new(Batch::new(transport)),
-            recipient_wallet,
-            consuming_wallet,
-            amount,
-            nonce,
-            gas_price_in_gwei,
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Signing should be done locally")]
+    #[should_panic(expected = "We don't want to fetch any values while signing")]
     fn sign_transaction_locally_panics_on_signed_transaction() {
         let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
@@ -1207,49 +1184,13 @@ mod tests {
         };
         let key = consuming_wallet
             .prepare_secp256k1_secret()
-            .expect("Consuming wallet doesnt contain a secret key");
+            .expect("Consuming wallet doesn't contain a secret key");
 
         let _result = sign_transaction_locally(
             Web3::new(Batch::new(transport)),
             transaction_parameters,
             &key,
         );
-    }
-
-    #[test]
-    fn sign_and_append_payment_just_works() {
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let system = System::new("test");
-        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            make_wallet("blah123"),
-            9000,
-            None,
-        );
-        let gas_price = 123;
-        let nonce = U256::from(1);
-
-        let result = sign_and_append_payment(
-            TEST_DEFAULT_CHAIN,
-            Web3::new(Batch::new(transport)),
-            consuming_wallet,
-            nonce,
-            gas_price,
-            account,
-        );
-
-        System::current().stop();
-        system.run();
-        let expected_hash =
-            H256::from_str("8d278f82f42ee4f3b9eef2e099cccc91ff117e80c28d6369fec38ec50f5bd2c2")
-                .unwrap();
-        assert_eq!(result.hash, expected_hash);
-        assert_eq!(result.amount, 9000);
     }
 
     //with a real confirmation through a transaction sent with this data to the network

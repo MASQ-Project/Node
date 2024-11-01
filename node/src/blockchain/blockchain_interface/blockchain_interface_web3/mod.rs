@@ -146,6 +146,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
+        // TODO: Would it be better to wrap these 4 calls into a single batch call?
         let get_gas_price = self.lower_interface().get_gas_price();
         let get_transaction_fee_balance = self
             .lower_interface()
@@ -595,7 +596,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x178def", 1)
+            .response("0x400", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         init_test_logging();
@@ -622,7 +623,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1543664,
+                new_start_block: 1 + end_block_nbr,
                 transactions: vec![]
             })
         );
@@ -632,6 +633,8 @@ mod tests {
         );
     }
 
+    // TODO: GH-744: HIGH - We are adding 1 to the fallback start block number twice. why?
+    // https://github.com/MASQ-Project/Node/pull/456#discussion_r1803865133
     #[test]
     fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
     ) {
@@ -656,7 +659,6 @@ mod tests {
             .wait();
 
         let expected_fallback_start_block = start_block_nbr + 1u64;
-
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
@@ -685,23 +687,23 @@ mod tests {
         let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
         let subject = make_blockchain_interface_web3(Some(port));
-        let transaction_fee_balance = U256::from(65_520);
-        let masq_balance = U256::from(65_535);
-        let transaction_id = U256::from(35);
 
         let result = subject
             .build_blockchain_agent(wallet.clone())
             .wait()
             .unwrap();
 
+        let expected_transaction_fee_balance = U256::from(65_520);
+        let expected_masq_balance = U256::from(65_535);
+        let expected_transaction_id = U256::from(35);
         let expected_gas_price_gwei = 2;
         assert_eq!(result.consuming_wallet(), &wallet);
-        assert_eq!(result.pending_transaction_id(), transaction_id);
+        assert_eq!(result.pending_transaction_id(), expected_transaction_id);
         assert_eq!(
             result.consuming_wallet_balances(),
             ConsumingWalletBalances {
-                transaction_fee_balance_in_minor_units: transaction_fee_balance,
-                masq_token_balance_in_minor_units: masq_balance
+                transaction_fee_balance_in_minor_units: expected_transaction_fee_balance,
+                masq_token_balance_in_minor_units: expected_masq_balance
             }
         );
         assert_eq!(
@@ -718,6 +720,10 @@ mod tests {
         )
     }
 
+
+    // TODO: GH-744: Migrate test to the place after the helper function below this test.
+    //   You'll find three more tests with a simplified api and I believe that the way it is done will suite also this test.
+    //   Please could do this for better hygiene so that our workspace is cleaner looking forward?
     #[test]
     fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
         let port = find_free_port();

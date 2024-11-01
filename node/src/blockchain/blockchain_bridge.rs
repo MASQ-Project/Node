@@ -316,7 +316,7 @@ impl BlockchainBridge {
             _ => u64::MAX,
         };
 
-        let fallback_start_block_number =
+        let fallback_next_start_block_number =
             calculate_fallback_start_block_number(start_block_nbr, max_block_count);
         let start_block = BlockNumber::Number(start_block_nbr.into());
         let received_payments_subs_ok_case = self
@@ -330,7 +330,7 @@ impl BlockchainBridge {
             self.blockchain_interface
                 .retrieve_transactions(
                     start_block,
-                    fallback_start_block_number,
+                    fallback_next_start_block_number,
                     msg.recipient.address(),
                 )
                 .map_err(move |e| {

@@ -194,32 +194,18 @@ impl ReceiptResponseBuilder {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
+    get_chain_results: RefCell<Vec<Chain>>,
+    lower_interface_result: Option<Box<dyn LowBlockchainInt>>,
     retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, u64, Address)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
     build_blockchain_agent_results:
         RefCell<Vec<Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>>>,
-    send_batch_of_payables_params: Arc<
-        Mutex<
-            Vec<(
-                ArbitraryIdStamp,
-                Recipient<PendingPayableFingerprintSeeds>,
-                Vec<PayableAccount>,
-            )>,
-        >,
-    >,
-    send_batch_of_payables_results:
-        RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
-    get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
-    get_transaction_receipt_results:
-        RefCell<Vec<Result<Option<TransactionReceipt>, BlockchainError>>>,
-    lower_interface_result: Option<Box<dyn LowBlockchainInt>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-    get_chain_results: RefCell<Vec<Chain>>,
-    get_batch_web3_results: RefCell<Vec<Web3<Batch<Http>>>>,
 }
 
+// TODO: GH-744: There are a few tests using BlockchainInterfaceMock, if we convert them to use MBCS then we can delete BlockchainInterfaceMock
 impl BlockchainInterface for BlockchainInterfaceMock {
     fn contract_address(&self) -> Address {
         unimplemented!("not needed so far")
@@ -292,54 +278,8 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_batch_of_payables_params(
-        mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    ArbitraryIdStamp,
-                    Recipient<PendingPayableFingerprintSeeds>,
-                    Vec<PayableAccount>,
-                )>,
-            >,
-        >,
-    ) -> Self {
-        self.send_batch_of_payables_params = params.clone();
-        self
-    }
-
-    pub fn send_batch_of_payables_result(
-        self,
-        result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
-    ) -> Self {
-        self.send_batch_of_payables_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
     pub fn get_chain_result(self, result: Chain) -> Self {
         self.get_chain_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn get_batch_web3_result(self, result: Web3<Batch<Http>>) -> Self {
-        self.get_batch_web3_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn get_transaction_receipt_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
-        self.get_transaction_receipt_params = params.clone();
-        self
-    }
-
-    pub fn get_transaction_receipt_result(
-        self,
-        result: Result<Option<TransactionReceipt>, BlockchainError>,
-    ) -> Self {
-        self.get_transaction_receipt_results
-            .borrow_mut()
-            .push(result);
         self
     }
 

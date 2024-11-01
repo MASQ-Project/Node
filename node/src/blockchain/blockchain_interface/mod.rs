@@ -21,6 +21,9 @@ pub trait BlockchainInterface {
 
     fn get_chain(&self) -> Chain;
 
+    // Initially this lower_interface wasn't wrapped with a box, but under the card GH-744 this design was used to solve lifetime issues
+    // with the futures.
+    // The downside to this method is we cant store persistent values, instead its being initialised where ever it being used.
     fn lower_interface(&self) -> Box<dyn LowBlockchainInt>;
 
     fn retrieve_transactions(
