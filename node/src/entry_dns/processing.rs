@@ -120,10 +120,8 @@ fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logge
                 query_list += ", "
             }
             let query_class = query.get_query_class();
-            let class_string = match DNSClass::from_u16(query_class) {
-                Ok(c) => <&'static str>::from(c),
-                Err(_) => UNKNOWN,
-            };
+            let dns_class: DNSClass = query_class.into();
+            let class_string = format!("{}", dns_class);
             let _ = write!(
                 query_list,
                 "{}/{}/{}",

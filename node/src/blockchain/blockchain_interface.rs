@@ -22,10 +22,7 @@ use thousands::Separable;
 use variant_count::VariantCount;
 use web3::contract::{Contract};
 use web3::transports::{Batch, Http};
-use web3::types::{
-    Address, Bytes, SignedTransaction, TransactionParameters,
-    TransactionReceipt, H160, H256, U256,
-};
+use web3::types::{Address, Bytes, FilterBuilder, SignedTransaction, TransactionParameters, TransactionReceipt, H160, H256, U256};
 use web3::{BatchTransport, Error, Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
@@ -303,84 +300,84 @@ where
         start_block: u64,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        todo!()
-        // debug!(
-        //     self.logger,
-        //     "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
-        //     start_block,
-        //     recipient,
-        //     self.chain.rec().num_chain_id,
-        //     self.contract_address()
-        // );
-        // let filter = FilterBuilder::default()
-        //     .address(vec![self.contract_address()])
-        //     .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
-        //     .to_block(BlockNumber::Latest)
-        //     .topics(
-        //         Some(vec![TRANSACTION_LITERAL]),
-        //         None,
-        //         Some(vec![recipient.address().into()]),
-        //         None,
-        //     )
-        //     .build();
-        //
-        // let log_request = self.web3.eth().logs(filter);
-        // let logger = self.logger.clone();
-        // log_request
-        //     .then(|logs| {
-        //         debug!(logger, "Transaction retrieval completed: {:?}", logs);
-        //         future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
-        //             Ok(logs) => {
-        //                 if logs
-        //                     .iter()
-        //                     .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
-        //                 {
-        //                     warning!(
-        //                         logger,
-        //                         "Invalid response from blockchain server: {:?}",
-        //                         logs
-        //                     );
-        //                     Err(BlockchainError::InvalidResponse)
-        //                 } else {
-        //                     let transactions: Vec<BlockchainTransaction> = logs
-        //                         .iter()
-        //                         .filter_map(|log: &Log| match log.block_number {
-        //                             Some(block_number) => {
-        //                                 let amount: U256 = U256::from(log.data.0.as_slice());
-        //                                 let wei_amount_result = u128::try_from(amount);
-        //                                 wei_amount_result.ok().map(|wei_amount| {
-        //                                     BlockchainTransaction {
-        //                                         block_number: u64::try_from(block_number)
-        //                                             .expect("Internal Error"),
-        //                                         from: Wallet::from(log.topics[1]),
-        //                                         wei_amount,
-        //                                     }
-        //                                 })
-        //                             }
-        //                             None => None,
-        //                         })
-        //                         .collect();
-        //                     debug!(logger, "Retrieved transactions: {:?}", transactions);
-        //                     // Get the largest transaction block number, unless there are no
-        //                     // transactions, in which case use start_block.
-        //                     let last_transaction_block =
-        //                         transactions.iter().fold(start_block, |so_far, elem| {
-        //                             if elem.block_number > so_far {
-        //                                 elem.block_number
-        //                             } else {
-        //                                 so_far
-        //                             }
-        //                         });
-        //                     Ok(RetrievedBlockchainTransactions {
-        //                         new_start_block: last_transaction_block + 1,
-        //                         transactions,
-        //                     })
-        //                 }
-        //             }
-        //             Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
-        //         })
-        //     })
-        //     .wait()
+        todo!();
+        debug!(
+            self.logger,
+            "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
+            start_block,
+            recipient,
+            self.chain.rec().num_chain_id,
+            self.contract_address()
+        );
+        let filter = FilterBuilder::default()
+            .address(vec![self.contract_address()])
+            .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
+            .to_block(BlockNumber::Latest)
+            .topics(
+                Some(vec![TRANSACTION_LITERAL]),
+                None,
+                Some(vec![recipient.address().into()]),
+                None,
+            )
+            .build();
+
+        let log_request = self.web3.eth().logs(filter);
+        let logger = self.logger.clone();
+        log_request
+            .then(|logs| {
+                debug!(logger, "Transaction retrieval completed: {:?}", logs);
+                future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
+                    Ok(logs) => {
+                        if logs
+                            .iter()
+                            .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
+                        {
+                            warning!(
+                                logger,
+                                "Invalid response from blockchain server: {:?}",
+                                logs
+                            );
+                            Err(BlockchainError::InvalidResponse)
+                        } else {
+                            let transactions: Vec<BlockchainTransaction> = logs
+                                .iter()
+                                .filter_map(|log: &Log| match log.block_number {
+                                    Some(block_number) => {
+                                        let amount: U256 = U256::from(log.data.0.as_slice());
+                                        let wei_amount_result = u128::try_from(amount);
+                                        wei_amount_result.ok().map(|wei_amount| {
+                                            BlockchainTransaction {
+                                                block_number: u64::try_from(block_number)
+                                                    .expect("Internal Error"),
+                                                from: Wallet::from(log.topics[1]),
+                                                wei_amount,
+                                            }
+                                        })
+                                    }
+                                    None => None,
+                                })
+                                .collect();
+                            debug!(logger, "Retrieved transactions: {:?}", transactions);
+                            // Get the largest transaction block number, unless there are no
+                            // transactions, in which case use start_block.
+                            let last_transaction_block =
+                                transactions.iter().fold(start_block, |so_far, elem| {
+                                    if elem.block_number > so_far {
+                                        elem.block_number
+                                    } else {
+                                        so_far
+                                    }
+                                });
+                            Ok(RetrievedBlockchainTransactions {
+                                new_start_block: last_transaction_block + 1,
+                                transactions,
+                            })
+                        }
+                    }
+                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
+                })
+            })
+            .wait()
     }
 
     fn send_payables_within_batch(

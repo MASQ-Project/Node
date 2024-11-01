@@ -239,7 +239,7 @@ impl Runner for RunnerReal {
         let system = System::new();
         let mut server_initializer = self.server_initializer_factory.make();
         server_initializer.go(streams, args)?;
-        let _ = task::spawn(async {
+        let _ = task::spawn(async move {
             // There's only one .join_next() here because there's only ever one future in the JoinSet.
             let result = server_initializer.spawn_futures().join_next().await;
             match result.expect("There should have been exactly one future in this JoinSet") {

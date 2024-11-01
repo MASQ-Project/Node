@@ -53,7 +53,7 @@ impl StreamConnector for StreamConnectorReal {
             async {
                 let connect_result = TcpStream::connect(&socket_addr).await;
                 match connect_result {
-                    Ok(mut stream) => {
+                    Ok(stream) => {
                         let local_addr = stream.local_addr().unwrap_or_else(|e| {
                             panic!(
                                 "Newly-connected stream to {} has no local_addr: {:?}",
@@ -85,10 +85,7 @@ impl StreamConnector for StreamConnectorReal {
                 }
             },
         );
-        match timeout_result.await {
-            Ok(connectionInfoResult) => connectionInfoResult,
-            Err(_) => io::Error::from(ErrorKind::TimedOut),
-        }
+        timeout_result.await.unwrap_or_else(|_| Err(io::Error::from(ErrorKind::TimedOut)))
     }
 
     fn connect_one(
@@ -148,6 +145,10 @@ impl StreamConnector for StreamConnectorReal {
             local_addr,
             peer_addr,
         })
+    }
+
+    fn dup(&self) -> Box<dyn StreamConnector> {
+        Box::new(StreamConnectorReal {})
     }
 }
 

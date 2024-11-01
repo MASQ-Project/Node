@@ -16,7 +16,21 @@ pub struct StreamWriterUnsorted {
 }
 
 impl StreamWriterUnsorted {
-    pub fn new(
+    pub fn spawn(
+        stream: Box<dyn WriteHalfWrapper>,
+        peer_addr: SocketAddr,
+        rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
+    ) {
+        let writer = Self::new(
+            stream,
+            peer_addr,
+            rx_to_write,
+        );
+        let future = writer.go();
+        tokio::spawn(future);
+    }
+
+    fn new(
         stream: Box<dyn WriteHalfWrapper>,
         peer_addr: SocketAddr,
         rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
@@ -31,7 +45,7 @@ impl StreamWriterUnsorted {
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn go(mut self) {
         loop {
             match self.buf.take() {
                 None => {
@@ -135,7 +149,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        subject.run().await;
+        subject.go().await;
 
         TestLogHandler::new().exists_log_containing(
             // This is a guess.
@@ -167,7 +181,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        subject.run().await;
+        subject.go().await;
 
         TestLogHandler::new().exists_log_containing(
             "WARN: StreamWriter for 1.2.3.4:5678: Continuing after write error: other error",
@@ -201,7 +215,7 @@ mod tests {
 
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        let result = subject.run().await;
+        let result = subject.go().await;
 
         let mut params = write_params.lock().unwrap();
         assert_eq!(params.len(), 2);
@@ -236,7 +250,7 @@ mod tests {
 
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        let result = subject.run().await;
+        let result = subject.go().await;
 
         let mut params = write_params.lock().unwrap();
         assert_eq!(params.len(), 3);
@@ -263,7 +277,7 @@ mod tests {
 
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        let result = subject.run().await;
+        let result = subject.go().await;
 
         // Future completed; test passes
     }
@@ -279,7 +293,7 @@ mod tests {
 
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        subject.run().await;
+        subject.go().await;
     }
 
     #[tokio::test]
@@ -303,7 +317,7 @@ mod tests {
 
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        subject.run().await;
+        subject.go().await;
 
         assert_eq!(write_params.lock().unwrap().len(), 2);
     }
@@ -331,7 +345,7 @@ mod tests {
 
         let mut subject = StreamWriterUnsorted::new(Box::new(writer), peer_addr, rx);
 
-        subject.run().await;
+        subject.go().await;
 
         assert_eq!(write_params.lock().unwrap().len(), 3);
         assert_eq!(

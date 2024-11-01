@@ -566,11 +566,8 @@ pub mod unshared_test_utils {
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
-    use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
-    // #[cfg(not(feature = "no_test_share"))]
-    use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::any::TypeId;
@@ -582,6 +579,7 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
+    use clap::ArgMatches;
 
     #[derive(Message)]
     #[rtype(result = "()")]
@@ -646,7 +644,7 @@ pub mod unshared_test_utils {
         let mut app_args = vec!["MASQNode".to_string()];
         app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
         let arg_matches = app_node().get_matches_from(app_args);
-        MultiConfig::new_test_only(arg_matches)
+        MultiConfig::from(arg_matches)
     }
 
     pub const ZERO: u32 = 0b0;
@@ -978,13 +976,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-
+    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
-    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::{
-        ArbitraryIdStamp, FirstTraitMock, SecondTraitMock, TestSubject,
-    };
 
     use super::*;
 
@@ -1125,31 +1120,5 @@ mod tests {
         waiter.wait();
 
         // no panic; test passes
-    }
-
-    #[test]
-    fn demonstration_of_the_use_of_arbitrary_id_stamp() {
-        let method_with_trait_obj_arg_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = TestSubject::new();
-        let doer_mock = SecondTraitMock::default()
-            .method_with_trait_obj_arg_params(&method_with_trait_obj_arg_params_arc)
-            .method_with_trait_obj_arg_result(123);
-        subject.some_doer = Box::new(doer_mock);
-        let arbitrary_id = ArbitraryIdStamp::new();
-        let outer_parameter = FirstTraitMock::default().set_arbitrary_id_stamp(arbitrary_id);
-
-        let result = subject.tested_function(&outer_parameter);
-
-        assert_eq!(result, 123);
-        let method_with_trait_obj_arg_params = method_with_trait_obj_arg_params_arc.lock().unwrap();
-        // This assertion proves that the same trait object as which we supplied at the beginning interacted with the method
-        // 'method_with_trait_obj_arg_result' inside 'tested_function'
-        assert_eq!(*method_with_trait_obj_arg_params, vec![arbitrary_id])
-
-        // Remarkable notes:
-        // Arbitrary IDs are most helpful in black-box testing where the only assertions that can
-        // be made involve verifying that an object that comes out of the black box at some point is
-        // exactly the same object that went into the black box at some other point, when the object
-        // itself does not otherwise provide enough identifying information to make the assertion.
     }
 }

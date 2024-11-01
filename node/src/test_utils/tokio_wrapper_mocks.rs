@@ -5,20 +5,24 @@ use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 // TODO: This would probably be more profitable as an enum with three values.
-type PollReadResult = (Vec<u8>, Poll<io::Result<usize>>);
+type PollReadResult = (Vec<u8>, Poll<io::Result<()>>);
 
 #[derive(Default)]
 pub struct ReadHalfWrapperMock {
     pub poll_read_results: Vec<PollReadResult>,
 }
 
-impl ReadHalfWrapper for ReadHalfWrapperMock {}
+impl ReadHalfWrapper for ReadHalfWrapperMock {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<()>> {
+        AsyncRead::poll_read(self, cx, &mut ReadBuf::new(buf))
+    }
+}
 
 impl Read for ReadHalfWrapperMock {
     fn read(&mut self, _buf: &mut [u8]) -> Result<usize, io::Error> {
@@ -29,17 +33,17 @@ impl Read for ReadHalfWrapperMock {
 impl AsyncRead for ReadHalfWrapperMock {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        _cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<usize>> {
-        let (data, read_result) = self.poll_read_results.remove(0);
+    ) -> Poll<io::Result<()>> {
+        let (data, read_result) = self.get_mut().poll_read_results.remove(0);
         match read_result {
-            Poll::Ready(Ok(_)) => {
+            Poll::Ready(Ok(())) => {
                 buf.put_slice(&data);
-                read_result
             },
-            x => x
+            _ => {},
         }
+        read_result
     }
 }
 
@@ -51,25 +55,20 @@ impl ReadHalfWrapperMock {
     pub fn poll_read_result(
         mut self,
         data: Vec<u8>,
-        result: Poll<io::Result<usize>>,
+        result: Poll<io::Result<()>>,
     ) -> ReadHalfWrapperMock {
-        if let Poll::Ready(Ok(len)) = result {
-            if data.len() != len {
-                panic!("ReadHalfWrapperMock: provided result expects {} bytes, but {} bytes were provided", len, data.len())
-            }
-        }
         self.poll_read_results.push((data, result));
         self
     }
 
     pub fn poll_read_ok(self, data: Vec<u8>) -> ReadHalfWrapperMock {
-        self.poll_read_result(data.clone(), Poll::Ready(Ok(data.len())))
+        self.poll_read_result(data.clone(), Poll::Ready(Ok(())))
     }
 
     pub fn poll_read_final(self, data: Vec<u8>) -> ReadHalfWrapperMock {
         self
-            .poll_read_result(data.clone(), Poll::Ready(Ok(data.len())))
-            .poll_read_result(vec![], Poll::Ready(Ok(0)))
+            .poll_read_result(data.clone(), Poll::Ready(Ok(())))
+            .poll_read_result(vec![], Poll::Ready(Ok(())))
     }
 }
 
@@ -97,21 +96,21 @@ impl Write for WriteHalfWrapperMock {
 impl AsyncWrite for WriteHalfWrapperMock {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         self.poll_write_params.lock().unwrap().push(buf.to_vec());
         if self.poll_write_results.is_empty() {
             panic!("WriteHalfWrapperMock: poll_write_results is empty")
         }
-        self.poll_write_results.remove(0)
+        pin!(self).poll_write_results.remove(0)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         unimplemented!("Not needed")
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.poll_close_results.lock().unwrap().is_empty() {
             panic!("WriteHalfWrapperMock: poll_close_results is empty")
         }

@@ -186,6 +186,7 @@ impl SequenceBuffer {
         }
     }
 
+    // TODO: Rename this to something like "read" or "next_in_sequence" or something other than "poll."
     pub fn poll(&mut self) -> Option<SequencedPacket> {
         if self.buffer.is_empty() {
             None

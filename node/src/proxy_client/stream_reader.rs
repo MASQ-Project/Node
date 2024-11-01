@@ -33,7 +33,7 @@ impl Future for StreamReader {
         let mut read_buf = ReadBuf::new(&mut buf);
         loop {
             let prev_buf_len = read_buf.filled().len();
-            match self.stream.poll_read(cx, &mut read_buf) {
+            match self.stream.as_mut().poll_read(cx, &mut read_buf) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Ok(_)) => {
                     let len = read_buf.filled().len() - prev_buf_len;
@@ -124,7 +124,8 @@ impl StreamReader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use futures::Future;
+use super::*;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;

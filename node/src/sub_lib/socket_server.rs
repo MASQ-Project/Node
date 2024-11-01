@@ -3,7 +3,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 
-pub trait ConfiguredByPrivilege {
+pub trait ConfiguredByPrivilege: Send {
     fn initialize_as_privileged(
         &mut self,
         multi_config: &MultiConfig,

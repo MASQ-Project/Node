@@ -26,6 +26,12 @@ impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperReal<T> {
     }
 }
 
+impl<T: Send> ReceiverWrapperReal<T> {
+    pub fn new(delegate: UnboundedReceiver<T>) -> Self<T> {
+        Self { delegate }
+    }
+}
+
 pub trait SenderWrapper<T>: Debug + Send {
     fn send(&self, data: T) -> Result<(), SendError<T>>;
     fn peer_addr(&self) -> SocketAddr;

@@ -51,6 +51,12 @@ pub struct MultiConfig {
     arg_matches: ArgMatches,
 }
 
+impl From<ArgMatches> for MultiConfig {
+    fn from(matches: ArgMatches) -> Self {
+        MultiConfig{arg_matches: matches}
+    }
+}
+
 impl MultiConfig {
     /// Create a new MultiConfig that can be passed into the value_m! and values_m! macros, containing
     /// several VirtualCommandLine objects in increasing priority order. That is, values found in

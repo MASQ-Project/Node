@@ -222,4 +222,30 @@ mod example {
             num
         }
     }
+
+    #[test]
+    fn demonstration_of_the_use_of_arbitrary_id_stamp() {
+        let method_with_trait_obj_arg_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = TestSubject::new();
+        let doer_mock = SecondTraitMock::default()
+            .method_with_trait_obj_arg_params(&method_with_trait_obj_arg_params_arc)
+            .method_with_trait_obj_arg_result(123);
+        subject.some_doer = Box::new(doer_mock);
+        let arbitrary_id = ArbitraryIdStamp::new();
+        let outer_parameter = FirstTraitMock::default().set_arbitrary_id_stamp(arbitrary_id);
+
+        let result = subject.tested_function(&outer_parameter);
+
+        assert_eq!(result, 123);
+        let method_with_trait_obj_arg_params = method_with_trait_obj_arg_params_arc.lock().unwrap();
+        // This assertion proves that the same trait object as which we supplied at the beginning interacted with the method
+        // 'method_with_trait_obj_arg_result' inside 'tested_function'
+        assert_eq!(*method_with_trait_obj_arg_params, vec![arbitrary_id])
+
+        // Remarkable notes:
+        // Arbitrary IDs are most helpful in black-box testing where the only assertions that can
+        // be made involve verifying that an object that comes out of the black box at some point is
+        // exactly the same object that went into the black box at some other point, when the object
+        // itself does not otherwise provide enough identifying information to make the assertion.
+    }
 }

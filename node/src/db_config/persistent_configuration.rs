@@ -1,7 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
-use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -15,8 +13,6 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
-#[cfg(test)]
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;

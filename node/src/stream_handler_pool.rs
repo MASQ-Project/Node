@@ -284,10 +284,9 @@ impl StreamHandlerPool {
             .insert(StreamWriterKey::from(peer_addr), Some(tx));
 
         if is_clandestine {
-            let stream_writer = StreamWriterUnsorted::new(write_stream, peer_addr, rx);
-            tokio::spawn(stream_writer.run());
+            StreamWriterUnsorted::spawn(write_stream, peer_addr, rx);
         } else {
-            tokio::spawn(StreamWriterSorted::new(write_stream, peer_addr, rx));
+            StreamWriterSorted::spawn(write_stream, peer_addr, rx);
         };
     }
 
@@ -2109,7 +2108,7 @@ mod tests {
     #[test]
     fn stream_handler_pool_drops_data_when_masking_fails() {
         init_test_logging();
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Poll::Ready(Ok(0)));
+        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Poll::Ready(Ok(())));
         let writer = WriteHalfWrapperMock::new().poll_write_result(Poll::Pending);
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();

@@ -349,11 +349,11 @@ fn convert_ci_configs(
             if separate_configs.is_empty() {
                 Ok(None)
             } else {
-                let desired_chain = Chain::from(
+                let desired_chain = Chain::from_str(
                     value_m!(multi_config, "chain", String)
                         .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
                         .as_str(),
-                );
+                ).expect("Invalid chain name");
                 let cryptde_for_key_len: Box<dyn CryptDE> = {
                     if value_m!(multi_config, "fake-public-key", String).is_none() {
                         Box::new(CryptDEReal::new(desired_chain))

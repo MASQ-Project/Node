@@ -74,7 +74,7 @@ pub trait DumpConfigRunner {
 
 pub trait ServerInitializer: Send {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    fn spawn_futures(self) -> JoinSet<()>;
+    fn spawn_futures(&mut self) -> JoinSet<()>;
     declare_as_any!();
 }
 

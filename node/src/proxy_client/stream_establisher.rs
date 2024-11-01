@@ -72,7 +72,7 @@ impl StreamEstablisher {
         tokio::spawn(stream_writer);
 
         self.stream_adder_tx
-            .send((payload.stream_key, tx_to_write.clone()))
+            .send((payload.stream_key, tx_to_write.dup()))
             .expect("StreamHandlerPool died");
         Ok(tx_to_write)
     }
@@ -154,7 +154,7 @@ mod tests {
         });
 
         let (ibsd_tx, ibsd_rx) = unbounded();
-        let test_future = async {
+        let test_future = async move {
             let proxy_client_sub = sub_rx.recv().unwrap();
 
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
@@ -162,7 +162,7 @@ mod tests {
             let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             let bytes = b"I'm a stream establisher test not a framer test";
             read_stream.poll_read_results = vec![
-                (bytes.to_vec(), Poll::Ready(Ok(bytes.len()))),
+                (bytes.to_vec(), Poll::Ready(Ok(()))),
                 (
                     vec![],
                     Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe))),
@@ -201,7 +201,6 @@ mod tests {
                 .get_record::<InboundServerData>(0)
                 .clone();
             ibsd_tx.send(record).unwrap();
-            return Ok(());
         };
 
         task::spawn(test_future);

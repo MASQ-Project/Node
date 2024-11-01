@@ -122,7 +122,7 @@ impl CryptDE for CryptDEReal {
     fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
         let data_to_sign = [data.as_slice(), &self.pre_shared_data[..]].concat();
         Ok(CryptData::new(
-            &signing::sign_detached(data_to_sign.as_slice(), &self.signing_secret_key).0,
+            &signing::sign_detached(data_to_sign.as_slice(), &self.signing_secret_key).to_bytes(),
         ))
     }
 
@@ -139,11 +139,11 @@ impl CryptDE for CryptDEReal {
         signature_data.copy_from_slice(signature.as_slice());
         let data_to_verify = [data.as_slice(), &self.pre_shared_data[..]].concat();
         let signature = match Signature::from_bytes(&signature_data) {
-            None => {
+            Err(e) => {
                 todo! ("Signature came in from outside. Not allowed to panic. Drive in an error log here");
                 return false
             },
-            Some(signature) => signature,
+            Ok(signature) => signature,
         };
         signing::verify_detached(
             &signature,

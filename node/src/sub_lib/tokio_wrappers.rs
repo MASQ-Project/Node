@@ -18,7 +18,7 @@ pub trait TokioListenerWrapper: Send {
 }
 
 pub trait ReadHalfWrapper: Send + AsyncRead + Unpin {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>>;
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<()>>;
 }
 
 pub trait WriteHalfWrapper: Send + AsyncWrite + Unpin {}

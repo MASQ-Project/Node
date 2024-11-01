@@ -67,7 +67,7 @@ impl ServerInitializer for ServerInitializerReal {
     // any future-oriented behavior in the bootstrapper; so we took it out. That leaves a single-
     // element JoinSet, which is kind of silly. However, we want to delay the rearchitecture of
     // ServerInitializer until after we have passing tests. So, for now, we're leaving this as is.
-    fn spawn_futures(self) -> JoinSet<io::Result<()>> {
+    fn spawn_futures(&mut self) -> JoinSet<io::Result<()>> {
         let mut join_set = JoinSet::new();
         let _ = join_set.spawn(self.dns_socket_server.make_server_future());
         join_set
@@ -160,7 +160,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         if let Some(discriminant) = discriminant_opt {
             file_spec = file_spec.discriminant(discriminant);
         }
-        let mut logger = Logger::with(
+        let logger = Logger::with(
             LogSpecBuilder::new()
                 .default(log_level)
                 .module("tokio", LevelFilter::Off)
