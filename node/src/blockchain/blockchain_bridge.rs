@@ -730,7 +730,7 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .agreed_fee_per_computation_unit(),
-            10
+            9395240960
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual
@@ -742,7 +742,7 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .estimated_transaction_fee_total(1),
-            733280
+            688_934_229_114_880
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,

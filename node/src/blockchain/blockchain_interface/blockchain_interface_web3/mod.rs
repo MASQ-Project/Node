@@ -56,7 +56,7 @@ restart the Node with a value for blockchain-service-url";
 pub struct BlockchainInterfaceWeb3 {
     pub logger: Logger,
     chain: Chain,
-    gas_limit_const_part: u64,
+    gas_limit_const_part: u128,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     transport: Http,
@@ -224,7 +224,7 @@ impl BlockchainInterfaceWeb3 {
         }
     }
 
-    pub fn web3_gas_limit_const_part(chain: Chain) -> u64 {
+    pub fn web3_gas_limit_const_part(chain: Chain) -> u128 {
         match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
             Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
@@ -696,7 +696,7 @@ mod tests {
         let expected_transaction_fee_balance = U256::from(65_520);
         let expected_masq_balance = U256::from(65_535);
         let expected_transaction_id = U256::from(35);
-        let expected_gas_price_gwei = 2;
+        let expected_gas_price_wei = 1_000_000_000;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(result.pending_transaction_id(), expected_transaction_id);
         assert_eq!(
@@ -708,12 +708,12 @@ mod tests {
         );
         assert_eq!(
             result.agreed_fee_per_computation_unit(),
-            expected_gas_price_gwei
+            expected_gas_price_wei
         );
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
                 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
-            * expected_gas_price_gwei) as u128;
+            * expected_gas_price_wei) as u128;
         assert_eq!(
             result.estimated_transaction_fee_total(3),
             expected_fee_estimation

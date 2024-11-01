@@ -164,13 +164,12 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                     get_gas_price
                         .map_err(PayableTransactionError::GasPriceQueryFailed)
                         .and_then(move |gas_price_wei| {
-                            let gas_price = convert_wei_to_gwei(gas_price_wei);
                             send_payables_within_batch(
                                 logger,
                                 chain,
                                 web3_batch,
                                 consuming_wallet,
-                                gas_price,
+                                gas_price_wei,
                                 pending_nonce,
                                 fingerprints_recipient,
                                 affordable_accounts,

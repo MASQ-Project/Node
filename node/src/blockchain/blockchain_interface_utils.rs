@@ -89,7 +89,7 @@ pub fn merged_output_data(
         .collect()
 }
 
-pub fn transmission_log(chain: Chain, accounts: &[PayableAccount], gas_price: u64) -> String {
+pub fn transmission_log(chain: Chain, accounts: &[PayableAccount], gas_price_in_wei: u128) -> String {
     let chain_name = chain
         .rec()
         .literal_identifier
@@ -102,11 +102,11 @@ pub fn transmission_log(chain: Chain, accounts: &[PayableAccount], gas_price: u6
         Paying to creditors...\n\
         Transactions in the batch:\n\
         \n\
-        gas price:                                   {} gwei\n\
+        gas price:                                   {} wei\n\
         chain:                                       {}\n\
         \n\
         [wallet address]                             [payment in wei]\n",
-        gas_price, chain_name
+        gas_price_in_wei, chain_name
     ));
     let body = accounts.iter().map(|account| {
         format!(
@@ -141,11 +141,10 @@ pub fn sign_transaction(
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
-    gas_price_in_gwei: u64,
+    gas_price_in_wei: U256,
 ) -> SignedTransaction {
     let data = sign_transaction_data(amount, recipient_wallet);
     let gas_limit = gas_limit(data, chain);
-    let gas_price_in_wei = to_wei(gas_price_in_gwei);
     // Warning: If you set gas_price or nonce to None in transaction_parameters, sign_transaction will start making RPC calls which we don't want (Do it at your own risk).
     let transaction_parameters = TransactionParameters {
         nonce: Some(nonce),
@@ -190,7 +189,7 @@ pub fn sign_and_append_payment(
     consuming_wallet: Wallet,
     amount: u128,
     nonce: U256,
-    gas_price: u64,
+    gas_price_in_wei: U256,
 ) -> H256 {
     let signed_tx = sign_transaction(
         chain,
@@ -199,7 +198,7 @@ pub fn sign_and_append_payment(
         consuming_wallet,
         amount,
         nonce,
-        gas_price,
+        gas_price_in_wei,
     );
     append_signed_transaction_to_batch(web3_batch, signed_tx.raw_transaction);
     signed_tx.transaction_hash
@@ -215,7 +214,7 @@ pub fn handle_new_transaction(
     web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     nonce: U256,
-    gas_price: u64,
+    gas_price_in_wei: U256,
     account: PayableAccount,
 ) -> HashAndAmount {
     let hash = sign_and_append_payment(
@@ -225,7 +224,7 @@ pub fn handle_new_transaction(
         consuming_wallet,
         account.balance_wei,
         nonce,
-        gas_price,
+        gas_price_in_wei,
     );
     HashAndAmount {
         hash,
@@ -238,7 +237,7 @@ pub fn sign_and_append_multiple_payments(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
-    gas_price: u64,
+    gas_price_in_wei: U256,
     mut pending_nonce: U256,
     accounts: Vec<PayableAccount>,
 ) -> Vec<HashAndAmount> {
@@ -257,7 +256,7 @@ pub fn sign_and_append_multiple_payments(
             web3_batch.clone(),
             consuming_wallet.clone(),
             pending_nonce,
-            gas_price,
+            gas_price_in_wei,
             payable,
         );
 
@@ -276,7 +275,7 @@ pub fn send_payables_within_batch(
     chain: Chain,
     web3_batch: Web3<Batch<Http>>,
     consuming_wallet: Wallet,
-    gas_price_in_gwei: u64,
+    gas_price_in_wei: U256,
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: Vec<PayableAccount>,
@@ -288,7 +287,7 @@ pub fn send_payables_within_batch(
             consuming_wallet,
             chain.rec().contract,
             chain.rec().num_chain_id,
-            gas_price_in_gwei
+            gas_price_in_wei
         );
 
     let hashes_and_paid_amounts = sign_and_append_multiple_payments(
@@ -296,7 +295,7 @@ pub fn send_payables_within_batch(
         chain,
         web3_batch.clone(),
         consuming_wallet,
-        gas_price_in_gwei,
+        gas_price_in_wei,
         pending_nonce,
         accounts.clone(),
     );
@@ -316,7 +315,7 @@ pub fn send_payables_within_batch(
     info!(
         logger,
         "{}",
-        transmission_log(chain, &accounts, gas_price_in_gwei)
+        transmission_log(chain, &accounts, gas_price_in_wei.as_u128())
     );
 
     return Box::new(
@@ -344,17 +343,17 @@ pub fn calculate_fallback_start_block_number(start_block_number: u64, max_block_
 }
 
 pub fn convert_wei_to_gwei(wei: U256) -> u64 {
-    (wei / U256::from(GWEI_UNIT)).as_u64() + 1
+    (wei / U256::from(GWEI_UNIT)).as_u64()
 }
 
 // TODO: GH-744: This function could be part of the trait BlockchainAgent (so gas_limit_const_part can go away)
 pub fn create_blockchain_agent_web3(
-    gas_limit_const_part: u64,
+    gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
 ) -> Box<dyn BlockchainAgent> {
     Box::new(BlockchainAgentWeb3::new(
-        convert_wei_to_gwei(blockchain_agent_future_result.gas_price_wei),
+        blockchain_agent_future_result.gas_price_wei.as_u128(),
         gas_limit_const_part,
         wallet,
         ConsumingWalletBalances {
@@ -448,7 +447,7 @@ mod tests {
             consuming_wallet,
             account.balance_wei,
             pending_nonce.into(),
-            gas_price,
+            U256::from(gas_price * 1_000_000_000),
         );
 
         append_signed_transaction_to_batch(web3_batch.clone(), signed_transaction.raw_transaction);
@@ -494,7 +493,7 @@ mod tests {
             consuming_wallet,
             account.balance_wei,
             pending_nonce.into(),
-            gas_price,
+            U256::from(gas_price * 1_000_000_000),
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
@@ -534,7 +533,7 @@ mod tests {
             web3_batch,
             consuming_wallet,
             pending_nonce.into(),
-            gas_price,
+            U256::from(gas_price * 1_000_000_000),
             account,
         );
 
@@ -571,7 +570,7 @@ mod tests {
             chain,
             web3_batch,
             consuming_wallet,
-            gas_price,
+            U256::from(gas_price * 1_000_000_000),
             pending_nonce.into(),
             accounts,
         );
@@ -723,7 +722,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1u64;
+        let gas_price = U256::from(1_000_000_000);
         let pending_nonce: U256 = 1.into();
         let new_fingerprints_recipient = accountant.start().recipient();
         let accounts_1 = make_payable_account(1);
@@ -803,7 +802,7 @@ mod tests {
         );
         tlh.exists_log_containing(&format!(
             "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
+            transmission_log(chain, &accounts, gas_price.as_u128())
         ));
     }
 
@@ -824,7 +823,7 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let gas_price = 123;
+        let gas_price = U256::from(123_000_000_000u64);
         let nonce = U256::from(1);
         let os_code = transport_error_code();
         let os_msg = transport_error_message();
@@ -874,7 +873,7 @@ mod tests {
         .unwrap();
         let recipient_wallet = make_wallet("unlucky man");
         let consuming_wallet = make_wallet("bad_wallet");
-        let gas_price = 123;
+        let gas_price = U256::from(123_000_000_000u64);
         let nonce = U256::from(1);
 
         sign_transaction(
@@ -920,7 +919,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1u64;
+        let gas_price = U256::from(1_000_000_000);
         let pending_nonce: U256 = 1.into();
         let new_fingerprints_recipient = accountant.start().recipient();
         let accounts_1 = make_payable_account(1);
@@ -998,7 +997,7 @@ mod tests {
         );
         tlh.exists_log_containing(&format!(
             "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
+            transmission_log(chain, &accounts, gas_price.as_u128())
         ));
     }
 
@@ -1028,7 +1027,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1u64;
+        let gas_price = U256::from(1_000_000_000);
         let pending_nonce: U256 = 1.into();
         let new_fingerprints_recipient = accountant.start().recipient();
         let accounts_1 = make_payable_account(1);
@@ -1107,7 +1106,7 @@ mod tests {
         );
         tlh.exists_log_containing(&format!(
             "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
+            transmission_log(chain, &accounts, gas_price.as_u128())
         ));
     }
 
@@ -1122,7 +1121,7 @@ mod tests {
         let web3 = Web3::new(transport.clone());
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
-        let gas_price_in_gwei = 123000000000_u64;
+        let gas_price_in_wei = U256::from(123_000_000_000_000_000_000u128);
         let nonce = U256::from(5);
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
@@ -1132,7 +1131,7 @@ mod tests {
             nonce: Some(nonce),
             to: Some(chain.rec().contract),
             gas: gas_limit(data, chain),
-            gas_price: Some(to_wei(gas_price_in_gwei)),
+            gas_price: Some(gas_price_in_wei),
             value: U256::zero(),
             data: Bytes(data.to_vec()),
             chain_id: Some(chain.rec().num_chain_id),
@@ -1144,7 +1143,7 @@ mod tests {
             consuming_wallet,
             amount,
             nonce,
-            gas_price_in_gwei,
+            gas_price_in_wei,
         );
 
         let expected_tx_result = web3
@@ -1328,7 +1327,7 @@ mod tests {
             consuming_wallet,
             payable_account.balance_wei,
             nonce_correct_type,
-            gas_price,
+            U256::from(gas_price * 1_000_000_000),
         );
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;

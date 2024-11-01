@@ -13,7 +13,7 @@ use std::cell::RefCell;
 #[derive(Default)]
 pub struct BlockchainAgentMock {
     consuming_wallet_balances_results: RefCell<Vec<ConsumingWalletBalances>>,
-    agreed_fee_per_computation_unit_results: RefCell<Vec<u64>>,
+    agreed_fee_per_computation_unit_results: RefCell<Vec<u128>>,
     consuming_wallet_result_opt: Option<Wallet>,
     pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
@@ -28,7 +28,7 @@ impl BlockchainAgent for BlockchainAgentMock {
         todo!("to be implemented by GH-711")
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
+    fn agreed_fee_per_computation_unit(&self) -> u128 {
         self.agreed_fee_per_computation_unit_results
             .borrow_mut()
             .remove(0)
@@ -57,7 +57,7 @@ impl BlockchainAgentMock {
         self
     }
 
-    pub fn agreed_fee_per_computation_unit_result(self, result: u64) -> Self {
+    pub fn agreed_fee_per_computation_unit_result(self, result: u128) -> Self {
         self.agreed_fee_per_computation_unit_results
             .borrow_mut()
             .push(result);

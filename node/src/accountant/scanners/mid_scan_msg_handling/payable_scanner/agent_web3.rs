@@ -7,18 +7,18 @@ use web3::types::U256;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
-    gas_price_gwei: u64,
-    gas_limit_const_part: u64,
-    maximum_added_gas_margin: u64,
+    gas_price_wei: u128,
+    gas_limit_const_part: u128,
+    maximum_added_gas_margin: u128,
     consuming_wallet: Wallet,
     consuming_wallet_balances: ConsumingWalletBalances,
-    pending_transaction_id: U256,
+    pending_transaction_id: U256, // TODO: GH-744: This should be changed from U256 to something more generic
 }
 
 impl BlockchainAgent for BlockchainAgentWeb3 {
     fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
-        let gas_price = self.gas_price_gwei as u128;
-        let max_gas_limit = (self.maximum_added_gas_margin + self.gas_limit_const_part) as u128;
+        let gas_price = self.gas_price_wei;
+        let max_gas_limit = (self.maximum_added_gas_margin + self.gas_limit_const_part);
         number_of_transactions as u128 * gas_price * max_gas_limit
     }
 
@@ -26,8 +26,8 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
         self.consuming_wallet_balances
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
-        self.gas_price_gwei
+    fn agreed_fee_per_computation_unit(&self) -> u128 {
+        self.gas_price_wei
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -41,18 +41,18 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
 // each non-zero byte costs 64 units of gas
-pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u64 = 3328;
+pub const WEB3_MAXIMAL_GAS_LIMIT_MARGIN: u128 = 3328;
 
 impl BlockchainAgentWeb3 {
     pub fn new(
-        gas_price_gwei: u64,
-        gas_limit_const_part: u64,
+        gas_price_wei: u128,
+        gas_limit_const_part: u128,
         consuming_wallet: Wallet,
         consuming_wallet_balances: ConsumingWalletBalances,
         pending_transaction_id: U256,
     ) -> Self {
         Self {
-            gas_price_gwei,
+            gas_price_wei,
             gas_limit_const_part,
             consuming_wallet,
             maximum_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(WEB3_MAXIMAL_GAS_LIMIT_MARGIN, 3328)
+        assert_eq!(WEB3_MAXIMAL_GAS_LIMIT_MARGIN, 3_328)
     }
 
     #[test]

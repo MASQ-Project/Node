@@ -27,7 +27,7 @@ impl BlockchainAgent for BlockchainAgentNull {
         }
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
+    fn agreed_fee_per_computation_unit(&self) -> u128 {
         self.log_function_call("agreed_fee_per_computation_unit()");
         0
     }
