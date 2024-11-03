@@ -98,15 +98,15 @@ pub enum ExitPreference {
 
 //TODO rename for UserExitPreferences
 #[derive(Clone)]
-pub struct ExitTools {
+pub struct UserExitPreferences {
     exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
     exit_location_preference: ExitPreference,
     exit_locations_opt: Option<Vec<ExitLocation>>,
 }
 
-impl ExitTools {
-    fn new() -> ExitTools {
-        ExitTools {
+impl UserExitPreferences {
+    fn new() -> UserExitPreferences {
+        UserExitPreferences {
             //TODO remove exit from members names
             exit_countries: vec![],
             exit_location_preference: ExitPreference::Nothing,
@@ -163,7 +163,7 @@ pub struct Neighborhood {
     db_password_opt: Option<String>,
     logger: Logger,
     tools: NeighborhoodTools,
-    exit_tools: ExitTools,
+    user_exit_preferences: UserExitPreferences,
 }
 
 impl Actor for Neighborhood {
@@ -555,7 +555,7 @@ impl Neighborhood {
             db_password_opt: config.db_password_opt.clone(),
             logger: Logger::new("Neighborhood"),
             tools: NeighborhoodTools::default(),
-            exit_tools: ExitTools::new(),
+            user_exit_preferences: UserExitPreferences::new(),
         }
     }
 
@@ -854,7 +854,7 @@ impl Neighborhood {
             connection_progress_peers: self.overall_connection_status.get_peer_addrs(),
             cpm_recipient,
             db_patch_size: self.db_patch_size,
-            exit_tools_opt: Some(self.exit_tools.clone()),
+            user_exit_preferences_opt: Some(self.user_exit_preferences.clone()),
         };
         // TODO 468 clone all needed structs from Neighborhood to NeighborhoodMetadata and send it in
         let acceptance_result = self.gossip_acceptor.handle(
@@ -1519,7 +1519,7 @@ impl Neighborhood {
     ) {
         let exit_locations_by_priority: Vec<ExitLocation> =
             self.extract_exit_locations_from_message(&message);
-        self.exit_tools.exit_location_preference = match (
+        self.user_exit_preferences.exit_location_preference = match (
             message.fallback_routing,
             exit_locations_by_priority.is_empty(),
         ) {
@@ -1528,12 +1528,12 @@ impl Neighborhood {
             (false, false) => ExitPreference::ExitCountryNoFallback,
             (false, true) => ExitPreference::Nothing,
         };
-        let fallback_status = match self.exit_tools.exit_location_preference {
+        let fallback_status = match self.user_exit_preferences.exit_location_preference {
             ExitPreference::Nothing => "Fallback Routing is set.",
             ExitPreference::ExitCountryWithFallback => "Fallback Routing is set.",
             ExitPreference::ExitCountryNoFallback => "Fallback Routing NOT set.",
         };
-        self.exit_tools.exit_locations_opt = Some(exit_locations_by_priority.clone());
+        self.user_exit_preferences.exit_locations_opt = Some(exit_locations_by_priority.clone());
         match self.neighborhood_database.keys().len() > 1 {
             true => {
                 self.set_country_undesirability(&exit_locations_by_priority);
@@ -1570,12 +1570,12 @@ impl Neighborhood {
         match !&exit_locations_by_priority.is_empty() {
             true => {
                 for node_record in nodes {
-                    self.exit_tools
+                    self.user_exit_preferences
                         .assign_nodes_country_undesirability(node_record)
                 }
             }
             false => {
-                self.exit_tools.exit_countries = vec![];
+                self.user_exit_preferences.exit_countries = vec![];
                 for node_record in nodes {
                     node_record.metadata.country_undesirability = 0u32;
                 }
@@ -1593,7 +1593,7 @@ impl Neighborhood {
             .into_iter()
             .map(|cc| {
                 for code in &cc.country_codes {
-                    self.exit_tools.exit_countries.push(code.clone());
+                    self.user_exit_preferences.exit_countries.push(code.clone());
                 }
                 ExitLocation {
                     country_codes: cc.country_codes,
@@ -3277,7 +3277,7 @@ mod tests {
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood.exit_tools.exit_countries,
+                    neighborhood.user_exit_preferences.exit_countries,
                     vec![
                         "CZ".to_string(),
                         "SK".to_string(),
@@ -3287,7 +3287,7 @@ mod tests {
                     ]
                 );
                 assert_eq!(
-                    neighborhood.exit_tools.exit_location_preference,
+                    neighborhood.user_exit_preferences.exit_location_preference,
                     ExitPreference::ExitCountryWithFallback
                 );
                 assert_eq!(
@@ -3472,11 +3472,11 @@ mod tests {
         let assert_neighborhood_exit_location = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood.exit_tools.exit_countries,
+                    neighborhood.user_exit_preferences.exit_countries,
                     vec!["CZ".to_string(), "FR".to_string()]
                 );
                 assert_eq!(
-                    neighborhood.exit_tools.exit_location_preference,
+                    neighborhood.user_exit_preferences.exit_location_preference,
                     ExitPreference::ExitCountryNoFallback
                 );
             }),
@@ -3535,9 +3535,12 @@ mod tests {
                     0u32,
                     "We expecting zero, exit_location was unset"
                 );
-                assert_eq!(neighborhood.exit_tools.exit_countries.is_empty(), true);
                 assert_eq!(
-                    neighborhood.exit_tools.exit_location_preference,
+                    neighborhood.user_exit_preferences.exit_countries.is_empty(),
+                    true
+                );
+                assert_eq!(
+                    neighborhood.user_exit_preferences.exit_location_preference,
                     ExitPreference::Nothing
                 )
             }),

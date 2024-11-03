@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
-use crate::neighborhood::{AccessibleGossipRecord, ExitTools};
+use crate::neighborhood::{AccessibleGossipRecord, UserExitPreferences};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
@@ -170,7 +170,7 @@ impl GossipHandler for DebutHandler {
             database,
             &source_agr,
             gossip_source,
-            neighborhood_metadata.exit_tools_opt,
+            neighborhood_metadata.user_exit_preferences_opt,
         ) {
             return result;
         }
@@ -272,7 +272,7 @@ impl DebutHandler {
         database: &mut NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
         gossip_source: SocketAddr,
-        exit_tools_opt: Option<ExitTools>,
+        user_exit_preferences_opt: Option<UserExitPreferences>,
     ) -> Result<GossipAcceptanceResult, ()> {
         if database.gossip_target_degree(database.root().public_key()) >= MAX_DEGREE {
             debug!(self.logger, "Neighbor count already at maximum");
@@ -280,8 +280,10 @@ impl DebutHandler {
         }
         let debut_node_addr_opt = debuting_agr.node_addr_opt.clone();
         let mut debuting_node = NodeRecord::from(debuting_agr);
-        match exit_tools_opt {
-            Some(exit_tools) => exit_tools.assign_nodes_country_undesirability(&mut debuting_node),
+        match user_exit_preferences_opt {
+            Some(user_exit_preferences) => {
+                user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node)
+            }
             None => (),
         }
 
@@ -703,7 +705,7 @@ impl GossipHandler for IntroductionHandler {
                 database,
                 cryptde,
                 introducer,
-                neighborhood_metadata.exit_tools_opt,
+                neighborhood_metadata.user_exit_preferences_opt,
             ) {
                 Ok(_) => (),
                 Err(e) => {
@@ -864,7 +866,7 @@ impl IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         cryptde: &dyn CryptDE,
         introducer: AccessibleGossipRecord,
-        exit_tools_opt: Option<ExitTools>,
+        user_exit_preferences_opt: Option<UserExitPreferences>,
     ) -> Result<bool, String> {
         let introducer_key = introducer.inner.public_key.clone();
         match database.node_by_key_mut(&introducer_key) {
@@ -891,10 +893,9 @@ impl IntroductionHandler {
             None => {
                 let mut new_introducer = NodeRecord::from(introducer);
                 //TODO 468 add country undesirability
-                match exit_tools_opt {
-                    Some(exit_tools) => {
-                        exit_tools.assign_nodes_country_undesirability(&mut new_introducer)
-                    }
+                match user_exit_preferences_opt {
+                    Some(user_exit_preferences) => user_exit_preferences
+                        .assign_nodes_country_undesirability(&mut new_introducer),
                     None => (),
                 }
                 //TODO probably make one function to use on all places
@@ -1013,7 +1014,7 @@ impl GossipHandler for StandardGossipHandler {
             database,
             &filtered_agrs,
             gossip_source,
-            neighborhood_metadata.exit_tools_opt.as_ref(),
+            neighborhood_metadata.user_exit_preferences_opt.as_ref(),
         );
         db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
         db_changed =
@@ -1125,7 +1126,7 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
-        exit_tools_opt: Option<&ExitTools>,
+        user_exit_preferences_opt: Option<&UserExitPreferences>,
     ) -> bool {
         let all_keys = database
             .keys()
@@ -1145,9 +1146,9 @@ impl StandardGossipHandler {
             .for_each(|agr| {
                 let mut node_record = NodeRecord::from(agr);
                 // TODO modify for country undesirability in node_record (make it mut)
-                match exit_tools_opt {
-                    Some(exit_tools) => {
-                        exit_tools.assign_nodes_country_undesirability(&mut node_record)
+                match user_exit_preferences_opt {
+                    Some(user_exit_preferences) => {
+                        user_exit_preferences.assign_nodes_country_undesirability(&mut node_record)
                     }
                     None => (),
                 }
@@ -1408,7 +1409,8 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::neighborhood::{
-        ExitPreference, ExitTools, COUNTRY_UNDESIRABILITY_FACTOR, UNREACHABLE_COUNTRY_PENALTY,
+        ExitPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
+        UNREACHABLE_COUNTRY_PENALTY,
     };
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{
@@ -1450,7 +1452,7 @@ mod tests {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
             db_patch_size: DB_PATCH_SIZE_FOR_TEST,
-            exit_tools_opt: None,
+            user_exit_preferences_opt: None,
         }
     }
 
@@ -1729,7 +1731,7 @@ mod tests {
                 &mut dest_db,
                 &AccessibleGossipRecord::from(&new_debutant),
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)), 4567),
-                neighborhood_metadata.exit_tools_opt,
+                neighborhood_metadata.user_exit_preferences_opt,
             )
             .unwrap();
 
@@ -2067,7 +2069,7 @@ mod tests {
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
-        neighborhood_metadata.exit_tools_opt = Some(ExitTools {
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
             exit_location_preference: ExitPreference::ExitCountryNoFallback,
             exit_locations_opt: Some(vec![ExitLocation {
@@ -2463,7 +2465,7 @@ mod tests {
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
-        neighborhood_metadata.exit_tools_opt = Some(ExitTools {
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
             exit_location_preference: ExitPreference::ExitCountryWithFallback,
             exit_locations_opt: Some(vec![ExitLocation {
@@ -3060,7 +3062,7 @@ mod tests {
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
-        neighborhood_metadata.exit_tools_opt = Some(ExitTools {
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["CZ".to_string()],
             exit_location_preference: ExitPreference::ExitCountryWithFallback,
             exit_locations_opt: Some(vec![ExitLocation {
