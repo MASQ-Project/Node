@@ -27,7 +27,7 @@ where
     collection.iter().map(arranger).sum::<N>()
 }
 
-pub fn dump_unaffordable_accounts_by_transaction_fee(
+pub fn eliminate_accounts_by_tx_fee_limit(
     weighted_accounts: Vec<WeightedPayable>,
     affordable_transaction_count: u16,
 ) -> Vec<WeightedPayable> {
@@ -187,9 +187,8 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-        compute_mul_coefficient_preventing_fractional_numbers,
-        dump_unaffordable_accounts_by_transaction_fee, exhaust_cw_balance_entirely,
-        find_largest_exceeding_balance, no_affordable_accounts_found,
+        compute_mul_coefficient_preventing_fractional_numbers, eliminate_accounts_by_tx_fee_limit,
+        exhaust_cw_balance_entirely, find_largest_exceeding_balance, no_affordable_accounts_found,
         ConsumingWalletExhaustingStatus,
     };
     use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
@@ -251,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn dump_unaffordable_accounts_by_transaction_fee_works() {
+    fn eliminate_accounts_by_tx_fee_limit_works() {
         let mut account_1 = make_weighed_account(123);
         account_1.weight = 1_000_000_000;
         let mut account_2 = make_weighed_account(456);
@@ -262,7 +261,7 @@ mod tests {
         account_4.weight = 1_000_000_001;
         let affordable_transaction_count = 2;
 
-        let result = dump_unaffordable_accounts_by_transaction_fee(
+        let result = eliminate_accounts_by_tx_fee_limit(
             vec![account_1.clone(), account_2, account_3, account_4.clone()],
             affordable_transaction_count,
         );

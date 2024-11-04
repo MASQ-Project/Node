@@ -1081,7 +1081,8 @@ mod tests {
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, TransactionFeeImmoderateInsufficiency,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
@@ -1514,12 +1515,8 @@ mod tests {
             },
         ];
         let payment_adjuster = PaymentAdjusterMock::default()
-            .consider_adjustment_params(
-                &consider_adjustment_params_arc,
-            )
-            .consider_adjustment_result(Ok(Either::Left(
-                qualified_payables.clone(),
-            )));
+            .consider_adjustment_params(&consider_adjustment_params_arc)
+            .consider_adjustment_result(Ok(Either::Left(qualified_payables.clone())));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -1544,10 +1541,7 @@ mod tests {
         subject_addr.try_send(msg).unwrap();
 
         system.run();
-        let mut consider_adjustment_params =
-            consider_adjustment_params_arc
-                .lock()
-                .unwrap();
+        let mut consider_adjustment_params = consider_adjustment_params_arc.lock().unwrap();
         let (actual_qualified_payables, actual_agent_id_stamp) =
             consider_adjustment_params.remove(0);
         assert_eq!(actual_qualified_payables, qualified_payables);
@@ -1751,17 +1745,16 @@ mod tests {
         init_test_logging();
         let test_name =
             "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
-        let payment_adjuster = PaymentAdjusterMock::default()
-            .consider_adjustment_result(Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts: 1,
-                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                        per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
-                        cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
-                    }),
-                    service_fee_opt: None,
-                },
-            ));
+        let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                number_of_accounts: 1,
+                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                    per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
+                    cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                }),
+                service_fee_opt: None,
+            },
+        ));
 
         test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 
@@ -1817,17 +1810,16 @@ mod tests {
         let test_name =
             "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
-        let payment_adjuster = PaymentAdjusterMock::default()
-            .consider_adjustment_result(Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts: 20,
-                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                        per_transaction_requirement_minor: 40_000_000_000,
-                        cw_transaction_fee_balance_minor: U256::from(123),
-                    }),
-                    service_fee_opt: None,
-                },
-            ));
+        let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
+            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                number_of_accounts: 20,
+                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                    per_transaction_requirement_minor: 40_000_000_000,
+                    cw_transaction_fee_balance_minor: U256::from(123),
+                }),
+                service_fee_opt: None,
+            },
+        ));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -3637,9 +3629,7 @@ mod tests {
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
                 let payment_adjuster = PaymentAdjusterMock::default()
-                    .consider_adjustment_result(Ok(Either::Left(
-                        qualified_payables,
-                    )));
+                    .consider_adjustment_result(Ok(Either::Left(qualified_payables)));
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)

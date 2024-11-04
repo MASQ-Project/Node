@@ -1459,10 +1459,14 @@ pub fn trick_rusqlite_with_read_only_conn(
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    consider_adjustment_params:
-        Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
+    consider_adjustment_params: Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
     consider_adjustment_results: RefCell<
-        Vec<Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>, PaymentAdjusterError>>,
+        Vec<
+            Result<
+                Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>,
+                PaymentAdjusterError,
+            >,
+        >,
     >,
     adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     adjust_payments_results:
@@ -1480,9 +1484,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
             .lock()
             .unwrap()
             .push((qualified_payables, agent.arbitrary_id_stamp()));
-        self.consider_adjustment_results
-            .borrow_mut()
-            .remove(0)
+        self.consider_adjustment_results.borrow_mut().remove(0)
     }
 
     fn adjust_payments(
@@ -1514,9 +1516,7 @@ impl PaymentAdjusterMock {
             PaymentAdjusterError,
         >,
     ) -> Self {
-        self.consider_adjustment_results
-            .borrow_mut()
-            .push(result);
+        self.consider_adjustment_results.borrow_mut().push(result);
         self
     }
 

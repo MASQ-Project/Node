@@ -8,7 +8,8 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::BalanceProvidingAccount;
 use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
+    Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
+    PaymentAdjusterReal,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
@@ -125,10 +126,8 @@ fn loading_test_with_randomized_params() {
                 .iter()
                 .map(|account| account.qualified_as.clone())
                 .collect();
-            let initial_check_result = subject.consider_adjustment(
-                qualified_payables,
-                &*scenario.prepared_adjustment.agent,
-            );
+            let initial_check_result = subject
+                .consider_adjustment(qualified_payables, &*scenario.prepared_adjustment.agent);
             let allowed_scenario_opt = match initial_check_result {
                 Ok(check_factual_output) => {
                     match check_factual_output {
@@ -452,7 +451,7 @@ fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
     if also_by_transaction_fee && accounts_count > 2 {
         let affordable_transaction_count =
             u16::try_from(generate_non_zero_usize(gn, accounts_count)).unwrap();
-        Adjustment::TransactionFeeInPriority {
+        Adjustment::BeginByTransactionFee {
             affordable_transaction_count,
         }
     } else {
@@ -690,7 +689,7 @@ fn do_final_processing_of_single_scenario(
             }
             if matches!(
                 positive.common.required_adjustment,
-                Adjustment::TransactionFeeInPriority { .. }
+                Adjustment::BeginByTransactionFee { .. }
             ) {
                 test_overall_output
                     .fulfillment_distribution_for_transaction_fee_adjustments
@@ -907,7 +906,7 @@ fn write_error(file: &mut File, error: PaymentAdjusterError) {
 fn resolve_affordable_transaction_count(adjustment: &Adjustment) -> String {
     match adjustment {
         Adjustment::ByServiceFee => "UNLIMITED".to_string(),
-        Adjustment::TransactionFeeInPriority {
+        Adjustment::BeginByTransactionFee {
             affordable_transaction_count,
         } => affordable_transaction_count.to_string(),
     }

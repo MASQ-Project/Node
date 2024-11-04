@@ -30,32 +30,8 @@ impl WeightedPayable {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AdjustmentIterationResult {
-    pub decided_accounts_opt: Option<Vec<AdjustedAccountBeforeFinalization>>,
+    pub decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
     pub remaining_undecided_accounts: Vec<WeightedPayable>,
-}
-
-pub struct RecursionResults {
-    pub here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    pub downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-}
-
-impl RecursionResults {
-    pub fn new(
-        here_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-        downstream_decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    ) -> Self {
-        Self {
-            here_decided_accounts,
-            downstream_decided_accounts,
-        }
-    }
-
-    pub fn merge_results_from_recursion(self) -> Vec<AdjustedAccountBeforeFinalization> {
-        self.here_decided_accounts
-            .into_iter()
-            .chain(self.downstream_decided_accounts.into_iter())
-            .collect()
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -124,39 +100,8 @@ impl AffordableAndRequiredTxCounts {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, AffordableAndRequiredTxCounts, RecursionResults,
-    };
-    use crate::accountant::test_utils::make_payable_account;
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::AffordableAndRequiredTxCounts;
     use ethereum_types::U256;
-
-    #[test]
-    fn merging_results_from_recursion_works() {
-        let non_finalized_account_1 =
-            AdjustedAccountBeforeFinalization::new(make_payable_account(111), 12345, 1234);
-        let non_finalized_account_2 =
-            AdjustedAccountBeforeFinalization::new(make_payable_account(222), 543, 5555);
-        let non_finalized_account_3 =
-            AdjustedAccountBeforeFinalization::new(make_payable_account(333), 789987, 6789);
-        let subject = RecursionResults {
-            here_decided_accounts: vec![non_finalized_account_1.clone()],
-            downstream_decided_accounts: vec![
-                non_finalized_account_2.clone(),
-                non_finalized_account_3.clone(),
-            ],
-        };
-
-        let result = subject.merge_results_from_recursion();
-
-        assert_eq!(
-            result,
-            vec![
-                non_finalized_account_1,
-                non_finalized_account_2,
-                non_finalized_account_3
-            ]
-        )
-    }
 
     #[test]
     fn there_is_u16_ceiling_for_possible_tx_count() {

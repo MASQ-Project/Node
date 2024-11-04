@@ -37,7 +37,7 @@ pub fn make_initialized_subject(
     now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
     criterion_calculator_mock_opt: Option<CriterionCalculatorMock>,
-    max_portion_of_balance_over_threshold_in_qualified_payables: Option<u128>,
+    max_debt_above_threshold_in_qualified_payables: Option<u128>,
     logger_opt: Option<Logger>,
 ) -> PaymentAdjusterReal {
     let cw_service_fee_balance_minor = cw_service_fee_balance_minor_opt.unwrap_or(0);
@@ -48,7 +48,7 @@ pub fn make_initialized_subject(
         now_opt.unwrap_or(SystemTime::now()),
         None,
         cw_service_fee_balance_minor,
-        max_portion_of_balance_over_threshold_in_qualified_payables.unwrap_or(0),
+        max_debt_above_threshold_in_qualified_payables.unwrap_or(0),
     ));
     if let Some(calculator) = criterion_calculator_mock_opt {
         subject.calculators = vec![Box::new(calculator)]

@@ -99,7 +99,7 @@ impl ServiceFeeAdjusterReal {
             let pre_processed_decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
                 convert_collection(thriving_competitors);
             Either::Right(AdjustmentIterationResult {
-                decided_accounts_opt: Some(pre_processed_decided_accounts),
+                decided_accounts: pre_processed_decided_accounts,
                 remaining_undecided_accounts,
             })
         }
@@ -121,7 +121,7 @@ impl ServiceFeeAdjusterReal {
         let remaining_reverted = convert_collection(remaining);
 
         AdjustmentIterationResult {
-            decided_accounts_opt: None,
+            decided_accounts: vec![],
             remaining_undecided_accounts: remaining_reverted,
         }
     }

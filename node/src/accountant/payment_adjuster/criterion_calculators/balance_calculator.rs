@@ -13,7 +13,7 @@ impl CriterionCalculator for BalanceCriterionCalculator {
         account: &QualifiedPayableAccount,
         context: &dyn PaymentAdjusterInner,
     ) -> u128 {
-        let largest = context.max_portion_of_balance_over_threshold_in_qualified_payables();
+        let largest = context.max_debt_above_threshold_in_qualified_payables();
 
         let this_account =
             account.bare_account.balance_wei - account.payment_threshold_intercept_minor;

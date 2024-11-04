@@ -91,7 +91,7 @@ impl PreparatoryAnalyzer {
 
         let adjustment = match transaction_fee_limitation_opt {
             None => Adjustment::ByServiceFee,
-            Some(affordable_transaction_count) => Adjustment::TransactionFeeInPriority {
+            Some(affordable_transaction_count) => Adjustment::BeginByTransactionFee {
                 affordable_transaction_count,
             },
         };
@@ -376,7 +376,8 @@ mod tests {
         make_weighed_account, multiple_by_billion, DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        ServiceFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{
