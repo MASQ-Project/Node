@@ -15,7 +15,7 @@ use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstract
     BalanceProvidingAccount, DisqualificationLimitProvidingAccount,
 };
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysis, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
+    Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
     TransactionFeeImmoderateInsufficiency,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -38,7 +38,7 @@ impl PreparatoryAnalyzer {
         disqualification_arbiter: &DisqualificationArbiter,
         qualified_payables: Vec<QualifiedPayableAccount>,
         logger: &Logger,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>
+    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>, PaymentAdjusterError>
     {
         let number_of_accounts = qualified_payables.len();
         let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
@@ -96,7 +96,7 @@ impl PreparatoryAnalyzer {
             },
         };
 
-        Ok(Either::Right(AdjustmentAnalysis::new(
+        Ok(Either::Right(AdjustmentAnalysisReport::new(
             adjustment,
             prepared_accounts,
         )))
@@ -376,7 +376,7 @@ mod tests {
         make_weighed_account, multiple_by_billion, DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysis, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{
@@ -426,7 +426,7 @@ mod tests {
                 original_accounts.to_vec(),
                 &disqualification_arbiter,
             );
-            AdjustmentAnalysis::new(Adjustment::ByServiceFee, analyzed_accounts)
+            AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts)
         };
         assert_eq!(result, Ok(Either::Right(expected_adjustment_analysis)));
         let determine_limit_params = determine_limit_params_arc.lock().unwrap();

@@ -57,16 +57,24 @@ use variant_count::VariantCount;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
 
-// PaymentAdjuster is a very efficient recursive and scalable algorithm that inspects payments under
-// the condition of an acute insolvency. You can expand the scope of the evaluation by writing your
-// own CriterionCalculator, that should be specialized on a distinct parameter of a payable account,
-// and sticking it inside the vector that stores them.
+// PaymentAdjuster is a recursive and scalable algorithm that inspects payments under conditions
+// of an acute insolvency. You can easily expand the range of evaluated parameters to determine
+// an optimized allocation of scarce assets by writing your own CriterionCalculator. The calculator
+// is supposed to be dedicated to a single parameter that can be tracked for each payable account.
+//
+// For parameters that can't be derived from each account, or even one at all, there is a way to
+// provide such data up into the calculator. This can be achieved via the PaymentAdjusterInner.
+//
+// Once the new calculator exists, its place belongs in the vector of calculators which is the heart
+// of this module.
 
 pub type AdjustmentAnalysisResult =
-    Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>;
+    Result<Either<IntactOriginalAccounts, AdjustmentAnalysisReport>, PaymentAdjusterError>;
+
+pub type IntactOriginalAccounts = Vec<QualifiedPayableAccount>;
 
 pub trait PaymentAdjuster {
-    fn search_for_indispensable_adjustment(
+    fn consider_adjustment(
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
@@ -91,7 +99,7 @@ pub struct PaymentAdjusterReal {
 }
 
 impl PaymentAdjuster for PaymentAdjusterReal {
-    fn search_for_indispensable_adjustment(
+    fn consider_adjustment(
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
@@ -423,14 +431,14 @@ pub enum Adjustment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AdjustmentAnalysis {
+pub struct AdjustmentAnalysisReport {
     pub adjustment: Adjustment,
     pub accounts: Vec<AnalyzedPayableAccount>,
 }
 
-impl AdjustmentAnalysis {
+impl AdjustmentAnalysisReport {
     pub fn new(adjustment: Adjustment, accounts: Vec<AnalyzedPayableAccount>) -> Self {
-        AdjustmentAnalysis {
+        AdjustmentAnalysisReport {
             adjustment,
             accounts,
         }
@@ -565,7 +573,7 @@ mod tests {
         MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR, PRESERVED_TEST_PAYMENT_THRESHOLDS,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
         ServiceFeeImmoderateInsufficiency, TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -651,9 +659,9 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_happy_path() {
+    fn consider_adjustment_happy_path() {
         init_test_logging();
-        let test_name = "search_for_indispensable_adjustment_gives_negative_answer";
+        let test_name = "consider_adjustment_gives_negative_answer";
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         // Service fee balance > payments
@@ -709,7 +717,7 @@ mod tests {
             .for_each(|(idx, (qualified_payables, agent))| {
                 assert_eq!(
                     subject
-                        .search_for_indispensable_adjustment(qualified_payables.clone(), &*agent),
+                        .consider_adjustment(qualified_payables.clone(), &*agent),
                     Ok(Either::Left(qualified_payables)),
                     "failed for tested input number {:?}",
                     idx + 1
@@ -720,9 +728,9 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_sad_path_for_transaction_fee() {
+    fn consider_adjustment_sad_path_for_transaction_fee() {
         init_test_logging();
-        let test_name = "search_for_indispensable_adjustment_sad_path_positive_for_transaction_fee";
+        let test_name = "consider_adjustment_sad_path_positive_for_transaction_fee";
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let number_of_accounts = 3;
@@ -738,11 +746,11 @@ mod tests {
         );
         let analyzed_payables = convert_collection(qualified_payables.clone());
 
-        let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         assert_eq!(
             result,
-            Ok(Either::Right(AdjustmentAnalysis::new(
+            Ok(Either::Right(AdjustmentAnalysisReport::new(
                 Adjustment::TransactionFeeInPriority {
                     affordable_transaction_count: 2
                 },
@@ -763,9 +771,9 @@ mod tests {
     }
 
     #[test]
-    fn search_for_indispensable_adjustment_sad_path_for_service_fee_balance() {
+    fn consider_adjustment_sad_path_for_service_fee_balance() {
         init_test_logging();
-        let test_name = "search_for_indispensable_adjustment_positive_for_service_fee_balance";
+        let test_name = "consider_adjustment_positive_for_service_fee_balance";
         let logger = Logger::new(test_name);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = logger;
@@ -781,11 +789,11 @@ mod tests {
         );
         let analyzed_payables = convert_collection(qualified_payables.clone());
 
-        let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         assert_eq!(
             result,
-            Ok(Either::Right(AdjustmentAnalysis::new(
+            Ok(Either::Right(AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
                 analyzed_payables
             )))
@@ -820,7 +828,7 @@ mod tests {
             }),
         );
 
-        let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         let per_transaction_requirement_minor =
             TRANSACTION_FEE_MARGIN.add_percent_to(55_000 * gwei_to_wei::<u128, u64>(100));
@@ -854,7 +862,7 @@ mod tests {
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         assert_eq!(
             result,
@@ -888,7 +896,7 @@ mod tests {
             }),
         );
 
-        let result = subject.search_for_indispensable_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         let per_transaction_requirement_minor =
             TRANSACTION_FEE_MARGIN.add_percent_to(55_000 * gwei_to_wei::<u128, u64>(123));
@@ -1306,7 +1314,7 @@ mod tests {
         };
         let adjustment_setup = PreparedAdjustment {
             agent,
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
                 analyzed_accounts,
             ),
@@ -1352,7 +1360,7 @@ mod tests {
         };
         let adjustment_setup = PreparedAdjustment {
             agent,
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
                 analyzed_payables,
             ),
@@ -1450,7 +1458,7 @@ mod tests {
             .service_fee_balance_minor_result(cw_service_fee_balance_minor);
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
                 analyzed_payables,
             ),
@@ -1545,7 +1553,7 @@ mod tests {
             .service_fee_balance_minor_result(u128::MAX);
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::TransactionFeeInPriority {
                     affordable_transaction_count: 2,
                 },
@@ -1622,7 +1630,7 @@ mod tests {
         }); // Just hardening, not so important
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::TransactionFeeInPriority {
                     affordable_transaction_count: 2,
                 },
@@ -1685,7 +1693,7 @@ mod tests {
         });
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
                 analyzed_payables,
             ),
@@ -1752,7 +1760,7 @@ mod tests {
             .service_fee_balance_minor_result(service_fee_balance_in_minor);
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::TransactionFeeInPriority {
                     affordable_transaction_count: 2,
                 },
@@ -1819,7 +1827,7 @@ mod tests {
             .service_fee_balance_minor_result(cw_service_fee_balance_minor);
         let adjustment_setup = PreparedAdjustment {
             agent: Box::new(agent),
-            adjustment_analysis: AdjustmentAnalysis::new(
+            adjustment_analysis: AdjustmentAnalysisReport::new(
                 Adjustment::TransactionFeeInPriority {
                     affordable_transaction_count: 2,
                 },

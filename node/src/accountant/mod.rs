@@ -1081,7 +1081,7 @@ mod tests {
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysis, PaymentAdjusterError, TransactionFeeImmoderateInsufficiency,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
@@ -1492,7 +1492,7 @@ mod tests {
     ) {
         init_test_logging();
         let test_name = "received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge";
-        let search_for_indispensable_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
+        let consider_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let instructions_recipient = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(OutboundPaymentsInstructions))
@@ -1514,10 +1514,10 @@ mod tests {
             },
         ];
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_params(
-                &search_for_indispensable_adjustment_params_arc,
+            .consider_adjustment_params(
+                &consider_adjustment_params_arc,
             )
-            .search_for_indispensable_adjustment_result(Ok(Either::Left(
+            .consider_adjustment_result(Ok(Either::Left(
                 qualified_payables.clone(),
             )));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1544,15 +1544,15 @@ mod tests {
         subject_addr.try_send(msg).unwrap();
 
         system.run();
-        let mut search_for_indispensable_adjustment_params =
-            search_for_indispensable_adjustment_params_arc
+        let mut consider_adjustment_params =
+            consider_adjustment_params_arc
                 .lock()
                 .unwrap();
         let (actual_qualified_payables, actual_agent_id_stamp) =
-            search_for_indispensable_adjustment_params.remove(0);
+            consider_adjustment_params.remove(0);
         assert_eq!(actual_qualified_payables, qualified_payables);
         assert_eq!(actual_agent_id_stamp, expected_agent_id_stamp);
-        assert!(search_for_indispensable_adjustment_params.is_empty());
+        assert!(consider_adjustment_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
@@ -1627,9 +1627,9 @@ mod tests {
         };
         let analyzed_accounts = convert_collection(unadjusted_qualified_accounts.clone());
         let adjustment_analysis =
-            AdjustmentAnalysis::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
+            AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Either::Right(adjustment_analysis)))
+            .consider_adjustment_result(Ok(Either::Right(adjustment_analysis)))
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(Ok(payments_instructions));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1752,7 +1752,7 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(
+            .consider_adjustment_result(Err(
                 PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 1,
                     transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
@@ -1787,7 +1787,7 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_during_stage_two_adjustment_went_wrong";
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Either::Right(AdjustmentAnalysis::new(
+            .consider_adjustment_result(Ok(Either::Right(AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
                 vec![make_meaningless_analyzed_account(123)],
             ))))
@@ -1818,7 +1818,7 @@ mod tests {
             "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(
+            .consider_adjustment_result(Err(
                 PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
                     number_of_accounts: 20,
                     transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
@@ -3637,7 +3637,7 @@ mod tests {
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
                 let payment_adjuster = PaymentAdjusterMock::default()
-                    .search_for_indispensable_adjustment_result(Ok(Either::Left(
+                    .consider_adjustment_result(Ok(Either::Left(
                         qualified_payables,
                     )));
                 let payable_scanner = PayableScannerBuilder::new()

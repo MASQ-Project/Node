@@ -8,7 +8,7 @@ use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::BalanceProvidingAccount;
 use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
+    Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError, PaymentAdjusterReal,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
@@ -125,7 +125,7 @@ fn loading_test_with_randomized_params() {
                 .iter()
                 .map(|account| account.qualified_as.clone())
                 .collect();
-            let initial_check_result = subject.search_for_indispensable_adjustment(
+            let initial_check_result = subject.consider_adjustment(
                 qualified_payables,
                 &*scenario.prepared_adjustment.agent,
             );
@@ -218,7 +218,7 @@ fn try_making_single_valid_scenario(
     let prepared_adjustment = PreparedAdjustment::new(
         Box::new(agent),
         None,
-        AdjustmentAnalysis::new(adjustment, analyzed_accounts),
+        AdjustmentAnalysisReport::new(adjustment, analyzed_accounts),
     );
     Some(PreparedAdjustmentAndThresholds {
         prepared_adjustment,

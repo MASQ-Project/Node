@@ -275,7 +275,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
         match self
             .payment_adjuster
             .borrow()
-            .search_for_indispensable_adjustment(unprotected, &*msg.agent)
+            .consider_adjustment(unprotected, &*msg.agent)
         {
             Ok(processed) => {
                 let either = match processed {

@@ -6,7 +6,7 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
-use crate::accountant::payment_adjuster::AdjustmentAnalysis;
+use crate::accountant::payment_adjuster::AdjustmentAnalysisReport;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
 use crate::accountant::scanners::Scanner;
@@ -43,14 +43,14 @@ pub trait SolvencySensitivePaymentInstructor {
 pub struct PreparedAdjustment {
     pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
-    pub adjustment_analysis: AdjustmentAnalysis,
+    pub adjustment_analysis: AdjustmentAnalysisReport,
 }
 
 impl PreparedAdjustment {
     pub fn new(
         agent: Box<dyn BlockchainAgent>,
         response_skeleton_opt: Option<ResponseSkeleton>,
-        adjustment_analysis: AdjustmentAnalysis,
+        adjustment_analysis: AdjustmentAnalysisReport,
     ) -> Self {
         Self {
             agent,

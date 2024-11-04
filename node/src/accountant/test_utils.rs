@@ -14,7 +14,7 @@ use crate::accountant::db_access_objects::receivable_dao::{
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{
-    AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError,
+    AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
@@ -1459,10 +1459,10 @@ pub fn trick_rusqlite_with_read_only_conn(
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    search_for_indispensable_adjustment_params:
+    consider_adjustment_params:
         Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
-    search_for_indispensable_adjustment_results: RefCell<
-        Vec<Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>>,
+    consider_adjustment_results: RefCell<
+        Vec<Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>, PaymentAdjusterError>>,
     >,
     adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     adjust_payments_results:
@@ -1470,17 +1470,17 @@ pub struct PaymentAdjusterMock {
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn search_for_indispensable_adjustment(
+    fn consider_adjustment(
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>
+    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>, PaymentAdjusterError>
     {
-        self.search_for_indispensable_adjustment_params
+        self.consider_adjustment_params
             .lock()
             .unwrap()
             .push((qualified_payables, agent.arbitrary_id_stamp()));
-        self.search_for_indispensable_adjustment_results
+        self.consider_adjustment_results
             .borrow_mut()
             .remove(0)
     }
@@ -1499,22 +1499,22 @@ impl PaymentAdjuster for PaymentAdjusterMock {
 }
 
 impl PaymentAdjusterMock {
-    pub fn search_for_indispensable_adjustment_params(
+    pub fn consider_adjustment_params(
         mut self,
         params: &Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
     ) -> Self {
-        self.search_for_indispensable_adjustment_params = params.clone();
+        self.consider_adjustment_params = params.clone();
         self
     }
 
-    pub fn search_for_indispensable_adjustment_result(
+    pub fn consider_adjustment_result(
         self,
         result: Result<
-            Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>,
+            Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>,
             PaymentAdjusterError,
         >,
     ) -> Self {
-        self.search_for_indispensable_adjustment_results
+        self.consider_adjustment_results
             .borrow_mut()
             .push(result);
         self
