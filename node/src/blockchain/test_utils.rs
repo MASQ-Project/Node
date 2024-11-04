@@ -2,24 +2,19 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError, PayableTransactionError,
+    BlockchainAgentBuildError, BlockchainError,
 };
-use crate::blockchain::blockchain_interface::data_structures::{
-    ProcessedPayableFallible, RetrievedBlockchainTransactions,
-};
+use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
@@ -34,11 +29,10 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
-use web3::transports::{Batch, EventLoopHandle, Http};
+use web3::transports::{EventLoopHandle, Http};
 use web3::types::{
     Address, BlockNumber, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256,
 };
-use web3::Web3;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![

@@ -497,7 +497,7 @@ impl PayableScanner {
     ) {
         if let Some(err) = err_opt {
             match err {
-                LocallyCausedError(PayableTransactionError::Sending {hashes, ..})
+                LocallyCausedError(PayableTransactionError::Sending { hashes, .. })
                 | RemotelyCausedErrors(hashes) => {
                     self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
                 }
@@ -965,7 +965,11 @@ impl ReceivableScanner {
         }
     }
 
-    fn handle_new_received_payments_scan_error(&mut self, error: ReceivedPaymentsError, logger: &Logger) {
+    fn handle_new_received_payments_scan_error(
+        &mut self,
+        error: ReceivedPaymentsError,
+        logger: &Logger,
+    ) {
         match error {
             ReceivedPaymentsError::ExceededBlockScanLimit(max_block_count) => {
                 match self
@@ -973,22 +977,25 @@ impl ReceivableScanner {
                     .set_max_block_count(Some(max_block_count))
                 {
                     Ok(()) => {
-                        debug!(logger, "Updated max_block_count to {} in database.", max_block_count);
-                    },
+                        debug!(
+                            logger,
+                            "Updated max_block_count to {} in database.", max_block_count
+                        );
+                    }
                     Err(e) => {
                         panic!(
                             "Attempt to set new max block to {} failed due to: {:?}",
                             max_block_count, e
                         )
-                    },
+                    }
                 }
             }
             ReceivedPaymentsError::OtherRPCError(rpc_error) => {
                 warning!(
-                        logger,
-                        "Attempted to retrieve received payments but failed: {:?}",
-                        rpc_error
-                    );
+                    logger,
+                    "Attempted to retrieve received payments but failed: {:?}",
+                    rpc_error
+                );
             }
         }
     }
@@ -1185,7 +1192,7 @@ mod tests {
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::mocks::ConfigDaoMock;
-    use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+    use crate::db_config::persistent_configuration::{PersistentConfigError};
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
@@ -1875,7 +1882,7 @@ mod tests {
             &format!("WARN: {test_name}: \
             Deleting fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
             0x0000000000000000000000000000000000000000000000000000000000003039",
-        ));
+            ));
         // we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
     }
 
@@ -2463,7 +2470,7 @@ mod tests {
             00000000000000000000000237 has exceeded the maximum pending time \\({}sec\\) with the age \
             \\d+sec and the confirmation process is going to be aborted now at the final attempt 1; manual \
             resolution is required from the user to complete the transaction"
-            ,test_name, DEFAULT_PENDING_TOO_LONG_SEC, ),elapsed_after,capture_regex)
+            , test_name, DEFAULT_PENDING_TOO_LONG_SEC, ), elapsed_after, capture_regex)
     }
 
     #[test]
@@ -2491,7 +2498,7 @@ mod tests {
             }
         );
         let capture_regex = r#"\s(\d+)ms"#;
-        assert_log_msg_and_elapsed_time_in_log_makes_sense (&format!(
+        assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
             "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
             00000000000007b couldn't be confirmed at attempt 1 at \\d+ms after its sending"), elapsed_after_ms, capture_regex);
     }
@@ -3372,11 +3379,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Attempt to set new max block to 100000 failed due to: DatabaseError(\"Some bad stuff happened\")")]
+    #[should_panic(
+        expected = "Attempt to set new max block to 100000 failed due to: DatabaseError(\"Some bad stuff happened\")"
+    )]
     fn receivable_scanner_receives_exceeded_block_scan_limit_error_and_database_wright_fails() {
         let new_max_block = 100_000u64;
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_max_block_count_result(Err(PersistentConfigError::DatabaseError("Some bad stuff happened".to_string())));
+        let persistent_config = PersistentConfigurationMock::new().set_max_block_count_result(Err(
+            PersistentConfigError::DatabaseError("Some bad stuff happened".to_string()),
+        ));
         let mut subject = ReceivableScannerBuilder::new()
             .persistent_configuration(persistent_config)
             .build();
@@ -3393,8 +3403,7 @@ mod tests {
     fn receivable_scanner_receives_other_rpc_error() {
         init_test_logging();
         let test_name = "receivable_scanner_receives_other_rpc_error";
-        let mut subject = ReceivableScannerBuilder::new()
-            .build();
+        let mut subject = ReceivableScannerBuilder::new().build();
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
             scan_result: Err(OtherRPCError("Dead RPC".to_string())),

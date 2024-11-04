@@ -513,7 +513,6 @@ mod tests {
             })
         );
 
-
         // TODO: GH-543: Improve MBCS so we can confirm the calls we make are the correct ones.
         //       Example of older code
         //         let requests = test_server.requests_so_far();
@@ -535,8 +534,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn retrieving_address_of_uninitialised_wallet_panics(
-    ) {
+    fn retrieving_address_of_uninitialised_wallet_panics() {
         let subject = Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc");
 
         subject.address();
@@ -719,7 +717,6 @@ mod tests {
             expected_fee_estimation
         )
     }
-
 
     // TODO: GH-744: Migrate test to the place after the helper function below this test.
     //   You'll find three more tests with a simplified api and I believe that the way it is done will suite also this test.

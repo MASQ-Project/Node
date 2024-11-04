@@ -508,8 +508,8 @@ impl Neighborhood {
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         if let Some(ref url) = msg.hostname_opt {
-            if let Ok(ip) = url.parse::<IpAddr>()  {
-                if ip == IpAddr::V4(Ipv4Addr::new(0,0,0,0)) {
+            if let Ok(ip) = url.parse::<IpAddr>() {
+                if ip == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
                     error!(self.logger, "Request to wildcard IP detected 0.0.0.0. Most likely because Blockchain Service URL is not set");
                     return None;
                 }

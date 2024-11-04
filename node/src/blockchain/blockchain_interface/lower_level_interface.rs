@@ -40,8 +40,8 @@ pub trait LowBlockchainInt {
     ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_receipt_in_batch(
-                                         &self,
-                                         hash_vec: Vec<H256>,
+        &self,
+        hash_vec: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
 
     fn get_contract(&self) -> Contract<Http>;

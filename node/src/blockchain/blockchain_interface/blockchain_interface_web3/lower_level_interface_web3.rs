@@ -9,9 +9,7 @@ use crate::blockchain::blockchain_interface::data_structures::errors::{
 };
 use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::blockchain::blockchain_interface_utils::{
-    convert_wei_to_gwei, send_payables_within_batch,
-};
+use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use ethereum_types::{H256, U256, U64};

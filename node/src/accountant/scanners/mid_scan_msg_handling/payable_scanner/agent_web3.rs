@@ -18,7 +18,7 @@ pub struct BlockchainAgentWeb3 {
 impl BlockchainAgent for BlockchainAgentWeb3 {
     fn estimated_transaction_fee_total(&self, number_of_transactions: usize) -> u128 {
         let gas_price = self.gas_price_wei;
-        let max_gas_limit = (self.maximum_added_gas_margin + self.gas_limit_const_part);
+        let max_gas_limit = self.maximum_added_gas_margin + self.gas_limit_const_part;
         number_of_transactions as u128 * gas_price * max_gas_limit
     }
 

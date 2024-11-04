@@ -9,7 +9,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_w
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-    to_wei, BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
+    BlockchainInterfaceWeb3, HashAndAmount, TRANSFER_METHOD_ID,
 };
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -30,8 +30,6 @@ use web3::transports::{Batch, Http};
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
-
-const GWEI_UNIT: u64 = 1_000_000_000; // 1 Gwei = 1e9 Wei
 
 #[derive(Debug)]
 pub struct BlockchainAgentFutureResult {
@@ -89,7 +87,11 @@ pub fn merged_output_data(
         .collect()
 }
 
-pub fn transmission_log(chain: Chain, accounts: &[PayableAccount], gas_price_in_wei: u128) -> String {
+pub fn transmission_log(
+    chain: Chain,
+    accounts: &[PayableAccount],
+    gas_price_in_wei: u128,
+) -> String {
     let chain_name = chain
         .rec()
         .literal_identifier
@@ -342,10 +344,6 @@ pub fn calculate_fallback_start_block_number(start_block_number: u64, max_block_
     }
 }
 
-pub fn convert_wei_to_gwei(wei: U256) -> u64 {
-    (wei / U256::from(GWEI_UNIT)).as_u64()
-}
-
 // TODO: GH-744: This function could be part of the trait BlockchainAgent (so gas_limit_const_part can go away)
 pub fn create_blockchain_agent_web3(
     gas_limit_const_part: u128,
@@ -509,7 +507,6 @@ mod tests {
             )
         );
     }
-
 
     // TODO: GH-744: Review this test and the test below it, do we really need both?
     #[test]
@@ -710,7 +707,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-            .unwrap();
+        .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .response("rpc_result".to_string(), 7)
@@ -741,13 +738,14 @@ mod tests {
             new_fingerprints_recipient,
             accounts.clone(),
         )
-            .wait();
+        .wait();
 
         System::current().stop();
         system.run();
         let timestamp_after = SystemTime::now();
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        let ppfs_message =
+            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
         assert_eq!(accountant_recording_result.len(), 1);
         assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
         assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
@@ -758,14 +756,14 @@ mod tests {
                     hash: H256::from_str(
                         "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                     )
-                        .unwrap(),
+                    .unwrap(),
                     amount: accounts_1.balance_wei
                 },
                 HashAndAmount {
                     hash: H256::from_str(
                         "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                     )
-                        .unwrap(),
+                    .unwrap(),
                     amount: accounts_2.balance_wei
                 },
             ]
@@ -778,7 +776,7 @@ mod tests {
                 hash: H256::from_str(
                     "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                 )
-                    .unwrap()
+                .unwrap()
             })
         );
         assert_eq!(
@@ -788,7 +786,7 @@ mod tests {
                 hash: H256::from_str(
                     "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                 )
-                    .unwrap()
+                .unwrap()
             })
         );
         let tlh = TestLogHandler::new();
@@ -944,7 +942,8 @@ mod tests {
         system.run();
         let timestamp_after = SystemTime::now();
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        let ppfs_message =
+            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
         assert_eq!(accountant_recording_result.len(), 1);
         assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
         assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
@@ -968,7 +967,7 @@ mod tests {
             ]
         );
         let processed_payments = result.unwrap();
-        assert_eq!(processed_payments[0], Failed(RpcPayableFailure{
+        assert_eq!(processed_payments[0], Failed(RpcPayableFailure {
             rpc_error: Rpc(Error {
                 code: ServerError(429),
                 message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
@@ -977,7 +976,7 @@ mod tests {
             recipient_wallet: accounts_1.wallet,
             hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
         }));
-        assert_eq!(processed_payments[1], Failed(RpcPayableFailure{
+        assert_eq!(processed_payments[1], Failed(RpcPayableFailure {
             rpc_error: Rpc(Error {
                 code: ServerError(429),
                 message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
@@ -1052,7 +1051,8 @@ mod tests {
         system.run();
         let timestamp_after = SystemTime::now();
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        let ppfs_message =
+            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
         assert_eq!(accountant_recording_result.len(), 1);
         assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
         assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
@@ -1086,7 +1086,7 @@ mod tests {
                 .unwrap()
             })
         );
-        assert_eq!(processed_payments[1], ProcessedPayableFallible::Failed(RpcPayableFailure{
+        assert_eq!(processed_payments[1], ProcessedPayableFallible::Failed(RpcPayableFailure {
             rpc_error: Rpc(Error {
                 code: ServerError(429),
                 message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
