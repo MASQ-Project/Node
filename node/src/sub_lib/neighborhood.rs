@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
-use crate::neighborhood::Neighborhood;
+use crate::neighborhood::{Neighborhood, UserExitPreferences};
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -380,6 +380,39 @@ pub enum Hops {
     SixHops = 6,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExitLocation {
+    pub country_codes: Vec<String>,
+    pub priority: usize,
+}
+
+pub struct ExitLocationSet {
+    pub locations: Vec<ExitLocation>,
+}
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_codes, self.priority
+        )
+    }
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for exit_location in self.locations.iter() {
+            write!(
+                f,
+                "Country Codes: {:?} - Priority: {}; ",
+                exit_location.country_codes, exit_location.priority
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl FromStr for Hops {
     type Err = String;
 
@@ -406,7 +439,6 @@ impl Display for Hops {
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
     pub min_hops: Hops,
-    pub country: String,
 }
 
 lazy_static! {
@@ -595,6 +627,7 @@ pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
     pub db_patch_size: u8,
+    pub user_exit_preferences_opt: Option<UserExitPreferences>,
 }
 
 pub struct NeighborhoodTools {
