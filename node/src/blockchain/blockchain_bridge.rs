@@ -878,7 +878,7 @@ mod tests {
                 payment_procedure_result: Ok(vec![Correct(PendingPayable {
                     recipient_wallet: accounts[0].wallet.clone(),
                     hash: H256::from_str(
-                        "43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
+                        "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                     )
                     .unwrap()
                 })]),
@@ -894,7 +894,7 @@ mod tests {
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
             vec![HashAndAmount {
                 hash: H256::from_str(
-                    "43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
+                    "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
                 .unwrap(),
                 amount: accounts[0].balance_wei
@@ -968,7 +968,7 @@ mod tests {
             pending_payable_fingerprint_seeds_msg.hashes_and_balances,
             vec![HashAndAmount {
                 hash: H256::from_str(
-                    "43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
+                    "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
                 .unwrap(),
                 amount: accounts[0].balance_wei
@@ -983,7 +983,7 @@ mod tests {
                     context_id: 4321
                 }),
                 msg: format!(
-                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x43d39b06f417183f925e1726d25c147cdb947dea3d437f898655b7dcb4d29fef"
+                    "ReportAccountsPayable: Sending phase: \"Transport error: Error(IncompleteMessage)\". Signed and hashed transactions: 0x36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
             }
         );
@@ -1033,7 +1033,7 @@ mod tests {
             Correct(PendingPayable {
                 recipient_wallet: accounts_1.wallet,
                 hash: H256::from_str(
-                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
+                    "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
                 )
                 .unwrap()
             })
@@ -1043,7 +1043,7 @@ mod tests {
             Correct(PendingPayable {
                 recipient_wallet: accounts_2.wallet,
                 hash: H256::from_str(
-                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
+                    "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
                 )
                 .unwrap()
             })

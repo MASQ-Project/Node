@@ -633,7 +633,7 @@ mod tests {
             "INFO: transmission_log_just_works: Paying to creditors...\n\
         Transactions in the batch:\n\
         \n\
-        gas price:                                   120 gwei\n\
+        gas price:                                   120 wei\n\
         chain:                                       ropsten\n\
         \n\
         [wallet address]                             [payment in wei]\n\

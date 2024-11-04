@@ -3439,10 +3439,10 @@ mod tests {
         init_test_logging();
         let port = find_free_port();
         let pending_tx_hash_1 =
-            H256::from_str("d89f74084be2601c816fb85b8eac6541437223ad4851d12e9eb3d6f74570b8ae")
+            H256::from_str("713332975a17b82439312ddff602d254f21b7d312dce3a8fbfd83587fe361e15")
                 .unwrap();
         let pending_tx_hash_2 =
-            H256::from_str("05981aa8d6c8ca1661f56a42e6e0c1aa56c9c9d0ecf26755b4388826aad55811")
+            H256::from_str("caefcf3d42b45f948e8e823e4ae959811e50b219640c3f1580d4471e9b501f1b")
                 .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // Blockchain Agent Gas Price
@@ -3774,16 +3774,16 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-                "WARN: Accountant: Broken transactions 0xd89f74084be2601c816fb85b8eac6541437223ad4\
-                851d12e9eb3d6f74570b8ae marked as an error. You should take over the care of those to make sure \
+                "WARN: Accountant: Broken transactions 0x713332975a17b82439312ddff602d254f21b7d312\
+                dce3a8fbfd83587fe361e15 marked as an error. You should take over the care of those to make sure \
                 your debts are going to be settled properly. At the moment, there is no automated process \
                 fixing that without your assistance");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction 0x05981aa8d6c8ca1661f56a42e6e\
-        0c1aa56c9c9d0ecf26755b4388826aad55811 has been added to the blockchain; detected locally at \
+        log_handler.exists_log_matching("INFO: Accountant: Transaction 0xcaefcf3d42b45f948e8e823e4ae\
+            959811e50b219640c3f1580d4471e9b501f1b has been added to the blockchain; detected locally at \
             attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing(
-            "INFO: Accountant: Transactions 0x05981aa8d6c8ca1661f56a42e6e0c1aa56c9c9d0e\
-            cf26755b4388826aad55811 completed their confirmation process succeeding",
+            "INFO: Accountant: Transactions 0xcaefcf3d42b45f948e8e823e4ae959811e50b2\
+            19640c3f1580d4471e9b501f1b completed their confirmation process succeeding",
         );
     }
 
