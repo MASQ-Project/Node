@@ -324,23 +324,24 @@ mod tests {
 
     #[test]
     fn exhaustive_status_is_constructed_properly() {
-        let cw_balance_remainder = 45678;
+        let cw_remaining_balance = 45678;
 
-        let result = ConsumingWalletExhaustingStatus::new(cw_balance_remainder);
+        let result = ConsumingWalletExhaustingStatus::new(cw_remaining_balance);
 
-        assert_eq!(result.remaining_cw_balance, cw_balance_remainder);
+        assert_eq!(result.remaining_cw_balance, cw_remaining_balance);
         assert_eq!(result.accounts_finalized_so_far, vec![])
     }
 
     #[test]
-    fn three_non_exhaustive_accounts_all_refilled() {
-        // A seemingly irrational situation, this can happen when some of those originally qualified
-        // payables could get disqualified. Those would free some means that could be used for
-        // the other accounts. In the end, we have a final set with suboptimal balances, despite
-        // the unallocated cw balance is larger than the entire sum of the original balances for
-        // this few resulting accounts. We can pay every account fully, so, why did we need to call
-        // the PaymentAdjuster in first place? The detail is in the loss of some accounts, allowing
-        // to pay more for the others.
+    fn proposed_balance_refills_up_to_original_balance_for_all_three_non_exhaustive_accounts() {
+        // Despite looking irrational, this can happen if some of those originally qualified
+        // payables were eliminated. That would free some assets to be eventually used for
+        // the accounts left. Going forward, we've got a confirmed final accounts but with
+        // suboptimal balances caused by, so far, declaring them by their disqualification limits
+        // and no more. Therefore, we can live on a situation where the consuming wallet balance is
+        // more than the final, already reduced, set of accounts. This tested operation should
+        // ensure that the available assets will be given out maximally, resulting in a total
+        // pay-off on those selected accounts.
         let wallet_1 = make_wallet("abc");
         let original_requested_balance_1 = 45_000_000_000;
         let proposed_adjusted_balance_1 = 44_999_897_000;
