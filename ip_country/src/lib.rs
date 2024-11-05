@@ -1,7 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
-// These must be before the rest of the modules
-// in order to be able to use the macros.
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod bit_queue;
 pub mod countries;

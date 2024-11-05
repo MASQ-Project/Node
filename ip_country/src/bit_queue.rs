@@ -1,9 +1,18 @@
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use std::collections::VecDeque;
 
+#[derive(Debug)]
 pub struct BitQueue {
     back_blank_bit_count: usize, // number of high-order bits in the back byte of the queue that are unused
     byte_queue: VecDeque<u8>,
     front_blank_bit_count: usize, // number of low-order bits in the front byte of the queue that are unused
+}
+
+impl Default for BitQueue {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BitQueue {
@@ -18,6 +27,10 @@ impl BitQueue {
 
     pub fn len(&self) -> usize {
         (self.byte_queue.len() * 8) - self.back_blank_bit_count - self.front_blank_bit_count
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     #[allow(unused_assignments)]
@@ -56,20 +69,24 @@ impl BitQueue {
         }
         let mut bit_data = 0u64;
         let mut bit_position = 0usize;
+
         let (initial_bit_data, initial_bit_count) = self.take_some_front_bits(bit_count);
         bit_data |= initial_bit_data << bit_position;
         bit_position += initial_bit_count;
         bit_count -= initial_bit_count;
+
         let (byte_bit_data, byte_bit_count) = self.take_front_bytes(bit_count);
         bit_data |= byte_bit_data << bit_position;
         bit_position += byte_bit_count;
         bit_count -= byte_bit_count;
+
         let (final_front_bit_data, final_front_bit_count) = self.take_some_front_bits(bit_count);
         if final_front_bit_count > 0 {
             bit_data |= final_front_bit_data << bit_position;
             bit_position += final_front_bit_count;
         }
         bit_count -= final_front_bit_count;
+
         let (final_back_bit_data, final_back_bit_count) = self.take_some_back_bits(bit_count);
         if final_back_bit_count > 0 {
             bit_data |= final_back_bit_data << bit_position;
@@ -82,7 +99,7 @@ impl BitQueue {
                 original_bit_count, bit_position
             );
         }
-        return Some(bit_data);
+        Some(bit_data)
     }
 
     fn back_full_bit_count(&self) -> usize {
@@ -95,21 +112,6 @@ impl BitQueue {
 
     fn low_order_ones(count: usize) -> u64 {
         !(u64::MAX << count)
-    }
-
-    #[allow(dead_code)]
-    fn dump_queue(&self) -> String {
-        let queue_str = self
-            .byte_queue
-            .iter()
-            .map(|b| format!("{:08b}", *b))
-            .rev()
-            .collect::<Vec<String>>()
-            .join(" ");
-        format!(
-            "{}->{}->{}",
-            self.back_blank_bit_count, queue_str, self.front_blank_bit_count
-        )
     }
 
     fn add_some_back_bits(&mut self, bit_data: u64, bit_count: usize) -> usize {
@@ -129,7 +131,7 @@ impl BitQueue {
             self.byte_queue.push_back(0);
             self.back_blank_bit_count = 8;
         }
-        return bits_to_add;
+        bits_to_add
     }
 
     fn add_back_bytes(&mut self, mut bit_data: u64, mut bit_count: usize) -> usize {
@@ -159,7 +161,7 @@ impl BitQueue {
             bit_data >>= 8;
             bit_count -= 8;
         }
-        return original_bit_count - bit_count;
+        original_bit_count - bit_count
     }
 
     fn take_some_front_bits(&mut self, bit_count: usize) -> (u64, usize) {
@@ -186,7 +188,7 @@ impl BitQueue {
             let _ = self.byte_queue.pop_front();
             self.front_blank_bit_count = 0;
         }
-        return (bit_data as u64, bits_to_take);
+        (bit_data as u64, bits_to_take)
     }
 
     fn take_front_bytes(&mut self, mut bit_count: usize) -> (u64, usize) {
@@ -223,7 +225,7 @@ impl BitQueue {
             self.byte_queue.push_front(0);
             self.front_blank_bit_count = 8;
         }
-        return (bit_data, original_bit_count - bit_count);
+        (bit_data, original_bit_count - bit_count)
     }
 
     fn take_some_back_bits(&mut self, bit_count: usize) -> (u64, usize) {
@@ -245,7 +247,7 @@ impl BitQueue {
             let _ = self.byte_queue.pop_back();
             self.back_blank_bit_count = 0;
         }
-        return (bit_data as u64, bits_to_take);
+        (bit_data as u64, bits_to_take)
     }
 }
 
@@ -317,7 +319,6 @@ mod tests {
     fn nine_and_seven_then_nine_and_seven() {
         let mut subject = BitQueue::new();
         let sixteen_bits = 0b1000001100000001u64;
-        // let sixteen_bits = 0b1100111010101100u64;
 
         subject.add_bits(sixteen_bits & 0x1FF, 9);
         assert_eq!(subject.len(), 9);
@@ -336,7 +337,6 @@ mod tests {
     fn nine_and_seven_then_seven_and_nine() {
         let mut subject = BitQueue::new();
         let sixteen_bits = 0b1000000110000001u64;
-        // let sixteen_bits = 0b1100111010101100u64;
 
         subject.add_bits(sixteen_bits & 0x1FF, 9);
         assert_eq!(subject.len(), 9);
@@ -391,7 +391,6 @@ mod tests {
         subject.add_bits(0b11011, 5);
         subject.add_bits(0b00111001110011100, 17);
         subject.add_bits(0b1, 1);
-        // 0b100_1110_0111_0011_1001_1011
 
         let first_chunk = subject.take_bits(10).unwrap();
         let second_chunk = subject.take_bits(5).unwrap();

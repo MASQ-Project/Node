@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
+use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
-use crate::neighborhood::AccessibleGossipRecord;
+use crate::neighborhood::{AccessibleGossipRecord, UserExitPreferences};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
@@ -130,7 +130,7 @@ impl GossipHandler for DebutHandler {
         database: &mut NeighborhoodDatabase,
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        _neighborhood_metadata: NeighborhoodMetadata,
+        neighborhood_metadata: NeighborhoodMetadata,
     ) -> GossipAcceptanceResult {
         let source_agr = {
             let mut agr = agrs.remove(0); // empty Gossip shouldn't get here
@@ -165,7 +165,13 @@ impl GossipHandler for DebutHandler {
                 source_node_addr,
             );
         }
-        if let Ok(result) = self.try_accept_debut(cryptde, database, &source_agr, gossip_source) {
+        if let Ok(result) = self.try_accept_debut(
+            cryptde,
+            database,
+            &source_agr,
+            gossip_source,
+            neighborhood_metadata.user_exit_preferences_opt,
+        ) {
             return result;
         }
         debug!(self.logger, "Seeking neighbor for Pass");
@@ -240,7 +246,7 @@ impl DebutHandler {
             None => {
                 debug!(
                     self.logger,
-                    "No degree-3-or-greater neighbors; can't find more-appropriate neighbor"
+                    "No degree-3-or-greater neighbors; can't find more-appropriate neighbor.",
                 );
                 None
             }
@@ -266,13 +272,22 @@ impl DebutHandler {
         database: &mut NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
         gossip_source: SocketAddr,
+        user_exit_preferences_opt: Option<UserExitPreferences>,
     ) -> Result<GossipAcceptanceResult, ()> {
         if database.gossip_target_degree(database.root().public_key()) >= MAX_DEGREE {
             debug!(self.logger, "Neighbor count already at maximum");
             return Err(());
         }
         let debut_node_addr_opt = debuting_agr.node_addr_opt.clone();
-        let debuting_node = NodeRecord::from(debuting_agr);
+        let mut debuting_node = NodeRecord::from(debuting_agr);
+        match user_exit_preferences_opt {
+            Some(user_exit_preferences) => {
+                user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node)
+            }
+            None => (),
+        }
+
+        // TODO 468 make debuting_node mut and add country_undesirability to its metadata
         let debut_node_key = database
             .add_node(debuting_node)
             .expect("Debuting Node suddenly appeared in database");
@@ -289,12 +304,12 @@ impl DebutHandler {
                 root_mut.increment_version();
                 root_mut.regenerate_signed_gossip(cryptde);
                 trace!(self.logger, "Current database: {}", database.to_dot_graph());
-                if Self::should_not_make_introduction(debuting_agr) {
+                if Self::should_not_make_another_introduction(debuting_agr) {
                     let ip_addr_str = match &debuting_agr.node_addr_opt {
                         Some(node_addr) => node_addr.ip_addr().to_string(),
                         None => "?.?.?.?".to_string(),
                     };
-                    debug!(self.logger, "Node {} at {} is responding to first introduction: sending update Gossip instead of further introduction",
+                    debug!(self.logger, "Node {} at {} is responding to first introduction: sending standard Gossip instead of further introduction",
                                               debuting_agr.inner.public_key,
                                               ip_addr_str);
                     Ok(GossipAcceptanceResult::Accepted)
@@ -310,16 +325,56 @@ impl DebutHandler {
                         None => {
                             debug!(
                                 self.logger,
-                                "DebutHandler can't make an introduction, but is accepting {} at {} and broadcasting change",
+                                "DebutHandler has no one to introduce, but is debuting back to {} at {}",
                                 &debut_node_key,
                                 gossip_source,
                             );
-                            Ok(GossipAcceptanceResult::Accepted)
+                            trace!(
+                                self.logger,
+                                "DebutHandler database state: {}",
+                                &database.to_dot_graph(),
+                            );
+                            let debut_gossip = Self::create_debut_gossip_response(
+                                cryptde,
+                                database,
+                                debut_node_key,
+                            );
+                            Ok(GossipAcceptanceResult::Reply(
+                                debut_gossip,
+                                debuting_agr.inner.public_key.clone(),
+                                debuting_agr
+                                    .node_addr_opt
+                                    .as_ref()
+                                    .expect("Debut gossip always has an IP")
+                                    .clone(),
+                            ))
                         }
                     }
                 }
             }
             Ok(false) => panic!("Brand-new neighbor already existed"),
+        }
+    }
+
+    fn create_debut_gossip_response(
+        cryptde: &dyn CryptDE,
+        database: &mut NeighborhoodDatabase,
+        debut_node_key: PublicKey,
+    ) -> Gossip_0v1 {
+        let mut root_node = database.root().clone();
+        root_node.clear_half_neighbors();
+        root_node
+            .add_half_neighbor_key(debut_node_key.clone())
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Couldn't add debuting {} as a half neighbor: {:?}",
+                    debut_node_key, e
+                )
+            });
+        let root_node_addr_opt = root_node.node_addr_opt();
+        let gnr = GossipNodeRecord::from((root_node.inner, root_node_addr_opt, cryptde));
+        Gossip_0v1 {
+            node_records: vec![gnr],
         }
     }
 
@@ -443,7 +498,7 @@ impl DebutHandler {
         keys
     }
 
-    fn should_not_make_introduction(debuting_agr: &AccessibleGossipRecord) -> bool {
+    fn should_not_make_another_introduction(debuting_agr: &AccessibleGossipRecord) -> bool {
         !debuting_agr.inner.neighbors.is_empty()
     }
 
@@ -645,7 +700,13 @@ impl GossipHandler for IntroductionHandler {
                 .as_ref()
                 .expect("IP Address not found for the Node Addr.")
                 .ip_addr();
-            match self.update_database(database, cryptde, introducer) {
+            // TODO 468 pass the NeighborhoodMetadata into update_database
+            match self.update_database(
+                database,
+                cryptde,
+                introducer,
+                neighborhood_metadata.user_exit_preferences_opt,
+            ) {
                 Ok(_) => (),
                 Err(e) => {
                     return GossipAcceptanceResult::Ban(format!(
@@ -805,6 +866,7 @@ impl IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         cryptde: &dyn CryptDE,
         introducer: AccessibleGossipRecord,
+        user_exit_preferences_opt: Option<UserExitPreferences>,
     ) -> Result<bool, String> {
         let introducer_key = introducer.inner.public_key.clone();
         match database.node_by_key_mut(&introducer_key) {
@@ -829,7 +891,14 @@ impl IntroductionHandler {
                 }
             }
             None => {
-                let new_introducer = NodeRecord::from(introducer);
+                let mut new_introducer = NodeRecord::from(introducer);
+                //TODO 468 add country undesirability
+                match user_exit_preferences_opt {
+                    Some(user_exit_preferences) => user_exit_preferences
+                        .assign_nodes_country_undesirability(&mut new_introducer),
+                    None => (),
+                }
+                //TODO probably make one function to use on all places
                 debug!(
                     self.logger,
                     "Adding introducer {} to database", introducer_key
@@ -940,10 +1009,12 @@ impl GossipHandler for StandardGossipHandler {
         let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.db_patch_size);
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
+        // TODO 468 get structs from neighborhood metadata
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
             database,
             &filtered_agrs,
             gossip_source,
+            neighborhood_metadata.user_exit_preferences_opt.as_ref(),
         );
         db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
         db_changed =
@@ -1055,6 +1126,7 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
+        user_exit_preferences_opt: Option<&UserExitPreferences>,
     ) -> bool {
         let all_keys = database
             .keys()
@@ -1072,7 +1144,14 @@ impl StandardGossipHandler {
                 }
             })
             .for_each(|agr| {
-                let node_record = NodeRecord::from(agr);
+                let mut node_record = NodeRecord::from(agr);
+                // TODO modify for country undesirability in node_record (make it mut)
+                match user_exit_preferences_opt {
+                    Some(user_exit_preferences) => {
+                        user_exit_preferences.assign_nodes_country_undesirability(&mut node_record)
+                    }
+                    None => (),
+                }
                 trace!(
                     self.logger,
                     "Discovered new Node {:?}: {:?}",
@@ -1328,10 +1407,15 @@ mod tests {
     use super::*;
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
-    use crate::neighborhood::node_location::NodeLocation;
     use crate::neighborhood::node_record::NodeRecord;
+    use crate::neighborhood::{
+        ExitPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
+        UNREACHABLE_COUNTRY_PENALTY,
+    };
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
+    use crate::sub_lib::neighborhood::{
+        ConnectionProgressEvent, ConnectionProgressMessage, ExitLocation,
+    };
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
@@ -1344,6 +1428,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
+    use std::net::Ipv4Addr;
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
@@ -1367,6 +1452,7 @@ mod tests {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
             db_patch_size: DB_PATCH_SIZE_FOR_TEST,
+            user_exit_preferences_opt: None,
         }
     }
 
@@ -1624,6 +1710,53 @@ mod tests {
         );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
+    }
+
+    #[test]
+    fn two_parallel_debuts_in_progress_handled_by_try_accept_debut_without_introduction() {
+        let mut root_node = make_node_record(1234, true);
+        let half_debuted_node = make_node_record(2345, true);
+        let new_debutant = make_node_record(4567, true);
+        let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
+        let mut dest_db = db_from_node(&root_node);
+        dest_db.add_node(half_debuted_node.clone()).unwrap();
+        dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_debuted_node.public_key());
+        let logger = Logger::new("Debut test");
+        let subject = DebutHandler::new(logger);
+        let neighborhood_metadata = make_default_neighborhood_metadata();
+
+        let counter_debut = subject
+            .try_accept_debut(
+                &root_node_cryptde,
+                &mut dest_db,
+                &AccessibleGossipRecord::from(&new_debutant),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)), 4567),
+                neighborhood_metadata.user_exit_preferences_opt,
+            )
+            .unwrap();
+
+        let (debut_reply, dest_public_key, dest_node_addr) = match counter_debut {
+            GossipAcceptanceResult::Reply(
+                ref debut_reply,
+                ref dest_public_key,
+                ref dest_node_addr,
+            ) => (debut_reply, dest_public_key, dest_node_addr),
+            x => panic!("Expected Reply, got {:?}", x),
+        };
+
+        assert_eq!(dest_public_key, new_debutant.public_key());
+        assert_eq!(dest_node_addr, &new_debutant.node_addr_opt().unwrap());
+        root_node
+            .add_half_neighbor_key(new_debutant.public_key().clone())
+            .unwrap();
+        assert_eq!(
+            counter_debut,
+            GossipAcceptanceResult::Reply(
+                debut_reply.clone(),
+                dest_public_key.clone(),
+                dest_node_addr.clone()
+            )
+        )
     }
 
     #[test]
@@ -1935,6 +2068,15 @@ mod tests {
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
+            exit_countries: vec!["FR".to_string()],
+            exit_location_preference: ExitPreference::ExitCountryNoFallback,
+            exit_locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["FR".to_string()],
+                priority: 2,
+            }]),
+        });
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(
@@ -1942,7 +2084,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata(),
+            neighborhood_metadata,
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1957,19 +2099,22 @@ mod tests {
             ),
             handle_result
         );
+
+        let result_introducer: &NodeRecord =
+            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
-        let result_introducer = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
+        expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
         expected_introducer.resign();
-        assert_eq!(Some(&mut expected_introducer), Some(result_introducer));
+        assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
-            true,
             dest_db
                 .root()
-                .has_half_neighbor(expected_introducer.public_key())
+                .has_half_neighbor(expected_introducer.public_key()),
+            true
         );
-        assert_eq!(1, dest_db.root().version());
-        assert_eq!(None, dest_db.node_by_key(&agrs[1].inner.public_key));
+        assert_eq!(dest_db.root().version(), 1);
+        assert_eq!(dest_db.node_by_key(&agrs[1].inner.public_key), None);
     }
 
     #[test]
@@ -2033,11 +2178,12 @@ mod tests {
             ),
             handle_result
         );
+        let result_introducer: &NodeRecord =
+            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
-        let result_introducer = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
-        assert_eq!(Some(&mut expected_introducer), Some(result_introducer));
+        assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
             true,
             dest_db
@@ -2088,11 +2234,13 @@ mod tests {
             ),
             handle_result
         );
+
+        let result_introducer: &NodeRecord =
+            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
-        let result_introducer = dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
-        assert_eq!(Some(&mut expected_introducer), Some(result_introducer));
+        assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
             true,
             dest_db
@@ -2317,6 +2465,14 @@ mod tests {
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
+            exit_countries: vec!["FR".to_string()],
+            exit_location_preference: ExitPreference::ExitCountryWithFallback,
+            exit_locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["FR".to_string()],
+                priority: 1,
+            }]),
+        });
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let system = System::new("test");
 
@@ -2329,6 +2485,22 @@ mod tests {
             neighborhood_metadata,
         );
 
+        assert_eq!(
+            dest_db
+                .node_by_key(node_a.public_key())
+                .unwrap()
+                .metadata
+                .country_undesirability,
+            0u32
+        );
+        assert_eq!(
+            dest_db
+                .node_by_key(node_b.public_key())
+                .unwrap()
+                .metadata
+                .country_undesirability,
+            UNREACHABLE_COUNTRY_PENALTY
+        );
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(GossipAcceptanceResult::Accepted, handle_result);
         assert_eq!(
@@ -2889,16 +3061,60 @@ mod tests {
         let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
+            exit_countries: vec!["CZ".to_string()],
+            exit_location_preference: ExitPreference::ExitCountryWithFallback,
+            exit_locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["CZ".to_string()],
+                priority: 1,
+            }]),
+        });
 
         let result = subject.handle(
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata(),
+            neighborhood_metadata,
         );
 
         let after = time_t_timestamp();
-        assert_eq!(GossipAcceptanceResult::Accepted, result);
+
+        let expected = "Reply(Gossip_0v1 { node_records: [
+GossipNodeRecord {
+	inner: NodeRecordInner_0v1 {
+		public_key: 0x01020304,
+		node_addr_opt: Some(1.2.3.4:[1234]),
+		earning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },
+		rate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1434, exit_byte_rate: 1237, exit_service_rate: 1634 },
+		neighbors: [0x02030405],
+		version: 1,
+	},
+	node_addr_opt: Some(1.2.3.4:[1234]),
+	signed_data:
+Length: 254 (0xfe) bytes
+0000:   a8 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
+0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
+0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
+0030:   db 18 8d 18  6e 09 18 37  18 49 18 71  18 33 18 d1   ....n..7.I.q.3..
+0040:   18 ae 18 6f  18 df 18 5f  18 4b 18 75  18 bc 18 d0   ...o..._.K.u....
+0050:   69 72 61 74  65 5f 70 61  63 6b a4 71  72 6f 75 74   irate_pack.qrout
+0060:   69 6e 67 5f  62 79 74 65  5f 72 61 74  65 19 04 d3   ing_byte_rate...
+0070:   74 72 6f 75  74 69 6e 67  5f 73 65 72  76 69 63 65   trouting_service
+0080:   5f 72 61 74  65 19 05 9a  6e 65 78 69  74 5f 62 79   _rate...nexit_by
+0090:   74 65 5f 72  61 74 65 19  04 d5 71 65  78 69 74 5f   te_rate...qexit_
+00a0:   73 65 72 76  69 63 65 5f  72 61 74 65  19 06 62 69   service_rate..bi
+00b0:   6e 65 69 67  68 62 6f 72  73 81 44 02  03 04 05 73   neighbors.D....s
+00c0:   61 63 63 65  70 74 73 5f  63 6f 6e 6e  65 63 74 69   accepts_connecti
+00d0:   6f 6e 73 f5  6b 72 6f 75  74 65 73 5f  64 61 74 61   ons.kroutes_data
+00e0:   f5 67 76 65  72 73 69 6f  6e 01 70 63  6f 75 6e 74   .gversion.pcount
+00f0:   72 79 5f 63  6f 64 65 5f  6f 70 74 62  41 55         ry_code_optbAU
+	signature:
+Length: 24 (0x18) bytes
+0000:   01 02 03 04  f7 26 1e a5  d4 4a 71 d9  f8 42 08 35   .....&...Jq..B.5
+0010:   e4 99 27 4a  85 7f 01 11                             ..'J....
+}] }, 0x02030405, 2.3.4.5:[2345])".to_string();
+        assert_eq!(format!("{:?}", result), expected);
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
             .unwrap();
@@ -2909,6 +3125,11 @@ mod tests {
         let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
+        assert_eq!(
+            reference_node.metadata.country_undesirability,
+            UNREACHABLE_COUNTRY_PENALTY
+        );
+        reference_node.metadata.country_undesirability = 0u32;
         assert_node_records_eq(reference_node, &debut_node, before, after);
     }
 
@@ -3134,11 +3355,6 @@ mod tests {
             .add_half_neighbor_key(existing_node_4_key.clone())
             .unwrap();
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.inner.country_code = "AU".to_string();
-        root_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AU".to_string(),
-            free_world_bit: true,
-        });
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
     }
@@ -3223,12 +3439,6 @@ mod tests {
             .unwrap();
         root_node.resign();
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
-        root_node.inner.country_code = "AU".to_string();
-        root_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AU".to_string(),
-            free_world_bit: true,
-        });
-        root_node.resign();
         assert_eq!(&root_node, dest_db.root());
     }
 
@@ -3329,7 +3539,21 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let mut root_node = dest_db.root().clone();
+        root_node.clear_half_neighbors();
+        root_node
+            .add_half_neighbor_key(src_node.public_key().clone())
+            .expect("expected half neighbor");
+        let gnr = GossipNodeRecord::from((
+            root_node.inner.clone(),
+            root_node.node_addr_opt(),
+            main_cryptde(),
+        ));
+        let debut_gossip = Gossip_0v1 {
+            node_records: vec![gnr],
+        };
+        let expected = make_expected_non_introduction_debut_response(&src_node, debut_gossip);
+        assert_eq!(result, expected);
         assert_eq!(
             dest_db
                 .node_by_key(dest_node.public_key())
@@ -3364,7 +3588,21 @@ mod tests {
             make_default_neighborhood_metadata(),
         );
 
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let mut root_node = dest_db.root().clone();
+        root_node.clear_half_neighbors();
+        root_node
+            .add_half_neighbor_key(src_node.public_key().clone())
+            .expect("expected half neighbor");
+        let gnr = GossipNodeRecord::from((
+            root_node.inner.clone(),
+            root_node.node_addr_opt(),
+            main_cryptde(),
+        ));
+        let debut_gossip = Gossip_0v1 {
+            node_records: vec![gnr],
+        };
+        let expected = make_expected_non_introduction_debut_response(&src_node, debut_gossip);
+        assert_eq!(result, expected);
         assert_eq!(
             dest_db
                 .node_by_key(dest_node.public_key())
@@ -3372,6 +3610,17 @@ mod tests {
                 .has_half_neighbor(src_node.public_key()),
             true,
         );
+    }
+
+    fn make_expected_non_introduction_debut_response(
+        src_node: &NodeRecord,
+        debut_gossip: Gossip_0v1,
+    ) -> GossipAcceptanceResult {
+        GossipAcceptanceResult::Reply(
+            debut_gossip,
+            src_node.public_key().clone(),
+            src_node.node_addr_opt().as_ref().unwrap().clone(),
+        )
     }
 
     #[test]
@@ -3653,7 +3902,7 @@ mod tests {
 
         <------------------------------------->
          */
-        let before = time_t_timestamp();
+
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
         let node_a = make_node_record(2345, true);
@@ -3702,6 +3951,7 @@ mod tests {
             .node(node_f.public_key(), true)
             .build();
         let subject = make_subject(main_cryptde());
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -3722,7 +3972,7 @@ mod tests {
             &mut expected_dest_db,
             vec![&node_a, &node_b, &node_d, &node_e, &node_f],
         );
-        fix_last_update_nodes(&mut expected_dest_db, &dest_db, &root_node);
+        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
         expected_dest_db
             .node_by_key_mut(node_c.public_key())
             .unwrap()
@@ -3767,17 +4017,7 @@ mod tests {
     fn fix_last_update_nodes(
         expected_db: &mut NeighborhoodDatabase,
         dest_db: &NeighborhoodDatabase,
-        root_node: &NodeRecord,
     ) {
-        expected_db
-            .node_by_key_mut(root_node.public_key())
-            .unwrap()
-            .metadata
-            .last_update = dest_db
-            .node_by_key(root_node.public_key())
-            .unwrap()
-            .metadata
-            .last_update;
         let keys = expected_db
             .keys()
             .iter()
@@ -3883,27 +4123,25 @@ mod tests {
         dest_node_mut.increment_version();
         dest_node_mut.resign();
         assert_eq!(result, GossipAcceptanceResult::Accepted);
-        fix_last_update_nodes(&mut expected_dest_db, &dest_db, &dest_node);
+        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
         assert_node_records_eq(
             dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
             expected_dest_db
-                .node_by_key_mut(third_node.public_key())
+                .node_by_key(third_node.public_key())
                 .unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
             dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
-            expected_dest_db
-                .node_by_key_mut(src_node.public_key())
-                .unwrap(),
+            expected_dest_db.node_by_key(src_node.public_key()).unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
             dest_db.node_by_key_mut(dest_node.public_key()).unwrap(),
             expected_dest_db
-                .node_by_key_mut(dest_node.public_key())
+                .node_by_key(dest_node.public_key())
                 .unwrap(),
             before,
             after,
@@ -3916,7 +4154,6 @@ mod tests {
 
     #[test]
     fn standard_gossip_with_current_and_obsolete_versions_doesnt_change_anything() {
-        let before = time_t_timestamp();
         let dest_root = make_node_record(1234, true);
         let mut dest_db = db_from_node(&dest_root);
         let src_root = make_node_record(2345, true);
@@ -3947,6 +4184,7 @@ mod tests {
             .build();
         let subject = make_subject(main_cryptde());
         let original_dest_db = dest_db.clone();
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -4252,8 +4490,8 @@ mod tests {
         )
     }
 
-    fn make_single_node_gossip<'a>(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
-        let mut debut_node: NodeRecord = make_node_record(n, true);
+    fn make_single_node_gossip(n: u16, mode: Mode) -> (Gossip_0v1, NodeRecord) {
+        let mut debut_node = make_node_record(n, true);
         adjust_for_mode(&mut debut_node, mode);
         let src_db = db_from_node(&debut_node);
         let gossip = GossipBuilder::new(&src_db)

@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
-use crate::neighborhood::Neighborhood;
+use crate::neighborhood::{Neighborhood, UserExitPreferences};
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -19,7 +19,6 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use core::fmt;
-use std::collections::HashSet;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
@@ -217,7 +216,8 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
-            Some(NodeAddr::from_str(str_node_addr)?)
+            let node_addr = NodeAddr::from_str(str_node_addr)?;
+            Some(node_addr)
         };
         Ok(NodeDescriptor {
             blockchain,
@@ -246,7 +246,7 @@ impl NodeDescriptor {
             CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
-            node_addr_string
+            node_addr_string,
         )
     }
 
@@ -380,10 +380,37 @@ pub enum Hops {
     SixHops = 6,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExitLocation {
-    pub country_code: HashSet<String>,
+    pub country_codes: Vec<String>,
     pub priority: usize,
+}
+
+pub struct ExitLocationSet {
+    pub locations: Vec<ExitLocation>,
+}
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_codes, self.priority
+        )
+    }
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for exit_location in self.locations.iter() {
+            write!(
+                f,
+                "Country Codes: {:?} - Priority: {}; ",
+                exit_location.country_codes, exit_location.priority
+            )?;
+        }
+        Ok(())
+    }
 }
 
 impl FromStr for Hops {
@@ -483,7 +510,7 @@ pub struct RouteQueryMessage {
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
     pub hostname_opt: Option<String>,
-    pub target_country_opt: Option<String>,
+    pub target_country_opt: Option<String>
 }
 
 impl Message for RouteQueryMessage {
@@ -502,7 +529,7 @@ impl RouteQueryMessage {
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
             hostname_opt,
-            target_country_opt,
+            target_country_opt
         }
     }
 }
@@ -603,6 +630,7 @@ pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
     pub db_patch_size: u8,
+    pub user_exit_preferences_opt: Option<UserExitPreferences>,
 }
 
 pub struct NeighborhoodTools {
@@ -935,7 +963,7 @@ mod tests {
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &[1234, 2345, 3456],
-                ))
+                )),
             },
         )
     }
@@ -949,7 +977,7 @@ mod tests {
             NodeDescriptor {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
                 blockchain: Chain::EthMainnet,
-                node_addr_opt: None
+                node_addr_opt: None,
             },
         )
     }
@@ -1067,7 +1095,7 @@ mod tests {
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
                 hostname_opt: None,
-                target_country_opt: None
+                target_country_opt: None,
             }
         );
     }

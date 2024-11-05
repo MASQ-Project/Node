@@ -718,6 +718,7 @@ mod tests {
                     DEFAULT_RATE_PACK
                 ),
                 min_hops: Hops::OneHop,
+
             })
         );
     }
@@ -853,6 +854,7 @@ mod tests {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
                 min_hops: Hops::ThreeHops,
+                ..
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };

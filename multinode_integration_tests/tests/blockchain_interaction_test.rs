@@ -28,7 +28,7 @@ use node_lib::sub_lib::wallet::Wallet;
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
     if is_running_under_github_actions() {
-        eprintln!("This test doesn't pass under GitHub Actions; don't know why");
+        eprintln!("This test doesn't pass under GitHub Actions; don't know why, test_node_1 does not contain local descriptor in log after startup");
         return;
     }
     let mbcs_port = find_free_port();
@@ -37,12 +37,9 @@ fn debtors_are_credited_once_but_not_twice() {
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     eprintln!("Setting up mock blockchain client");
     let blockchain_client_server = MBCSBuilder::new(mbcs_port)
-        .response(
-            //TODO find the structure of response on StartBlock from BlockChain and return it here
-            vec!["0x7DA".to_string()],
-            0,
-        )
+        .response(vec!["0x7DA".to_string()], 0)
         .begin_batch()
+        .response(vec!["0x7DA".to_string()], 0)
         .response(
             vec![LogObject {
                 removed: false,
