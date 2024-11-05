@@ -146,7 +146,7 @@ mod tests {
 
     fn plus_minus_correction_for_u16_max(correction: i8) -> usize {
         if correction < 0 {
-            (u16::MAX - correction.abs() as u16) as usize
+            u16::MAX as usize - (correction.abs() as usize)
         } else {
             u16::MAX as usize + correction as usize
         }

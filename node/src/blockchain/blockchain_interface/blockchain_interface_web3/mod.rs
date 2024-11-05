@@ -1062,7 +1062,7 @@ mod tests {
         );
         assert_eq!(result.service_fee_balance_minor(), masq_balance.as_u128());
         assert_eq!(
-            result.agreed_transaction_fee_margin(),
+            result.gas_price_margin(),
             PurePercentage::try_from(15).unwrap()
         );
         assert_eq!(result.agreed_fee_per_computation_unit(), 50);

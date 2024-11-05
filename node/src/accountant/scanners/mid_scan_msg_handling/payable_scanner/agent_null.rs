@@ -33,8 +33,8 @@ impl BlockchainAgent for BlockchainAgentNull {
         0
     }
 
-    fn agreed_transaction_fee_margin(&self) -> PurePercentage {
-        self.log_function_call("agreed_transaction_fee_margin()");
+    fn gas_price_margin(&self) -> PurePercentage {
+        self.log_function_call("gas_price_margin()");
         PurePercentage::try_from(0).expect("0 should cause no issue")
     }
 
@@ -176,16 +176,16 @@ mod tests {
     }
 
     #[test]
-    fn null_agent_agreed_transaction_fee_margin() {
+    fn null_agent_gas_price_margin() {
         init_test_logging();
-        let test_name = "null_agent_agreed_transaction_fee_margin";
+        let test_name = "null_agent_gas_price_margin";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.agreed_transaction_fee_margin();
+        let result = subject.gas_price_margin();
 
         assert_eq!(result, PurePercentage::try_from(0).unwrap());
-        assert_error_log(test_name, "agreed_transaction_fee_margin")
+        assert_error_log(test_name, "gas_price_margin")
     }
 
     #[test]

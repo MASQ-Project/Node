@@ -44,12 +44,12 @@ impl PreparatoryAnalyzer {
         let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
         let per_transaction_requirement_minor =
             agent.estimated_transaction_fee_per_transaction_minor();
-        let agreed_transaction_fee_margin = agent.agreed_transaction_fee_margin();
+        let gas_price_margin = agent.gas_price_margin();
 
         let transaction_fee_check_result = self
             .determine_transaction_count_limit_by_transaction_fee(
                 cw_transaction_fee_balance_minor,
-                agreed_transaction_fee_margin,
+                gas_price_margin,
                 per_transaction_requirement_minor,
                 number_of_accounts,
                 logger,
@@ -165,13 +165,13 @@ impl PreparatoryAnalyzer {
     fn determine_transaction_count_limit_by_transaction_fee(
         &self,
         cw_transaction_fee_balance_minor: U256,
-        agreed_transaction_fee_margin: PurePercentage,
+        gas_price_margin: PurePercentage,
         per_transaction_requirement_minor: u128,
         number_of_qualified_accounts: usize,
         logger: &Logger,
     ) -> Result<Option<u16>, TransactionFeeImmoderateInsufficiency> {
         let per_txn_requirement_minor_with_margin =
-            agreed_transaction_fee_margin.add_percent_to(per_transaction_requirement_minor);
+            gas_price_margin.add_percent_to(per_transaction_requirement_minor);
 
         let verified_tx_counts = Self::transaction_counts_verification(
             cw_transaction_fee_balance_minor,
@@ -410,7 +410,7 @@ mod tests {
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let subject = PreparatoryAnalyzer {};
         let blockchain_agent = BlockchainAgentMock::default()
-            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
+            .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
             .transaction_fee_balance_minor_result(U256::MAX)
             .estimated_transaction_fee_per_transaction_minor_result(123456)
             .service_fee_balance_minor_result(cw_service_fee_balance);

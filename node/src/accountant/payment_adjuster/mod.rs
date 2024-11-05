@@ -232,7 +232,7 @@ impl PaymentAdjusterReal {
     fn begin_with_adjustment_by_transaction_fee(
         &mut self,
         weighed_accounts: Vec<WeightedPayable>,
-        already_known_affordable_transaction_count: u16,
+        transaction_count_limit: u16,
     ) -> Result<
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
@@ -246,7 +246,7 @@ impl PaymentAdjusterReal {
 
         let weighted_accounts_affordable_by_transaction_fee = eliminate_accounts_by_tx_fee_limit(
             weighed_accounts,
-            already_known_affordable_transaction_count,
+            transaction_count_limit,
         );
 
         let cw_service_fee_balance_minor = self.inner.original_cw_service_fee_balance_minor();
@@ -420,12 +420,12 @@ impl PaymentAdjusterReal {
     fn complete_debug_log_if_enabled(
         &self,
         sketched_debug_info_opt: Option<HashMap<Wallet, u128>>,
-        affordable_accounts: &[PayableAccount],
+        fully_processed_accounts: &[PayableAccount],
     ) {
         self.logger.debug(|| {
             let sketched_debug_info =
                 sketched_debug_info_opt.expect("debug is enabled, so info should exist");
-            accounts_before_and_after_debug(sketched_debug_info, affordable_accounts)
+            accounts_before_and_after_debug(sketched_debug_info, fully_processed_accounts)
         })
     }
 }
@@ -485,11 +485,12 @@ impl PaymentAdjusterError {
             PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction { .. } => true,
             PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction { .. } => true,
             PaymentAdjusterError::AllAccountsEliminated => true,
-            // We haven't needed to worry so yet, but adding an error not implying that
-            // an insolvency was found out, might become relevant in the future. Then, it'll
-            // be important to check for those consequences (Hint: It is anticipated to affect
-            // the wording of error announcements that take place back nearer to the Accountant's
-            // general area)
+            // We haven't needed to worry in this matter yet, this is rather a future alarm that
+            // will draw attention after somebody adds a possibility for an error not necessarily
+            // implying that an insolvency was detected before. At the moment, each error occurs
+            // only alongside an actual insolvency. (Hint: There might be consequences for
+            // the wording of the error message whose forming takes place back out, nearer to the
+            // Accountant's general area)
         }
     }
 }
@@ -589,9 +590,7 @@ mod tests {
         make_analyzed_payables, make_meaningless_analyzed_account, make_payable_account,
         make_qualified_payables,
     };
-    use crate::accountant::{
-        gwei_to_wei, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
-    };
+    use crate::accountant::{gwei_to_wei, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton, AnalyzedPayableAccount};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -609,12 +608,12 @@ mod tests {
     use web3::types::U256;
 
     #[test]
-    #[should_panic(expected = "Broken code: Called the null implementation of \
-        the unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner")]
+    #[should_panic(expected = "The PaymentAdjuster Inner is uninitialised. It was detected while \
+    executing unallocated_cw_service_fee_balance_minor()")]
     fn payment_adjuster_new_is_created_with_inner_null() {
-        let result = PaymentAdjusterReal::new();
+        let subject = PaymentAdjusterReal::new();
 
-        let _ = result.inner.unallocated_cw_service_fee_balance_minor();
+        let _ = subject.inner.unallocated_cw_service_fee_balance_minor();
     }
 
     fn test_initialize_inner_works(
@@ -668,15 +667,15 @@ mod tests {
     #[test]
     fn consider_adjustment_happy_path() {
         init_test_logging();
-        let test_name = "consider_adjustment_gives_negative_answer";
+        let test_name = "consider_adjustment_happy_path";
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         // Service fee balance > payments
         let input_1 = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
                 account_balances: Either::Right(vec![
-                    gwei_to_wei::<u128, u64>(85),
-                    gwei_to_wei::<u128, u64>(15) - 1,
+                    gwei_to_wei(85_u64),
+                    gwei_to_wei::<u128,u64>(15) - 1,
                 ]),
                 cw_balance_minor: gwei_to_wei(100_u64),
             }),
@@ -690,31 +689,29 @@ mod tests {
             }),
             None,
         );
+        let transaction_fee_balance_exactly_required_minor: u128 = {
+            let base_value = (100 * 6 * 53_000) as u128;
+            let with_margin = TRANSACTION_FEE_MARGIN.add_percent_to(base_value);
+            gwei_to_wei(with_margin)
+        };
         // Transaction fee balance > payments
         let input_3 = make_input_for_initial_check_tests(
             None,
             Some(TestConfigForTransactionFees {
-                agreed_transaction_fee_per_computed_unit_major: 100,
+                gas_price_major: 100,
                 number_of_accounts: 6,
                 estimated_transaction_fee_units_per_transaction: 53_000,
-                cw_transaction_fee_balance_major: {
-                    let base_value = 100 * 6 * 53_000;
-                    let exact_equality = TRANSACTION_FEE_MARGIN.add_percent_to(base_value);
-                    exact_equality + 1
-                },
+                cw_transaction_fee_balance_minor: transaction_fee_balance_exactly_required_minor + 1,
             }),
         );
         // Transaction fee balance == payments
         let input_4 = make_input_for_initial_check_tests(
             None,
             Some(TestConfigForTransactionFees {
-                agreed_transaction_fee_per_computed_unit_major: 100,
+                gas_price_major: 100,
                 number_of_accounts: 6,
                 estimated_transaction_fee_units_per_transaction: 53_000,
-                cw_transaction_fee_balance_major: {
-                    let base_value = 100 * 6 * 53_000;
-                    TRANSACTION_FEE_MARGIN.add_percent_to(base_value)
-                },
+                cw_transaction_fee_balance_minor: transaction_fee_balance_exactly_required_minor,
             }),
         );
 
@@ -736,24 +733,23 @@ mod tests {
     #[test]
     fn consider_adjustment_sad_path_for_transaction_fee() {
         init_test_logging();
-        let test_name = "consider_adjustment_sad_path_positive_for_transaction_fee";
+        let test_name = "consider_adjustment_sad_path_for_transaction_fee";
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
         let number_of_accounts = 3;
-        let service_fee_balances_config_opt = None;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
-            service_fee_balances_config_opt,
+            None,
             Some(TestConfigForTransactionFees {
-                agreed_transaction_fee_per_computed_unit_major: 100,
+                gas_price_major: 100,
                 number_of_accounts,
                 estimated_transaction_fee_units_per_transaction: 55_000,
-                cw_transaction_fee_balance_major: (((100 * 3 * 55_000) * 115) / 100) - 1,
+                cw_transaction_fee_balance_minor: TRANSACTION_FEE_MARGIN.add_percent_to(gwei_to_wei::<u128, u64>(100 * 3 * 55_000)) - 1,
             }),
         );
-        let analyzed_payables = convert_collection(qualified_payables.clone());
 
-        let result = subject.consider_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables.clone(), &*agent);
 
+        let analyzed_payables = convert_collection(qualified_payables);
         assert_eq!(
             result,
             Ok(Either::Right(AdjustmentAnalysisReport::new(
@@ -765,7 +761,7 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Transaction fee balance of 18,974,999,000,000,000 wei cannot cover \
+            "WARN: {test_name}: Transaction fee balance of 18,974,999,999,999,999 wei cannot cover \
             the anticipated 18,975,000,000,000,000 wei for 3 transactions. Maximal count is set to 2. \
             Adjustment must be performed."
         ));
@@ -786,17 +782,17 @@ mod tests {
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
                 account_balances: Either::Right(vec![
-                    gwei_to_wei::<u128, u64>(85),
-                    gwei_to_wei::<u128, u64>(15) + 1,
+                    gwei_to_wei(85_u64),
+                    gwei_to_wei::<u128,u64>(15) + 1,
                 ]),
                 cw_balance_minor: gwei_to_wei(100_u64),
             }),
             None,
         );
-        let analyzed_payables = convert_collection(qualified_payables.clone());
 
-        let result = subject.consider_adjustment(qualified_payables, &*agent);
+        let result = subject.consider_adjustment(qualified_payables.clone(), &*agent);
 
+        let analyzed_payables = convert_collection(qualified_payables);
         assert_eq!(
             result,
             Ok(Either::Right(AdjustmentAnalysisReport::new(
@@ -818,27 +814,33 @@ mod tests {
     }
 
     #[test]
-    fn transaction_fee_balance_is_unbearably_low_but_service_fee_balance_is_fine() {
+    fn service_fee_balance_is_fine_but_transaction_fee_balance_throws_error() {
         let subject = PaymentAdjusterReal::new();
         let number_of_accounts = 3;
+        let tx_fee_exactly_required_for_single_tx = {
+            let base_minor = gwei_to_wei::<u128, u64>(55_000 * 100);
+            TRANSACTION_FEE_MARGIN.add_percent_to(base_minor)
+        };
+        let cw_transaction_fee_balance_minor = tx_fee_exactly_required_for_single_tx - 1;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
                 account_balances: Either::Left(vec![123]),
-                cw_balance_minor: gwei_to_wei::<u128, u64>(444),
+                cw_balance_minor: gwei_to_wei(444_u64),
             }),
             Some(TestConfigForTransactionFees {
-                agreed_transaction_fee_per_computed_unit_major: 100,
+                gas_price_major: 100,
                 number_of_accounts,
                 estimated_transaction_fee_units_per_transaction: 55_000,
-                cw_transaction_fee_balance_major: 54_000 * 100,
+                cw_transaction_fee_balance_minor,
             }),
         );
 
         let result = subject.consider_adjustment(qualified_payables, &*agent);
 
-        let per_transaction_requirement_minor =
-            TRANSACTION_FEE_MARGIN.add_percent_to(55_000 * gwei_to_wei::<u128, u64>(100));
-        let cw_transaction_fee_balance_minor = U256::from(54_000 * gwei_to_wei::<u128, u64>(100));
+        let per_transaction_requirement_minor = {
+            let base_minor = gwei_to_wei::<u128, u64>(55_000 * 100);
+            TRANSACTION_FEE_MARGIN.add_percent_to(base_minor)
+        };
         assert_eq!(
             result,
             Err(
@@ -846,7 +848,7 @@ mod tests {
                     number_of_accounts,
                     transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
                         per_transaction_requirement_minor,
-                        cw_transaction_fee_balance_minor,
+                        cw_transaction_fee_balance_minor: cw_transaction_fee_balance_minor.into(),
                     }),
                     service_fee_opt: None
                 }
@@ -855,16 +857,20 @@ mod tests {
     }
 
     #[test]
-    fn checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_is_unbearably_low()
+    fn checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_throws_error()
     {
-        let test_name = "checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_is_unbearably_low";
-        let cw_service_fee_balance_minor = gwei_to_wei::<u128, _>(120_u64) / 2 - 1; // this would normally kick a serious error
+        let test_name = "checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_throws_error";
+        let cw_service_fee_balance_minor = gwei_to_wei::<u128, _>(120_u64) / 2 - 1;
+        nmnnbnmbn
+        // TODO BIG TROUBLES, fix me
         let service_fee_balances_config_opt = Some(TestConfigForServiceFeeBalances {
             account_balances: Either::Left(vec![120, 300, 500]),
             cw_balance_minor: cw_service_fee_balance_minor,
         });
         let (qualified_payables, agent) =
             make_input_for_initial_check_tests(service_fee_balances_config_opt, None);
+        let analyzed_accounts: Vec<AnalyzedPayableAccount> = convert_collection(qualified_payables);
+        let minimal_disqualification_limit = analyzed_accounts.iter().map(|account|account.disqualification_limit_minor).min();
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
 
@@ -886,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn both_balances_are_unbearably_low() {
+    fn both_balances_are_not_enough_even_for_single_transaction() {
         let subject = PaymentAdjusterReal::new();
         let number_of_accounts = 2;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
@@ -895,10 +901,10 @@ mod tests {
                 cw_balance_minor: 0,
             }),
             Some(TestConfigForTransactionFees {
-                agreed_transaction_fee_per_computed_unit_major: 123,
+                gas_price_major: 123,
                 number_of_accounts,
                 estimated_transaction_fee_units_per_transaction: 55_000,
-                cw_transaction_fee_balance_major: 0,
+                cw_transaction_fee_balance_minor: 0,
             }),
         );
 
@@ -1216,7 +1222,7 @@ mod tests {
         let cw_service_fee_balance_minor = balance_2;
         let disqualification_arbiter = &subject.disqualification_arbiter;
         let agent_for_analysis = BlockchainAgentMock::default()
-            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
+            .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
             .service_fee_balance_minor_result(cw_service_fee_balance_minor)
             .transaction_fee_balance_minor_result(U256::MAX)
             .estimated_transaction_fee_per_transaction_minor_result(12356);
@@ -1956,10 +1962,10 @@ mod tests {
     }
 
     struct TestConfigForTransactionFees {
-        agreed_transaction_fee_per_computed_unit_major: u64,
+        gas_price_major: u64,
         number_of_accounts: usize,
         estimated_transaction_fee_units_per_transaction: u64,
-        cw_transaction_fee_balance_major: u64,
+        cw_transaction_fee_balance_minor: u128,
     }
 
     fn make_input_for_initial_check_tests(
@@ -1983,9 +1989,9 @@ mod tests {
         let qualified_payables = prepare_qualified_payables(payable_accounts);
 
         let blockchain_agent = make_agent(
-            transaction_fee_config.cw_transaction_fee_balance_major,
+            transaction_fee_config.cw_transaction_fee_balance_minor,
             transaction_fee_config.estimated_transaction_fee_units_per_transaction,
-            transaction_fee_config.agreed_transaction_fee_per_computed_unit_major,
+            transaction_fee_config.gas_price_major,
             service_fee_balances_config.cw_balance_minor,
         );
 
@@ -2015,10 +2021,10 @@ mod tests {
         accounts_count_from_sf_config: usize,
     ) -> TestConfigForTransactionFees {
         transaction_fee_config_opt.unwrap_or(TestConfigForTransactionFees {
-            agreed_transaction_fee_per_computed_unit_major: 120,
+            gas_price_major: 120,
             number_of_accounts: accounts_count_from_sf_config,
             estimated_transaction_fee_units_per_transaction: 55_000,
-            cw_transaction_fee_balance_major: u64::MAX,
+            cw_transaction_fee_balance_minor: u128::MAX,
         })
     }
 
@@ -2063,19 +2069,18 @@ mod tests {
     }
 
     fn make_agent(
-        cw_balance_transaction_fee_major: u64,
+        cw_transaction_fee_minor: u128,
         estimated_transaction_fee_units_per_transaction: u64,
-        agreed_transaction_fee_price: u64,
+        gas_price: u64,
         cw_service_fee_balance_minor: u128,
     ) -> Box<dyn BlockchainAgent> {
-        let cw_transaction_fee_minor = gwei_to_wei(cw_balance_transaction_fee_major);
         let estimated_transaction_fee_per_transaction_minor = gwei_to_wei(
-            estimated_transaction_fee_units_per_transaction * agreed_transaction_fee_price,
+            estimated_transaction_fee_units_per_transaction * gas_price,
         );
 
         let blockchain_agent = BlockchainAgentMock::default()
-            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
-            .transaction_fee_balance_minor_result(cw_transaction_fee_minor)
+            .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
+            .transaction_fee_balance_minor_result(cw_transaction_fee_minor.into())
             .service_fee_balance_minor_result(cw_service_fee_balance_minor)
             .estimated_transaction_fee_per_transaction_minor_result(
                 estimated_transaction_fee_per_transaction_minor,
@@ -2092,8 +2097,8 @@ mod tests {
         let panic_msg = err.downcast_ref::<String>().unwrap();
         assert_eq!(
             panic_msg,
-            "Broken code: Called the null implementation of \
-            the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+            "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+            original_cw_service_fee_balance_minor()"
         )
     }
 

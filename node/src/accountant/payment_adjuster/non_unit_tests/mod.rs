@@ -443,7 +443,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
-        .agreed_transaction_fee_margin_result(PurePercentage::try_from(15).unwrap())
+        .gas_price_margin_result(PurePercentage::try_from(15).unwrap())
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {

@@ -14,7 +14,7 @@ use web3::types::U256;
 pub struct BlockchainAgentWeb3 {
     gas_price_gwei: u64,
     gas_limit_const_part: u64,
-    agreed_transaction_fee_margin: PurePercentage,
+    gas_price_margin: PurePercentage,
     maximum_added_gas_margin: u64,
     consuming_wallet: Wallet,
     consuming_wallet_balances: ConsumingWalletBalances,
@@ -42,8 +42,8 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
         self.gas_price_gwei
     }
 
-    fn agreed_transaction_fee_margin(&self) -> PurePercentage {
-        self.agreed_transaction_fee_margin
+    fn gas_price_margin(&self) -> PurePercentage {
+        self.gas_price_margin
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -67,12 +67,12 @@ impl BlockchainAgentWeb3 {
         consuming_wallet_balances: ConsumingWalletBalances,
         pending_transaction_id: U256,
     ) -> Self {
-        let agreed_transaction_fee_margin = *TRANSACTION_FEE_MARGIN;
+        let gas_price_margin = *TRANSACTION_FEE_MARGIN;
         let maximum_added_gas_margin = WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         Self {
             gas_price_gwei,
             gas_limit_const_part,
-            agreed_transaction_fee_margin,
+            gas_price_margin,
             consuming_wallet,
             maximum_added_gas_margin,
             consuming_wallet_balances,

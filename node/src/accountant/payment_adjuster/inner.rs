@@ -69,7 +69,7 @@ pub struct PaymentAdjusterInnerNull {}
 impl PaymentAdjusterInnerNull {
     fn panicking_operation(operation: &str) -> ! {
         panic!(
-            "Broken code: Called the null implementation of the {} method in PaymentAdjusterInner",
+            "The PaymentAdjuster Inner is uninitialised. It was detected while executing {}",
             operation
         )
     }
@@ -143,7 +143,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the now() method in PaymentAdjusterInner"
+        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+        now()"
     )]
     fn inner_null_calling_now() {
         let subject = PaymentAdjusterInnerNull::default();
@@ -153,8 +154,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the max_debt_above_threshold_in_qualified_payables() \
-    method in PaymentAdjusterInner"
+        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+        max_debt_above_threshold_in_qualified_payables()"
     )]
     fn inner_null_calling_max_debt_above_threshold_in_qualified_payables() {
         let subject = PaymentAdjusterInnerNull::default();
@@ -164,7 +165,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the transaction_fee_count_limit_opt() method in PaymentAdjusterInner"
+        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+        transaction_fee_count_limit_opt()"
     )]
     fn inner_null_calling_transaction_fee_count_limit_opt() {
         let subject = PaymentAdjusterInnerNull::default();
@@ -174,7 +176,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the original_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+        original_cw_service_fee_balance_minor()"
     )]
     fn inner_null_calling_original_cw_service_fee_balance_minor() {
         let subject = PaymentAdjusterInnerNull::default();
@@ -184,7 +187,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+        unallocated_cw_service_fee_balance_minor()"
     )]
     fn inner_null_calling_unallocated_cw_balance() {
         let subject = PaymentAdjusterInnerNull::default();
@@ -194,7 +198,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Called the null implementation of the subtract_from_unallocated_cw_service_fee_balance_minor() method in PaymentAdjusterInner"
+        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
+        subtract_from_unallocated_cw_service_fee_balance_minor()"
     )]
     fn inner_null_calling_subtract_from_unallocated_cw_service_fee_balance_minor() {
         let mut subject = PaymentAdjusterInnerNull::default();

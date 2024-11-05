@@ -26,7 +26,7 @@ pub trait BlockchainAgent: Send {
     fn transaction_fee_balance_minor(&self) -> U256;
     fn service_fee_balance_minor(&self) -> u128;
     fn agreed_fee_per_computation_unit(&self) -> u64;
-    fn agreed_transaction_fee_margin(&self) -> PurePercentage;
+    fn gas_price_margin(&self) -> PurePercentage;
     fn consuming_wallet(&self) -> &Wallet;
     fn pending_transaction_id(&self) -> U256;
 
