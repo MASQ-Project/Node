@@ -3,7 +3,6 @@
 pub mod blockchain_interface_web3;
 pub mod data_structures;
 pub mod lower_level_interface;
-pub mod test_utils;
 
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
@@ -31,12 +30,12 @@ pub trait BlockchainInterface {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
+    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>>;
 
     fn build_blockchain_agent(
         &self,
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>;
+    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>>;
 
     as_any_ref_in_trait!();
 }

@@ -156,10 +156,10 @@ pub mod payable_scanner_utils {
                 add_pending_payable(acc, pending_payable)
             }
             ProcessedPayableFallible::Failed(RpcPayableFailure {
-                rpc_error,
-                recipient_wallet,
-                hash,
-            }) => {
+                                                 rpc_error,
+                                                 recipient_wallet,
+                                                 hash,
+                                             }) => {
                 warning!(logger, "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
                       Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash
                 );
@@ -383,6 +383,7 @@ pub mod pending_payable_scanner_utils {
         scan_report
     }
 
+    //TODO: failures handling is going to need enhancement suggested by GH-693
     pub fn handle_status_with_failure(
         mut scan_report: PendingPayableScanReport,
         fingerprint: PendingPayableFingerprint,

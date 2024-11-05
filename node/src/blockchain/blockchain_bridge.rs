@@ -246,7 +246,7 @@ impl BlockchainBridge {
     fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         return Box::new(
@@ -271,7 +271,7 @@ impl BlockchainBridge {
     fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         let skeleton_opt = msg.response_skeleton_opt;
         let sent_payable_subs = self
             .sent_payable_subs_opt
@@ -306,11 +306,11 @@ impl BlockchainBridge {
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         let start_block_nbr = match self.persistent_config.start_block() {
-                Ok (sb) => sb,
-                Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
-            };
+            Ok(sb) => sb,
+            Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
+        };
         let max_block_count = match self.persistent_config.max_block_count() {
             Ok(Some(mbc)) => mbc,
             _ => u64::MAX,
@@ -377,7 +377,7 @@ impl BlockchainBridge {
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         let accountant_recipient = self
             .pending_payable_confirmation
             .report_transaction_receipts_sub_opt
@@ -427,7 +427,7 @@ impl BlockchainBridge {
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
     where
-        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
+        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item=(), Error=String>>,
         M: SkeletonOptHolder,
     {
         let skeleton_opt = msg.skeleton_opt();
@@ -436,6 +436,9 @@ impl BlockchainBridge {
         let future = handler(self, msg).map_err(move |e| {
             warning!(logger, "{}", e);
             // TODO: This ScanError needs to be removed, And added into OutboundPaymentsInstructions & QualifiedPayablesMessage
+            //   There are certain cases when its a partial error and we are triggering errors that will send ScanError messages.
+            //   In case we dont send this message at all and instead we use the above two mentioned messages to send total failure and partial failure.
+            //   BlockchainBridge wont segregate the messages and Accountant can later on deal with success, partial failures and total failures accordingly.
             scan_error_subs_opt
                 .as_ref()
                 .expect("Accountant not bound")
@@ -454,7 +457,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
@@ -600,7 +603,7 @@ mod tests {
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
         })
-        .unwrap();
+            .unwrap();
 
         System::current().stop();
         system.run();
@@ -643,10 +646,9 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant(
-    ) {
+    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant() {
         let system = System::new(
-        "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
+            "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -811,8 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
-    ) {
+    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant() {
         let system = System::new(
             "handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant",
         );
@@ -880,7 +881,7 @@ mod tests {
                     hash: H256::from_str(
                         "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                     )
-                    .unwrap()
+                        .unwrap()
                 })]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -896,7 +897,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                .unwrap(),
+                    .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -970,7 +971,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                .unwrap(),
+                    .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -1035,7 +1036,7 @@ mod tests {
                 hash: H256::from_str(
                     "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         assert_eq!(
@@ -1045,7 +1046,7 @@ mod tests {
                 hash: H256::from_str(
                     "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         let recording = accountant_recording.lock().unwrap();
@@ -1162,6 +1163,7 @@ mod tests {
             process_error: None,
         };
         let first_response = ReceiptResponseBuilder::default()
+            .status(U64::from(1))
             .transaction_hash(hash_1)
             .build();
         let port = find_free_port();
@@ -1204,6 +1206,7 @@ mod tests {
         let scan_error_message = accountant_recording.get_record::<ScanError>(1);
         let mut expected_receipt = TransactionReceipt::default();
         expected_receipt.transaction_hash = hash_1;
+        expected_receipt.status = Some(U64::from(1));
         assert_eq!(
             report_transaction_receipt_message,
             &ReportTransactionReceipts {
@@ -1280,12 +1283,12 @@ mod tests {
         );
         let message_2 = recording.get_record::<ScanError>(1);
         assert_eq!(
-          message_2,
-          &ScanError {
-              scan_type: ScanType::Receivables,
-              response_skeleton_opt: None,
-              msg: "Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"Transport error: Error(IncompleteMessage)\\\")\")".to_string()
-          }
+            message_2,
+            &ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: None,
+                msg: "Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"Transport error: Error(IncompleteMessage)\\\")\")".to_string()
+            }
         );
         assert_eq!(recording.len(), 2);
         TestLogHandler::new().exists_log_containing(
@@ -1294,14 +1297,14 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
-    ) {
+    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort() {
         init_test_logging();
         let port = find_free_port();
         let block_number = U64::from(4545454);
         let contract_address = H160::from_low_u64_be(887766);
         let tx_receipt_response = ReceiptResponseBuilder::default()
             .block_number(block_number)
+            .status(U64::from(1))
             .contract_address(contract_address)
             .build();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -1357,6 +1360,7 @@ mod tests {
         let mut transaction_receipt = TransactionReceipt::default();
         transaction_receipt.block_number = Some(block_number);
         transaction_receipt.contract_address = Some(contract_address);
+        transaction_receipt.status = Some(U64::from(1));
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let system = System::new("test_transaction_receipts");
         let mut subject = BlockchainBridge::new(
@@ -1652,7 +1656,7 @@ mod tests {
         let earning_wallet = make_wallet("earning_wallet");
         let amount = 996000000;
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 1000000001,
+            new_start_block: 1000000000,
             transactions: vec![BlockchainTransaction {
                 block_number: 2000,
                 from: earning_wallet.clone(),
@@ -1742,7 +1746,7 @@ mod tests {
         blockchain_interface.logger = logger;
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(6))
-            .max_block_count_result(Err(PersistentConfigError::NotPresent));
+            .max_block_count_result(Err(PersistentConfigError::DatabaseError("my tummy hurts".to_string())));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),
@@ -2043,7 +2047,7 @@ pub mod exportable_test_parts {
     use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-        for SubsFactoryTestAddrLeaker<BlockchainBridge>
+    for SubsFactoryTestAddrLeaker<BlockchainBridge>
     {
         fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
             self.send_leaker_msg_and_return_meaningless_subs(

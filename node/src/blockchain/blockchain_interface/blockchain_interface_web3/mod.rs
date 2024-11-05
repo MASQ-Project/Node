@@ -83,12 +83,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
         let contract_address = lower_level_interface.get_contract().address();
         let num_chain_id = self.chain.rec().num_chain_id;
-        return Box::new(
+        Box::new(
             lower_level_interface.get_block_number().then(move |response_block_number_result| {
                 let response_block_number = match response_block_number_result {
                     Ok(block_number) => {
@@ -134,16 +134,16 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                             },
                         )
                     })
-                },
+            },
             )
-        );
+        )
     }
 
     fn build_blockchain_agent(
         &self,
         // TODO: Change wallet to address in the future
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
         // TODO: Would it be better to wrap these 4 calls into a single batch call?
@@ -300,7 +300,7 @@ impl BlockchainInterfaceWeb3 {
             );
 
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1u64 + transaction_max_block_number,
+                new_start_block: transaction_max_block_number,
                 transactions,
             })
         }
@@ -448,7 +448,7 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be664,
+                new_start_block: 0x4be663,
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 0x4be663,
@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1543664,
+                new_start_block: 1543663,
                 transactions: vec![]
             })
         );
@@ -541,8 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
-    ) {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -567,8 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
-    ) {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -590,8 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
-    ) {
+    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x400", 1)
@@ -602,7 +599,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
 
         let end_block_nbr = 1024u64;
         let subject =
@@ -621,7 +618,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1 + end_block_nbr,
+                new_start_block: end_block_nbr,
                 transactions: vec![]
             })
         );
@@ -631,11 +628,8 @@ mod tests {
         );
     }
 
-    // TODO: GH-744: HIGH - We are adding 1 to the fallback start block number twice. why?
-    // https://github.com/MASQ-Project/Node/pull/456#discussion_r1803865133
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
-    ) {
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash", 1)
@@ -660,7 +654,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1 + expected_fallback_start_block,
+                new_start_block: expected_fallback_start_block,
                 transactions: vec![]
             })
         );
@@ -710,7 +704,7 @@ mod tests {
         );
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
-                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
+            + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
             * expected_gas_price_wei) as u128;
         assert_eq!(
             result.estimated_transaction_fee_total(3),
@@ -933,9 +927,9 @@ mod tests {
                 .zip(0usize..2)
                 .fold(String::new(), |so_far, actual| [
                     so_far,
-                    compose(actual.0 .0, actual.0 .1)
+                    compose(actual.0.0, actual.0.1)
                 ]
-                .join(if actual.1 == 0 { "" } else { ", " }))
+                    .join(if actual.1 == 0 { "" } else { ", " }))
         );
         let txs: Vec<(TestRawTransaction, Signing)> =
             serde_json::from_str(&all_transactions).unwrap();
@@ -969,8 +963,8 @@ mod tests {
                 Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref())
                     .unwrap(),
             )
-            .prepare_secp256k1_secret()
-            .unwrap();
+                .prepare_secp256k1_secret()
+                .unwrap();
             let tx_params = from_raw_transaction_to_transaction_parameters(tx, chain);
             let web3 = Web3::new(subject.transport.clone());
             let sign = web3

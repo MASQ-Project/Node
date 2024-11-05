@@ -321,7 +321,7 @@ impl PayableScanner {
         logger: &Logger,
     ) -> Vec<PayableAccount> {
         fn pass_payables_and_drop_points(
-            qp_tp: impl Iterator<Item = (PayableAccount, u128)>,
+            qp_tp: impl Iterator<Item=(PayableAccount, u128)>,
         ) -> Vec<PayableAccount> {
             let (payables, _) = qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>();
             payables
@@ -677,9 +677,13 @@ impl PendingPayableScanner {
         msg.fingerprints_with_receipts.into_iter().fold(
             scan_report,
             |scan_report_so_far, (receipt_result, fingerprint)| match receipt_result {
-                TransactionReceiptResult::Found(receipt) => self.interpret_transaction_receipt(
+                TransactionReceiptResult::Found(_receipt) => handle_status_with_success(
                     scan_report_so_far,
-                    &receipt,
+                    fingerprint,
+                    logger,
+                ),
+                TransactionReceiptResult::TransactionFailed(_receipt) => handle_status_with_failure(
+                    scan_report_so_far,
                     fingerprint,
                     logger,
                 ),
@@ -697,41 +701,6 @@ impl PendingPayableScanner {
                 ),
             },
         )
-    }
-
-    fn interpret_transaction_receipt(
-        &self,
-        scan_report: PendingPayableScanReport,
-        receipt: &TransactionReceipt,
-        fingerprint: PendingPayableFingerprint,
-        logger: &Logger,
-    ) -> PendingPayableScanReport {
-        const WEB3_SUCCESS: u64 = 1;
-        const WEB3_FAILURE: u64 = 0;
-
-        match receipt.status {
-            None => handle_none_status(
-                scan_report,
-                fingerprint,
-                self.when_pending_too_long_sec,
-                logger,
-            ),
-            Some(status_code) => {
-                let code = status_code.as_u64();
-                //TODO: failures handling is going to need enhancement suggested by GH-693
-                if code == WEB3_FAILURE {
-                    handle_status_with_failure(scan_report, fingerprint, logger)
-                } else if code == WEB3_SUCCESS {
-                    handle_status_with_success(scan_report, fingerprint, logger)
-                } else {
-                    unreachable!(
-                        "tx receipt for pending {:?}: status code other than 0 or 1 \
-                        shouldn't be possible, but was {}",
-                        fingerprint.hash, code
-                    )
-                }
-            }
-        }
     }
 
     fn process_transactions_by_reported_state(
@@ -1166,7 +1135,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport};
     use crate::accountant::scanners::test_utils::{
         make_empty_payments_and_start_block, protect_payables_in_test,
     };
@@ -1666,9 +1635,9 @@ mod tests {
             (vals.intruder_for_hash_2, 5),
             (vals.common_hash_3, 6),
         ]
-        .iter()
-        .map(|(hash, _rowid)| *hash)
-        .collect::<HashSet<H256>>();
+            .iter()
+            .map(|(hash, _rowid)| *hash)
+            .collect::<HashSet<H256>>();
 
         let result = PayableScanner::is_symmetrical(
             pending_payables_ref_from_blockchain_bridge,
@@ -2406,7 +2375,7 @@ mod tests {
         let logger = Logger::new(test_name);
         let scan_report = PendingPayableScanReport::default();
 
-        subject.interpret_transaction_receipt(scan_report, &tx_receipt, fingerprint, &logger)
+        handle_none_status(scan_report, fingerprint, when_pending_too_long_sec, &logger)
     }
 
     fn assert_log_msg_and_elapsed_time_in_log_makes_sense(
@@ -2441,8 +2410,7 @@ mod tests {
     }
 
     #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
-    {
+    fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval() {
         let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval";
         let hash = make_tx_hash(0x237);
         let rowid = 466;
@@ -2535,24 +2503,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "tx receipt for pending 0x000000000000000000000000000000000000000000000000000000000000007b: \
-         status code other than 0 or 1 shouldn't be possible, but was 456"
-    )]
-    fn interpret_transaction_receipt_panics_at_undefined_status_code() {
-        let mut tx_receipt = TransactionReceipt::default();
-        tx_receipt.status = Some(U64::from(456));
-        let mut fingerprint = make_pending_payable_fingerprint();
-        fingerprint.hash = make_tx_hash(0x7b);
-        let subject = PendingPayableScannerBuilder::new().build();
-        let scan_report = PendingPayableScanReport::default();
-        let logger = Logger::new("test");
-
-        let _ =
-            subject.interpret_transaction_receipt(scan_report, &tx_receipt, fingerprint, &logger);
-    }
-
-    #[test]
     fn interpret_transaction_receipt_when_transaction_status_is_a_failure() {
         init_test_logging();
         let test_name = "interpret_transaction_receipt_when_transaction_status_is_a_failure";
@@ -2571,14 +2521,13 @@ mod tests {
         let logger = Logger::new(test_name);
         let scan_report = PendingPayableScanReport::default();
 
-        let result =
-            subject.interpret_transaction_receipt(scan_report, &tx_receipt, fingerprint, &logger);
+        let result = handle_status_with_failure(scan_report, fingerprint, &logger);
 
         assert_eq!(
             result,
             PendingPayableScanReport {
                 still_pending: vec![],
-                failures: vec![PendingPayableId::new(777777, hash,)],
+                failures: vec![PendingPayableId::new(777777, hash, )],
                 confirmed: vec![]
             }
         );
