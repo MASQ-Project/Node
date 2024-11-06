@@ -97,7 +97,7 @@ pub enum ExitPreference {
 }
 
 //TODO rename for UserExitPreferences
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct UserExitPreferences {
     exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
     exit_location_preference: ExitPreference,
@@ -1087,7 +1087,6 @@ impl Neighborhood {
             request_msg.payload_size,
             RouteDirection::Over,
             hostname_opt,
-            request_msg.target_country_opt.clone(),
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         // Estimate for routing-undesirability calculations.
@@ -1105,7 +1104,6 @@ impl Neighborhood {
             anticipated_response_payload_len,
             RouteDirection::Back,
             hostname_opt,
-            request_msg.target_country_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1166,7 +1164,6 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
-        exit_location_opt: Option<String>,
     ) -> Result<RouteSegment, String> {
         let route_opt = self.find_best_route_segment(
             origin,
@@ -1175,7 +1172,6 @@ impl Neighborhood {
             payload_size,
             direction,
             hostname_opt,
-            exit_location_opt,
         );
         match route_opt {
             None => {
@@ -1273,6 +1269,27 @@ impl Neighborhood {
         }
     }
 
+    fn validate_last_node_country_code(
+        &self,
+        prefix_len: usize,
+        first_node_key: &PublicKey,
+    ) -> bool {
+        if prefix_len <= 2 || self.user_exit_preferences.exit_location_preference == ExitPreference::ExitCountryWithFallback {
+            true // Zero- and single-hop routes are not subject to exit-too-close restrictions
+        } else {
+            match self.neighborhood_database.node_by_key(first_node_key) {
+                Some(node_record) => {
+                    match &node_record.inner.country_code_opt {
+                        Some(country_code) => self.user_exit_preferences.exit_countries.contains(&country_code),
+                        _ => false
+                    }
+                }
+                _ => false
+            }
+
+        }
+    }
+
     fn compute_undesirability(
         node_record: &NodeRecord,
         payload_size: u64,
@@ -1343,10 +1360,8 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
-        exit_location_opt: Option<String>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        let exit_country_opt = exit_location_opt.as_ref();
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
@@ -1359,7 +1374,6 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-                exit_country_opt,
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1382,7 +1396,6 @@ impl Neighborhood {
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
-        exit_country_opt: Option<&String>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1400,6 +1413,7 @@ impl Neighborhood {
                 *first_node_key,
                 previous_node.public_key(),
             )
+            && self.validate_last_node_country_code(prefix.len(), previous_node.public_key())
         {
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
@@ -1436,7 +1450,6 @@ impl Neighborhood {
                         payload_size as u64,
                         direction,
                         hostname_opt,
-                        exit_country_opt,
                     );
 
                     self.routing_engine(
@@ -1448,7 +1461,6 @@ impl Neighborhood {
                         direction,
                         minimum_undesirability,
                         hostname_opt,
-                        exit_country_opt,
                     )
                 })
                 .collect()
@@ -1505,7 +1517,6 @@ impl Neighborhood {
         payload_size: u64,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
-        exit_country_opt: Option<&String>,
     ) -> i64 {
         let undesirability_type = match (direction, target_opt) {
             (RouteDirection::Over, None) if hops_remaining == 0 => {
@@ -3806,34 +3817,34 @@ mod tests {
 
         // At least two hops from p to anywhere standard
         let route_opt =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
         let route_opt =
-            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
         let route_opt =
-            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
         let route_opt =
-            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None, None);
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None);
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
         let route_opt =
-            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
     }
@@ -3906,7 +3917,7 @@ mod tests {
 
         // All the target-designated routes from L to N
         let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None, None)
+            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
             .unwrap();
 
         let after = Instant::now();
@@ -3924,7 +3935,16 @@ mod tests {
     fn route_optimization_country_codes() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(recipient);
         subject.user_exit_preferences.exit_location_preference = ExitPreference::ExitCountryWithFallback;
+        let message = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["CZ".to_string()],
+                priority: 1,
+            }],
+        };
         let mut generator = 1000;
         let mut make_node = |db: &mut NeighborhoodDatabase| {
             let node = &db.add_node(make_node_record(generator, true)).unwrap();
@@ -4009,8 +4029,11 @@ mod tests {
         join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-        let checkdb = db.clone();
+        let mut checkdb = db.clone();
         designate_root_node(db, &l);
+        db.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
+        checkdb.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
+        subject.handle_exit_location_message(message, 0, 0);
         let before = Instant::now();
 
         // All the target-designated routes from L to N
@@ -4024,23 +4047,24 @@ mod tests {
             10000,
             RouteDirection::Over,
             None,
-            Some("CZ".to_string()),
         );
 
         let after = Instant::now();
 
         println!("route_cz: {:#?}", route_cz);
 
-        route_cz.unwrap().into_iter().for_each(|key| {
+        route_cz.as_ref().unwrap().into_iter().for_each(|key| {
             println!("key {:?}, country_code {:?}", &key, checkdb.node_by_key(&key).unwrap().inner.country_code_opt);
         });
+        let exit_node = checkdb.node_by_key(&route_cz.as_ref().unwrap().get(route_cz.as_ref().unwrap().len() - 1).unwrap());
+        assert_eq!(exit_node.unwrap().inner.country_code_opt, Some("CZ".to_string()));
         // assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
-        // let interval = after.duration_since(before);
-        // assert!(
-        //     interval.as_millis() <= 100,
-        //     "Should have calculated route in <=100ms, but was {}ms",
-        //     interval.as_millis()
-        // );
+        let interval = after.duration_since(before);
+        assert!(
+            interval.as_millis() <= 100,
+            "Should have calculated route in <=100ms, but was {}ms",
+            interval.as_millis()
+        );
     }
 
     /*
@@ -4071,7 +4095,6 @@ mod tests {
             10000,
             RouteDirection::Over,
             None,
-            Some("CZ".to_string()),
         );
 
         TestLogHandler::new().exists_log_containing(
@@ -4083,22 +4106,34 @@ mod tests {
     }
 
     #[test]
-    fn route_for_particular_country_code_is_constructed() {
+    fn route_for_au_country_code_is_constructed_with_fallback_routing() {
         let mut subject = make_standard_subject();
-        let db = &mut subject.neighborhood_database;
-        let p = &db.root_mut().public_key().clone();
-        let a = &db.add_node(make_node_record(2345, true)).unwrap();
-        let b = &db.add_node(make_node_record(5678, true)).unwrap();
-        let c = &db.add_node(make_node_record(1234, true)).unwrap();
-        db.add_arbitrary_full_neighbor(p, c);
-        db.add_arbitrary_full_neighbor(c, b);
-        db.add_arbitrary_full_neighbor(c, a);
-        let cdb = db.clone();
+        //let db = &mut subject.neighborhood_database;
+        let p = &subject.neighborhood_database.root_mut().public_key().clone();
+        let a = &subject.neighborhood_database.add_node(make_node_record(2345, true)).unwrap();
+        let b = &subject.neighborhood_database.add_node(make_node_record(5678, true)).unwrap();
+        let c = &subject.neighborhood_database.add_node(make_node_record(1234, true)).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(p, b);
+        subject.neighborhood_database.add_arbitrary_full_neighbor(b, c);
+        subject.neighborhood_database.add_arbitrary_full_neighbor(b, a);
+        subject.neighborhood_database.add_arbitrary_full_neighbor(a, c);
+        let cdb = subject.neighborhood_database.clone();
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(recipient);
+        let message = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["AU".to_string()],
+                priority: 1,
+            }],
+        };
+        subject.handle_exit_location_message(message, 0, 0);
 
-        println!("p {}", db.node_by_key(p).unwrap().inner.country_code_opt.as_ref().unwrap());
-        println!("a {}", db.node_by_key(a).unwrap().inner.country_code_opt.as_ref().unwrap());
-        println!("b {}", db.node_by_key(b).unwrap().inner.country_code_opt.as_ref().unwrap());
-        println!("c {}", db.node_by_key(c).unwrap().inner.country_code_opt.as_ref().unwrap());
+        println!("user_exit_pref: {:?}", &subject.user_exit_preferences);
+        println!("p {} {}", subject.neighborhood_database.node_by_key(p).unwrap().inner.country_code_opt.as_ref().unwrap(), subject.neighborhood_database.node_by_key(p).unwrap().metadata.country_undesirability);
+        println!("a {} {}", subject.neighborhood_database.node_by_key(a).unwrap().inner.country_code_opt.as_ref().unwrap(), subject.neighborhood_database.node_by_key(a).unwrap().metadata.country_undesirability);
+        println!("b {} {}", subject.neighborhood_database.node_by_key(b).unwrap().inner.country_code_opt.as_ref().unwrap(), subject.neighborhood_database.node_by_key(b).unwrap().metadata.country_undesirability);
+        println!("c {} {}", subject.neighborhood_database.node_by_key(c).unwrap().inner.country_code_opt.as_ref().unwrap(), subject.neighborhood_database.node_by_key(c).unwrap().metadata.country_undesirability);
 
         let route_au = subject.find_best_route_segment(
             p,
@@ -4107,21 +4142,44 @@ mod tests {
             10000,
             RouteDirection::Over,
             None,
-            Some("AU".to_string()),
         );
-        let route_fr = subject.find_best_route_segment(
+        let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(route_au.as_ref().unwrap().len() - 1).unwrap());
+        assert_eq!(exit_node.unwrap().inner.country_code_opt, Some("AU".to_string()));
+    }
+
+    #[test]
+    fn route_for_fr_country_code_is_constructed_without_fallback_routing() {
+        let mut subject = make_standard_subject();
+        let p = &subject.neighborhood_database.root_mut().public_key().clone();
+        let a = &subject.neighborhood_database.add_node(make_node_record(2345, true)).unwrap();
+        let b = &subject.neighborhood_database.add_node(make_node_record(5678, true)).unwrap();
+        let c = &subject.neighborhood_database.add_node(make_node_record(1234, true)).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(p, b);
+        subject.neighborhood_database.add_arbitrary_full_neighbor(b, c);
+        subject.neighborhood_database.add_arbitrary_full_neighbor(b, a);
+        subject.neighborhood_database.add_arbitrary_full_neighbor(a, c);
+        let cdb = subject.neighborhood_database.clone();
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(recipient);
+        let message = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["FR".to_string()],
+                priority: 1,
+            }],
+        };
+        subject.handle_exit_location_message(message, 0, 0);
+
+        let route_au = subject.find_best_route_segment(
             p,
             None,
             2,
             10000,
             RouteDirection::Over,
             None,
-            Some("FR".to_string()),
         );
 
-        let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(2).unwrap());
-        assert_eq!(exit_node.unwrap().inner.country_code_opt, Some("AU".to_string()));
-        let exit_node = cdb.node_by_key(&route_fr.as_ref().unwrap().get(2).unwrap());
+        let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().get(route_au.as_ref().unwrap().len() - 1).unwrap());
         assert_eq!(exit_node.unwrap().inner.country_code_opt, Some("FR".to_string()));
     }
 
@@ -4139,7 +4197,7 @@ mod tests {
 
         // At least two hops from P to anywhere standard
         let route_opt =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None, None);
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
     }
@@ -4157,7 +4215,6 @@ mod tests {
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
-            None,
         );
 
         let rate_pack = node_record.rate_pack();
@@ -4182,7 +4239,6 @@ mod tests {
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
-            None,
         );
 
         let rate_pack = node_record.rate_pack();
@@ -4211,7 +4267,6 @@ mod tests {
             1_000,
             RouteDirection::Over,
             Some("hostname.com"),
-            None,
         );
 
         let rate_pack = node_record.rate_pack();
@@ -4284,7 +4339,6 @@ mod tests {
             5, // Plenty of hops remaining: not there yet
             1_000,
             RouteDirection::Back,
-            None,
             None,
         );
 
