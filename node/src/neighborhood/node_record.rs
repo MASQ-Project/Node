@@ -113,10 +113,6 @@ impl NodeRecord {
         NodeDescriptor::from((self, chain, cryptde))
     }
 
-    pub fn country_code_exeption(&self) -> u64 {
-        self.metadata.country_undesirability as u64
-    }
-
     pub fn set_node_addr(
         &mut self,
         node_addr: &NodeAddr,

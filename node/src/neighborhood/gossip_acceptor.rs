@@ -282,6 +282,7 @@ impl DebutHandler {
         let mut debuting_node = NodeRecord::from(debuting_agr);
         match user_exit_preferences_opt {
             Some(user_exit_preferences) => {
+                //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                 user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node)
             }
             None => (),
@@ -894,6 +895,7 @@ impl IntroductionHandler {
                 let mut new_introducer = NodeRecord::from(introducer);
                 //TODO 468 add country undesirability
                 match user_exit_preferences_opt {
+                    //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                     Some(user_exit_preferences) => user_exit_preferences
                         .assign_nodes_country_undesirability(&mut new_introducer),
                     None => (),
@@ -1148,6 +1150,7 @@ impl StandardGossipHandler {
                 // TODO modify for country undesirability in node_record (make it mut)
                 match user_exit_preferences_opt {
                     Some(user_exit_preferences) => {
+                        //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                         user_exit_preferences.assign_nodes_country_undesirability(&mut node_record)
                     }
                     None => (),
@@ -2076,6 +2079,7 @@ mod tests {
                 country_codes: vec!["FR".to_string()],
                 priority: 2,
             }]),
+            db_countries: vec!["FR".to_string()],
         });
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
@@ -2472,6 +2476,7 @@ mod tests {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
             }]),
+            db_countries: vec!["FR".to_string()],
         });
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let system = System::new("test");
@@ -3069,6 +3074,7 @@ mod tests {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }]),
+            db_countries: vec!["CZ".to_string()],
         });
 
         let result = subject.handle(
