@@ -1351,6 +1351,49 @@ impl Neighborhood {
         return_route_id
     }
 
+
+
+    pub fn find_exit_location<'a>(
+        &'a self,
+        source: &'a PublicKey,
+        minimum_hops: usize,
+        payload_size: usize,
+    ) -> HashMap<PublicKey, ExitLocationsRoutes> {
+        let mut minimum_undesirability = i64::MAX;
+        let initial_undesirability =
+            self.compute_initial_undesirability(source, payload_size as u64, RouteDirection::Over);
+        let over_routes = self
+            .routing_engine(
+                vec![source],
+                initial_undesirability,
+                None,
+                minimum_hops,
+                payload_size,
+                RouteDirection::Over,
+                &mut minimum_undesirability,
+                None,
+                true
+            );
+
+        let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
+
+        over_routes.into_iter().for_each(|segment| {
+            let exit_node = segment.nodes[segment.nodes.len()-1];
+            result_exit
+                .entry(exit_node.clone())
+                .and_modify(|e|
+                    e.routes.push((segment.nodes.clone(), segment.undesirability)))
+                .or_insert(ExitLocationsRoutes{
+                        routes: vec![(
+                            segment.nodes.clone(),
+                            segment.undesirability)
+                        ]
+                    }
+                );
+        });
+        result_exit
+    }
+
     // Interface to main routing engine. Supply source key, target key--if any--in target_opt,
     // minimum hops, size of payload in bytes, the route direction, and the hostname if you know it.
     //
@@ -1406,7 +1449,7 @@ impl Neighborhood {
         hostname_opt: Option<&str>,
         research_neighborhood: bool,
     ) -> Vec<ComputedRouteSegment<'a>> {
-        if undesirability > *minimum_undesirability {
+        if undesirability > *minimum_undesirability  && !research_neighborhood {
             return vec![];
         }
         let first_node_key = prefix.first().expect("Empty prefix");
@@ -1473,7 +1516,7 @@ impl Neighborhood {
                         direction,
                         minimum_undesirability,
                         hostname_opt,
-                        research_neighborhood,
+                        research_neighborhood
                     )
                 })
                 .collect()
@@ -1548,49 +1591,6 @@ impl Neighborhood {
         undesirability + node_undesirability
     }
 
-    pub fn find_exit_location<'a>(
-        &'a self,
-        source: &'a PublicKey,
-        minimum_hops: usize,
-        payload_size: usize,
-    ) -> HashMap<PublicKey, ExitLocationsRoutes> {
-        let mut minimum_undesirability = i64::MAX;
-        let initial_undesirability =
-            self.compute_initial_undesirability(source, payload_size as u64, RouteDirection::Over);
-        let over_routes = self
-            .routing_engine(
-                vec![source],
-                initial_undesirability,
-                None,
-                minimum_hops,
-                payload_size,
-                RouteDirection::Over,
-                &mut minimum_undesirability,
-                None,
-                true
-            );
-
-
-
-        let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
-
-        over_routes.into_iter().for_each(|segment| {
-            println!("over_routes {:#?}", segment);
-            let exit_node = segment.nodes[segment.nodes.len()-1];
-            result_exit
-                .entry(exit_node.clone())
-                .and_modify(|e|
-                e.routes.push((segment.nodes.clone(), segment.undesirability)))
-                .or_insert(ExitLocationsRoutes{
-                    routes: vec![(
-                        segment.nodes.clone(),
-                        segment.undesirability)
-                    ]
-                }
-                );
-        });
-        result_exit
-    }
     fn handle_exit_location_message(
         &mut self,
         message: UiSetExitLocationRequest,
@@ -1668,6 +1668,7 @@ impl Neighborhood {
         message: &UiSetExitLocationRequest,
     ) -> Vec<ExitLocation> {
         self.init_db_countries();
+        println!("self.db_coutries: {:?}", self.user_exit_preferences.db_countries);
         message
             .to_owned()
             .exit_locations
@@ -1688,11 +1689,11 @@ impl Neighborhood {
             .collect()
     }
 
-    fn init_db_countries(&mut self) { //TODO rename to update_db_countries
+    fn init_db_countries(&mut self) {
+        let root_key = self.neighborhood_database.keys().iter().next().expect("expected public key").to_owned().to_owned().to_owned();
         let min_hops = self.min_hops as usize;
-        let root_key = self.neighborhood_database.root_key();
-        let exit_locations_db = self.find_exit_location(root_key, min_hops, 10_000usize).to_owned();
-        println!("exit_location_db {:#?}", exit_locations_db);
+        let exit_locations_db = self.find_exit_location(&root_key, min_hops, 10_000usize).to_owned();
+        println!("exit_locations_db {:#?}", exit_locations_db);
         let mut db_countries = vec![];
         for (pub_key, _routes) in &exit_locations_db {
             let node_opt = self.neighborhood_database.node_by_key(&pub_key);
@@ -1704,8 +1705,8 @@ impl Neighborhood {
                 _ => ()
             }
         };
-        db_countries.dedup();
         self.user_exit_preferences.db_countries = db_countries;
+        //self.user_exit_preferences.db_countries.dedup();
     }
 
     fn handle_gossip_reply(
@@ -3871,6 +3872,123 @@ mod tests {
     /*
             Database:
 
+           A---B---C---D---E
+           |   |   |   |   |
+           F---G---H---I---J
+           |   |   |   |   |
+           K---L---M---N---O
+           |   |   |   |   |
+           P---Q---R---S---T
+           |   |   |   |   |
+           U---V---W---X---Y
+
+           All these Nodes are standard-mode. L is the root Node.
+   */
+    #[test]
+    fn find_exit_location_test() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let mut make_row = |db: &mut NeighborhoodDatabase| {
+            let n1 = make_node(db);
+            let n2 = make_node(db);
+            let n3 = make_node(db);
+            let n4 = make_node(db);
+            let n5 = make_node(db);
+            db.add_arbitrary_full_neighbor(&n1, &n2);
+            db.add_arbitrary_full_neighbor(&n2, &n3);
+            db.add_arbitrary_full_neighbor(&n3, &n4);
+            db.add_arbitrary_half_neighbor(&n4, &n5);
+            (n1, n2, n3, n4, n5)
+        };
+        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
+            let (f1, f2, f3, f4, f5) = first_row;
+            let (s1, s2, s3, s4, s5) = second_row;
+            db.add_arbitrary_full_neighbor(f1, s1);
+            db.add_arbitrary_full_neighbor(f2, s2);
+            db.add_arbitrary_half_neighbor(f3, s3);
+            db.add_arbitrary_half_neighbor(f4, s4);
+            db.add_arbitrary_half_neighbor(f5, s5);
+        };
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
+            let root_node_key = db.root().public_key().clone();
+            let node = db.node_by_key(key).unwrap().clone();
+            db.root_mut().inner = node.inner.clone();
+            db.root_mut().metadata = node.metadata.clone();
+            db.remove_node(&root_node_key);
+        };
+        let (a, b, c, d, e) = make_row(db);
+        let (f, g, h, i, j) = make_row(db);
+        let (k, l, m, n, o) = make_row(db);
+        let (p, q, r, s, t) = make_row(db);
+        let (u, v, w, x, y) = make_row(db);
+        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
+        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
+        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
+        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
+        designate_root_node(db, &l);
+        let db_clone = db.clone();
+
+        let routes = subject.find_exit_location(&l, 3, 10_000);
+
+        let total_exit_nodes = routes.len();
+        let w_node_record = routes.get(&w).unwrap();
+        let i_node_record = routes.get(&i).unwrap();
+        let f_node_record = routes.get(&f).unwrap();
+        let s_node_record = routes.get(&s).unwrap();
+        let v_node_record = routes.get(&v).unwrap();
+        let b_node_record = routes.get(&b).unwrap();
+        let c_node_record = routes.get(&c).unwrap();
+        let a_node_record = routes.get(&a).unwrap();
+        let r_node_record = routes.get(&r).unwrap();
+        let h_node_record = routes.get(&h).unwrap();
+        let p_node_record = routes.get(&p).unwrap();
+        let u_node_record = routes.get(&u).unwrap();
+        let w_node_expected_route_1 = (vec![&l, &q, &v, &w], 30_643_859i64);
+        let i_node_expected_route_1 = (vec![&l, &g, &h, &i], 30_263_821i64);
+        let f_node_expected_route_1 = (vec![&l, &q, &p, &k, &f], 40_545_246i64);
+        let s_node_expected_route_1 = (vec![&l, &q, &r, &s], 30_563_851i64);
+        let v_node_expected_route_1 = (vec![&l, &k, &p, &q, &v], 40_705_262i64);
+        let b_node_expected_route_1 = (vec![&l, &k, &f, &g, &b], 40_305_222i64);
+        let c_node_expected_route_1 = (vec![&l, &g, &b, &c], 30_143_809i64);
+        let a_node_expected_route_1 = (vec![&l, &k, &f, &a], 30_203_815i64);
+        let a_node_expected_route_2 = (vec![&l, &g, &f, &a], 30_163_811i64);
+        let a_node_expected_route_3 = (vec![&l, &g, &b, &a], 30_123_807i64);
+        let r_node_expected_route_1 = (vec![&l, &k, &p, &q, &r], 40_665_258i64);
+        let h_node_expected_route_1 = (vec![&l, &k, &f, &g, &h], 40_365_228i64);
+        let p_node_expected_route_1 = (vec![&l, &g, &f, &k, &p], 40_445_236i64);
+        let u_node_expected_route_1 = (vec![&l, &k, &p, &u], 30_503_845i64);
+        let u_node_expected_route_2 = (vec![&l, &q, &v, &u], 30_623_857i64);
+        let u_node_expected_route_3 = (vec![&l, &q, &p, &u], 30_563_851i64);
+        assert_eq!(total_exit_nodes, 12);
+        assert!(w_node_record.routes.contains(&w_node_expected_route_1));
+        assert!(i_node_record.routes.contains(&i_node_expected_route_1));
+        assert!(f_node_record.routes.contains(&f_node_expected_route_1));
+        assert!(s_node_record.routes.contains(&s_node_expected_route_1));
+        assert!(v_node_record.routes.contains(&v_node_expected_route_1));
+        assert!(b_node_record.routes.contains(&b_node_expected_route_1));
+        assert!(c_node_record.routes.contains(&c_node_expected_route_1));
+        assert!(a_node_record.routes.contains(&a_node_expected_route_1));
+        assert!(a_node_record.routes.contains(&a_node_expected_route_2));
+        assert!(a_node_record.routes.contains(&a_node_expected_route_3));
+        assert!(r_node_record.routes.contains(&r_node_expected_route_1));
+        assert!(h_node_record.routes.contains(&h_node_expected_route_1));
+        assert!(p_node_record.routes.contains(&p_node_expected_route_1));
+        assert!(u_node_record.routes.contains(&u_node_expected_route_1));
+        assert!(u_node_record.routes.contains(&u_node_expected_route_2));
+        assert!(u_node_record.routes.contains(&u_node_expected_route_3));
+    }
+
+
+
+    /*
+            Database:
+
             Q---p---R
                 |   |
             t---S---+
@@ -4179,106 +4297,6 @@ mod tests {
             "Should have calculated route in <=100ms, but was {}ms",
             interval.as_millis()
         );
-    }
-
-    #[test]
-    fn find_exit_location_test() {
-        let mut subject = make_standard_subject();
-        let db = &mut subject.neighborhood_database;
-        let mut generator = 1000;
-        let mut make_node = |db: &mut NeighborhoodDatabase| {
-            let node = &db.add_node(make_node_record(generator, true)).unwrap();
-            generator += 1;
-            node.clone()
-        };
-        let mut make_row = |db: &mut NeighborhoodDatabase| {
-            let n1 = make_node(db);
-            let n2 = make_node(db);
-            let n3 = make_node(db);
-            let n4 = make_node(db);
-            let n5 = make_node(db);
-            db.add_arbitrary_full_neighbor(&n1, &n2);
-            db.add_arbitrary_full_neighbor(&n2, &n3);
-            db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_half_neighbor(&n4, &n5);
-            (n1, n2, n3, n4, n5)
-        };
-        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
-            let (f1, f2, f3, f4, f5) = first_row;
-            let (s1, s2, s3, s4, s5) = second_row;
-            db.add_arbitrary_full_neighbor(f1, s1);
-            db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_half_neighbor(f3, s3);
-            db.add_arbitrary_half_neighbor(f4, s4);
-            db.add_arbitrary_half_neighbor(f5, s5);
-        };
-        let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
-            let root_node_key = db.root().public_key().clone();
-            let node = db.node_by_key(key).unwrap().clone();
-            db.root_mut().inner = node.inner.clone();
-            db.root_mut().metadata = node.metadata.clone();
-            db.remove_node(&root_node_key);
-        };
-        let (a, b, c, d, e) = make_row(db);
-        let (f, g, h, i, j) = make_row(db);
-        let (k, l, m, n, o) = make_row(db);
-        let (p, q, r, s, t) = make_row(db);
-        let (u, v, w, x, y) = make_row(db);
-        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
-        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
-        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
-        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-        designate_root_node(db, &l);
-        let db_clone = db.clone();
-
-        let routes = subject.find_exit_location(&l, 3, 10_000);
-
-        let total_exit_nodes = routes.len();
-        let w_node_record = routes.get(&w).unwrap();
-        let i_node_record = routes.get(&i).unwrap();
-        let f_node_record = routes.get(&f).unwrap();
-        let s_node_record = routes.get(&s).unwrap();
-        let v_node_record = routes.get(&v).unwrap();
-        let b_node_record = routes.get(&b).unwrap();
-        let c_node_record = routes.get(&c).unwrap();
-        let a_node_record = routes.get(&a).unwrap();
-        let r_node_record = routes.get(&r).unwrap();
-        let h_node_record = routes.get(&h).unwrap();
-        let p_node_record = routes.get(&p).unwrap();
-        let u_node_record = routes.get(&u).unwrap();
-        let w_node_expected_route_1 = (vec![&l, &q, &v, &w], 30_643_859i64);
-        let i_node_expected_route_1 = (vec![&l, &g, &h, &i], 30_263_821i64);
-        let f_node_expected_route_1 = (vec![&l, &q, &p, &k, &f], 40_545_246i64);
-        let s_node_expected_route_1 = (vec![&l, &q, &r, &s], 30_563_851i64);
-        let v_node_expected_route_1 = (vec![&l, &k, &p, &q, &v], 40_705_262i64);
-        let b_node_expected_route_1 = (vec![&l, &k, &f, &g, &b], 40_305_222i64);
-        let c_node_expected_route_1 = (vec![&l, &g, &b, &c], 30_143_809i64);
-        let a_node_expected_route_1 = (vec![&l, &k, &f, &a], 30_203_815i64);
-        let a_node_expected_route_2 = (vec![&l, &g, &f, &a], 30_163_811i64);
-        let a_node_expected_route_3 = (vec![&l, &g, &b, &a], 30_123_807i64);
-        let r_node_expected_route_1 = (vec![&l, &k, &p, &q, &r], 40_665_258i64);
-        let h_node_expected_route_1 = (vec![&l, &k, &f, &g, &h], 40_365_228i64);
-        let p_node_expected_route_1 = (vec![&l, &g, &f, &k, &p], 40_445_236i64);
-        let u_node_expected_route_1 = (vec![&l, &k, &p, &u], 30_503_845i64);
-        let u_node_expected_route_2 = (vec![&l, &q, &v, &u], 30_623_857i64);
-        let u_node_expected_route_3 = (vec![&l, &q, &p, &u], 30_563_851i64);
-        assert_eq!(total_exit_nodes, 12);
-        assert!(w_node_record.routes.contains(&w_node_expected_route_1));
-        assert!(i_node_record.routes.contains(&i_node_expected_route_1));
-        assert!(f_node_record.routes.contains(&f_node_expected_route_1));
-        assert!(s_node_record.routes.contains(&s_node_expected_route_1));
-        assert!(v_node_record.routes.contains(&v_node_expected_route_1));
-        assert!(b_node_record.routes.contains(&b_node_expected_route_1));
-        assert!(c_node_record.routes.contains(&c_node_expected_route_1));
-        assert!(a_node_record.routes.contains(&a_node_expected_route_1));
-        assert!(a_node_record.routes.contains(&a_node_expected_route_2));
-        assert!(a_node_record.routes.contains(&a_node_expected_route_3));
-        assert!(r_node_record.routes.contains(&r_node_expected_route_1));
-        assert!(h_node_record.routes.contains(&h_node_expected_route_1));
-        assert!(p_node_record.routes.contains(&p_node_expected_route_1));
-        assert!(u_node_record.routes.contains(&u_node_expected_route_1));
-        assert!(u_node_record.routes.contains(&u_node_expected_route_2));
-        assert!(u_node_record.routes.contains(&u_node_expected_route_3));
     }
 
     /*
