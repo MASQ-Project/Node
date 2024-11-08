@@ -25,7 +25,7 @@ pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
 #[derive(Clone)]
 pub struct NeighborhoodDatabase {
-    this_node: PublicKey,
+    pub this_node: PublicKey,
     by_public_key: HashMap<PublicKey, NodeRecord>,
     by_ip_addr: HashMap<IpAddr, PublicKey>,
     logger: Logger,
@@ -75,6 +75,10 @@ impl NeighborhoodDatabase {
 
     pub fn root(&self) -> &NodeRecord {
         self.node_by_key(&self.this_node).expect("Internal error")
+    }
+
+    pub fn root_key<'a>(&'a self) -> &'a PublicKey {
+        &self.this_node
     }
 
     pub fn root_mut(&mut self) -> &mut NodeRecord {
