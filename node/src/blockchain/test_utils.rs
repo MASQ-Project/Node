@@ -33,6 +33,7 @@ use web3::transports::{EventLoopHandle, Http};
 use web3::types::{
     Address, BlockNumber, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256,
 };
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -63,7 +64,7 @@ pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterf
         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
         REQUESTS_IN_PARALLEL,
     )
-    .unwrap();
+        .unwrap();
 
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }
@@ -214,7 +215,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
         self.retrieve_transactions_parameters.lock().unwrap().push((
             start_block,
             fallback_start_block_number,
@@ -228,11 +229,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn build_blockchain_agent(
         &self,
         _consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>> {
         unimplemented!("not needed so far")
     }
 
     fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
+        unimplemented!("not needed so far")
+    }
+
+    fn process_transaction_receipts(&self, _transaction_hashes: Vec<H256>) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
         unimplemented!("not needed so far")
     }
 }

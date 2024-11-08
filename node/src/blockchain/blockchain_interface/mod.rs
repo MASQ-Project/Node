@@ -4,6 +4,7 @@ pub mod blockchain_interface_web3;
 pub mod data_structures;
 pub mod lower_level_interface;
 
+use ethereum_types::H256;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{
     BlockchainAgentBuildError, BlockchainError,
@@ -14,6 +15,7 @@ use crate::sub_lib::wallet::Wallet;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use web3::types::{Address, BlockNumber};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub trait BlockchainInterface {
     fn contract_address(&self) -> Address;
@@ -36,6 +38,11 @@ pub trait BlockchainInterface {
         &self,
         consuming_wallet: Wallet,
     ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>>;
+
+    fn process_transaction_receipts(
+        &self,
+        transaction_hashes: Vec<H256>,
+    ) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>>;
 
     as_any_ref_in_trait!();
 }

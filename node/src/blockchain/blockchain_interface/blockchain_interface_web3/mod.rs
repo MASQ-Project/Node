@@ -16,8 +16,8 @@ use std::convert::{From, TryInto};
 use std::fmt::Debug;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::LowBlockchainIntWeb3;
+use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder, TransactionReceipt};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult};
 use crate::blockchain::blockchain_interface_utils::{create_blockchain_agent_web3, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
@@ -203,6 +203,46 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             self.contract_address(),
         ))
     }
+
+    fn process_transaction_receipts(&self, transaction_hashes: Vec<H256>) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
+        Box::new(
+            self.lower_interface().get_transaction_receipt_in_batch(transaction_hashes)
+                .map_err(|e| e)
+                .and_then(move |batch_response| {
+                    Ok(batch_response
+                        .into_iter()
+                        .map(|response| match response {
+                            Ok(result) => {
+                                match serde_json::from_value::<TransactionReceipt>(result) {
+                                    Ok(receipt) => {
+                                        match receipt.status {
+                                            None => {
+                                                TransactionReceiptResult::NotPresent
+                                            }
+                                            Some(status) => {
+                                                if status == U64::from(1) {
+                                                    TransactionReceiptResult::Found(receipt)
+                                                } else {
+                                                    TransactionReceiptResult::TransactionFailed(receipt)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if e.to_string().contains("invalid type: null") {
+                                            TransactionReceiptResult::NotPresent
+                                        } else {
+                                            TransactionReceiptResult::Error(e.to_string())
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => TransactionReceiptResult::Error(e.to_string()),
+                        })
+                        .collect::<Vec<TransactionReceiptResult>>())
+                }),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
@@ -323,7 +363,7 @@ mod tests {
         RetrievedBlockchainTransactions,
     };
     use crate::blockchain::blockchain_interface_utils::calculate_fallback_start_block_number;
-    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3};
+    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -340,8 +380,9 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use web3::transports::Http;
-    use web3::types::{BlockNumber, Bytes, TransactionParameters, H256, U256};
+    use web3::types::{BlockNumber, Bytes, TransactionParameters, H2048, H256, U256};
     use web3::Web3;
+
 
     #[test]
     fn constants_are_correct() {
@@ -375,6 +416,10 @@ mod tests {
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(TRANSFER_METHOD_ID, [0xa9, 0x05, 0x9c, 0xbb]);
         assert_eq!(REQUESTS_IN_PARALLEL, 1);
+        assert_eq!(
+            TRANSFER_METHOD_ID,
+            "transfer(address,uint256)".keccak256()[0..4],
+        );
     }
 
     #[test]
@@ -818,6 +863,116 @@ mod tests {
     }
 
     #[test]
+    fn process_transaction_receipts_works() {
+        let port = find_free_port();
+        let tx_hash_1 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
+                .unwrap();
+        let tx_hash_2 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
+                .unwrap();
+        let tx_hash_3 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0a")
+                .unwrap();
+        let tx_hash_4 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0b")
+                .unwrap();
+        let tx_hash_5 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0c")
+                .unwrap();
+        let tx_hash_6 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0d")
+                .unwrap();
+        let tx_hash_vec = vec![tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4, tx_hash_5, tx_hash_6];
+        let block_hash =
+            H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
+                .unwrap();
+        let block_number = U64::from_str("b0328d").unwrap();
+        let cumulative_gas_used = U256::from_str("60ef").unwrap();
+        let gas_used = U256::from_str("60ef").unwrap();
+        let status = U64::from(1);
+        let status_failed = U64::from(0);
+        let tx_receipt_response_not_present = ReceiptResponseBuilder::default()
+            .transaction_hash(tx_hash_4)
+            .build();
+        let tx_receipt_response_failed = ReceiptResponseBuilder::default()
+            .transaction_hash(tx_hash_5)
+            .status(status_failed)
+            .build();
+        let tx_receipt_response_success = ReceiptResponseBuilder::default()
+            .transaction_hash(tx_hash_6)
+            .block_hash(block_hash)
+            .block_number(block_number)
+            .cumulative_gas_used(cumulative_gas_used)
+            .gas_used(gas_used)
+            .status(status)
+            .build();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                7,
+            )
+            .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
+            .response("trash".to_string(), 0)
+            .raw_response(tx_receipt_response_not_present)
+            .raw_response(tx_receipt_response_failed)
+            .raw_response(tx_receipt_response_success)
+            .end_batch()
+            .start();
+        let subject = make_blockchain_interface_web3(Some(port));
+
+        let result = subject
+            .process_transaction_receipts(tx_hash_vec)
+            .wait()
+            .unwrap();
+
+        assert_eq!(result[0], TransactionReceiptResult::Error("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
+        assert_eq!(result[1], TransactionReceiptResult::NotPresent);
+        assert_eq!(
+            result[2],
+            TransactionReceiptResult::Error(
+                "invalid type: string \"trash\", expected struct Receipt".to_string()
+            )
+        );
+        assert_eq!(result[3], TransactionReceiptResult::NotPresent);
+        assert_eq!(
+            result[4],
+            TransactionReceiptResult::TransactionFailed(TransactionReceipt {
+                transaction_hash: tx_hash_5,
+                transaction_index: Default::default(),
+                block_hash: None,
+                block_number: None,
+                cumulative_gas_used: U256::from(0),
+                gas_used: None,
+                contract_address: None,
+                logs: vec![],
+                status: Some(status_failed),
+                root: None,
+                logs_bloom: H2048::default()
+            })
+        );
+        assert_eq!(
+            result[5],
+            TransactionReceiptResult::Found(TransactionReceipt {
+                transaction_hash: tx_hash_6,
+                transaction_index: Default::default(),
+                block_hash: Some(block_hash),
+                block_number: Some(block_number),
+                cumulative_gas_used,
+                gas_used: Some(gas_used),
+                contract_address: None,
+                logs: vec![],
+                status: Some(status),
+                root: None,
+                logs_bloom: H2048::default()
+            })
+        );
+    }
+
+    #[test]
     fn web3_gas_limit_const_part_returns_reasonable_values() {
         type Subject = BlockchainInterfaceWeb3;
         assert_eq!(
@@ -834,170 +989,5 @@ mod tests {
         );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
-    }
-
-    //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
-    #[test]
-    fn signs_various_transactions_for_eth_mainnet() {
-        let signatures = &[
-            &[
-                248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179, 167,
-                100, 0, 0, 128, 37, 160, 40, 239, 97, 52, 11, 217, 57, 188, 33, 149, 254, 83, 117,
-                103, 134, 96, 3, 225, 161, 93, 60, 113, 255, 99, 225, 89, 6, 32, 170, 99, 98, 118,
-                160, 103, 203, 233, 216, 153, 127, 118, 26, 236, 183, 3, 48, 75, 56, 0, 204, 245,
-                85, 201, 243, 220, 100, 33, 75, 41, 127, 177, 150, 106, 59, 109, 131,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128, 37, 160, 9, 235, 182, 202, 5, 122, 5, 53, 214, 24, 100, 98,
-                188, 11, 70, 91, 86, 28, 148, 162, 149, 189, 176, 98, 31, 193, 146, 8, 171, 20,
-                154, 156, 160, 68, 15, 253, 119, 92, 233, 26, 131, 58, 180, 16, 119, 114, 4, 213,
-                52, 26, 111, 159, 169, 18, 22, 166, 243, 238, 44, 5, 31, 234, 106, 4, 40,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87, 38, 160, 122, 155, 12, 58, 133, 108, 183, 145, 181,
-                210, 141, 44, 236, 17, 96, 40, 55, 87, 204, 250, 142, 83, 122, 168, 250, 5, 113,
-                172, 203, 5, 12, 181, 160, 9, 100, 95, 141, 167, 178, 53, 101, 115, 131, 83, 172,
-                199, 242, 208, 96, 246, 121, 25, 18, 211, 89, 60, 94, 165, 169, 71, 3, 176, 157,
-                167, 50,
-            ][..],
-        ];
-        assert_signature(Chain::EthMainnet, signatures)
-    }
-
-    // Adapted test from old times when we had our own signing method.
-    // Don't have data for new chains, so I omit them in this kind of tests
-    #[test]
-    fn signs_various_transactions_for_ropsten() {
-        let signatures = &[
-            &[
-                248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179, 167,
-                100, 0, 0, 128, 41, 160, 8, 220, 80, 201, 100, 41, 178, 35, 151, 227, 210, 85, 27,
-                41, 27, 82, 217, 176, 64, 92, 205, 10, 195, 169, 66, 91, 213, 199, 124, 52, 3, 192,
-                160, 94, 220, 102, 179, 128, 78, 150, 78, 230, 117, 10, 10, 32, 108, 241, 50, 19,
-                148, 198, 6, 147, 110, 175, 70, 157, 72, 31, 216, 193, 229, 151, 115,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128, 41, 160, 186, 65, 161, 205, 173, 93, 185, 43, 220, 161, 63,
-                65, 19, 229, 65, 186, 247, 197, 132, 141, 184, 196, 6, 117, 225, 181, 8, 81, 198,
-                102, 150, 198, 160, 112, 126, 42, 201, 234, 236, 168, 183, 30, 214, 145, 115, 201,
-                45, 191, 46, 3, 113, 53, 80, 203, 164, 210, 112, 42, 182, 136, 223, 125, 232, 21,
-                205,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87, 41, 160, 146, 204, 57, 32, 218, 236, 59, 94, 106, 72,
-                174, 211, 223, 160, 122, 186, 126, 44, 200, 41, 222, 117, 117, 177, 189, 78, 203,
-                8, 172, 155, 219, 66, 160, 83, 82, 37, 6, 243, 61, 188, 102, 176, 132, 102, 74,
-                111, 180, 105, 33, 122, 106, 109, 73, 180, 65, 10, 117, 175, 190, 19, 196, 17, 128,
-                193, 75,
-            ][..],
-        ];
-        assert_signature(Chain::EthRopsten, signatures)
-    }
-
-    #[derive(Deserialize)]
-    struct Signing {
-        signed: Vec<u8>,
-        private_key: H256,
-    }
-
-    fn assert_signature(chain: Chain, slice_of_slices: &[&[u8]]) {
-        let first_part_tx_1 = r#"[{"nonce": "0x9", "gasPrice": "0x4a817c800", "gasLimit": "0x5208", "to": "0x3535353535353535353535353535353535353535", "value": "0xde0b6b3a7640000", "data": []}, {"private_key": "0x4646464646464646464646464646464646464646464646464646464646464646", "signed": "#;
-        let first_part_tx_2 = r#"[{"nonce": "0x0", "gasPrice": "0xd55698372431", "gasLimit": "0x1e8480", "to": "0xF0109fC8DF283027b6285cc889F5aA624EaC1F55", "value": "0x3b9aca00", "data": []}, {"private_key": "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "signed": "#;
-        let first_part_tx_3 = r#"[{"nonce": "0x00", "gasPrice": "0x09184e72a000", "gasLimit": "0x2710", "to": null, "value": "0x00", "data": [127,116,101,115,116,50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96,0,87]}, {"private_key": "0xe331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109", "signed": "#;
-        fn compose(first_part: &str, slice: &[u8]) -> String {
-            let third_part_jrc = "}]";
-            format!("{}{:?}{}", first_part, slice, third_part_jrc)
-        }
-        let all_transactions = format!(
-            "[{}]",
-            vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
-                .iter()
-                .zip(slice_of_slices.iter())
-                .zip(0usize..2)
-                .fold(String::new(), |so_far, actual| [
-                    so_far,
-                    compose(actual.0.0, actual.0.1)
-                ]
-                    .join(if actual.1 == 0 { "" } else { ", " }))
-        );
-        let txs: Vec<(TestRawTransaction, Signing)> =
-            serde_json::from_str(&all_transactions).unwrap();
-        let constant_parts = &[
-            &[
-                248u8, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179,
-                167, 100, 0, 0, 128,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87,
-            ][..],
-        ];
-
-        let subject = make_blockchain_interface_web3(None);
-        let lengths_of_constant_parts: Vec<usize> =
-            constant_parts.iter().map(|part| part.len()).collect();
-        for (((tx, signed), length), constant_part) in txs
-            .iter()
-            .zip(lengths_of_constant_parts)
-            .zip(constant_parts)
-        {
-            let secret = Wallet::from(
-                Bip32EncryptionKeyProvider::from_raw_secret(&signed.private_key.0.as_ref())
-                    .unwrap(),
-            )
-                .prepare_secp256k1_secret()
-                .unwrap();
-            let tx_params = from_raw_transaction_to_transaction_parameters(tx, chain);
-            let web3 = Web3::new(subject.transport.clone());
-            let sign = web3
-                .accounts()
-                .sign_transaction(tx_params, &secret)
-                .wait()
-                .unwrap();
-            let signed_data_bytes = sign.raw_transaction.0;
-            assert_eq!(signed_data_bytes, signed.signed);
-            assert_eq!(signed_data_bytes[..length], **constant_part)
-        }
-    }
-
-    fn from_raw_transaction_to_transaction_parameters(
-        raw_transaction: &TestRawTransaction,
-        chain: Chain,
-    ) -> TransactionParameters {
-        TransactionParameters {
-            nonce: Some(raw_transaction.nonce),
-            to: raw_transaction.to,
-            gas: raw_transaction.gas_limit,
-            gas_price: Some(raw_transaction.gas_price),
-            value: raw_transaction.value,
-            data: Bytes(raw_transaction.data.clone()),
-            chain_id: Some(chain.rec().num_chain_id),
-        }
-    }
-
-    #[test]
-    fn hash_the_smart_contract_transfer_function_signature() {
-        assert_eq!(
-            "transfer(address,uint256)".keccak256()[0..4],
-            TRANSFER_METHOD_ID,
-        );
     }
 }

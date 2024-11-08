@@ -14,12 +14,13 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
+use serde_json::Value;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
-use web3::Web3;
+use web3::{Error, Web3};
 
 #[derive(Debug, PartialEq, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -94,7 +95,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
-    ) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item=Vec<Result<Value, Error>>, Error=BlockchainError>> {
         let _ = hash_vec.into_iter().map(|hash| {
             self.web3_batch.eth().transaction_receipt(hash);
         });
@@ -103,39 +104,39 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                 .transport()
                 .submit_batch()
                 .map_err(|e| QueryFailed(e.to_string()))
-                .and_then(move |batch_response| {
-                    Ok(batch_response
-                        .into_iter()
-                        .map(|response| match response {
-                            Ok(result) => {
-                                match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => {
-                                        match receipt.status {
-                                            None => {
-                                                TransactionReceiptResult::NotPresent
-                                            }
-                                            Some(status) => {
-                                                if status == U64::from(1) {
-                                                    TransactionReceiptResult::Found(receipt)
-                                                } else {
-                                                    TransactionReceiptResult::TransactionFailed(receipt)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if e.to_string().contains("invalid type: null") {
-                                            TransactionReceiptResult::NotPresent
-                                        } else {
-                                            TransactionReceiptResult::Error(e.to_string())
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => TransactionReceiptResult::Error(e.to_string()),
-                        })
-                        .collect::<Vec<TransactionReceiptResult>>())
-                }),
+            // .and_then(move |batch_response| {
+            //     Ok(batch_response
+            //         .into_iter()
+            //         .map(|response| match response {
+            //             Ok(result) => {
+            //                 match serde_json::from_value::<TransactionReceipt>(result) {
+            //                     Ok(receipt) => {
+            //                         match receipt.status {
+            //                             None => {
+            //                                 TransactionReceiptResult::NotPresent
+            //                             }
+            //                             Some(status) => {
+            //                                 if status == U64::from(1) {
+            //                                     TransactionReceiptResult::Found(receipt)
+            //                                 } else {
+            //                                     TransactionReceiptResult::TransactionFailed(receipt)
+            //                                 }
+            //                             }
+            //                         }
+            //                     }
+            //                     Err(e) => {
+            //                         if e.to_string().contains("invalid type: null") {
+            //                             TransactionReceiptResult::NotPresent
+            //                         } else {
+            //                             TransactionReceiptResult::Error(e.to_string())
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //             Err(e) => TransactionReceiptResult::Error(e.to_string()),
+            //         })
+            //         .collect::<Vec<TransactionReceiptResult>>())
+            // }),
         )
     }
 
@@ -431,118 +432,6 @@ mod tests {
             expected_err_msg,
             err_msg
         )
-    }
-
-    #[test]
-    fn transaction_receipt_batch_works() {
-        let port = find_free_port();
-        let tx_hash_1 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
-        let tx_hash_2 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
-                .unwrap();
-        let tx_hash_3 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0a")
-                .unwrap();
-        let tx_hash_4 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0b")
-                .unwrap();
-        let tx_hash_5 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0c")
-                .unwrap();
-
-        let tx_hash_6 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0d")
-                .unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4, tx_hash_5, tx_hash_6];
-        let block_hash =
-            H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
-                .unwrap();
-        let block_number = U64::from_str("b0328d").unwrap();
-        let cumulative_gas_used = U256::from_str("60ef").unwrap();
-        let gas_used = U256::from_str("60ef").unwrap();
-        let status = U64::from(1);
-        let status_failed = U64::from(0);
-        let tx_receipt_response_not_present = ReceiptResponseBuilder::default()
-            .transaction_hash(tx_hash_4)
-            .build();
-        let tx_receipt_response_failed = ReceiptResponseBuilder::default()
-            .transaction_hash(tx_hash_5)
-            .status(status_failed)
-            .build();
-        let tx_receipt_response_success = ReceiptResponseBuilder::default()
-            .transaction_hash(tx_hash_6)
-            .block_hash(block_hash)
-            .block_number(block_number)
-            .cumulative_gas_used(cumulative_gas_used)
-            .gas_used(gas_used)
-            .status(status)
-            .build();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                7,
-            )
-            .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
-            .response("trash".to_string(), 0)
-            .raw_response(tx_receipt_response_not_present)
-            .raw_response(tx_receipt_response_failed)
-            .raw_response(tx_receipt_response_success)
-            .end_batch()
-            .start();
-        let subject = make_blockchain_interface_web3(Some(port));
-
-        let result = subject
-            .lower_interface()
-            .get_transaction_receipt_in_batch(tx_hash_vec)
-            .wait()
-            .unwrap();
-
-        assert_eq!(result[0], TransactionReceiptResult::Error("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
-        assert_eq!(result[1], TransactionReceiptResult::NotPresent);
-        assert_eq!(
-            result[2],
-            TransactionReceiptResult::Error(
-                "invalid type: string \"trash\", expected struct Receipt".to_string()
-            )
-        );
-        assert_eq!(result[3], TransactionReceiptResult::NotPresent);
-        assert_eq!(
-            result[4],
-            TransactionReceiptResult::TransactionFailed(TransactionReceipt {
-                transaction_hash: tx_hash_5,
-                transaction_index: Default::default(),
-                block_hash: None,
-                block_number: None,
-                cumulative_gas_used: U256::from(0),
-                gas_used: None,
-                contract_address: None,
-                logs: vec![],
-                status: Some(status_failed),
-                root: None,
-                logs_bloom: H2048::default()
-            })
-        );
-        assert_eq!(
-            result[5],
-            TransactionReceiptResult::Found(TransactionReceipt {
-                transaction_hash: tx_hash_6,
-                transaction_index: Default::default(),
-                block_hash: Some(block_hash),
-                block_number: Some(block_number),
-                cumulative_gas_used,
-                gas_used: Some(gas_used),
-                contract_address: None,
-                logs: vec![],
-                status: Some(status),
-                root: None,
-                logs_bloom: H2048::default()
-            })
-        );
     }
 
     #[test]
