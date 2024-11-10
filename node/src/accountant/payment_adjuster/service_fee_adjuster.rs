@@ -222,7 +222,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_non_guaranteed_unconfirmed_adjustment, multiple_by_billion,
+        make_non_guaranteed_unconfirmed_adjustment, multiply_by_billion,
     };
 
     #[test]
@@ -234,12 +234,12 @@ mod tests {
             .analyzed_account
             .qualified_as
             .bare_account
-            .balance_wei = multiple_by_billion(2_000_000_000);
+            .balance_wei = multiply_by_billion(2_000_000_000);
         account_1
             .weighted_account
             .analyzed_account
-            .disqualification_limit_minor = multiple_by_billion(1_800_000_000);
-        account_1.proposed_adjusted_balance_minor = multiple_by_billion(3_000_000_000);
+            .disqualification_limit_minor = multiply_by_billion(1_800_000_000);
+        account_1.proposed_adjusted_balance_minor = multiply_by_billion(3_000_000_000);
         let mut account_2 = make_non_guaranteed_unconfirmed_adjustment(222);
         let weight_2 = account_2.weighted_account.weight;
         account_2
@@ -247,24 +247,24 @@ mod tests {
             .analyzed_account
             .qualified_as
             .bare_account
-            .balance_wei = multiple_by_billion(5_000_000_000);
+            .balance_wei = multiply_by_billion(5_000_000_000);
         account_2
             .weighted_account
             .analyzed_account
-            .disqualification_limit_minor = multiple_by_billion(4_200_000_000) - 1;
-        account_2.proposed_adjusted_balance_minor = multiple_by_billion(4_200_000_000);
+            .disqualification_limit_minor = multiply_by_billion(4_200_000_000) - 1;
+        account_2.proposed_adjusted_balance_minor = multiply_by_billion(4_200_000_000);
         let mut account_3 = make_non_guaranteed_unconfirmed_adjustment(333);
         account_3
             .weighted_account
             .analyzed_account
             .qualified_as
             .bare_account
-            .balance_wei = multiple_by_billion(3_000_000_000);
+            .balance_wei = multiply_by_billion(3_000_000_000);
         account_3
             .weighted_account
             .analyzed_account
-            .disqualification_limit_minor = multiple_by_billion(2_000_000_000) + 1;
-        account_3.proposed_adjusted_balance_minor = multiple_by_billion(2_000_000_000);
+            .disqualification_limit_minor = multiply_by_billion(2_000_000_000) + 1;
+        account_3.proposed_adjusted_balance_minor = multiply_by_billion(2_000_000_000);
         let mut account_4 = make_non_guaranteed_unconfirmed_adjustment(444);
         let weight_4 = account_4.weighted_account.weight;
         account_4
@@ -272,24 +272,24 @@ mod tests {
             .analyzed_account
             .qualified_as
             .bare_account
-            .balance_wei = multiple_by_billion(1_500_000_000);
+            .balance_wei = multiply_by_billion(1_500_000_000);
         account_4
             .weighted_account
             .analyzed_account
-            .disqualification_limit_minor = multiple_by_billion(500_000_000);
-        account_4.proposed_adjusted_balance_minor = multiple_by_billion(500_000_000);
+            .disqualification_limit_minor = multiply_by_billion(500_000_000);
+        account_4.proposed_adjusted_balance_minor = multiply_by_billion(500_000_000);
         let mut account_5 = make_non_guaranteed_unconfirmed_adjustment(555);
         account_5
             .weighted_account
             .analyzed_account
             .qualified_as
             .bare_account
-            .balance_wei = multiple_by_billion(2_000_000_000);
+            .balance_wei = multiply_by_billion(2_000_000_000);
         account_5
             .weighted_account
             .analyzed_account
-            .disqualification_limit_minor = multiple_by_billion(1_000_000_000) + 1;
-        account_5.proposed_adjusted_balance_minor = multiple_by_billion(1_000_000_000);
+            .disqualification_limit_minor = multiply_by_billion(1_000_000_000) + 1;
+        account_5.proposed_adjusted_balance_minor = multiply_by_billion(1_000_000_000);
         let unconfirmed_accounts = vec![
             account_1.clone(),
             account_2.clone(),
@@ -310,7 +310,7 @@ mod tests {
                     .qualified_as
                     .bare_account,
                 weight_1,
-                multiple_by_billion(1_800_000_000),
+                multiply_by_billion(1_800_000_000),
             ),
             AdjustedAccountBeforeFinalization::new(
                 account_2
@@ -319,7 +319,7 @@ mod tests {
                     .qualified_as
                     .bare_account,
                 weight_2,
-                multiple_by_billion(4_200_000_000) - 1,
+                multiply_by_billion(4_200_000_000) - 1,
             ),
             AdjustedAccountBeforeFinalization::new(
                 account_4
@@ -328,7 +328,7 @@ mod tests {
                     .qualified_as
                     .bare_account,
                 weight_4,
-                multiple_by_billion(500_000_000),
+                multiply_by_billion(500_000_000),
             ),
         ];
         assert_eq!(thriving_competitors, expected_adjusted_outweighed_accounts)

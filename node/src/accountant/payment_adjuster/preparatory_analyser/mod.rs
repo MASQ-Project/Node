@@ -91,8 +91,8 @@ impl PreparatoryAnalyzer {
 
         let adjustment = match transaction_fee_limitation_opt {
             None => Adjustment::ByServiceFee,
-            Some(affordable_transaction_count) => Adjustment::BeginByTransactionFee {
-                affordable_transaction_count,
+            Some(transaction_count_limit) => Adjustment::BeginByTransactionFee {
+                transaction_count_limit,
             },
         };
 
@@ -373,7 +373,7 @@ mod tests {
         PreparatoryAnalyzer, ServiceFeeSingleTXErrorFactory,
     };
     use crate::accountant::payment_adjuster::test_utils::{
-        make_weighed_account, multiple_by_billion, DisqualificationGaugeMock,
+        make_weighed_account, multiply_by_billion, DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
@@ -580,14 +580,14 @@ mod tests {
     fn accounts_analyzing_works_even_for_weighted_payable() {
         init_test_logging();
         let test_name = "accounts_analyzing_works_even_for_weighted_payable";
-        let balance_1 = multiple_by_billion(2_000_000);
+        let balance_1 = multiply_by_billion(2_000_000);
         let mut weighted_account_1 = make_weighed_account(123);
         weighted_account_1
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_1;
-        let balance_2 = multiple_by_billion(3_456_000);
+        let balance_2 = multiply_by_billion(3_456_000);
         let mut weighted_account_2 = make_weighed_account(456);
         weighted_account_2
             .analyzed_account

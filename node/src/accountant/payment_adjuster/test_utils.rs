@@ -16,7 +16,7 @@ use crate::accountant::payment_adjuster::PaymentAdjusterReal;
 use crate::accountant::test_utils::{
     make_meaningless_analyzed_account, make_meaningless_qualified_payable,
 };
-use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
+use crate::accountant::{gwei_to_wei, AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::test_utils::make_wallet;
 use itertools::Either;
@@ -29,37 +29,87 @@ use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR: u128 =
-        MASQ_TOTAL_SUPPLY as u128 * 10_u128.pow(18);
+        multiply_by_billion(multiply_by_billion(MASQ_TOTAL_SUPPLY as u128));
     pub static ref ONE_MONTH_LONG_DEBT_SEC: u64 = 30 * 24 * 60 * 60;
 }
 
-pub fn make_initialized_subject(
+#[derive(Default)]
+pub struct PaymentAdjusterTestBuilder {
+    start_with_inner_null: bool,
     now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
     criterion_calculator_mock_opt: Option<CriterionCalculatorMock>,
-    max_debt_above_threshold_in_qualified_payables: Option<u128>,
+    max_debt_above_threshold_in_qualified_payables_opt: Option<u128>,
+    transaction_limit_count_opt: Option<u16>,
     logger_opt: Option<Logger>,
-) -> PaymentAdjusterReal {
-    let cw_service_fee_balance_minor = cw_service_fee_balance_minor_opt.unwrap_or(0);
-    let logger = logger_opt.unwrap_or(Logger::new("test"));
-    let mut subject = PaymentAdjusterReal::default();
-    subject.logger = logger;
-    subject.inner = Box::new(PaymentAdjusterInnerReal::new(
-        now_opt.unwrap_or(SystemTime::now()),
-        None,
-        cw_service_fee_balance_minor,
-        max_debt_above_threshold_in_qualified_payables.unwrap_or(0),
-    ));
-    if let Some(calculator) = criterion_calculator_mock_opt {
-        subject.calculators = vec![Box::new(calculator)]
-    }
-    subject
 }
 
-pub fn make_extreme_payables(
+impl PaymentAdjusterTestBuilder {
+    pub fn build(self) -> PaymentAdjusterReal {
+        let mut payment_adjuster = PaymentAdjusterReal::default();
+        let logger = self.logger_opt.unwrap_or(Logger::new("test"));
+        payment_adjuster.logger = logger;
+        if !self.start_with_inner_null {
+            let inner = Box::new(PaymentAdjusterInnerReal::new(
+                self.now_opt.unwrap_or(SystemTime::now()),
+                self.transaction_limit_count_opt,
+                self.cw_service_fee_balance_minor_opt.unwrap_or(0),
+                self.max_debt_above_threshold_in_qualified_payables_opt
+                    .unwrap_or(0),
+            ));
+            payment_adjuster.inner = inner;
+        }
+        if let Some(calculator) = self.criterion_calculator_mock_opt {
+            payment_adjuster.calculators = vec![Box::new(calculator)]
+        }
+        payment_adjuster
+    }
+
+    pub fn start_with_inner_null(mut self) -> Self {
+        self.start_with_inner_null = true;
+        self
+    }
+
+    pub fn criterion_calculator(mut self, calculator_mock: CriterionCalculatorMock) -> Self {
+        self.criterion_calculator_mock_opt = Some(calculator_mock);
+        self
+    }
+
+    pub fn cw_service_fee_balance_minor(mut self, cw_service_fee_balance_minor: u128) -> Self {
+        self.cw_service_fee_balance_minor_opt = Some(cw_service_fee_balance_minor);
+        self
+    }
+
+    pub fn max_debt_above_threshold_in_qualified_payables(
+        mut self,
+        max_exceeding_part_of_debt: u128,
+    ) -> Self {
+        self.max_debt_above_threshold_in_qualified_payables_opt = Some(max_exceeding_part_of_debt);
+        self
+    }
+
+    pub fn now(mut self, now: SystemTime) -> Self {
+        self.now_opt = Some(now);
+        self
+    }
+
+    pub fn logger(mut self, logger: Logger) -> Self {
+        self.logger_opt = Some(logger);
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn transaction_limit_count(mut self, tx_limit: u16) -> Self {
+        self.transaction_limit_count_opt = Some(tx_limit);
+        self
+    }
+}
+
+pub fn make_mammoth_payables(
     months_of_debt_and_balance_minor: Either<(Vec<usize>, u128), Vec<(usize, u128)>>,
     now: SystemTime,
 ) -> Vec<PayableAccount> {
+    // What is a mammoth like? Prehistoric, giant, and impossible to meet. Exactly as these payables.
     let accounts_seeds: Vec<(usize, u128)> = match months_of_debt_and_balance_minor {
         Either::Left((vec_of_months, constant_balance)) => vec_of_months
             .into_iter()
@@ -216,9 +266,10 @@ impl ServiceFeeAdjusterMock {
     }
 }
 
-pub fn multiple_by_billion(num: u128) -> u128 {
-    num * 10_u128.pow(9)
+pub fn multiply_by_billion(num: u128) -> u128 {
+    gwei_to_wei(num)
 }
+
 pub fn make_meaningless_analyzed_account_by_wallet(
     wallet_address_segment: &str,
 ) -> AnalyzedPayableAccount {
@@ -233,7 +284,7 @@ pub fn make_weighed_account(n: u64) -> WeightedPayable {
     WeightedPayable::new(make_meaningless_analyzed_account(n), 123456789)
 }
 
-// Should stay test only!
+// Should stay test only!!
 impl From<QualifiedPayableAccount> for AnalyzedPayableAccount {
     fn from(qualified_account: QualifiedPayableAccount) -> Self {
         let disqualification_limit =

@@ -1784,7 +1784,7 @@ mod tests {
                 Adjustment::ByServiceFee,
                 vec![make_meaningless_analyzed_account(123)],
             ))))
-            .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
+            .adjust_payments_result(Err(PaymentAdjusterError::RecursionDrainedAllAccounts));
 
         test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 

@@ -34,7 +34,7 @@ mod tests {
     use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
-    use crate::accountant::payment_adjuster::test_utils::multiple_by_billion;
+    use crate::accountant::payment_adjuster::test_utils::multiply_by_billion;
     use crate::accountant::test_utils::make_meaningless_analyzed_account;
     use std::time::SystemTime;
 
@@ -56,10 +56,10 @@ mod tests {
             .map(|(idx, n)| {
                 let mut basic_analyzed_payable = make_meaningless_analyzed_account(idx as u64);
                 basic_analyzed_payable.qualified_as.bare_account.balance_wei =
-                    multiple_by_billion(n);
+                    multiply_by_billion(n);
                 basic_analyzed_payable
                     .qualified_as
-                    .payment_threshold_intercept_minor = multiple_by_billion(2) * (idx as u128 + 1);
+                    .payment_threshold_intercept_minor = multiply_by_billion(2) * (idx as u128 + 1);
                 basic_analyzed_payable
             })
             .collect::<Vec<_>>();

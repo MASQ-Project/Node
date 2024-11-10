@@ -449,10 +449,10 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
     let also_by_transaction_fee = generate_boolean(gn);
     if also_by_transaction_fee && accounts_count > 2 {
-        let affordable_transaction_count =
+        let transaction_count_limit =
             u16::try_from(generate_non_zero_usize(gn, accounts_count)).unwrap();
         Adjustment::BeginByTransactionFee {
-            affordable_transaction_count,
+            transaction_count_limit,
         }
     } else {
         Adjustment::ByServiceFee
@@ -649,7 +649,7 @@ fn write_brief_test_summary_into_file(
          {}\n\n\
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
-         With 'AllAccountsEliminated':.......... {}\n\
+         With 'RecursionDrainedAllAccounts':.......... {}\n\
          With late insufficient balance errors:. {}\n\n\
          Legend\n\
          Partially adjusted accounts mark:...... {}",
@@ -714,7 +714,7 @@ fn do_final_processing_of_single_scenario(
                 PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction { .. } => {
                     test_overall_output.late_immoderately_insufficient_service_fee_balance += 1
                 }
-                PaymentAdjusterError::AllAccountsEliminated => {
+                PaymentAdjusterError::RecursionDrainedAllAccounts => {
                     test_overall_output.all_accounts_eliminated += 1
                 }
             }
@@ -907,8 +907,8 @@ fn resolve_affordable_transaction_count(adjustment: &Adjustment) -> String {
     match adjustment {
         Adjustment::ByServiceFee => "UNLIMITED".to_string(),
         Adjustment::BeginByTransactionFee {
-            affordable_transaction_count,
-        } => affordable_transaction_count.to_string(),
+            transaction_count_limit,
+        } => transaction_count_limit.to_string(),
     }
 }
 

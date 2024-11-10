@@ -217,7 +217,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_initialized_subject, make_non_guaranteed_unconfirmed_adjustment,
+        make_non_guaranteed_unconfirmed_adjustment, PaymentAdjusterTestBuilder,
     };
     use crate::accountant::test_utils::make_qualified_payables;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -464,13 +464,11 @@ mod tests {
         let qualified_payables = make_qualified_payables(accounts, &payment_thresholds, now);
         let analyzed_accounts = convert_collection(qualified_payables);
         let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
-        let payment_adjuster = make_initialized_subject(
-            Some(now),
-            Some(cw_service_fee_balance_minor),
-            None,
-            Some(largest_exceeding_balance),
-            None,
-        );
+        let payment_adjuster = PaymentAdjusterTestBuilder::default()
+            .now(now)
+            .cw_service_fee_balance_minor(cw_service_fee_balance_minor)
+            .max_debt_above_threshold_in_qualified_payables(largest_exceeding_balance)
+            .build();
         let weights_and_accounts = payment_adjuster.calculate_weights(analyzed_accounts);
         let subject = DisqualificationArbiter::default();
         let unconfirmed_adjustments = AdjustmentComputer::default()
