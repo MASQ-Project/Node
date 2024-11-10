@@ -164,8 +164,8 @@ impl DisqualificationGauge for DisqualificationGaugeReal {
 }
 
 impl DisqualificationGaugeReal {
-    const FIRST_QUAL_COND_COEF: u128 = 2;
-    const SECOND_QUAL_COND_COEF: u128 = 2;
+    const FIRST_QUALIFICATION_CONDITION_COEFFICIENT: u128 = 2;
+    const SECOND_QUALIFICATION_CONDITION_COEFFICIENT: u128 = 2;
     const MULTIPLIER_FOR_THICKER_MARGIN: u128 = 2;
 
     fn qualifies_for_thicker_margin(
@@ -178,10 +178,10 @@ impl DisqualificationGaugeReal {
         let minimal_acceptable_payment = exceeding_threshold + permanent_debt_allowed_minor;
 
         let condition_of_debt_fast_growth =
-            minimal_acceptable_payment >= Self::FIRST_QUAL_COND_COEF * considered_forgiven;
+            minimal_acceptable_payment >= Self::FIRST_QUALIFICATION_CONDITION_COEFFICIENT * considered_forgiven;
 
         let condition_of_position_on_rather_the_left_half_of_the_slope =
-            considered_forgiven >= Self::SECOND_QUAL_COND_COEF * permanent_debt_allowed_minor;
+            considered_forgiven >= Self::SECOND_QUALIFICATION_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
 
         condition_of_debt_fast_growth && condition_of_position_on_rather_the_left_half_of_the_slope
     }
@@ -228,8 +228,8 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(DisqualificationGaugeReal::FIRST_QUAL_COND_COEF, 2);
-        assert_eq!(DisqualificationGaugeReal::SECOND_QUAL_COND_COEF, 2);
+        assert_eq!(DisqualificationGaugeReal::FIRST_QUALIFICATION_CONDITION_COEFFICIENT, 2);
+        assert_eq!(DisqualificationGaugeReal::SECOND_QUALIFICATION_CONDITION_COEFFICIENT, 2);
         assert_eq!(DisqualificationGaugeReal::MULTIPLIER_FOR_THICKER_MARGIN, 2)
     }
 
