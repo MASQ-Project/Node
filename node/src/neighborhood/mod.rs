@@ -1280,8 +1280,9 @@ impl Neighborhood {
         &self,
         prefix_len: usize,
         first_node_key: &PublicKey,
+        research_neighborhood: bool
     ) -> bool {
-        if prefix_len <= 2 || self.user_exit_preferences.exit_location_preference == ExitPreference::ExitCountryWithFallback {
+        if prefix_len <= 2 || self.user_exit_preferences.exit_location_preference != ExitPreference::ExitCountryNoFallback || research_neighborhood {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
             match self.neighborhood_database.node_by_key(first_node_key) {
@@ -1414,6 +1415,7 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
+        //println!("exit_location_preference {:?}", self.user_exit_preferences.exit_location_preference);
         let result = self
             .routing_engine(
                 vec![source],
@@ -1465,15 +1467,15 @@ impl Neighborhood {
                 *first_node_key,
                 previous_node.public_key(),
             )
-            && self.validate_last_node_country_code(prefix.len(), previous_node.public_key())
+            && self.validate_last_node_country_code(prefix.len(), previous_node.public_key(), research_neighborhood)
         {
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
             }
             vec![ComputedRouteSegment::new(prefix, undesirability)]
-        } else if (hops_remaining == 0) && target_opt.is_none() && !research_neighborhood //&& self.user_exit_preferences.exit_location_preference == ExitPreference::Nothing
-            // ( ||
-            //     self.user_exit_preferences.exit_countries.is_empty()) // TODO implement the emptying the self.user_exit_preferences.exit_countries on every change of the database when there is no longer any country desired by user in the database
+        } else if (hops_remaining == 0) && target_opt.is_none() && !research_neighborhood && //
+            ( self.user_exit_preferences.exit_location_preference == ExitPreference::Nothing ||
+                self.user_exit_preferences.exit_countries.is_empty()) // TODO implement the emptying the self.user_exit_preferences.exit_countries on every change of the database when there is no longer any country desired by user in the database
         {
             // don't continue a targetless search past the minimum hop count
             vec![]
@@ -1668,7 +1670,7 @@ impl Neighborhood {
         message: &UiSetExitLocationRequest,
     ) -> Vec<ExitLocation> {
         self.init_db_countries();
-        println!("self.db_coutries: {:?}", self.user_exit_preferences.db_countries);
+        //println!("self.db_coutries: {:?}", self.user_exit_preferences.db_countries);
         message
             .to_owned()
             .exit_locations
@@ -1690,10 +1692,10 @@ impl Neighborhood {
     }
 
     fn init_db_countries(&mut self) {
-        let root_key = self.neighborhood_database.keys().iter().next().expect("expected public key").to_owned().to_owned().to_owned();
+        let root_key = self.neighborhood_database.root_key();
         let min_hops = self.min_hops as usize;
         let exit_locations_db = self.find_exit_location(&root_key, min_hops, 10_000usize).to_owned();
-        println!("exit_locations_db {:#?}", exit_locations_db);
+        //println!("min-hops {} init_db_countries exit_locations_db {:#?}", min_hops, exit_locations_db);
         let mut db_countries = vec![];
         for (pub_key, _routes) in &exit_locations_db {
             let node_opt = self.neighborhood_database.node_by_key(&pub_key);
@@ -1706,7 +1708,8 @@ impl Neighborhood {
             }
         };
         self.user_exit_preferences.db_countries = db_countries;
-        //self.user_exit_preferences.db_countries.dedup();
+        self.user_exit_preferences.db_countries.sort();
+        self.user_exit_preferences.db_countries.dedup();
     }
 
     fn handle_gossip_reply(
@@ -1992,6 +1995,12 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+
+    impl NeighborhoodDatabase {
+        pub fn set_root_key(&mut self, key: &PublicKey) {
+            self.this_node = key.clone();
+        }
+    }
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();
@@ -3398,11 +3407,8 @@ mod tests {
                 assert_eq!(
                     neighborhood.user_exit_preferences.exit_countries,
                     vec![
-                        "CZ".to_string(),
                         "SK".to_string(),
                         "AT".to_string(),
-                        "DE".to_string(),
-                        "PL".to_string(),
                     ]
                 );
                 assert_eq!(
@@ -3416,8 +3422,9 @@ mod tests {
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    0u32,
-                    "cz We expecting 0, country is with Priority: 1"
+                    UNREACHABLE_COUNTRY_PENALTY,
+                    "cz We expecting {}, country is too close to be exit",
+                    UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood
@@ -3447,9 +3454,9 @@ mod tests {
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "de We expecting {}, country is with Priority: 2",
-                    1 * COUNTRY_UNDESIRABILITY_FACTOR
+                    UNREACHABLE_COUNTRY_PENALTY,
+                    "de We expecting {}, country is too close to be exit",
+                    UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood
@@ -3469,9 +3476,9 @@ mod tests {
                         .unwrap()
                         .metadata
                         .country_undesirability,
-                    2 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "pl We expecting {}, country is with Priority: 3",
-                    2 * COUNTRY_UNDESIRABILITY_FACTOR
+                    UNREACHABLE_COUNTRY_PENALTY,
+                    "pl We expecting {}, country is too close to be exit",
+                    UNREACHABLE_COUNTRY_PENALTY
                 );
             }),
         };
@@ -3490,6 +3497,7 @@ mod tests {
             ),
             &"Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3;"
         ]);
+        todo!("check this test and fix more hops routes then min-hops");
     }
 
     #[test]
@@ -3592,7 +3600,7 @@ mod tests {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood.user_exit_preferences.exit_countries,
-                    vec!["CZ".to_string(), "FR".to_string()]
+                    vec!["FR".to_string()]
                 );
                 assert_eq!(
                     neighborhood.user_exit_preferences.exit_location_preference,
@@ -3710,6 +3718,7 @@ mod tests {
                 test_name
             ),
         ]);
+        todo!("check this test and fix more hops routes then min-hops");
     }
 
     #[test]
@@ -3932,7 +3941,7 @@ mod tests {
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
-        let db_clone = db.clone();
+        //let db_clone = db.clone();
 
         let routes = subject.find_exit_location(&l, 3, 10_000);
 
@@ -4096,11 +4105,16 @@ mod tests {
             db.add_arbitrary_full_neighbor(f4, s4);
             db.add_arbitrary_full_neighbor(f5, s5);
         };
-        let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
-            let root_node_key = db.root().public_key().clone();
-            let node = db.node_by_key(key).unwrap().clone();
-            db.root_mut().inner = node.inner.clone();
-            db.root_mut().metadata = node.metadata.clone();
+        // let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
+        //     let root_node_key = db.root().public_key().clone();
+        //     let node = db.node_by_key(key).unwrap().clone();
+        //     db.root_mut().inner = node.inner.clone();
+        //     db.root_mut().metadata = node.metadata.clone();
+        //     db.remove_node(&root_node_key);
+        // };
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
+            let root_node_key = db.root_key().clone();
+            db.set_root_key(key);
             db.remove_node(&root_node_key);
         };
         let (a, b, c, d, e) = make_row(db);
@@ -4189,10 +4203,8 @@ mod tests {
             db.add_arbitrary_full_neighbor(f5, s5);
         };
         let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
-            let root_node_key = db.root().public_key().clone();
-            db.this_node = key.clone();
-            //TODO 788 into test_utilities make new impl NeighborhoodDatabase -> change_this_node to change root node for tests
-            // review route_optimization_test clousure designate_root_node to use this new function
+            let root_node_key = db.root_key().clone();
+            db.set_root_key(key);
             db.remove_node(&root_node_key);
         };
         let (a, b, c, d, e) = make_row(db);
@@ -4205,18 +4217,18 @@ mod tests {
         join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-        println!("db from test before designate_root_node");
-        for key in db.keys() {
-            println!("node in db {:?} {:?}", db.node_by_key(key).unwrap().public_key(), db.node_by_key(key).unwrap().node_addr_opt());
-        }
-        println!("---------");
+        // println!("db from test before designate_root_node");
+        // for key in db.keys() {
+        //     println!("node in db {:?} {:?}", db.node_by_key(key).unwrap().public_key(), db.node_by_key(key).unwrap().node_addr_opt());
+        // }
+        // println!("---------");
         let mut checkdb = db.clone();
         designate_root_node(db, &l);
-        println!("db from test asfter designate_root_node");
-        for key in db.keys() {
-            println!("node in db {:?} {:?}", db.node_by_key(key).unwrap().public_key(), db.node_by_key(key).unwrap().node_addr_opt());
-        }
-        println!("---------");
+        // println!("db from test asfter designate_root_node");
+        // for key in db.keys() {
+        //     println!("node in db {:?} {:?}", db.node_by_key(key).unwrap().public_key(), db.node_by_key(key).unwrap().node_addr_opt());
+        // }
+        // println!("---------");
         db.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
         checkdb.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
         db.node_by_key_mut(&t).unwrap().inner.country_code_opt = Some("CZ".to_string());
@@ -4261,7 +4273,7 @@ mod tests {
                  db.node_by_key(&y).unwrap().inner.country_code_opt.as_ref().unwrap(),
         );
 
-        println!("l node {:?}", db.node_by_key(&l).unwrap());
+        // println!("l node {:?}", db.node_by_key(&l).unwrap());
         subject.handle_exit_location_message(message, 0, 0);
         let before = Instant::now();
 
@@ -4269,8 +4281,8 @@ mod tests {
         // let route = subject
         //     .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None, None)
         //     .unwrap();
-        println!("db_countries {:?}", subject.user_exit_preferences.db_countries);
-        println!("exit countries {:?}", subject.user_exit_preferences.exit_countries);
+        // println!("db_countries {:?}", subject.user_exit_preferences.db_countries);
+        // println!("exit countries {:?}", subject.user_exit_preferences.exit_countries);
         let route_cz = subject.find_best_route_segment(
             &l,
             None,
@@ -4282,11 +4294,11 @@ mod tests {
 
         let after = Instant::now();
 
-        println!("route_cz: {:#?}", route_cz);
+        // println!("route_cz: {:#?}", route_cz);
 
-        route_cz.as_ref().unwrap().into_iter().for_each(|key| {
-            println!("key {:?}, country_code {:?}", &key, checkdb.node_by_key(&key).unwrap().inner.country_code_opt);
-        });
+        // route_cz.as_ref().unwrap().into_iter().for_each(|key| {
+        //     println!("key {:?}, country_code {:?}", &key, checkdb.node_by_key(&key).unwrap().inner.country_code_opt);
+        // });
         let exit_node = checkdb.node_by_key(&route_cz.as_ref().unwrap().get(route_cz.as_ref().unwrap().len() - 1).unwrap());
         assert_eq!(exit_node.unwrap().public_key(), &c);
         assert_eq!(exit_node.unwrap().inner.country_code_opt, Some("CZ".to_string()));
