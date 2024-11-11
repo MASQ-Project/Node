@@ -7,8 +7,8 @@ use ethereum_types::{H256, U64};
 use futures::Future;
 use serde_json::Value;
 use web3::contract::Contract;
-use web3::Error;
-use web3::transports::Http;
+use web3::{Error, Web3};
+use web3::transports::{Batch, Http};
 use web3::types::{Address, Filter, Log, U256};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -53,12 +53,7 @@ pub trait LowBlockchainInt {
         filter: Filter,
     ) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>>;
 
-    fn submit_payables_in_batch(
-        &self,
-        logger: Logger,
-        chain: Chain,
-        consuming_wallet: Wallet,
-        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>;
+    fn get_web3_batch(
+        &self
+    ) -> Web3<Batch<Http>>;
 }

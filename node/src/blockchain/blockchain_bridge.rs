@@ -462,7 +462,6 @@ impl BlockchainBridge {
         let logger = self.logger.clone();
         let chain = self.blockchain_interface.get_chain();
         self.blockchain_interface
-            .lower_interface()
             .submit_payables_in_batch(
                 logger,
                 chain,

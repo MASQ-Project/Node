@@ -1,22 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::CONTRACT_ABI;
 use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainError, PayableTransactionError,
-};
-use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible;
+use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::blockchain::blockchain_interface_utils::send_payables_within_batch;
-use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_json::Value;
-use masq_lib::blockchains::chains::Chain;
-use masq_lib::logger::Logger;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -104,39 +94,6 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
                 .transport()
                 .submit_batch()
                 .map_err(|e| QueryFailed(e.to_string()))
-            // .and_then(move |batch_response| {
-            //     Ok(batch_response
-            //         .into_iter()
-            //         .map(|response| match response {
-            //             Ok(result) => {
-            //                 match serde_json::from_value::<TransactionReceipt>(result) {
-            //                     Ok(receipt) => {
-            //                         match receipt.status {
-            //                             None => {
-            //                                 TransactionReceiptResult::NotPresent
-            //                             }
-            //                             Some(status) => {
-            //                                 if status == U64::from(1) {
-            //                                     TransactionReceiptResult::Found(receipt)
-            //                                 } else {
-            //                                     TransactionReceiptResult::TransactionFailed(receipt)
-            //                                 }
-            //                             }
-            //                         }
-            //                     }
-            //                     Err(e) => {
-            //                         if e.to_string().contains("invalid type: null") {
-            //                             TransactionReceiptResult::NotPresent
-            //                         } else {
-            //                             TransactionReceiptResult::Error(e.to_string())
-            //                         }
-            //                     }
-            //                 }
-            //             }
-            //             Err(e) => TransactionReceiptResult::Error(e.to_string()),
-            //         })
-            //         .collect::<Vec<TransactionReceiptResult>>())
-            // }),
         )
     }
 
@@ -157,41 +114,8 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn submit_payables_in_batch(
-        &self,
-        logger: Logger,
-        chain: Chain,
-        consuming_wallet: Wallet,
-        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
-    {
-        let web3_batch = self.web3_batch.clone();
-        let get_transaction_id = self.get_transaction_id(consuming_wallet.address());
-        // We are not relying on Database and fetching the values straight from the blockchain.
-        // Modify according to the Payment adjusters new design
-        let get_gas_price = self.get_gas_price();
-
-        Box::new(
-            get_transaction_id
-                .map_err(PayableTransactionError::TransactionID)
-                .and_then(move |pending_nonce| {
-                    get_gas_price
-                        .map_err(PayableTransactionError::GasPriceQueryFailed)
-                        .and_then(move |gas_price_wei| {
-                            send_payables_within_batch(
-                                logger,
-                                chain,
-                                web3_batch,
-                                consuming_wallet,
-                                gas_price_wei,
-                                pending_nonce,
-                                fingerprints_recipient,
-                                affordable_accounts,
-                            )
-                        })
-                }),
-        )
+    fn get_web3_batch(&self) -> Web3<Batch<Http>> {
+        self.web3_batch.clone()
     }
 }
 
@@ -218,13 +142,11 @@ mod tests {
     use std::str::FromStr;
     use ethereum_types::{H256, U64};
     use futures::Future;
-    use trust_dns_proto::rr::DNSClass::NONE;
-    use web3::types::{BlockNumber, Bytes, FilterBuilder, H2048, Log, TransactionReceipt, U256};
+    use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, U256};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_LITERAL;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
     use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError::QueryFailed;
-    use crate::blockchain::test_utils::{make_blockchain_interface_web3, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{make_blockchain_interface_web3};
     use crate::test_utils::make_wallet;
 
     #[test]

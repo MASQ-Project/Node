@@ -2,8 +2,8 @@
 
 pub mod lower_level_interface_web3;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::data_structures::errors::BlockchainError;
-use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 use crate::blockchain::blockchain_interface::{BlockchainAgentBuildError, BlockchainInterface};
@@ -14,11 +14,15 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use std::convert::{From, TryInto};
 use std::fmt::Debug;
+use std::ops::Deref;
+use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder, TransactionReceipt};
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult};
-use crate::blockchain::blockchain_interface_utils::{create_blockchain_agent_web3, BlockchainAgentFutureResult};
+use crate::blockchain::blockchain_interface_utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -76,6 +80,13 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn get_chain(&self) -> Chain {
         self.chain
+    }
+
+    fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
+        Box::new(LowBlockchainIntWeb3::new(
+            self.transport.clone(),
+            self.contract_address(),
+        ))
     }
 
     fn retrieve_transactions(
@@ -197,13 +208,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
-        Box::new(LowBlockchainIntWeb3::new(
-            self.transport.clone(),
-            self.contract_address(),
-        ))
-    }
-
     fn process_transaction_receipts(&self, transaction_hashes: Vec<H256>) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
         Box::new(
             self.lower_interface().get_transaction_receipt_in_batch(transaction_hashes)
@@ -240,6 +244,35 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                             Err(e) => TransactionReceiptResult::Error(e.to_string()),
                         })
                         .collect::<Vec<TransactionReceiptResult>>())
+                }),
+        )
+    }
+
+    fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
+        let web3_batch = self.lower_interface().get_web3_batch();
+        let get_transaction_id = self.lower_interface().get_transaction_id(consuming_wallet.address());
+        // We are not relying on Database and fetching the values straight from the blockchain.
+        // Modify according to the Payment adjusters new design
+        let get_gas_price = self.lower_interface().get_gas_price();
+
+        Box::new(
+            get_transaction_id
+                .map_err(PayableTransactionError::TransactionID)
+                .and_then(move |pending_nonce| {
+                    get_gas_price
+                        .map_err(PayableTransactionError::GasPriceQueryFailed)
+                        .and_then(move |gas_price_wei| {
+                            send_payables_within_batch(
+                                logger,
+                                chain,
+                                web3_batch,
+                                consuming_wallet,
+                                gas_price_wei,
+                                pending_nonce,
+                                fingerprints_recipient,
+                                affordable_accounts,
+                            )
+                        })
                 }),
         )
     }

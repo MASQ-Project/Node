@@ -6,10 +6,8 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError,
-};
-use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
@@ -29,10 +27,14 @@ use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
+use actix::Recipient;
 use web3::transports::{EventLoopHandle, Http};
 use web3::types::{
     Address, BlockNumber, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256,
 };
+use masq_lib::logger::Logger;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 lazy_static! {
@@ -238,6 +240,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn process_transaction_receipts(&self, _transaction_hashes: Vec<H256>) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
+        unimplemented!("not needed so far")
+    }
+
+    fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
         unimplemented!("not needed so far")
     }
 }

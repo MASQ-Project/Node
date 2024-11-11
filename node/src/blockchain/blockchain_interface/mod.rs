@@ -4,17 +4,19 @@ pub mod blockchain_interface_web3;
 pub mod data_structures;
 pub mod lower_level_interface;
 
+use actix::Recipient;
 use ethereum_types::H256;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::data_structures::errors::{
-    BlockchainAgentBuildError, BlockchainError,
-};
-use crate::blockchain::blockchain_interface::data_structures::RetrievedBlockchainTransactions;
+use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
+use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use web3::types::{Address, BlockNumber};
+use masq_lib::logger::Logger;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub trait BlockchainInterface {
@@ -43,6 +45,15 @@ pub trait BlockchainInterface {
         &self,
         transaction_hashes: Vec<H256>,
     ) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>>;
+
+    fn submit_payables_in_batch(
+        &self,
+        logger: Logger,
+        chain: Chain,
+        consuming_wallet: Wallet,
+        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        affordable_accounts: Vec<PayableAccount>,
+    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>;
 
     as_any_ref_in_trait!();
 }
