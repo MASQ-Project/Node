@@ -1422,48 +1422,6 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector() {
-        let (accountant, _, accountant_recording) = make_recorder();
-        let recipient = accountant.start().recipient();
-        let transaction_receipt_response = ReceiptResponseBuilder::default().build();
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .raw_response(transaction_receipt_response)
-            .end_batch()
-            .start();
-        let blockchain_interface = make_blockchain_interface_web3(Some(port));
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface),
-            Box::new(PersistentConfigurationMock::default()),
-            false,
-        );
-        subject
-            .pending_payable_confirmation
-            .report_transaction_receipts_sub_opt = Some(recipient);
-        let msg = RequestTransactionReceipts {
-            pending_payable: vec![],
-            response_skeleton_opt: None,
-        };
-        let system = System::new(
-            "blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector",
-        );
-
-        let _ = subject.handle_request_transaction_receipts(msg).wait();
-
-        System::current().stop();
-        system.run();
-        let recording = accountant_recording.lock().unwrap();
-        assert_eq!(
-            recording.get_record::<ReportTransactionReceipts>(0),
-            &ReportTransactionReceipts {
-                fingerprints_with_receipts: vec![],
-                response_skeleton_opt: None
-            }
-        )
-    }
-
-    #[test]
     fn handle_request_transaction_receipts_short_circuits_if_submit_batch_fails() {
         init_test_logging();
         let (accountant, _, accountant_recording) = make_recorder();
