@@ -434,10 +434,6 @@ impl BlockchainBridge {
         let scan_error_subs_opt = self.scan_error_subs_opt.clone();
         let future = handler(self, msg).map_err(move |e| {
             warning!(logger, "{}", e);
-            // TODO: This ScanError needs to be removed, And added into OutboundPaymentsInstructions & QualifiedPayablesMessage
-            //   There are certain cases when its a partial error and we are triggering errors that will send ScanError messages.
-            //   In case we dont send this message at all and instead we use the above two mentioned messages to send total failure and partial failure.
-            //   BlockchainBridge wont segregate the messages and Accountant can later on deal with success, partial failures and total failures accordingly.
             scan_error_subs_opt
                 .as_ref()
                 .expect("Accountant not bound")
@@ -1770,6 +1766,8 @@ mod tests {
         let _ = subject.handle_retrieve_transactions(retrieve_transactions);
     }
 
+
+    // TODO: GH-555: Remove system_stop_conditions while also confirming the ScanError msg wasn't sent.
     #[test]
     fn handle_scan_future_handles_success() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
