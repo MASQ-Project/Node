@@ -14,7 +14,6 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use std::convert::{From, TryInto};
 use std::fmt::Debug;
-use std::ops::Deref;
 use actix::Recipient;
 use ethereum_types::U64;
 use web3::transports::{EventLoopHandle, Http};
@@ -94,7 +93,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
         let contract_address = lower_level_interface.get_contract().address();
@@ -154,7 +153,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         // TODO: Change wallet to address in the future
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>> {
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
         // TODO: Would it be better to wrap these 4 calls into a single batch call?
@@ -208,9 +207,13 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn process_transaction_receipts(&self, transaction_hashes: Vec<H256>) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
+    fn process_transaction_receipts(
+        &self,
+        transaction_hashes: Vec<H256>,
+    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         Box::new(
-            self.lower_interface().get_transaction_receipt_in_batch(transaction_hashes)
+            self.lower_interface()
+                .get_transaction_receipt_in_batch(transaction_hashes)
                 .map_err(|e| e)
                 .and_then(move |batch_response| {
                     Ok(batch_response
@@ -218,20 +221,16 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|response| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => {
-                                        match receipt.status {
-                                            None => {
-                                                TransactionReceiptResult::NotPresent
-                                            }
-                                            Some(status) => {
-                                                if status == U64::from(1) {
-                                                    TransactionReceiptResult::Found(receipt)
-                                                } else {
-                                                    TransactionReceiptResult::TransactionFailed(receipt)
-                                                }
+                                    Ok(receipt) => match receipt.status {
+                                        None => TransactionReceiptResult::NotPresent,
+                                        Some(status) => {
+                                            if status == U64::from(1) {
+                                                TransactionReceiptResult::Found(receipt)
+                                            } else {
+                                                TransactionReceiptResult::TransactionFailed(receipt)
                                             }
                                         }
-                                    }
+                                    },
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
                                             TransactionReceiptResult::NotPresent
@@ -248,9 +247,19 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         )
     }
 
-    fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
+    fn submit_payables_in_batch(
+        &self,
+        logger: Logger,
+        chain: Chain,
+        consuming_wallet: Wallet,
+        fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        affordable_accounts: Vec<PayableAccount>,
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
         let web3_batch = self.lower_interface().get_web3_batch();
-        let get_transaction_id = self.lower_interface().get_transaction_id(consuming_wallet.address());
+        let get_transaction_id = self
+            .lower_interface()
+            .get_transaction_id(consuming_wallet.address());
         // We are not relying on Database and fetching the values straight from the blockchain.
         // Modify according to the Payment adjusters new design
         let get_gas_price = self.lower_interface().get_gas_price();
@@ -384,7 +393,6 @@ impl BlockchainInterfaceWeb3 {
 mod tests {
     use super::*;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-    use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
         BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
         TRANSFER_METHOD_ID,
@@ -396,11 +404,13 @@ mod tests {
         RetrievedBlockchainTransactions,
     };
     use crate::blockchain::blockchain_interface_utils::calculate_fallback_start_block_number;
-    use crate::blockchain::test_utils::{all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{
+        all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder,
+    };
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
-    use crate::test_utils::{make_wallet, TestRawTransaction};
+    use crate::test_utils::make_wallet;
     use ethsign_crypto::Keccak256;
     use futures::Future;
     use indoc::indoc;
@@ -409,13 +419,10 @@ mod tests {
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
-    use serde_derive::Deserialize;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use web3::transports::Http;
-    use web3::types::{BlockNumber, Bytes, TransactionParameters, H2048, H256, U256};
-    use web3::Web3;
-
+    use web3::types::{BlockNumber, H2048, H256, U256};
 
     #[test]
     fn constants_are_correct() {
@@ -619,7 +626,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned() {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -644,7 +652,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned() {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -666,7 +675,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number() {
+    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x400", 1)
@@ -677,7 +687,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-            .unwrap();
+        .unwrap();
 
         let end_block_nbr = 1024u64;
         let subject =
@@ -707,7 +717,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one() {
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash", 1)
@@ -782,7 +793,7 @@ mod tests {
         );
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
-            + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
+                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
             * expected_gas_price_wei) as u128;
         assert_eq!(
             result.estimated_transaction_fee_total(3),
@@ -916,7 +927,9 @@ mod tests {
         let tx_hash_6 =
             H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0d")
                 .unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4, tx_hash_5, tx_hash_6];
+        let tx_hash_vec = vec![
+            tx_hash_1, tx_hash_2, tx_hash_3, tx_hash_4, tx_hash_5, tx_hash_6,
+        ];
         let block_hash =
             H256::from_str("6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18")
                 .unwrap();

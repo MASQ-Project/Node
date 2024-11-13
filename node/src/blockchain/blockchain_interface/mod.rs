@@ -34,17 +34,17 @@ pub trait BlockchainInterface {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;
 
     fn build_blockchain_agent(
         &self,
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>>;
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>>;
 
     fn process_transaction_receipts(
         &self,
         transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>>;
 
     fn submit_payables_in_batch(
         &self,
@@ -53,7 +53,7 @@ pub trait BlockchainInterface {
         consuming_wallet: Wallet,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>;
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;
 
     as_any_ref_in_trait!();
 }

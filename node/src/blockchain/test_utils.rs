@@ -66,7 +66,7 @@ pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterf
         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
         REQUESTS_IN_PARALLEL,
     )
-        .unwrap();
+    .unwrap();
 
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }
@@ -217,7 +217,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         self.retrieve_transactions_parameters.lock().unwrap().push((
             start_block,
             fallback_start_block_number,
@@ -231,7 +231,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     fn build_blockchain_agent(
         &self,
         _consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>> {
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         unimplemented!("not needed so far")
     }
 
@@ -239,11 +239,22 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         unimplemented!("not needed so far")
     }
 
-    fn process_transaction_receipts(&self, _transaction_hashes: Vec<H256>) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
+    fn process_transaction_receipts(
+        &self,
+        _transaction_hashes: Vec<H256>,
+    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         unimplemented!("not needed so far")
     }
 
-    fn submit_payables_in_batch(&self, logger: Logger, chain: Chain, consuming_wallet: Wallet, fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>, affordable_accounts: Vec<PayableAccount>) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>> {
+    fn submit_payables_in_batch(
+        &self,
+        _logger: Logger,
+        _chain: Chain,
+        _consuming_wallet: Wallet,
+        _fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
+        _affordable_accounts: Vec<PayableAccount>,
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    {
         unimplemented!("not needed so far")
     }
 }

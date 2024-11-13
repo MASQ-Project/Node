@@ -846,13 +846,13 @@ impl Neighborhood {
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
                     Err(PersistentConfigError::DatabaseError(msg))
-                    if &msg == "database is locked" =>
-                        {
-                            warning!(
+                        if &msg == "database is locked" =>
+                    {
+                        warning!(
                         self.logger,
                         "Could not persist immediate-neighbor changes: database locked - skipping"
                     )
-                        }
+                    }
                     Err(e) => error!(
                         self.logger,
                         "Could not persist immediate-neighbor changes: {:?}", e
@@ -975,7 +975,7 @@ impl Neighborhood {
             None,
             None,
         )
-            .expect("route creation error")
+        .expect("route creation error")
     }
 
     fn zero_hop_route_response(&mut self) -> RouteQueryResponse {
@@ -994,7 +994,7 @@ impl Neighborhood {
             return_route_id,
             None,
         )
-            .expect("Couldn't create route");
+        .expect("Couldn't create route");
         RouteQueryResponse {
             route,
             expected_services: ExpectedServices::RoundTrip(
@@ -1076,7 +1076,7 @@ impl Neighborhood {
                 return_route_id,
                 Some(self.chain.rec().contract),
             )
-                .expect("Internal error: bad route"),
+            .expect("Internal error: bad route"),
             expected_services: ExpectedServices::RoundTrip(
                 expected_request_services,
                 expected_response_services,
@@ -1145,15 +1145,15 @@ impl Neighborhood {
                 } else {
                     match (originator_key, exit_key) {
                         (Some(originator_key), Some(exit_key))
-                        if route_segment_key == originator_key
-                            || route_segment_key == exit_key =>
-                            {
-                                Ok(ExpectedService::Exit(
-                                    route_segment_key.clone(),
-                                    node.earning_wallet(),
-                                    *node.rate_pack(),
-                                ))
-                            }
+                            if route_segment_key == originator_key
+                                || route_segment_key == exit_key =>
+                        {
+                            Ok(ExpectedService::Exit(
+                                route_segment_key.clone(),
+                                node.earning_wallet(),
+                                *node.rate_pack(),
+                            ))
+                        }
                         (Some(_), Some(_)) => Ok(ExpectedService::Routing(
                             route_segment_key.clone(),
                             node.earning_wallet(),
@@ -1318,10 +1318,10 @@ impl Neighborhood {
         if self.route_length_qualifies(hops_remaining)
             && self.last_key_qualifies(previous_node, target_opt)
             && self.validate_last_node_not_too_close_to_first_node(
-            prefix.len(),
-            *first_node_key,
-            previous_node.public_key(),
-        )
+                prefix.len(),
+                *first_node_key,
+                previous_node.public_key(),
+            )
         {
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
@@ -1775,7 +1775,7 @@ mod tests {
                     cryptde,
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
                 ))
-                    .unwrap()]),
+                .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
             },
             earning_wallet.clone(),
@@ -1800,7 +1800,7 @@ mod tests {
                     cryptde,
                     "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
                 ))
-                    .unwrap()]),
+                .unwrap()]),
                 min_hops: MIN_HOPS_FOR_TEST,
             },
             earning_wallet.clone(),
@@ -2008,7 +2008,8 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_a_pass_target_that_is_a_part_of_a_different_connection_progress() {
+    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_a_pass_target_that_is_a_part_of_a_different_connection_progress(
+    ) {
         init_test_logging();
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
@@ -2158,7 +2159,8 @@ mod tests {
     }
 
     #[test]
-    pub fn neighborhood_logs_with_trace_if_it_receives_ask_about_debut_message_from_unknown_descriptor() {
+    pub fn neighborhood_logs_with_trace_if_it_receives_ask_about_debut_message_from_unknown_descriptor(
+    ) {
         init_test_logging();
         let (_known_ip, known_desc) = make_node(1);
         let (unknown_ip, unknown_desc) = make_node(2);
@@ -2368,7 +2370,7 @@ mod tests {
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionStage::ConnectedToNeighbor
                 }
-                    .tmb(0)
+                .tmb(0)
             })
         );
     }
@@ -2427,7 +2429,7 @@ mod tests {
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionStage::ConnectedToNeighbor
                 }
-                    .tmb(0)
+                .tmb(0)
             })
         );
     }
@@ -2477,7 +2479,8 @@ mod tests {
     }
 
     #[test]
-    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other() {
+    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
+    ) {
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
         let initial_node_descriptors =
@@ -2618,7 +2621,8 @@ mod tests {
     }
 
     #[test]
-    fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet() {
+    fn route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet(
+    ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_round_trip_route_without_consuming_wallet");
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
@@ -2717,7 +2721,7 @@ mod tests {
                 0,
                 None,
             )
-                .unwrap(),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
@@ -2742,7 +2746,8 @@ mod tests {
     }
 
     #[test]
-    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet() {
+    fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
+    ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet");
         let mut subject = make_standard_subject();
         subject.min_hops = Hops::TwoHops;
@@ -2789,7 +2794,7 @@ mod tests {
                 0,
                 None,
             )
-                .unwrap(),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing],
@@ -2880,7 +2885,7 @@ mod tests {
                 0,
                 Some(contract_address),
             )
-                .unwrap(),
+            .unwrap(),
             expected_services: ExpectedServices::RoundTrip(
                 vec![
                     ExpectedService::Nothing,
@@ -3114,7 +3119,7 @@ mod tests {
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionStage::ConnectedToNeighbor
                 }
-                    .tmb(0),
+                .tmb(0),
             })
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
@@ -3609,7 +3614,7 @@ mod tests {
             sub.try_send(RemoveNeighborMessage {
                 public_key: removed_neighbor_inside.public_key().clone(),
             })
-                .unwrap();
+            .unwrap();
 
             system.run();
         });
@@ -3812,7 +3817,7 @@ mod tests {
             &CryptDENull::from(&public_key, TEST_DEFAULT_CHAIN),
             &package.payload,
         )
-            .unwrap();
+        .unwrap();
         assert_eq!(
             payload,
             MessageType::GossipFailure(VersionedData::new(
@@ -3956,7 +3961,8 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_ignores_gossip_if_it_receives_a_pass_target_which_is_a_part_of_a_different_connection_progress() {
+    fn neighborhood_ignores_gossip_if_it_receives_a_pass_target_which_is_a_part_of_a_different_connection_progress(
+    ) {
         init_test_logging();
         let handle_params_arc = Arc::new(Mutex::new(vec![]));
         let gossip_acceptor = GossipAcceptorMock::new()
@@ -4039,7 +4045,7 @@ mod tests {
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionStage::RouteFound
                 }
-                    .tmb(0),
+                .tmb(0),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -4236,7 +4242,8 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_does_not_update_past_neighbors_without_password_even_when_neighbor_list_changes() {
+    fn neighborhood_does_not_update_past_neighbors_without_password_even_when_neighbor_list_changes(
+    ) {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
         let new_neighbor = make_node_record(2222, true);
@@ -4424,7 +4431,7 @@ mod tests {
                         full_neighbor.public_key(),
                         &MessageType::Gossip(gossip.clone().into()),
                     )
-                        .unwrap()
+                    .unwrap()
                 ),
                 (
                     half_neighbor.public_key().clone(),
@@ -4433,7 +4440,7 @@ mod tests {
                         half_neighbor.public_key(),
                         &MessageType::Gossip(gossip.into()),
                     )
-                        .unwrap()
+                    .unwrap()
                 ),
             ]),
             digest_set
@@ -4444,14 +4451,14 @@ mod tests {
                 "INFO: Neighborhood: Sending update Gossip about 0 Nodes to Node {}",
                 full_neighbor.public_key()
             )
-                .as_str(),
+            .as_str(),
         );
         tlh.exists_log_containing(
             format!(
                 "INFO: Neighborhood: Sending update Gossip about 0 Nodes to Node {}",
                 half_neighbor.public_key()
             )
-                .as_str(),
+            .as_str(),
         );
         let key_as_str = format!("{}", main_cryptde().public_key());
         tlh.exists_log_containing(&format!("Sent Gossip: digraph db {{ \"src\" [label=\"Gossip From:\\n{}\\n5.5.5.5\"]; \"dest\" [label=\"Gossip To:\\nAQIDBA\\n1.2.3.4\"]; \"src\" -> \"dest\" [arrowhead=empty]; }}", &key_as_str[..8]));
@@ -4461,8 +4468,8 @@ mod tests {
     #[test]
     fn neighborhood_sends_no_gossip_when_target_does_not_exist() {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
-        // This is ungossippable not because of any attribute of its own, but because the
-        // GossipProducerMock is set to return None when ordered to target it.
+                                                                        // This is ungossippable not because of any attribute of its own, but because the
+                                                                        // GossipProducerMock is set to return None when ordered to target it.
         let ungossippable = make_node_record(1050, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&ungossippable));
         subject
@@ -4756,7 +4763,7 @@ mod tests {
             main_cryptde(), // Used to provide default cryptde
             "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
         ))
-            .unwrap();
+        .unwrap();
         let (hopper, _, hopper_recording) = make_recorder();
         let mut subject = Neighborhood::new(
             cryptde,
@@ -4846,7 +4853,7 @@ mod tests {
                 assert_eq!(neighborhood.min_hops, min_hops_in_persistent_configuration);
             }),
         })
-            .unwrap();
+        .unwrap();
         System::current().stop();
         system.run();
     }
@@ -4952,7 +4959,7 @@ mod tests {
         addr.try_send(RemoveNeighborMessage {
             public_key: a.public_key().clone(),
         })
-            .unwrap();
+        .unwrap();
 
         let three_hop_route_request = RouteQueryMessage {
             target_key_opt: Some(c.public_key().clone()),
@@ -5014,7 +5021,7 @@ mod tests {
                 },
                 recipient,
             })
-                .unwrap();
+            .unwrap();
 
             system.run();
         });
@@ -5077,7 +5084,7 @@ mod tests {
                 },
                 recipient,
             })
-                .unwrap();
+            .unwrap();
 
             system.run();
         });
@@ -5138,7 +5145,7 @@ mod tests {
                 context,
                 recipient,
             })
-                .unwrap();
+            .unwrap();
 
             system.run();
         });
@@ -5157,7 +5164,8 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data() {
+    fn neighborhood_sends_node_query_response_with_none_when_ip_address_query_matches_no_configured_data(
+    ) {
         let cryptde: &dyn CryptDE = main_cryptde();
         let earning_wallet = make_wallet("earning");
         let consuming_wallet = Some(make_paying_wallet(b"consuming"));
@@ -5205,7 +5213,7 @@ mod tests {
                 },
                 recipient,
             })
-                .unwrap();
+            .unwrap();
 
             system.run();
         });
@@ -5218,7 +5226,8 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data() {
+    fn neighborhood_sends_node_query_response_with_result_when_ip_address_query_matches_configured_data(
+    ) {
         let cryptde: &dyn CryptDE = main_cryptde();
         let (recorder, awaiter, recording_arc) = make_recorder();
         let node_record = make_node_record(1234, true);
@@ -5267,7 +5276,7 @@ mod tests {
                 context,
                 recipient,
             })
-                .unwrap();
+            .unwrap();
 
             system.run();
         });
@@ -5810,7 +5819,7 @@ mod tests {
                 body: UiConnectionStatusResponse {
                     stage: stage.into()
                 }
-                    .tmb(context_id),
+                .tmb(context_id),
             })
         )
     }
@@ -5835,7 +5844,7 @@ mod tests {
                 body: UiConnectionStatusResponse {
                     stage: stage.into()
                 }
-                    .tmb(context_id),
+                .tmb(context_id),
             })
         )
     }
@@ -5860,7 +5869,7 @@ mod tests {
                 body: UiConnectionStatusResponse {
                     stage: stage.into()
                 }
-                    .tmb(context_id),
+                .tmb(context_id),
             })
         )
     }
@@ -5877,7 +5886,8 @@ mod tests {
     }
 
     #[test]
-    fn curate_past_neighbors_does_not_write_to_database_if_neighbors_are_same_but_order_has_changed() {
+    fn curate_past_neighbors_does_not_write_to_database_if_neighbors_are_same_but_order_has_changed(
+    ) {
         let mut subject = make_standard_subject();
         // This mock is completely unprepared: any call to it should cause a panic
         let persistent_config = PersistentConfigurationMock::new();
