@@ -48,12 +48,13 @@ use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::SystemTime;
+use actix::Addr;
 use thousands::Separable;
 use variant_count::VariantCount;
 use web3::types::U256;
 use masq_lib::utils::convert_collection;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::DisqualificationLimitProvidingAccount;
-
+use crate::test_utils::recorder::Recorder;
 // PaymentAdjuster is a recursive and scalable algorithm that inspects payments under conditions
 // of an acute insolvency. You can easily expand the range of evaluated parameters to determine
 // an optimized allocation of scarce assets by writing your own CriterionCalculator. The calculator
@@ -1526,6 +1527,47 @@ mod tests {
             multiply_by_billion(threshold_intercept_major),
             CreditorThresholds::new(multiply_by_billion(permanent_debt_allowed_major)),
         )
+    }
+
+    struct PayableAccountSeed {
+        wallet_seed: &'static str,
+        balance_minor: u128,
+        threshold_intercept_major: u128,
+        permanent_debt_allowed_major: u128,
+    }
+
+    struct DemonstrativeDisqualificationLimits {
+        account_1: u128,
+        account_2: u128,
+        account_3: u128
+    }
+
+    impl DemonstrativeDisqualificationLimits {
+        fn new(accounts: &[AnalyzedPayableAccount;3])-> Self {
+            todo!()
+        }
+    }
+
+    fn make_analyzed_accounts_and_show_their_actual_disqualification_limits(
+        accounts_seeds: [PayableAccountSeed;3]
+    ) -> ([AnalyzedPayableAccount;3], DemonstrativeDisqualificationLimits) {
+
+        let qualified_payables: Vec<_> = accounts_seeds.map(|account_seed|
+        QualifiedPayableAccount::new(
+            PayableAccount {
+                wallet: make_wallet(account_seed.wallet_seed),
+                balance_wei: account_seed.balance_minor,
+                last_paid_timestamp: meaningless_timestamp(),
+                pending_payable_opt: None,
+            },
+            multiply_by_billion(account_seed.threshold_intercept_major),
+            CreditorThresholds::new(multiply_by_billion(account_seed.permanent_debt_allowed_major)),
+        )
+        ).collect();
+        let analyzed_accounts: Vec<AnalyzedPayableAccount> = convert_collection(qualified_payables);
+        let analyzed_accounts: [AnalyzedPayableAccount;3] = analyzed_accounts.try_into().unwrap();
+        let disqualification_limits = DemonstrativeDisqualificationLimits::new(&analyzed_accounts);
+        (analyzed_accounts, disqualification_limits)
     }
 
     //----------------------------------------------------------------------------------------------
