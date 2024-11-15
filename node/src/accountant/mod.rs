@@ -3553,7 +3553,7 @@ mod tests {
             .set_arbitrary_id_stamp(persistent_config_id_stamp);
         let blockchain_bridge = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let account_1 = PayableAccount {

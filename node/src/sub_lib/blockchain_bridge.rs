@@ -89,6 +89,7 @@ mod tests {
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
     use actix::Actor;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn blockchain_bridge_subs_debug() {
@@ -106,7 +107,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         let accountant = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let addr = accountant.start();

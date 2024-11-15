@@ -42,6 +42,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
 use std::string::ToString;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
 use web3::types::{BlockNumber, H256};
@@ -55,7 +56,7 @@ pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
 pub struct BlockchainBridge {
     blockchain_interface: Box<dyn BlockchainInterface>,
     logger: Logger,
-    persistent_config: Box<dyn PersistentConfiguration>,
+    persistent_config_arc: Arc<Mutex<dyn PersistentConfiguration>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
     payable_payments_setup_subs_opt: Option<Recipient<BlockchainAgentWithContextMessage>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
@@ -182,12 +183,12 @@ impl Handler<NodeFromUiMessage> for BlockchainBridge {
 impl BlockchainBridge {
     pub fn new(
         blockchain_interface: Box<dyn BlockchainInterface>,
-        persistent_config: Box<dyn PersistentConfiguration>,
+        persistent_config: Arc<Mutex<dyn PersistentConfiguration>>,
         crashable: bool,
     ) -> BlockchainBridge {
         BlockchainBridge {
             blockchain_interface,
-            persistent_config,
+            persistent_config_arc: persistent_config,
             sent_payable_subs_opt: None,
             payable_payments_setup_subs_opt: None,
             received_payments_subs_opt: None,
@@ -203,13 +204,13 @@ impl BlockchainBridge {
 
     pub fn initialize_persistent_configuration(
         data_directory: &Path,
-    ) -> Box<dyn PersistentConfiguration> {
+    ) -> Arc<Mutex<dyn PersistentConfiguration>> {
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(data_directory, DbInitializationConfig::panic_on_migration())
                 .unwrap_or_else(|err| db_connection_launch_panic(err, data_directory)),
         ));
-        Box::new(PersistentConfigurationReal::new(config_dao))
+        Arc::new(Mutex::new(PersistentConfigurationReal::new(config_dao)))
     }
 
     pub fn initialize_blockchain_interface(
@@ -307,24 +308,33 @@ impl BlockchainBridge {
         &mut self,
         msg: RetrieveTransactions,
     ) -> Box<dyn Future<Item=(), Error=String>> {
-        let start_block_nbr = match self.persistent_config.start_block() {
-            Ok(sb) => sb,
-            Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
-        };
-        let max_block_count = match self.persistent_config.max_block_count() {
-            Ok(Some(mbc)) => mbc,
-            _ => u64::MAX,
+        let (start_block_nbr, max_block_count) = {
+            let persistent_config_lock = self
+                .persistent_config_arc
+                .lock()
+                .expect("Unable to lock persistent config in BlockchainBridge");
+
+            let start_block_nbr = match persistent_config_lock.start_block() {
+                Ok(sb) => sb,
+                Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
+            };
+            let max_block_count = match persistent_config_lock.max_block_count() {
+                Ok(Some(mbc)) => mbc,
+                _ => u64::MAX,
+            };
+            (start_block_nbr, max_block_count)
         };
 
+        let logger = self.logger.clone();
         let fallback_next_start_block_number =
             calculate_fallback_start_block_number(start_block_nbr, max_block_count);
         let start_block = BlockNumber::Number(start_block_nbr.into());
-        let received_payments_subs_ok_case = self
+        let received_payments_subs = self
             .received_payments_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
             .clone();
-        let received_payments_subs_error_case = received_payments_subs_ok_case.clone();
+        let mut persistent_config_arc = self.persistent_config_arc.clone();
 
         Box::new(
             self.blockchain_interface
@@ -334,27 +344,25 @@ impl BlockchainBridge {
                     msg.recipient.address(),
                 )
                 .map_err(move |e| {
-                    let received_payments_error =
-                        match BlockchainBridge::extract_max_block_count(e.clone()) {
-                            Some(max_block_count) => {
-                                ReceivedPaymentsError::ExceededBlockScanLimit(max_block_count)
+                    if let Some(max_block_count) = BlockchainBridge::extract_max_block_count(e.clone()) {
+                        match persistent_config_arc.lock().expect("Unable to lock persistent config in BlockchainBridge").set_max_block_count(Some(max_block_count))
+                        {
+                            Ok(()) => {
+                                debug!(
+                                    logger,
+                                    "Updated max_block_count to {} in database.",
+                                    max_block_count
+                                );
                             }
-                            None => ReceivedPaymentsError::OtherRPCError(format!(
-                                "Attempted to retrieve received payments but failed: {:?}",
-                                e
-                            )),
-                        };
-                    received_payments_subs_error_case
-                        .try_send(ReceivedPayments {
-                            timestamp: SystemTime::now(),
-                            scan_result: Err(received_payments_error.clone()),
-                            response_skeleton_opt: msg.response_skeleton_opt,
-                        })
-                        .expect("Accountant is dead.");
-                    format!(
-                        "Error while retrieving transactions: {:?}",
-                        received_payments_error
-                    )
+                            Err(e) => {
+                                panic!(
+                                    "Attempt to set new max block to {} failed due to: {:?}",
+                                    max_block_count, e
+                                )
+                            }
+                        }
+                    }
+                    format!("Error while retrieving transactions: {:?}", e)
                 })
                 .and_then(move |transactions| {
                     let payments_and_start_block = PaymentsAndStartBlock {
@@ -362,7 +370,7 @@ impl BlockchainBridge {
                         new_start_block: transactions.new_start_block,
                     };
 
-                    received_payments_subs_ok_case
+                    received_payments_subs
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
                             scan_result: Ok(payments_and_start_block),
@@ -414,7 +422,9 @@ impl BlockchainBridge {
                         })
                         .expect("Accountant is dead");
                     if length != transactions_found {
-                        debug!(logger, "Aborting scanning; {} transactions succeed and {} transactions failed",
+                        debug!(
+                            logger,
+                            "Aborting scanning; {} transactions succeed and {} transactions failed",
                             transactions_found,
                             length - transactions_found
                         );
@@ -587,7 +597,7 @@ mod tests {
         init_test_logging();
         let subject = BlockchainBridge::new(
             stub_bi(),
-            Box::new(configure_default_persistent_config(ZERO)),
+            Arc::new(Mutex::new(configure_default_persistent_config(ZERO))),
             false,
         );
         let system = System::new("blockchain_bridge_receives_bind_message");
@@ -680,7 +690,7 @@ mod tests {
         ];
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_configuration),
+            Arc::new(Mutex::new(persistent_configuration)),
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
@@ -769,7 +779,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(PersistentConfigurationMock::default()),
+            Arc::new(Mutex::new(PersistentConfigurationMock::default())),
             false,
         );
         subject.payable_payments_setup_subs_opt = Some(accountant_recipient);
@@ -828,7 +838,7 @@ mod tests {
         let persistent_configuration_mock = PersistentConfigurationMock::default();
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_configuration_mock),
+            Arc::new(Mutex::new(persistent_configuration_mock)),
             false,
         );
         let addr = subject.start();
@@ -917,7 +927,7 @@ mod tests {
         let persistent_configuration_mock = PersistentConfigurationMock::default();
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_configuration_mock),
+            Arc::new(Mutex::new(persistent_configuration_mock)),
             false,
         );
         let addr = subject.start();
@@ -1007,7 +1017,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let (accountant, _, accountant_recording) = make_recorder();
@@ -1061,7 +1071,7 @@ mod tests {
         let persistent_config = configure_default_persistent_config(ZERO);
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let (accountant, _, accountant_recording) = make_recorder();
@@ -1102,7 +1112,7 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_web3),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let (accountant, _, accountant_recording) = make_recorder();
@@ -1170,7 +1180,7 @@ mod tests {
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(PersistentConfigurationMock::default()),
+            Arc::new(Mutex::new(PersistentConfigurationMock::default())),
             false,
         );
         let addr = subject.start();
@@ -1240,7 +1250,7 @@ mod tests {
             .start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         subject.scan_error_subs_opt = Some(scan_error_recipient);
@@ -1256,23 +1266,18 @@ mod tests {
 
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
-        let message = recording.get_record::<ReceivedPayments>(0);
+        let scan_error = recording.get_record::<ScanError>(0);
         assert_eq!(
-            message.scan_result,
-            Err(ReceivedPaymentsError::OtherRPCError("Attempted to retrieve received payments but failed: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()))
-        );
-        let message_2 = recording.get_record::<ScanError>(1);
-        assert_eq!(
-            message_2,
+            scan_error,
             &ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: None,
-                msg: "Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"Transport error: Error(IncompleteMessage)\\\")\")".to_string()
+                msg: "Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")".to_string()
             }
         );
-        assert_eq!(recording.len(), 2);
+        assert_eq!(recording.len(), 1);
         TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"Transport error: Error(IncompleteMessage)\\\")\")",
+            "WARN: BlockchainBridge: Error while retrieving transactions: QueryFailed(\"Transport error: Error(IncompleteMessage)\")",
         );
     }
 
@@ -1345,7 +1350,7 @@ mod tests {
         let system = System::new("test_transaction_receipts");
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(PersistentConfigurationMock::default()),
+            Arc::new(Mutex::new(PersistentConfigurationMock::default())),
             false,
         );
         subject
@@ -1422,7 +1427,7 @@ mod tests {
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(PersistentConfigurationMock::default()),
+            Arc::new(Mutex::new(PersistentConfigurationMock::default())),
             false,
         );
         subject
@@ -1490,7 +1495,7 @@ mod tests {
             .start_block_result(Ok(6));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         subject.received_payments_subs_opt = Some(accountant.start().recipient());
@@ -1594,7 +1599,7 @@ mod tests {
             .max_block_count_result(Err(PersistentConfigError::NotPresent));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let addr = subject.start();
@@ -1665,7 +1670,7 @@ mod tests {
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr =
-            accountant.system_stop_conditions(match_every_type_id!(ReceivedPayments));
+            accountant.system_stop_conditions(match_every_type_id!(ScanError));
         let earning_wallet = make_wallet("earning_wallet");
         let mut blockchain_interface = make_blockchain_interface_web3(Some(port));
         blockchain_interface.logger = logger;
@@ -1676,7 +1681,7 @@ mod tests {
             )));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let addr = subject.start();
@@ -1690,35 +1695,130 @@ mod tests {
                 context_id: 4321,
             }),
         };
-        let before = SystemTime::now();
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
 
         system.run();
-        let after = SystemTime::now();
-
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 2);
-        let received_payments_error_message =
-            accountant_recording.get_record::<ReceivedPayments>(0);
-        check_timestamp(before, received_payments_error_message.timestamp, after);
+        assert_eq!(accountant_recording.len(), 1);
+        let scan_error_msg = accountant_recording.get_record::<ScanError>(0);
         assert_eq!(
-            received_payments_error_message,
-            &ReceivedPayments {
-                timestamp: received_payments_error_message.timestamp,
-                scan_result: Err(OtherRPCError(
-                    "Attempted to retrieve received payments but failed: InvalidResponse"
-                        .to_string()
-                )),
+            scan_error_msg,
+            &ScanError {
+                scan_type: ScanType::Receivables,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
+                msg: "Error while retrieving transactions: InvalidResponse".to_string(),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Invalid response from blockchain server:"
         ));
+    }
+
+    #[test]
+    fn handle_retrieve_transactions_receives_query_failed_and_updates_max_block() {
+        init_test_logging();
+        let test_name = "handle_retrieve_transactions_receives_query_failed_and_updates_max_block";
+        let system = System::new(test_name);
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
+            .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000", 0)
+            .start();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let accountant =
+            accountant.system_stop_conditions(match_every_type_id!(ScanError));
+        let earning_wallet = make_wallet("earning_wallet");
+        let blockchain_interface = make_blockchain_interface_web3(Some(port));
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Ok(6))
+            .max_block_count_result(Err(PersistentConfigError::DatabaseError(
+                "my tummy hurts".to_string(),
+            )))
+            .set_max_block_count_result(Ok(()));
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Arc::new(Mutex::new(persistent_config)),
+            false,
+        );
+        subject.logger = Logger::new(test_name);
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: earning_wallet.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
+
+        let _ = addr.try_send(retrieve_transactions).unwrap();
+
+        system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
+        let scan_error_msg = accountant_recording.get_record::<ScanError>(0);
+        assert_eq!(
+            scan_error_msg,
+            &ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321
+                }),
+                msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\\\", data: None }\")".to_string(),
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Updated max_block_count to 1000 in database"
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Attempt to set new max block to 1000 failed due to: DatabaseError(\"my brain hurst\")"
+    )]
+    fn handle_retrieve_transactions_receives_query_failed_and_failed_update_max_block() {
+        let system = System::new("test");
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x3B9ACA00".to_string(), 0)
+            .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000", 0)
+            .start();
+        let (accountant, _, _) = make_recorder();
+        let earning_wallet = make_wallet("earning_wallet");
+        let blockchain_interface = make_blockchain_interface_web3(Some(port));
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Ok(6))
+            .max_block_count_result(Err(PersistentConfigError::DatabaseError(
+                "my tummy hurts".to_string(),
+            )))
+            .set_max_block_count_result(Err(PersistentConfigError::DatabaseError("my brain hurst".to_string())));
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Arc::new(Mutex::new(persistent_config)),
+            false,
+        );
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: earning_wallet.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
+
+        let _ = addr.try_send(retrieve_transactions).unwrap();
+
+        system.run();
     }
 
     #[test]
@@ -1730,7 +1830,7 @@ mod tests {
             .start_block_result(Err(PersistentConfigError::TransactionError));
         let mut subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let retrieve_transactions = RetrieveTransactions {
@@ -1771,7 +1871,7 @@ mod tests {
                 BlockchainInterfaceMock::default()
                     .retrieve_transactions_result(Ok(retrieved_blockchain_transactions)),
             ),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let system = System::new("test");
@@ -1821,7 +1921,7 @@ mod tests {
                     BlockchainError::QueryFailed("My tummy hurts".to_string()),
                 )),
             ),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
         let system = System::new("test");
@@ -1839,17 +1939,17 @@ mod tests {
 
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<ScanError>(1);
+        let message = accountant_recording.get_record::<ScanError>(0);
         assert_eq!(
             message,
             &ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: msg.response_skeleton_opt,
-                msg: "Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"My tummy hurts\\\")\")".to_string()
+                msg: "Error while retrieving transactions: QueryFailed(\"My tummy hurts\")".to_string()
             }
         );
-        assert_eq!(accountant_recording.len(), 2);
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Error while retrieving transactions: OtherRPCError(\"Attempted to retrieve received payments but failed: QueryFailed(\\\"My tummy hurts\\\")\")");
+        assert_eq!(accountant_recording.len(), 1);
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Error while retrieving transactions: QueryFailed(\"My tummy hurts\")");
     }
 
     #[test]
@@ -1860,7 +1960,7 @@ mod tests {
         let crashable = true;
         let subject = BlockchainBridge::new(
             Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
+            Arc::new(Mutex::new(PersistentConfigurationMock::default())),
             crashable,
         );
 
