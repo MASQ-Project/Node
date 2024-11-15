@@ -17,8 +17,8 @@ use web3::{Error, Web3};
 pub enum TransactionReceiptResult {
     NotPresent,
     Found(TransactionReceipt),
-    TransactionFailed(TransactionReceipt),
-    Error(String),
+    TransactionFailed(TransactionReceipt), // RemoteFailure
+    Error(String),                         // LocalFailure
 }
 
 pub struct LowBlockchainIntWeb3 {

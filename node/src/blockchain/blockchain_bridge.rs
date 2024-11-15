@@ -412,6 +412,7 @@ impl BlockchainBridge {
                             response_skeleton_opt: msg.response_skeleton_opt,
                         })
                         .expect("Accountant is dead");
+                    // TODO: GH-744: Let's log it, instead of triggering an error
                     if length != transactions_found {
                         return Err(format!(
                             "Aborting scanning; {} transactions succeed and {} transactions failed",

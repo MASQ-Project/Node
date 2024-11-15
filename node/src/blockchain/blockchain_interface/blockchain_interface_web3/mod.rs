@@ -164,6 +164,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let get_service_fee_balance = self
             .lower_interface()
             .get_service_fee_balance(wallet_address);
+        // TODO: GH-744: Remove it from submit_batch call or from here, it's a duplicate
         let get_transaction_id = self.lower_interface().get_transaction_id(wallet_address);
 
         Box::new(
