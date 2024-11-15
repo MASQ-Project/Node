@@ -246,7 +246,7 @@ impl BlockchainBridge {
     fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         return Box::new(
@@ -271,7 +271,7 @@ impl BlockchainBridge {
     fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         let skeleton_opt = msg.response_skeleton_opt;
         let sent_payable_subs = self
             .sent_payable_subs_opt
@@ -306,7 +306,7 @@ impl BlockchainBridge {
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
         let start_block_nbr = match self.persistent_config.start_block() {
             Ok(sb) => sb,
             Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
@@ -377,7 +377,8 @@ impl BlockchainBridge {
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
-    ) -> Box<dyn Future<Item = (), Error = String>> {
+    ) -> Box<dyn Future<Item=(), Error=String>> {
+        let logger = self.logger.clone();
         let accountant_recipient = self
             .pending_payable_confirmation
             .report_transaction_receipts_sub_opt
@@ -412,13 +413,11 @@ impl BlockchainBridge {
                             response_skeleton_opt: msg.response_skeleton_opt,
                         })
                         .expect("Accountant is dead");
-                    // TODO: GH-744: Let's log it, instead of triggering an error
                     if length != transactions_found {
-                        return Err(format!(
-                            "Aborting scanning; {} transactions succeed and {} transactions failed",
+                        debug!(logger, "Aborting scanning; {} transactions succeed and {} transactions failed",
                             transactions_found,
                             length - transactions_found
-                        ));
+                        );
                     };
                     Ok(())
                 }),
@@ -427,7 +426,7 @@ impl BlockchainBridge {
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
     where
-        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
+        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item=(), Error=String>>,
         M: SkeletonOptHolder,
     {
         let skeleton_opt = msg.skeleton_opt();
@@ -453,7 +452,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
@@ -597,7 +596,7 @@ mod tests {
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
         })
-        .unwrap();
+            .unwrap();
 
         System::current().stop();
         system.run();
@@ -640,8 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant(
-    ) {
+    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant() {
         let system = System::new(
             "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
         );
@@ -808,8 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
-    ) {
+    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant() {
         let system = System::new(
             "handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant",
         );
@@ -877,7 +874,7 @@ mod tests {
                     hash: H256::from_str(
                         "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                     )
-                    .unwrap()
+                        .unwrap()
                 })]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -893,7 +890,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                .unwrap(),
+                    .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -967,7 +964,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                .unwrap(),
+                    .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -1032,7 +1029,7 @@ mod tests {
                 hash: H256::from_str(
                     "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         assert_eq!(
@@ -1042,7 +1039,7 @@ mod tests {
                 hash: H256::from_str(
                     "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         let recording = accountant_recording.lock().unwrap();
@@ -1196,10 +1193,9 @@ mod tests {
         let system = System::new("transaction receipts");
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 2);
+        assert_eq!(accountant_recording.len(), 1);
         let report_transaction_receipt_message =
             accountant_recording.get_record::<ReportTransactionReceipts>(0);
-        let scan_error_message = accountant_recording.get_record::<ScanError>(1);
         let mut expected_receipt = TransactionReceipt::default();
         expected_receipt.transaction_hash = hash_1;
         expected_receipt.status = Some(U64::from(1));
@@ -1222,18 +1218,6 @@ mod tests {
                 }),
             }
         );
-        assert_eq!(
-            scan_error_message,
-            &ScanError {
-                scan_type: ScanType::PendingPayables,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321
-                }),
-                msg: "Aborting scanning; 1 transactions succeed and 1 transactions failed"
-                    .to_string(),
-            }
-        )
     }
 
     #[test]
@@ -1293,8 +1277,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
-    ) {
+    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort() {
         init_test_logging();
         let port = find_free_port();
         let block_number = U64::from(4545454);
@@ -1387,7 +1370,7 @@ mod tests {
 
         assert_eq!(system.run(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 2);
+        assert_eq!(accountant_recording.len(), 1);
         let report_receipts_msg = accountant_recording.get_record::<ReportTransactionReceipts>(0);
         assert_eq!(
             *report_receipts_msg,
@@ -1404,20 +1387,7 @@ mod tests {
                 }),
             }
         );
-        let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
-        assert_eq!(
-            *scan_error_msg,
-            ScanError {
-                scan_type: ScanType::PendingPayables,
-                response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321
-                }),
-                msg: "Aborting scanning; 1 transactions succeed and 3 transactions failed"
-                    .to_string()
-            }
-        );
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; 1 transactions succeed and 3 transactions failed");
+        TestLogHandler::new().exists_log_containing("DEBUG: BlockchainBridge: Aborting scanning; 1 transactions succeed and 3 transactions failed");
     }
 
     #[test]
@@ -2005,7 +1975,7 @@ pub mod exportable_test_parts {
     use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-        for SubsFactoryTestAddrLeaker<BlockchainBridge>
+    for SubsFactoryTestAddrLeaker<BlockchainBridge>
     {
         fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
             self.send_leaker_msg_and_return_meaningless_subs(
