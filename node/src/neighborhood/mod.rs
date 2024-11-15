@@ -1278,13 +1278,13 @@ impl Neighborhood {
         }
     }
 
-    fn validate_last_node_country_code(
+    fn validate_last_node_country_code<'a>(
         &self,
         prefix_len: usize,
         first_node_key: &PublicKey,
-        research_neighborhood: bool
+        research_neighborhood: &Option<&'a mut Vec<ComputedRouteSegment>>
     ) -> bool {
-        if prefix_len <= 2 || self.user_exit_preferences.exit_location_preference != ExitPreference::ExitCountryNoFallback || research_neighborhood {
+        if prefix_len <= 2 || self.user_exit_preferences.exit_location_preference != ExitPreference::ExitCountryNoFallback || research_neighborhood.is_some() {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
             match self.neighborhood_database.node_by_key(first_node_key) {
@@ -1361,6 +1361,7 @@ impl Neighborhood {
         source: &'a PublicKey,
         minimum_hops: usize,
         payload_size: usize,
+        research_neighborhood: &'a mut Vec<ComputedRouteSegment>,
     ) -> HashMap<PublicKey, ExitLocationsRoutes> {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability = 0;
@@ -1374,7 +1375,7 @@ impl Neighborhood {
                 RouteDirection::Over,
                 &mut minimum_undesirability,
                 None,
-                true
+                Some(research_neighborhood)
             );
 
         let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
@@ -1427,7 +1428,7 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-                false
+                None
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1450,9 +1451,9 @@ impl Neighborhood {
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
-        research_neighborhood: bool,
+        research_neighborhood: Option<&'a mut Vec<ComputedRouteSegment>>,
     ) -> Vec<ComputedRouteSegment<'a>> {
-        if undesirability > *minimum_undesirability  && !research_neighborhood {
+        if undesirability > *minimum_undesirability  && research_neighborhood.is_none() {
             return vec![];
         }
         let first_node_key = prefix.first().expect("Empty prefix");
@@ -1468,13 +1469,49 @@ impl Neighborhood {
                 *first_node_key,
                 previous_node.public_key(),
             )
-            && self.validate_last_node_country_code(prefix.len(), previous_node.public_key(), research_neighborhood)
+            && self.validate_last_node_country_code(prefix.len(), previous_node.public_key(), &research_neighborhood)
         {
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
             }
-            vec![ComputedRouteSegment::new(prefix, undesirability)]
-        } else if ((hops_remaining == 0) && target_opt.is_none() && !research_neighborhood) && //
+            if research_neighborhood.is_some() {
+                let prefix_new = prefix.clone();
+                match research_neighborhood {
+                    Some::<&'a mut Vec<ComputedRouteSegment>>(research_nbhd) => research_nbhd.push(ComputedRouteSegment::new(prefix, undesirability)),
+                    None => (),
+                }
+                self.routing_guts(
+                    prefix_new,
+                    undesirability,
+                    target_opt,
+                    hops_remaining,
+                    payload_size,
+                    direction,
+                    minimum_undesirability,
+                    hostname_opt,
+                    research_neighborhood,
+                    previous_node)
+                // research_neighborhood_vec.push(vec![ComputedRouteSegment::new(prefix, undesirability)]);
+                // if research_neighborhood_is_over {
+                //     vec![ComputedRouteSegment::new(prefix, undesirability)]
+                // }
+                // else {
+                //     self.routing_guts(
+                //         prefix,
+                //         undesirability,
+                //         target_opt,
+                //         hops_remaining,
+                //         payload_size,
+                //         direction,
+                //         minimum_undesirability,
+                //         hostname_opt,
+                //         research_neighborhood,
+                //         previous_node)
+                // }
+            } else {
+                vec![ComputedRouteSegment::new(prefix, undesirability)]
+            }
+        } else if ((hops_remaining == 0) && target_opt.is_none() && research_neighborhood.is_none()) && //
             (self.user_exit_preferences.exit_location_preference == ExitPreference::Nothing ||
                 self.user_exit_preferences.exit_countries.is_empty()) // TODO implement the emptying the self.user_exit_preferences.exit_countries on every change of the database when there is no longer any country desired by user in the database
         {
@@ -1482,48 +1519,73 @@ impl Neighborhood {
             vec![]
         } else {
             // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
-            previous_node
-                .full_neighbors(&self.neighborhood_database)
-                .iter()
-                .filter(|node_record| !prefix.contains(&node_record.public_key()))
-                .filter(|node_record| {
-                    node_record.routes_data()
-                        || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
-                })
-                .flat_map(|node_record| {
-                    let mut new_prefix = prefix.clone();
-                    new_prefix.push(node_record.public_key());
-
-                    let new_hops_remaining = if hops_remaining == 0 {
-                        0
-                    } else {
-                        hops_remaining - 1
-                    };
-
-                    let new_undesirability = self.compute_new_undesirability(
-                        node_record,
-                        undesirability,
-                        target_opt,
-                        new_hops_remaining,
-                        payload_size as u64,
-                        direction,
-                        hostname_opt,
-                    );
-
-                    self.routing_engine(
-                        new_prefix.clone(),
-                        new_undesirability,
-                        target_opt,
-                        new_hops_remaining,
-                        payload_size,
-                        direction,
-                        minimum_undesirability,
-                        hostname_opt,
-                        research_neighborhood
-                    )
-                })
-                .collect()
+            self.routing_guts(
+                prefix,
+                undesirability,
+                target_opt,
+                hops_remaining,
+                payload_size,
+                direction,
+                minimum_undesirability,
+                hostname_opt,
+                research_neighborhood,
+                previous_node)
         }
+    }
+
+    fn routing_guts<'a>(
+        &'a self, prefix: Vec<&'a PublicKey>,
+        undesirability: i64,
+        target_opt: Option<&'a PublicKey>,
+        hops_remaining: usize,
+        payload_size: usize,
+        direction: RouteDirection,
+        minimum_undesirability: &mut i64,
+        hostname_opt: Option<&str>,
+        research_neighborhood: Option<&'a mut Vec<ComputedRouteSegment>>,
+        previous_node: &NodeRecord) -> Vec<ComputedRouteSegment>
+    {
+        previous_node
+            .full_neighbors(&self.neighborhood_database)
+            .iter()
+            .filter(|node_record| !prefix.contains(&node_record.public_key()))
+            .filter(|node_record| {
+                node_record.routes_data()
+                    || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
+            })
+            .flat_map(|node_record| {
+                let mut new_prefix = prefix.clone();
+                new_prefix.push(node_record.public_key());
+
+                let new_hops_remaining = if hops_remaining == 0 {
+                    0
+                } else {
+                    hops_remaining - 1
+                };
+
+                let new_undesirability = self.compute_new_undesirability(
+                    node_record,
+                    undesirability,
+                    target_opt,
+                    new_hops_remaining,
+                    payload_size as u64,
+                    direction,
+                    hostname_opt,
+                );
+
+                self.routing_engine(
+                    new_prefix.clone(),
+                    new_undesirability,
+                    target_opt,
+                    new_hops_remaining,
+                    payload_size,
+                    direction,
+                    minimum_undesirability,
+                    hostname_opt,
+                    research_neighborhood
+                )
+            })
+            .collect()
     }
 
     fn send_ask_about_debut_gossip_message(
@@ -1745,7 +1807,8 @@ impl Neighborhood {
     fn init_db_countries(&mut self) {
         let root_key = self.neighborhood_database.root_key();
         let min_hops = self.min_hops as usize;
-        let exit_locations_db = self.find_exit_location(&root_key, min_hops, 10_000usize).to_owned();
+        let research_neighborhood: &mut Vec<ComputedRouteSegment> = &mut vec![];
+        let exit_locations_db = self.find_exit_location(&root_key, min_hops, 10_000usize, research_neighborhood).to_owned();
         //println!("min-hops {} init_db_countries exit_locations_db {:#?}", min_hops, exit_locations_db);
         let mut db_countries = vec![];
         for (pub_key, _routes) in &exit_locations_db {
@@ -4180,8 +4243,8 @@ mod tests {
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
         //let db_clone = db.clone();
-
-        let routes = subject.find_exit_location(&l, 3, 10_000);
+        let research_neighborhood: &mut Vec<ComputedRouteSegment> = &mut vec![];
+        let routes = subject.find_exit_location(&l, 3, 10_000, research_neighborhood);
 
         let mut iter: u32 = 0;
         for key in subject.neighborhood_database.keys() {
@@ -4243,6 +4306,65 @@ mod tests {
         assert!(u_node_record.routes.contains(&u_node_expected_route_3));
     }
 
+    #[test]
+    fn find_exit_locations_in_row_structure_test<'a>() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let n1 = make_node(db);
+        let n2 = make_node(db);
+        let n3 = make_node(db);
+        let n4 = make_node(db);
+        let n5 = make_node(db);
+        let f1 = make_node(db);
+        let f2 = make_node(db);
+        let f3 = make_node(db);
+        let f4 = make_node(db);
+        let f5 = make_node(db);
+        db.add_arbitrary_full_neighbor(&n1, &n2);
+        db.add_arbitrary_full_neighbor(&n2, &n3);
+        db.add_arbitrary_full_neighbor(&n3, &n4);
+        db.add_arbitrary_full_neighbor(&n4, &n5);
+        db.add_arbitrary_full_neighbor(&n5, &f1);
+        db.add_arbitrary_full_neighbor(&f1, &f2);
+        db.add_arbitrary_full_neighbor(&f2, &f3);
+        db.add_arbitrary_full_neighbor(&f3, &f4);
+        db.add_arbitrary_full_neighbor(&f4, &f5);
+
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
+            let root_node_key = db.root_key().clone();
+            db.set_root_key(key);
+            db.remove_node(&root_node_key);
+        };
+
+        designate_root_node(db, &n1);
+        //let db_clone = db.clone();
+
+        let research_neighborhood: &'a mut Vec<ComputedRouteSegment<'a>> = &'a mut vec![];
+        let routes = subject.find_exit_location(&n1, 3, 10_000, research_neighborhood);
+
+        let mut iter: u32 = 0;
+        for key in subject.neighborhood_database.keys() {
+            let undesi = subject.neighborhood_database.node_by_key(key);
+            if undesi.unwrap().inner.public_key == subject.neighborhood_database.node_by_key(&n1).unwrap().inner.public_key {
+                println!("key: {}", key);
+            }
+            assert_eq!(undesi.unwrap().metadata.country_undesirability, 0u32);
+            iter += 1;
+        }
+        //println!("l node: {:?}", subject.neighborhood_database.node_by_key(&l).unwrap());
+        println!("neighborhood db: {:?}", subject.neighborhood_database.to_dot_graph());
+        println!("nodes_count: {}\nexit_countries: {:?}\nroutes_len: {}\nroutes {:#?}", iter, &subject.user_exit_preferences.exit_countries, routes.len(), &routes);
+        let total_exit_nodes = routes.len();
+
+        assert_eq!(total_exit_nodes, 12);
+
+    }
 
 
     /*
