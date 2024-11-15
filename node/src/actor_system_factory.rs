@@ -256,7 +256,7 @@ impl ActorSystemFactoryToolsReal {
             r.try_send(NewPublicIp {
                 new_ip: new_public_ip,
             })
-            .expect("NewPublicIp recipient is dead")
+                .expect("NewPublicIp recipient is dead")
         });
     }
 
@@ -308,7 +308,7 @@ impl ActorSystemFactoryToolsReal {
                 AutomapChange::NewIp(new_public_ip) => {
                     exit_process(
                         1,
-                        format! ("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str()
+                        format!("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str(),
                     );
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
@@ -635,7 +635,7 @@ where
 mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
-    use crate::accountant::{ReceivedPayments, DEFAULT_PENDING_TOO_LONG_SEC};
+    use crate::accountant::{PaymentsAndStartBlock, ReceivedPayments, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
@@ -710,6 +710,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+    use crate::sub_lib::wallet::Wallet;
 
     struct LogRecipientSetterNull {}
 
@@ -1257,7 +1259,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
+            node_descriptor: NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Igdp),
@@ -1271,7 +1273,7 @@ mod tests {
                 min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1358,7 +1360,7 @@ mod tests {
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
             dispatcher_param.node_descriptor,
-            NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1570,7 +1572,7 @@ mod tests {
                 min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let system = System::new("MASQNode");
         let mut subject = make_subject_with_null_setter();
@@ -1723,8 +1725,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified(
-    ) {
+    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified() {
         let actor_factory = ActorFactoryMock::new();
         let parameters = actor_factory.make_parameters();
         let config = BootstrapperConfig {
@@ -1976,8 +1977,7 @@ mod tests {
     }
 
     #[test]
-    fn accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions(
-    ) {
+    fn accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions() {
         let act = |bootstrapper_config: BootstrapperConfig,
                    db_initializer: DbInitializerReal,
                    banned_cache_loader: BannedCacheLoaderMock,
@@ -2063,14 +2063,19 @@ mod tests {
             .unwrap();
         blockchain_bridge_addr
             .try_send(RetrieveTransactions {
-                recipient: wallet,
+                recipient: wallet.clone(),
                 response_skeleton_opt: None,
             })
             .unwrap();
         assert_eq!(system.run(), 0);
         let recording = accountant_recording.lock().unwrap();
         let received_payments_message = recording.get_record::<ReceivedPayments>(0);
-        assert!(received_payments_message.scan_result.is_ok());
+        assert_eq!(received_payments_message.payments_and_start_block,
+                   PaymentsAndStartBlock {
+                       payments: vec![BlockchainTransaction { block_number: 2000, from: Wallet::new("0x0000000000006561726e696e675f77616c6c6574"), wei_amount: 996000000 }],
+                       new_start_block: 1000000000
+                   }
+        );
     }
 
     #[test]

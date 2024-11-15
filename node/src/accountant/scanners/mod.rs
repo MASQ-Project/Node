@@ -22,7 +22,7 @@ use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::
     PendingPayableScanReport,
 };
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::{PaymentsAndStartBlock, PendingPayableId, ReceivedPaymentsError};
+use crate::accountant::{PaymentsAndStartBlock, PendingPayableId};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -321,7 +321,7 @@ impl PayableScanner {
         logger: &Logger,
     ) -> Vec<PayableAccount> {
         fn pass_payables_and_drop_points(
-            qp_tp: impl Iterator<Item = (PayableAccount, u128)>,
+            qp_tp: impl Iterator<Item=(PayableAccount, u128)>,
         ) -> Vec<PayableAccount> {
             let (payables, _) = qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>();
             payables
@@ -833,15 +833,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
-        match msg.scan_result {
-            Ok(payments_and_start_block) => {
-                self.handle_new_received_payments(&payments_and_start_block, msg.timestamp, logger);
-            }
-            Err(e) => {
-                self.handle_new_received_payments_scan_error(e, logger);
-            }
-        }
-
+        self.handle_new_received_payments(&msg.payments_and_start_block, msg.timestamp, logger);
         self.mark_as_ended(logger);
         msg.response_skeleton_opt
             .map(|response_skeleton| NodeToUiMessage {
@@ -927,41 +919,6 @@ impl ReceivableScanner {
             self.financial_statistics
                 .borrow_mut()
                 .total_paid_receivable_wei += total_newly_paid_receivable;
-        }
-    }
-
-    fn handle_new_received_payments_scan_error(
-        &mut self,
-        error: ReceivedPaymentsError,
-        logger: &Logger,
-    ) {
-        match error {
-            ReceivedPaymentsError::ExceededBlockScanLimit(max_block_count) => {
-                match self
-                    .persistent_configuration
-                    .set_max_block_count(Some(max_block_count))
-                {
-                    Ok(()) => {
-                        debug!(
-                            logger,
-                            "Updated max_block_count to {} in database.", max_block_count
-                        );
-                    }
-                    Err(e) => {
-                        panic!(
-                            "Attempt to set new max block to {} failed due to: {:?}",
-                            max_block_count, e
-                        )
-                    }
-                }
-            }
-            ReceivedPaymentsError::OtherRPCError(rpc_error) => {
-                warning!(
-                    logger,
-                    "Attempted to retrieve received payments but failed: {:?}",
-                    rpc_error
-                );
-            }
         }
     }
 
@@ -1181,7 +1138,6 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::accountant::ReceivedPaymentsError::{ExceededBlockScanLimit, OtherRPCError};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
     #[test]
@@ -1631,9 +1587,9 @@ mod tests {
             (vals.intruder_for_hash_2, 5),
             (vals.common_hash_3, 6),
         ]
-        .iter()
-        .map(|(hash, _rowid)| *hash)
-        .collect::<HashSet<H256>>();
+            .iter()
+            .map(|(hash, _rowid)| *hash)
+            .collect::<HashSet<H256>>();
 
         let result = PayableScanner::is_symmetrical(
             pending_payables_ref_from_blockchain_bridge,
@@ -2519,7 +2475,7 @@ mod tests {
             result,
             PendingPayableScanReport {
                 still_pending: vec![],
-                failures: vec![PendingPayableId::new(777777, hash,)],
+                failures: vec![PendingPayableId::new(777777, hash, )],
                 confirmed: vec![]
             }
         );
@@ -3094,11 +3050,11 @@ mod tests {
         let mut subject = ReceivableScannerBuilder::new()
             .persistent_configuration(persistent_config)
             .build();
-        let mut scan_result = make_empty_payments_and_start_block();
-        scan_result.new_start_block = new_start_block;
+        let mut payments_and_start_block = make_empty_payments_and_start_block();
+        payments_and_start_block.new_start_block = new_start_block;
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
-            scan_result: Ok(scan_result),
+            payments_and_start_block,
             response_skeleton_opt: None,
         };
 
@@ -3125,11 +3081,11 @@ mod tests {
         let mut subject = ReceivableScannerBuilder::new()
             .persistent_configuration(persistent_config)
             .build();
-        let mut scan_result = make_empty_payments_and_start_block();
-        scan_result.new_start_block = 6709;
+        let mut payments_and_start_block = make_empty_payments_and_start_block();
+        payments_and_start_block.new_start_block = 6709;
         let msg = ReceivedPayments {
             timestamp: now,
-            scan_result: Ok(scan_result),
+            payments_and_start_block,
             response_skeleton_opt: None,
         };
 
@@ -3178,12 +3134,12 @@ mod tests {
                 wei_amount: 3_333_345,
             },
         ];
-        let mut scan_result = make_empty_payments_and_start_block();
-        scan_result.new_start_block = 7890123;
-        scan_result.payments = receivables.clone();
+        let mut payments_and_start_block = make_empty_payments_and_start_block();
+        payments_and_start_block.new_start_block = 7890123;
+        payments_and_start_block.payments = receivables.clone();
         let msg = ReceivedPayments {
             timestamp: now,
-            scan_result: Ok(scan_result),
+            payments_and_start_block,
             response_skeleton_opt: None,
         };
         subject.mark_as_started(SystemTime::now());
@@ -3235,10 +3191,10 @@ mod tests {
         }];
         let msg = ReceivedPayments {
             timestamp: now,
-            scan_result: Ok(PaymentsAndStartBlock {
+            payments_and_start_block: PaymentsAndStartBlock {
                 payments: receivables,
                 new_start_block: 7890123,
-            }),
+            },
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness
@@ -3278,85 +3234,17 @@ mod tests {
             from: make_wallet("abc"),
             wei_amount: 45_780,
         }];
-        let mut scan_result = make_empty_payments_and_start_block();
-        scan_result.payments = receivables;
+        let mut payments_and_start_block = make_empty_payments_and_start_block();
+        payments_and_start_block.payments = receivables;
         let msg = ReceivedPayments {
             timestamp: now,
-            scan_result: Ok(scan_result),
+            payments_and_start_block,
             response_skeleton_opt: None,
         };
         // Not necessary, rather for preciseness
         subject.mark_as_started(SystemTime::now());
 
         subject.finish_scan(msg, &Logger::new(test_name));
-    }
-
-    #[test]
-    fn receivable_scanner_receives_exceeded_block_scan_limit_error() {
-        init_test_logging();
-        let test_name = "receivable_scanner_receives_exceeded_block_scan_limit_error";
-        let set_max_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let new_max_block = 100_000u64;
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_max_block_count_params(&set_max_block_params_arc)
-            .set_max_block_count_result(Ok(()));
-        let mut subject = ReceivableScannerBuilder::new()
-            .persistent_configuration(persistent_config)
-            .build();
-        let msg = ReceivedPayments {
-            timestamp: SystemTime::now(),
-            scan_result: Err(ExceededBlockScanLimit(new_max_block)),
-            response_skeleton_opt: None,
-        };
-
-        let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
-
-        assert_eq!(message_opt, None);
-        let set_max_block_params = set_max_block_params_arc.lock().unwrap();
-        assert_eq!(*set_max_block_params, vec![Some(new_max_block)]);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {test_name}: Updated max_block_count to 100000 in database."
-        ));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Attempt to set new max block to 100000 failed due to: DatabaseError(\"Some bad stuff happened\")"
-    )]
-    fn receivable_scanner_receives_exceeded_block_scan_limit_error_and_database_wright_fails() {
-        let new_max_block = 100_000u64;
-        let persistent_config = PersistentConfigurationMock::new().set_max_block_count_result(Err(
-            PersistentConfigError::DatabaseError("Some bad stuff happened".to_string()),
-        ));
-        let mut subject = ReceivableScannerBuilder::new()
-            .persistent_configuration(persistent_config)
-            .build();
-        let msg = ReceivedPayments {
-            timestamp: SystemTime::now(),
-            scan_result: Err(ExceededBlockScanLimit(new_max_block)),
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.finish_scan(msg, &Logger::new("test"));
-    }
-
-    #[test]
-    fn receivable_scanner_receives_other_rpc_error() {
-        init_test_logging();
-        let test_name = "receivable_scanner_receives_other_rpc_error";
-        let mut subject = ReceivableScannerBuilder::new().build();
-        let msg = ReceivedPayments {
-            timestamp: SystemTime::now(),
-            scan_result: Err(OtherRPCError("Dead RPC".to_string())),
-            response_skeleton_opt: None,
-        };
-
-        let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
-
-        assert_eq!(message_opt, None);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Attempted to retrieve received payments but failed: \"Dead RPC\""
-        ));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::{
-    PaymentsAndStartBlock, ReceivedPayments, ReceivedPaymentsError, ResponseSkeleton, ScanError,
+    PaymentsAndStartBlock, ReceivedPayments, ResponseSkeleton, ScanError,
     SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
@@ -334,7 +334,7 @@ impl BlockchainBridge {
             .as_ref()
             .expect("Accountant is unbound")
             .clone();
-        let mut persistent_config_arc = self.persistent_config_arc.clone();
+        let persistent_config_arc = self.persistent_config_arc.clone();
 
         Box::new(
             self.blockchain_interface
@@ -373,7 +373,7 @@ impl BlockchainBridge {
                     received_payments_subs
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
-                            scan_result: Ok(payments_and_start_block),
+                            payments_and_start_block,
                             response_skeleton_opt: msg.response_skeleton_opt,
                         })
                         .expect("Accountant is dead.");
@@ -564,7 +564,6 @@ mod tests {
     use web3::types::{BlockNumber, TransactionReceipt, H160};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::ReceivedPaymentsError::OtherRPCError;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::{GasPriceQueryFailed, TransactionID};
     use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
@@ -1529,14 +1528,14 @@ mod tests {
         assert_eq!(accountant_received_payment.len(), 1);
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments.timestamp, after);
-        let mut scan_result = make_empty_payments_and_start_block();
-        scan_result.payments = expected_transactions.transactions;
-        scan_result.new_start_block = 8675309u64;
+        let mut payments_and_start_block = make_empty_payments_and_start_block();
+        payments_and_start_block.payments = expected_transactions.transactions;
+        payments_and_start_block.new_start_block = 8675309u64;
         assert_eq!(
             received_payments,
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
-                scan_result: Ok(scan_result),
+                payments_and_start_block,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
@@ -1628,10 +1627,10 @@ mod tests {
             received_payments_message,
             &ReceivedPayments {
                 timestamp: received_payments_message.timestamp,
-                scan_result: Ok(PaymentsAndStartBlock {
+                payments_and_start_block: PaymentsAndStartBlock {
                     payments: expected_transactions.transactions,
                     new_start_block: expected_transactions.new_start_block,
-                }),
+                },
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
