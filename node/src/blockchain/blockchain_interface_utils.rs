@@ -216,7 +216,7 @@ pub fn handle_new_transaction(
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price_in_wei: u128,
-    account: PayableAccount,
+    account: &PayableAccount,
 ) -> HashAndAmount {
     let hash = sign_and_append_payment(
         chain,
@@ -240,7 +240,7 @@ pub fn sign_and_append_multiple_payments(
     consuming_wallet: Wallet,
     gas_price_in_wei: u128,
     mut pending_nonce: U256,
-    accounts: Vec<PayableAccount>,
+    accounts: &Vec<PayableAccount>,
 ) -> Vec<HashAndAmount> {
     let mut hash_and_amount_list = vec![];
     accounts.into_iter().for_each(|payable| {
@@ -267,8 +267,6 @@ pub fn sign_and_append_multiple_payments(
     hash_and_amount_list
 }
 
-// TODO: GH-744: check if we can use a reference to web3_batch also.
-// TODO: GH-744: same for accounts, can we also use a reference?
 #[allow(clippy::too_many_arguments)]
 pub fn send_payables_within_batch(
     logger: &Logger,
@@ -297,7 +295,7 @@ pub fn send_payables_within_batch(
         consuming_wallet,
         gas_price_in_wei,
         pending_nonce,
-        accounts.clone(),
+        &accounts,
     );
 
     let timestamp = SystemTime::now();
@@ -316,7 +314,7 @@ pub fn send_payables_within_batch(
         logger,
         "{}",
         transmission_log(chain, &accounts, gas_price_in_wei)
-    );
+     );
 
     Box::new(
         web3_batch
@@ -528,7 +526,7 @@ mod tests {
             consuming_wallet,
             pending_nonce.into(),
             (gas_price * 1_000_000_000) as u128,
-            account,
+            &account,
         );
 
         let expected_hash_and_amount = HashAndAmount {
@@ -566,7 +564,7 @@ mod tests {
             consuming_wallet,
             (gas_price * 1_000_000_000) as u128,
             pending_nonce.into(),
-            accounts,
+            &accounts,
         );
 
         assert_eq!(
