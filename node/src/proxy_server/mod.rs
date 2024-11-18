@@ -3754,17 +3754,17 @@ mod tests {
             }),
             report_to_counterpart: true,
         };
-        stream_is_purged_with_a_delay(StreamShutdownMsg {
+        assert_stream_is_purged_with_a_delay(StreamShutdownMsg {
             report_to_counterpart: true,
             ..common_msg.clone()
         });
-        stream_is_purged_with_a_delay(StreamShutdownMsg {
+        assert_stream_is_purged_with_a_delay(StreamShutdownMsg {
             report_to_counterpart: false,
             ..common_msg
         });
     }
 
-    fn stream_is_purged_with_a_delay(msg: StreamShutdownMsg) {
+    fn assert_stream_is_purged_with_a_delay(msg: StreamShutdownMsg) {
         /*
         +------------------------------------------------------------------+
         | (0ms)                                                            |
