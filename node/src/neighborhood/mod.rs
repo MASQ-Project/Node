@@ -1361,7 +1361,7 @@ impl Neighborhood {
         source: &'a PublicKey,
         minimum_hops: usize,
         payload_size: usize,
-        research_neighborhood: &'a mut Vec<ComputedRouteSegment>,
+        research_neighborhood: &'a mut Vec<ComputedRouteSegment<'a>>,
     ) -> HashMap<PublicKey, ExitLocationsRoutes> {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability = 0;
@@ -1375,7 +1375,7 @@ impl Neighborhood {
                 RouteDirection::Over,
                 &mut minimum_undesirability,
                 None,
-                Some(research_neighborhood)
+                &mut Some(research_neighborhood)
             );
 
         let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
@@ -1428,7 +1428,7 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-                None
+                &mut None
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1451,7 +1451,7 @@ impl Neighborhood {
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
-        research_neighborhood: Option<&'a mut Vec<ComputedRouteSegment>>,
+        research_neighborhood: &'a mut Option<&'a mut Vec<ComputedRouteSegment<'a>>>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability  && research_neighborhood.is_none() {
             return vec![];
@@ -1477,7 +1477,7 @@ impl Neighborhood {
             if research_neighborhood.is_some() {
                 let prefix_new = prefix.clone();
                 match research_neighborhood {
-                    Some::<&'a mut Vec<ComputedRouteSegment>>(research_nbhd) => research_nbhd.push(ComputedRouteSegment::new(prefix, undesirability)),
+                    Some::<&'a mut Vec<ComputedRouteSegment>>(ref mut research_nbhd) => research_nbhd.push(ComputedRouteSegment::new(prefix, undesirability)),
                     None => (),
                 }
                 self.routing_guts(
@@ -1542,7 +1542,7 @@ impl Neighborhood {
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
-        research_neighborhood: Option<&'a mut Vec<ComputedRouteSegment>>,
+        research_neighborhood: &mut Option<&'a mut Vec<ComputedRouteSegment>>,
         previous_node: &NodeRecord) -> Vec<ComputedRouteSegment>
     {
         previous_node
@@ -4208,7 +4208,7 @@ mod tests {
             db.add_arbitrary_full_neighbor(&n1, &n2);
             db.add_arbitrary_full_neighbor(&n2, &n3);
             db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_half_neighbor(&n4, &n5);
+            db.add_arbitrary_full_neighbor(&n4, &n5);
             (n1, n2, n3, n4, n5)
         };
         let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
@@ -4216,9 +4216,9 @@ mod tests {
             let (s1, s2, s3, s4, s5) = second_row;
             db.add_arbitrary_full_neighbor(f1, s1);
             db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_half_neighbor(f3, s3);
-            db.add_arbitrary_half_neighbor(f4, s4);
-            db.add_arbitrary_half_neighbor(f5, s5);
+            db.add_arbitrary_full_neighbor(f3, s3);
+            db.add_arbitrary_full_neighbor(f4, s4);
+            db.add_arbitrary_full_neighbor(f5, s5);
         };
         // let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
         //     let root_node_key = db.root().public_key().clone();
@@ -4345,7 +4345,7 @@ mod tests {
         designate_root_node(db, &n1);
         //let db_clone = db.clone();
 
-        let research_neighborhood: &'a mut Vec<ComputedRouteSegment<'a>> = &'a mut vec![];
+        let research_neighborhood: &'a mut Vec<ComputedRouteSegment<'a>> = &mut vec![];
         let routes = subject.find_exit_location(&n1, 3, 10_000, research_neighborhood);
 
         let mut iter: u32 = 0;
