@@ -137,7 +137,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
 
 pub fn sign_transaction(
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: &Web3<Batch<Http>>,
     recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
@@ -164,7 +164,7 @@ pub fn sign_transaction(
 }
 
 pub fn sign_transaction_locally(
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: &Web3<Batch<Http>>,
     transaction_parameters: TransactionParameters,
     key: &SecretKey,
 ) -> SignedTransaction {
@@ -185,7 +185,7 @@ pub fn sign_transaction_locally(
 
 pub fn sign_and_append_payment(
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: &Web3<Batch<Http>>,
     recipient_wallet: Wallet,
     consuming_wallet: Wallet,
     amount: u128,
@@ -194,7 +194,7 @@ pub fn sign_and_append_payment(
 ) -> H256 {
     let signed_tx = sign_transaction(
         chain,
-        web3_batch.clone(),
+        web3_batch,
         recipient_wallet,
         consuming_wallet,
         amount,
@@ -205,14 +205,14 @@ pub fn sign_and_append_payment(
     signed_tx.transaction_hash
 }
 
-pub fn append_signed_transaction_to_batch(web3_batch: Web3<Batch<Http>>, raw_transaction: Bytes) {
+pub fn append_signed_transaction_to_batch(web3_batch: &Web3<Batch<Http>>, raw_transaction: Bytes) {
     // This function only prepares a raw transaction for a batch call and doesn't actually send it right here.
     web3_batch.eth().send_raw_transaction(raw_transaction);
 }
 
 pub fn handle_new_transaction(
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     nonce: U256,
     gas_price_in_wei: u128,
@@ -236,7 +236,7 @@ pub fn handle_new_transaction(
 pub fn sign_and_append_multiple_payments(
     logger: &Logger,
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     gas_price_in_wei: u128,
     mut pending_nonce: U256,
@@ -254,7 +254,7 @@ pub fn sign_and_append_multiple_payments(
 
         let hash_and_amount = handle_new_transaction(
             chain,
-            web3_batch.clone(),
+            web3_batch,
             consuming_wallet.clone(),
             pending_nonce,
             gas_price_in_wei,
@@ -273,7 +273,7 @@ pub fn sign_and_append_multiple_payments(
 pub fn send_payables_within_batch(
     logger: &Logger,
     chain: Chain,
-    web3_batch: Web3<Batch<Http>>,
+    web3_batch: &Web3<Batch<Http>>,
     consuming_wallet: Wallet,
     gas_price_in_wei: u128,
     pending_nonce: U256,
@@ -293,7 +293,7 @@ pub fn send_payables_within_batch(
     let hashes_and_paid_amounts = sign_and_append_multiple_payments(
         logger,
         chain,
-        web3_batch.clone(),
+        web3_batch,
         consuming_wallet,
         gas_price_in_wei,
         pending_nonce,
@@ -437,7 +437,7 @@ mod tests {
         let account = make_payable_account(1);
         let signed_transaction = sign_transaction(
             chain,
-            web3_batch.clone(),
+            &web3_batch,
             account.wallet,
             consuming_wallet,
             account.balance_wei,
@@ -445,7 +445,7 @@ mod tests {
             (gas_price * 1_000_000_000) as u128,
         );
 
-        append_signed_transaction_to_batch(web3_batch.clone(), signed_transaction.raw_transaction);
+        append_signed_transaction_to_batch(&web3_batch, signed_transaction.raw_transaction);
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
         let result = batch_result.pop().unwrap().unwrap();
@@ -483,7 +483,7 @@ mod tests {
 
         let result = sign_and_append_payment(
             chain,
-            web3_batch.clone(),
+            &web3_batch,
             account.wallet,
             consuming_wallet,
             account.balance_wei,
@@ -524,7 +524,7 @@ mod tests {
 
         let result = handle_new_transaction(
             chain,
-            web3_batch,
+            &web3_batch,
             consuming_wallet,
             pending_nonce.into(),
             (gas_price * 1_000_000_000) as u128,
@@ -562,7 +562,7 @@ mod tests {
         let result = sign_and_append_multiple_payments(
             &logger,
             chain,
-            web3_batch,
+            &web3_batch,
             consuming_wallet,
             (gas_price * 1_000_000_000) as u128,
             pending_nonce.into(),
@@ -728,7 +728,7 @@ mod tests {
         let result = send_payables_within_batch(
             &logger,
             chain,
-            web3_batch,
+            &web3_batch,
             consuming_wallet.clone(),
             gas_price,
             pending_nonce,
@@ -826,7 +826,7 @@ mod tests {
         let result = send_payables_within_batch(
             &Logger::new("test"),
             TEST_DEFAULT_CHAIN,
-            Web3::new(Batch::new(transport)),
+            &Web3::new(Batch::new(transport)),
             consuming_wallet,
             gas_price,
             nonce,
@@ -873,7 +873,7 @@ mod tests {
 
         sign_transaction(
             Chain::PolyAmoy,
-            Web3::new(Batch::new(transport)),
+            &Web3::new(Batch::new(transport)),
             recipient_wallet,
             consuming_wallet,
             444444,
@@ -926,7 +926,7 @@ mod tests {
         let result = send_payables_within_batch(
             &logger,
             chain,
-            web3_batch,
+            &web3_batch,
             consuming_wallet.clone(),
             gas_price,
             pending_nonce,
@@ -1035,7 +1035,7 @@ mod tests {
         let result = send_payables_within_batch(
             &logger,
             chain,
-            web3_batch,
+            &web3_batch,
             consuming_wallet.clone(),
             gas_price,
             pending_nonce,
@@ -1135,7 +1135,7 @@ mod tests {
         };
         let result = sign_transaction(
             chain,
-            Web3::new(Batch::new(transport)),
+            &Web3::new(Batch::new(transport)),
             recipient_wallet,
             consuming_wallet,
             amount,
@@ -1183,7 +1183,7 @@ mod tests {
             .expect("Consuming wallet doesn't contain a secret key");
 
         let _result = sign_transaction_locally(
-            Web3::new(Batch::new(transport)),
+            &Web3::new(Batch::new(transport)),
             transaction_parameters,
             &key,
         );
@@ -1319,7 +1319,7 @@ mod tests {
 
         let signed_transaction = sign_transaction(
             chain,
-            Web3::new(Batch::new(transport)),
+            &Web3::new(Batch::new(transport)),
             payable_account.wallet,
             consuming_wallet,
             payable_account.balance_wei,

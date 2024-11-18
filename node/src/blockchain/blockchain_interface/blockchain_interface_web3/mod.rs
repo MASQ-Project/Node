@@ -258,7 +258,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                     send_payables_within_batch(
                         &logger,
                         chain,
-                        web3_batch,
+                        &web3_batch,
                         consuming_wallet,
                         gas_price_wei,
                         pending_nonce,
