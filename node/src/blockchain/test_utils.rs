@@ -250,7 +250,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         _logger: Logger,
         _chain: Chain,
-        _consuming_wallet: Wallet,
+        _agent: Box<dyn BlockchainAgent>,
         _fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         _affordable_accounts: Vec<PayableAccount>,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>

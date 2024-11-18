@@ -50,7 +50,7 @@ pub trait BlockchainInterface {
         &self,
         logger: Logger,
         chain: Chain,
-        consuming_wallet: Wallet,
+        agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
     ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>;

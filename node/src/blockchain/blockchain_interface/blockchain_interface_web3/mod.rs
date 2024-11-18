@@ -93,7 +93,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
         let contract_address = lower_level_interface.get_contract().address();
@@ -152,7 +152,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn build_blockchain_agent(
         &self,
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>> {
+    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
         // TODO: Would it be better to wrap these 3 calls into a single batch call?
@@ -198,7 +198,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn process_transaction_receipts(
         &self,
         transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(transaction_hashes)
@@ -239,37 +239,32 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         logger: Logger,
         chain: Chain,
-        consuming_wallet: Wallet,
+        agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
+        let consuming_wallet = agent.consuming_wallet().clone();
         let web3_batch = self.lower_interface().get_web3_batch();
         let get_transaction_id = self
             .lower_interface()
             .get_transaction_id(consuming_wallet.address());
-        // We are not relying on Database and fetching the values straight from the blockchain.
-        // Modify according to the Payment adjusters new design
-        let get_gas_price = self.lower_interface().get_gas_price();
+        let gas_price_wei = agent.agreed_fee_per_computation_unit();
 
         Box::new(
             get_transaction_id
                 .map_err(PayableTransactionError::TransactionID)
                 .and_then(move |pending_nonce| {
-                    get_gas_price
-                        .map_err(PayableTransactionError::GasPriceQueryFailed)
-                        .and_then(move |gas_price_wei| {
-                            send_payables_within_batch(
-                                logger,
-                                chain,
-                                web3_batch,
-                                consuming_wallet,
-                                gas_price_wei,
-                                pending_nonce,
-                                fingerprints_recipient,
-                                affordable_accounts,
-                            )
-                        })
+                    send_payables_within_batch(
+                        logger,
+                        chain,
+                        web3_batch,
+                        consuming_wallet,
+                        gas_price_wei,
+                        pending_nonce,
+                        fingerprints_recipient,
+                        affordable_accounts,
+                    )
                 }),
         )
     }
@@ -614,7 +609,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned() {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -639,7 +635,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned() {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -661,7 +658,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number() {
+    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x400", 1)
@@ -672,7 +670,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-            .unwrap();
+        .unwrap();
 
         let end_block_nbr = 1024u64;
         let subject =
@@ -702,7 +700,8 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one() {
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash", 1)
@@ -773,7 +772,7 @@ mod tests {
         );
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
-            + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
+                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
             * expected_gas_price_wei) as u128;
         assert_eq!(
             result.estimated_transaction_fee_total(3),

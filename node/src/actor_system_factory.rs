@@ -256,7 +256,7 @@ impl ActorSystemFactoryToolsReal {
             r.try_send(NewPublicIp {
                 new_ip: new_public_ip,
             })
-                .expect("NewPublicIp recipient is dead")
+            .expect("NewPublicIp recipient is dead")
         });
     }
 
@@ -635,8 +635,11 @@ where
 mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
-    use crate::accountant::{PaymentsAndStartBlock, ReceivedPayments, DEFAULT_PENDING_TOO_LONG_SEC};
+    use crate::accountant::{
+        PaymentsAndStartBlock, ReceivedPayments, DEFAULT_PENDING_TOO_LONG_SEC,
+    };
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::{
@@ -654,6 +657,7 @@ mod tests {
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
+    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::actor_system_factory::BannedCacheLoaderMock;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;
@@ -710,8 +714,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
-    use crate::sub_lib::wallet::Wallet;
 
     struct LogRecipientSetterNull {}
 
@@ -1725,7 +1727,8 @@ mod tests {
     }
 
     #[test]
-    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified() {
+    fn prepare_initial_messages_generates_no_consuming_wallet_balance_if_no_consuming_wallet_is_specified(
+    ) {
         let actor_factory = ActorFactoryMock::new();
         let parameters = actor_factory.make_parameters();
         let config = BootstrapperConfig {
@@ -1977,7 +1980,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions() {
+    fn accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions(
+    ) {
         let act = |bootstrapper_config: BootstrapperConfig,
                    db_initializer: DbInitializerReal,
                    banned_cache_loader: BannedCacheLoaderMock,
@@ -2070,11 +2074,16 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = accountant_recording.lock().unwrap();
         let received_payments_message = recording.get_record::<ReceivedPayments>(0);
-        assert_eq!(received_payments_message.payments_and_start_block,
-                   PaymentsAndStartBlock {
-                       payments: vec![BlockchainTransaction { block_number: 2000, from: Wallet::new("0x0000000000006561726e696e675f77616c6c6574"), wei_amount: 996000000 }],
-                       new_start_block: 1000000000
-                   }
+        assert_eq!(
+            received_payments_message.payments_and_start_block,
+            PaymentsAndStartBlock {
+                payments: vec![BlockchainTransaction {
+                    block_number: 2000,
+                    from: Wallet::new("0x0000000000006561726e696e675f77616c6c6574"),
+                    wei_amount: 996000000
+                }],
+                new_start_block: 1000000000
+            }
         );
     }
 

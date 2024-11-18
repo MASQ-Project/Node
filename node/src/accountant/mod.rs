@@ -743,7 +743,7 @@ impl Accountant {
             stats_opt,
             query_results_opt,
         }
-            .tmb(context_id)
+        .tmb(context_id)
     }
 
     fn request_payable_accounts_by_specific_mode(
@@ -1032,11 +1032,11 @@ pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> S {
     politely_checked_conversion(num).unwrap_or_else(|msg| panic!("{}", msg))
 }
 
-pub fn gwei_to_wei<T: Mul<Output=T> + From<u32> + From<S>, S>(gwei: S) -> T {
+pub fn gwei_to_wei<T: Mul<Output = T> + From<u32> + From<S>, S>(gwei: S) -> T {
     (T::from(gwei)).mul(T::from(WEIS_IN_GWEI as u32))
 }
 
-pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output=S> + From<u32>>(wei: S) -> T {
+pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32>>(wei: S) -> T {
     checked_conversion::<S, T>(wei.div(S::from(WEIS_IN_GWEI as u32)))
 }
 
@@ -1364,7 +1364,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::Receivables,
             }
-                .tmb(4321),
+            .tmb(4321),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1456,7 +1456,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::Payables,
             }
-                .tmb(4321),
+            .tmb(4321),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1523,7 +1523,8 @@ mod tests {
     }
 
     #[test]
-    fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge() {
+    fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
+    ) {
         // the numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
@@ -1615,7 +1616,8 @@ mod tests {
     }
 
     #[test]
-    fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge() {
+    fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
+    ) {
         // the numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
@@ -1763,7 +1765,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::PendingPayables,
             }
-                .tmb(4321),
+            .tmb(4321),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1818,7 +1820,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::PendingPayables,
             }
-                .tmb(4321),
+            .tmb(4321),
         };
         let second_message = first_message.clone();
         let peer_actors = peer_actors_builder()
@@ -2009,7 +2011,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block() {
+    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block(
+    ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let set_by_guest_transaction_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2045,7 +2048,8 @@ mod tests {
         let system = System::new("accountant_uses_receivables_dao_to_process_received_payments");
         let subject = accountant.start();
         let mut payments_and_start_block = make_empty_payments_and_start_block();
-        payments_and_start_block.payments = vec![expected_receivable_1.clone(), expected_receivable_2.clone()];
+        payments_and_start_block.payments =
+            vec![expected_receivable_1.clone(), expected_receivable_2.clone()];
         payments_and_start_block.new_start_block = 123456789;
         subject
             .try_send(ReceivedPayments {
@@ -2708,7 +2712,7 @@ mod tests {
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,
         })
-            .unwrap();
+        .unwrap();
 
         // We ignored the second ScanForPayables message because the first message meant a scan
         // was already in progress; now let's make it look like that scan has ended so that we
@@ -2721,7 +2725,7 @@ mod tests {
                     .mark_as_ended(&Logger::new("irrelevant"))
             }),
         })
-            .unwrap();
+        .unwrap();
         addr.try_send(message_after.clone()).unwrap();
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
@@ -3436,10 +3440,10 @@ mod tests {
         init_test_logging();
         let port = find_free_port();
         let pending_tx_hash_1 =
-            H256::from_str("713332975a17b82439312ddff602d254f21b7d312dce3a8fbfd83587fe361e15")
+            H256::from_str("e66814b2812a80d619813f51aa999c0df84eb79d10f4923b2b7667b30d6b33d3")
                 .unwrap();
         let pending_tx_hash_2 =
-            H256::from_str("caefcf3d42b45f948e8e823e4ae959811e50b219640c3f1580d4471e9b501f1b")
+            H256::from_str("0288ef000581b3bca8a2017eac9aea696366f8f1b7437f18d1aad57bccb7032c")
                 .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // Blockchain Agent Gas Price
@@ -3451,8 +3455,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
-            // gas_price
-            .response("0x3B9ACA00".to_string(), 1)
             // Submit payments to blockchain
             .response("0xFFF0".to_string(), 1)
             .begin_batch()
@@ -3769,16 +3771,16 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-            "WARN: Accountant: Broken transactions 0x713332975a17b82439312ddff602d254f21b7d312\
-                dce3a8fbfd83587fe361e15 marked as an error. You should take over the care of those to make sure \
+            "WARN: Accountant: Broken transactions 0xe66814b2812a80d619813f51aa999c0df84eb79d10f\
+            4923b2b7667b30d6b33d3 marked as an error. You should take over the care of those to make sure \
                 your debts are going to be settled properly. At the moment, there is no automated process \
                 fixing that without your assistance");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction 0xcaefcf3d42b45f948e8e823e4ae\
-            959811e50b219640c3f1580d4471e9b501f1b has been added to the blockchain; detected locally at \
+        log_handler.exists_log_matching("INFO: Accountant: Transaction 0x0288ef000581b3bca8a2017eac9\
+        aea696366f8f1b7437f18d1aad57bccb7032c has been added to the blockchain; detected locally at \
             attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing(
-            "INFO: Accountant: Transactions 0xcaefcf3d42b45f948e8e823e4ae959811e50b2\
-            19640c3f1580d4471e9b501f1b completed their confirmation process succeeding",
+            "INFO: Accountant: Transactions 0x0288ef000581b3bca8a2017eac9aea696366f8f1b7437f18d1aad5\
+            7bccb7032c completed their confirmation process succeeding",
         );
     }
 
@@ -4028,7 +4030,7 @@ mod tests {
                 top_records_opt: None,
                 custom_queries_opt: None,
             }
-                .tmb(2222),
+            .tmb(2222),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -4112,7 +4114,7 @@ mod tests {
                 top_records_opt: None,
                 custom_queries_opt: None,
             }
-                .tmb(2222),
+            .tmb(2222),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -4175,7 +4177,7 @@ mod tests {
                 }),
                 query_results_opt: None
             }
-                .tmb(context_id)
+            .tmb(context_id)
         )
     }
 
@@ -4252,12 +4254,12 @@ mod tests {
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 58,
                         pending_payable_hash_opt: None
-                    }, ]),
+                    },]),
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
                         age_s: extracted_receivable_ages[0],
                         balance_gwei: 3_788_455
-                    }, ])
+                    },])
                 }),
             }
         );
@@ -4418,7 +4420,7 @@ mod tests {
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 5,
                         pending_payable_hash_opt: None
-                    }, ]),
+                    },]),
                     receivable_opt: Some(vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
@@ -4607,7 +4609,8 @@ mod tests {
         expected = "Broken code: PayableAccount with less than 1 gwei passed through db query \
      constraints; wallet: 0x0000000000000000000000000061626364313233, balance: 8686005"
     )]
-    fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei() {
+    fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei(
+    ) {
         let payable_accounts_retrieved = vec![PayableAccount {
             wallet: make_wallet("abcd123"),
             balance_wei: 8_686_005,
@@ -4643,7 +4646,8 @@ mod tests {
         expected = "Broken code: ReceivableAccount with balance between 1 and 0 gwei passed through \
      db query constraints; wallet: 0x0000000000000000000000000061626364313233, balance: 7686005"
     )]
-    fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei() {
+    fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei(
+    ) {
         let receivable_accounts_retrieved = vec![ReceivableAccount {
             wallet: make_wallet("abcd123"),
             balance_wei: 7_686_005,
@@ -4882,10 +4886,11 @@ pub mod exportable_test_parts {
         }
     }
 
-    fn verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao() -> ShouldWeRunTheTest {
+    fn verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao(
+    ) -> ShouldWeRunTheTest {
         fn skip_down_to_first_line_saying_new_delinquencies(
-            previous: impl Iterator<Item=String>,
-        ) -> impl Iterator<Item=String> {
+            previous: impl Iterator<Item = String>,
+        ) -> impl Iterator<Item = String> {
             previous
                 .skip_while(|line| {
                     let adjusted_line: String = line
@@ -4896,7 +4901,7 @@ pub mod exportable_test_parts {
                 })
                 .skip(1)
         }
-        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item=String>) -> String {
+        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item = String>) -> String {
             fn yield_if_contains_semicolon(line: &str) -> Option<String> {
                 line.contains(';').then(|| line.to_string())
             }
@@ -4935,13 +4940,13 @@ pub mod exportable_test_parts {
                 skip_down_to_first_line_saying_new_delinquencies(
                     lines_with_cut_fn_trait_definition,
                 )
-                    .take_while(|line| {
-                        let adjusted_line: String = line
-                            .chars()
-                            .skip_while(|char| char.is_whitespace())
-                            .collect();
-                        !adjusted_line.starts_with("fn")
-                    });
+                .take_while(|line| {
+                    let adjusted_line: String = line
+                        .chars()
+                        .skip_while(|char| char.is_whitespace())
+                        .collect();
+                    !adjusted_line.starts_with("fn")
+                });
             assert_is_not_trait_definition(assumed_implemented_function_body)
         }
         fn user_defined_functions_detected(line_undivided_fn_body: &str) -> bool {

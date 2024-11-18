@@ -321,7 +321,7 @@ impl PayableScanner {
         logger: &Logger,
     ) -> Vec<PayableAccount> {
         fn pass_payables_and_drop_points(
-            qp_tp: impl Iterator<Item=(PayableAccount, u128)>,
+            qp_tp: impl Iterator<Item = (PayableAccount, u128)>,
         ) -> Vec<PayableAccount> {
             let (payables, _) = qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>();
             payables
@@ -1587,9 +1587,9 @@ mod tests {
             (vals.intruder_for_hash_2, 5),
             (vals.common_hash_3, 6),
         ]
-            .iter()
-            .map(|(hash, _rowid)| *hash)
-            .collect::<HashSet<H256>>();
+        .iter()
+        .map(|(hash, _rowid)| *hash)
+        .collect::<HashSet<H256>>();
 
         let result = PayableScanner::is_symmetrical(
             pending_payables_ref_from_blockchain_bridge,
@@ -2475,7 +2475,7 @@ mod tests {
             result,
             PendingPayableScanReport {
                 still_pending: vec![],
-                failures: vec![PendingPayableId::new(777777, hash, )],
+                failures: vec![PendingPayableId::new(777777, hash,)],
                 confirmed: vec![]
             }
         );

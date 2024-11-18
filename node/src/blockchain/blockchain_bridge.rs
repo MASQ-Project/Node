@@ -247,7 +247,7 @@ impl BlockchainBridge {
     fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         return Box::new(
@@ -272,7 +272,7 @@ impl BlockchainBridge {
     fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let skeleton_opt = msg.response_skeleton_opt;
         let sent_payable_subs = self
             .sent_payable_subs_opt
@@ -307,7 +307,7 @@ impl BlockchainBridge {
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let (start_block_nbr, max_block_count) = {
             let persistent_config_lock = self
                 .persistent_config_arc
@@ -344,14 +344,18 @@ impl BlockchainBridge {
                     msg.recipient.address(),
                 )
                 .map_err(move |e| {
-                    if let Some(max_block_count) = BlockchainBridge::extract_max_block_count(e.clone()) {
-                        match persistent_config_arc.lock().expect("Unable to lock persistent config in BlockchainBridge").set_max_block_count(Some(max_block_count))
+                    if let Some(max_block_count) =
+                        BlockchainBridge::extract_max_block_count(e.clone())
+                    {
+                        match persistent_config_arc
+                            .lock()
+                            .expect("Unable to lock persistent config in BlockchainBridge")
+                            .set_max_block_count(Some(max_block_count))
                         {
                             Ok(()) => {
                                 debug!(
                                     logger,
-                                    "Updated max_block_count to {} in database.",
-                                    max_block_count
+                                    "Updated max_block_count to {} in database.", max_block_count
                                 );
                             }
                             Err(e) => {
@@ -385,7 +389,7 @@ impl BlockchainBridge {
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let logger = self.logger.clone();
         let accountant_recipient = self
             .pending_payable_confirmation
@@ -436,7 +440,7 @@ impl BlockchainBridge {
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
     where
-        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item=(), Error=String>>,
+        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
         M: SkeletonOptHolder,
     {
         let skeleton_opt = msg.skeleton_opt();
@@ -462,7 +466,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
@@ -470,7 +474,7 @@ impl BlockchainBridge {
         self.blockchain_interface.submit_payables_in_batch(
             logger,
             chain,
-            agent.consuming_wallet().clone(),
+            agent,
             new_fingerprints_recipient,
             affordable_accounts,
         )
@@ -525,21 +529,29 @@ impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs> for BlockchainBridgeSub
 mod tests {
     use super::*;
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::{
         make_empty_payments_and_start_block, protect_payables_in_test,
     };
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
+    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, PayableTransactionError,
     };
+    use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::{make_tx_hash, make_blockchain_interface_web3, BlockchainInterfaceMock, ReceiptResponseBuilder};
+    use crate::blockchain::test_utils::{
+        make_blockchain_interface_web3, make_tx_hash, BlockchainInterfaceMock,
+        ReceiptResponseBuilder,
+    };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_recorder, peer_actors_builder,
@@ -547,14 +559,20 @@ mod tests {
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, configure_default_persistent_config, ZERO};
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, ZERO,
+    };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
-    use ethereum_types::{U64};
+    use ethereum_types::U64;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN,
+    };
     use masq_lib::utils::find_free_port;
     use std::any::TypeId;
     use std::path::Path;
@@ -562,12 +580,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{BlockNumber, TransactionReceipt, H160};
-    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-    use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::{GasPriceQueryFailed, TransactionID};
-    use crate::blockchain::blockchain_interface::data_structures::ProcessedPayableFallible::Correct;
-    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -605,7 +617,7 @@ mod tests {
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
         })
-            .unwrap();
+        .unwrap();
 
         System::current().stop();
         system.run();
@@ -648,7 +660,8 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant() {
+    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant(
+    ) {
         let system = System::new(
             "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
         );
@@ -799,19 +812,22 @@ mod tests {
         );
         assert_eq!(
             error_msg,
-            format!("Blockchain agent build error: {:?}", service_fee_balance_error)
+            format!(
+                "Blockchain agent build error: {:?}",
+                service_fee_balance_error
+            )
         )
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant() {
+    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
+    ) {
         let system = System::new(
             "handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant",
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x20".to_string(), 1)
-            .response("0x7B".to_string(), 1)
             .begin_batch()
             .response("rpc result".to_string(), 1)
             .end_batch()
@@ -842,6 +858,7 @@ mod tests {
         let agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default()
             .set_arbitrary_id_stamp(agent_id_stamp)
+            .agreed_fee_per_computation_unit_result(123)
             .consuming_wallet_result(consuming_wallet);
 
         send_bind_message!(subject_subs, peer_actors);
@@ -872,7 +889,7 @@ mod tests {
                     hash: H256::from_str(
                         "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                     )
-                        .unwrap()
+                    .unwrap()
                 })]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -888,7 +905,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                    .unwrap(),
+                .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -904,7 +921,6 @@ mod tests {
         // To make submit_batch failed we didn't provide any responses for batch calls
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x20".to_string(), 1)
-            .response("0x7B".to_string(), 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
@@ -929,7 +945,9 @@ mod tests {
             pending_payable_opt: None,
         }];
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
+        let agent = BlockchainAgentMock::default()
+            .consuming_wallet_result(consuming_wallet)
+            .agreed_fee_per_computation_unit_result(123);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -962,7 +980,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                    .unwrap(),
+                .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -988,7 +1006,6 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x01".to_string(), 1)
-            .response("0x01".to_string(), 1)
             .begin_batch()
             .response("rpc_result".to_string(), 7)
             .response("rpc_result_2".to_string(), 7)
@@ -1000,7 +1017,9 @@ mod tests {
         let accounts_2 = make_payable_account(2);
         let accounts = vec![accounts_1.clone(), accounts_2.clone()];
         let system = System::new(test_name);
-        let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
+        let agent = BlockchainAgentMock::default()
+            .consuming_wallet_result(consuming_wallet)
+            .agreed_fee_per_computation_unit_result(1);
         let msg = OutboundPaymentsInstructions::new(accounts, Box::new(agent), None);
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
@@ -1027,7 +1046,7 @@ mod tests {
                 hash: H256::from_str(
                     "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
                 )
-                    .unwrap()
+                .unwrap()
             })
         );
         assert_eq!(
@@ -1037,7 +1056,7 @@ mod tests {
                 hash: H256::from_str(
                     "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
                 )
-                    .unwrap()
+                .unwrap()
             })
         );
         let recording = accountant_recording.lock().unwrap();
@@ -1054,7 +1073,9 @@ mod tests {
         let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let system = System::new(test_name);
-        let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
+        let agent = BlockchainAgentMock::default()
+            .consuming_wallet_result(consuming_wallet)
+            .agreed_fee_per_computation_unit_result(123);
         let msg = OutboundPaymentsInstructions::new(vec![], Box::new(agent), None);
         let persistent_config = configure_default_persistent_config(ZERO);
         let mut subject = BlockchainBridge::new(
@@ -1078,47 +1099,6 @@ mod tests {
             error_result,
             TransactionID(BlockchainError::QueryFailed(
                 "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0) for wallet 0x2581…7849".to_string()
-            ))
-        );
-        let recording = accountant_recording.lock().unwrap();
-        assert_eq!(recording.len(), 0);
-    }
-
-    #[test]
-    fn process_payments_fails_on_missing_gas_price() {
-        let test_name = "process_payments_fails_on_missing_gas_price";
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x20".to_string(), 0)
-            .response("Trash Gas Price".to_string(), 0)
-            .start();
-        let blockchain_interface_web3 = make_blockchain_interface_web3(Some(port));
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let system = System::new(test_name);
-        let agent = BlockchainAgentMock::default().consuming_wallet_result(consuming_wallet);
-        let msg = OutboundPaymentsInstructions::new(vec![], Box::new(agent), None);
-        let persistent_config = PersistentConfigurationMock::new();
-        let mut subject = BlockchainBridge::new(
-            Box::new(blockchain_interface_web3),
-            Arc::new(Mutex::new(persistent_config)),
-            false,
-        );
-        let (accountant, _, accountant_recording) = make_recorder();
-        subject
-            .pending_payable_confirmation
-            .new_pp_fingerprints_sub_opt = Some(accountant.start().recipient());
-
-        let result = subject
-            .process_payments(msg.agent, msg.affordable_accounts)
-            .wait();
-
-        System::current().stop();
-        system.run();
-        let error_result = result.unwrap_err();
-        assert_eq!(
-            error_result,
-            GasPriceQueryFailed(BlockchainError::QueryFailed(
-                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()
             ))
         );
         let recording = accountant_recording.lock().unwrap();
@@ -1270,7 +1250,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort() {
+    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
+    ) {
         init_test_logging();
         let port = find_free_port();
         let block_number = U64::from(4545454);
@@ -1657,8 +1638,7 @@ mod tests {
             .response(expected_response_logs, 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant_addr =
-            accountant.system_stop_conditions(match_every_type_id!(ScanError));
+        let accountant_addr = accountant.system_stop_conditions(match_every_type_id!(ScanError));
         let earning_wallet = make_wallet("earning_wallet");
         let mut blockchain_interface = make_blockchain_interface_web3(Some(port));
         blockchain_interface.logger = logger;
@@ -1717,8 +1697,7 @@ mod tests {
             .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000", 0)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant =
-            accountant.system_stop_conditions(match_every_type_id!(ScanError));
+        let accountant = accountant.system_stop_conditions(match_every_type_id!(ScanError));
         let earning_wallet = make_wallet("earning_wallet");
         let blockchain_interface = make_blockchain_interface_web3(Some(port));
         let persistent_config = PersistentConfigurationMock::new()
@@ -1786,7 +1765,9 @@ mod tests {
             .max_block_count_result(Err(PersistentConfigError::DatabaseError(
                 "my tummy hurts".to_string(),
             )))
-            .set_max_block_count_result(Err(PersistentConfigError::DatabaseError("my brain hurst".to_string())));
+            .set_max_block_count_result(Err(PersistentConfigError::DatabaseError(
+                "my brain hurst".to_string(),
+            )));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Arc::new(Mutex::new(persistent_config)),
@@ -1933,7 +1914,8 @@ mod tests {
             &ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: msg.response_skeleton_opt,
-                msg: "Error while retrieving transactions: QueryFailed(\"My tummy hurts\")".to_string()
+                msg: "Error while retrieving transactions: QueryFailed(\"My tummy hurts\")"
+                    .to_string()
             }
         );
         assert_eq!(accountant_recording.len(), 1);
@@ -2063,7 +2045,7 @@ pub mod exportable_test_parts {
     use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-    for SubsFactoryTestAddrLeaker<BlockchainBridge>
+        for SubsFactoryTestAddrLeaker<BlockchainBridge>
     {
         fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
             self.send_leaker_msg_and_return_meaningless_subs(

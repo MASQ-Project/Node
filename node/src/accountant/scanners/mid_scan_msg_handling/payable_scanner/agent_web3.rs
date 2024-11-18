@@ -3,7 +3,6 @@
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
-use web3::types::U256;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
@@ -104,12 +103,8 @@ mod tests {
             transaction_fee_balance_in_minor_units: Default::default(),
             masq_token_balance_in_minor_units: Default::default(),
         };
-        let agent = BlockchainAgentWeb3::new(
-            444,
-            77_777,
-            consuming_wallet,
-            consuming_wallet_balances,
-        );
+        let agent =
+            BlockchainAgentWeb3::new(444, 77_777, consuming_wallet, consuming_wallet_balances);
 
         let result = agent.estimated_transaction_fee_total(3);
 
