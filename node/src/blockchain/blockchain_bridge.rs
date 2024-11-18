@@ -660,7 +660,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
-            .response("0x23".to_string(), 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_recipient = accountant.start().recipient();
@@ -727,12 +726,6 @@ mod tests {
         assert_eq!(
             blockchain_agent_with_context_msg_actual
                 .agent
-                .pending_transaction_id(),
-            35.into()
-        );
-        assert_eq!(
-            blockchain_agent_with_context_msg_actual
-                .agent
                 .agreed_fee_per_computation_unit(),
             9395240960
         );
@@ -763,14 +756,10 @@ mod tests {
         let system =
             System::new("qualified_payables_msg_is_handled_but_fails_on_build_blockchain_agent");
         let port = find_free_port();
-        // build blockchain agent fails by not providing the fourth response.
+        // build blockchain agent fails by not providing the third response.
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x23".to_string(), 1)
             .response("0x23".to_string(), 1)
-            .response(
-                "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
-                0,
-            )
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_recipient = accountant.start().recipient();
@@ -802,15 +791,15 @@ mod tests {
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        let transaction_id_error = BlockchainAgentBuildError::TransactionID(
+        let service_fee_balance_error = BlockchainAgentBuildError::ServiceFeeBalance(
             consuming_wallet.address(),
             BlockchainError::QueryFailed(
-                "Transport error: Error(IncompleteMessage) for wallet 0xc4e2…3ac6".to_string(),
+                "Api error: Transport error: Error(IncompleteMessage)".to_string(),
             ),
         );
         assert_eq!(
             error_msg,
-            format!("Blockchain agent build error: {:?}", transaction_id_error)
+            format!("Blockchain agent build error: {:?}", service_fee_balance_error)
         )
     }
 

@@ -26,7 +26,7 @@ pub trait BlockchainAgent: Send {
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn agreed_fee_per_computation_unit(&self) -> u128;
     fn consuming_wallet(&self) -> &Wallet;
-    fn pending_transaction_id(&self) -> U256;
+
 
     #[cfg(test)]
     fn dup(&self) -> Box<dyn BlockchainAgent> {

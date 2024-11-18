@@ -15,7 +15,6 @@ pub struct BlockchainAgentMock {
     consuming_wallet_balances_results: RefCell<Vec<ConsumingWalletBalances>>,
     agreed_fee_per_computation_unit_results: RefCell<Vec<u128>>,
     consuming_wallet_result_opt: Option<Wallet>,
-    pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
@@ -36,10 +35,6 @@ impl BlockchainAgent for BlockchainAgentMock {
 
     fn consuming_wallet(&self) -> &Wallet {
         self.consuming_wallet_result_opt.as_ref().unwrap()
-    }
-
-    fn pending_transaction_id(&self) -> U256 {
-        self.pending_transaction_id_results.borrow_mut().remove(0)
     }
 
     fn dup(&self) -> Box<dyn BlockchainAgent> {
@@ -66,13 +61,6 @@ impl BlockchainAgentMock {
 
     pub fn consuming_wallet_result(mut self, consuming_wallet_result: Wallet) -> Self {
         self.consuming_wallet_result_opt = Some(consuming_wallet_result);
-        self
-    }
-
-    pub fn pending_transaction_id_result(self, result: U256) -> Self {
-        self.pending_transaction_id_results
-            .borrow_mut()
-            .push(result);
         self
     }
 

@@ -93,7 +93,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         start_block: BlockNumber,
         fallback_start_block_number: u64,
         recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
         let contract_address = lower_level_interface.get_contract().address();
@@ -151,12 +151,11 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn build_blockchain_agent(
         &self,
-        // TODO: Change wallet to address in the future
         consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
+    ) -> Box<dyn Future<Item=Box<dyn BlockchainAgent>, Error=BlockchainAgentBuildError>> {
         let wallet_address = consuming_wallet.address();
         let gas_limit_const_part = self.gas_limit_const_part;
-        // TODO: Would it be better to wrap these 4 calls into a single batch call?
+        // TODO: Would it be better to wrap these 3 calls into a single batch call?
         let get_gas_price = self.lower_interface().get_gas_price();
         let get_transaction_fee_balance = self
             .lower_interface()
@@ -164,8 +163,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let get_service_fee_balance = self
             .lower_interface()
             .get_service_fee_balance(wallet_address);
-        // TODO: GH-744: Remove it from submit_batch call or from here, it's a duplicate
-        let get_transaction_id = self.lower_interface().get_transaction_id(wallet_address);
 
         Box::new(
             get_gas_price
@@ -181,27 +178,17 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                     BlockchainAgentBuildError::ServiceFeeBalance(wallet_address, e)
                                 })
                                 .and_then(move |masq_token_balance| {
-                                    get_transaction_id
-                                        .map_err(move |e| {
-                                            BlockchainAgentBuildError::TransactionID(
-                                                wallet_address,
-                                                e,
-                                            )
-                                        })
-                                        .and_then(move |pending_transaction_id| {
-                                            let blockchain_agent_future_result =
-                                                BlockchainAgentFutureResult {
-                                                    gas_price_wei,
-                                                    transaction_fee_balance,
-                                                    masq_token_balance,
-                                                    pending_transaction_id,
-                                                };
-                                            Ok(create_blockchain_agent_web3(
-                                                gas_limit_const_part,
-                                                blockchain_agent_future_result,
-                                                consuming_wallet,
-                                            ))
-                                        })
+                                    let blockchain_agent_future_result =
+                                        BlockchainAgentFutureResult {
+                                            gas_price_wei,
+                                            transaction_fee_balance,
+                                            masq_token_balance,
+                                        };
+                                    Ok(create_blockchain_agent_web3(
+                                        gas_limit_const_part,
+                                        blockchain_agent_future_result,
+                                        consuming_wallet,
+                                    ))
                                 })
                         })
                 }),
@@ -211,7 +198,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn process_transaction_receipts(
         &self,
         transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=Vec<TransactionReceiptResult>, Error=BlockchainError>> {
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(transaction_hashes)
@@ -255,7 +242,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         consuming_wallet: Wallet,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
+    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
     {
         let web3_batch = self.lower_interface().get_web3_batch();
         let get_transaction_id = self
@@ -627,8 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
-    ) {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -653,8 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned(
-    ) {
+    fn blockchain_interface_web3_retrieve_transactions_returns_an_error_if_a_response_with_data_that_is_too_long_is_returned() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x178def", 1)
@@ -676,8 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number(
-    ) {
+    fn blockchain_interface_web3_retrieve_transactions_ignores_transaction_logs_that_have_no_block_number() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x400", 1)
@@ -688,7 +672,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
 
         let end_block_nbr = 1024u64;
         let subject =
@@ -718,8 +702,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
-    ) {
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash", 1)
@@ -763,8 +746,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), // 65535
                 0,
             )
-            // transaction_id
-            .response("0x23".to_string(), 1)
             .start();
         let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
@@ -777,10 +758,8 @@ mod tests {
 
         let expected_transaction_fee_balance = U256::from(65_520);
         let expected_masq_balance = U256::from(65_535);
-        let expected_transaction_id = U256::from(35);
         let expected_gas_price_wei = 1_000_000_000;
         assert_eq!(result.consuming_wallet(), &wallet);
-        assert_eq!(result.pending_transaction_id(), expected_transaction_id);
         assert_eq!(
             result.consuming_wallet_balances(),
             ConsumingWalletBalances {
@@ -794,7 +773,7 @@ mod tests {
         );
         let expected_fee_estimation = (3
             * (BlockchainInterfaceWeb3::web3_gas_limit_const_part(chain)
-                + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
+            + WEB3_MAXIMAL_GAS_LIMIT_MARGIN)
             * expected_gas_price_wei) as u128;
         assert_eq!(
             result.estimated_transaction_fee_total(3),
@@ -870,33 +849,6 @@ mod tests {
                 wallet.address(),
                 BlockchainError::QueryFailed(
                     "Api error: Transport error: Error(IncompleteMessage)".to_string(),
-                ),
-            )
-        };
-
-        build_of_the_blockchain_agent_fails_on_blockchain_interface_error(
-            port,
-            expected_err_factory,
-        );
-    }
-
-    #[test]
-    fn build_of_the_blockchain_agent_fails_on_transaction_id() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
-            .response("0xFFF0".to_string(), 0)
-            .response(
-                "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
-                0,
-            )
-            .start();
-
-        let expected_err_factory = |wallet: &Wallet| {
-            BlockchainAgentBuildError::TransactionID(
-                wallet.address(),
-                BlockchainError::QueryFailed(
-                    "Transport error: Error(IncompleteMessage) for wallet 0x0000…6364".to_string(),
                 ),
             )
         };

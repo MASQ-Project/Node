@@ -12,7 +12,6 @@ pub struct BlockchainAgentWeb3 {
     maximum_added_gas_margin: u128,
     consuming_wallet: Wallet,
     consuming_wallet_balances: ConsumingWalletBalances,
-    pending_transaction_id: U256, // TODO: GH-744: This should be changed from U256 to something more generic
 }
 
 impl BlockchainAgent for BlockchainAgentWeb3 {
@@ -33,10 +32,6 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
     fn consuming_wallet(&self) -> &Wallet {
         &self.consuming_wallet
     }
-
-    fn pending_transaction_id(&self) -> U256 {
-        self.pending_transaction_id
-    }
 }
 
 // 64 * (64 - 12) ... std transaction has data of 64 bytes and 12 bytes are never used with us;
@@ -49,7 +44,6 @@ impl BlockchainAgentWeb3 {
         gas_limit_const_part: u128,
         consuming_wallet: Wallet,
         consuming_wallet_balances: ConsumingWalletBalances,
-        pending_transaction_id: U256,
     ) -> Self {
         Self {
             gas_price_wei,
@@ -57,7 +51,6 @@ impl BlockchainAgentWeb3 {
             consuming_wallet,
             maximum_added_gas_margin: WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
             consuming_wallet_balances,
-            pending_transaction_id,
         }
     }
 }
@@ -88,14 +81,12 @@ mod tests {
             transaction_fee_balance_in_minor_units: U256::from(456_789),
             masq_token_balance_in_minor_units: U256::from(123_000_000),
         };
-        let pending_transaction_id = U256::from(777);
 
         let subject = BlockchainAgentWeb3::new(
             gas_price_gwei,
             gas_limit_const_part,
             consuming_wallet.clone(),
             consuming_wallet_balances,
-            pending_transaction_id,
         );
 
         assert_eq!(subject.agreed_fee_per_computation_unit(), gas_price_gwei);
@@ -104,7 +95,6 @@ mod tests {
             subject.consuming_wallet_balances(),
             consuming_wallet_balances
         );
-        assert_eq!(subject.pending_transaction_id(), pending_transaction_id)
     }
 
     #[test]
@@ -114,13 +104,11 @@ mod tests {
             transaction_fee_balance_in_minor_units: Default::default(),
             masq_token_balance_in_minor_units: Default::default(),
         };
-        let nonce = U256::from(55);
         let agent = BlockchainAgentWeb3::new(
             444,
             77_777,
             consuming_wallet,
             consuming_wallet_balances,
-            nonce,
         );
 
         let result = agent.estimated_transaction_fee_total(3);

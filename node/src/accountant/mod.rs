@@ -3451,8 +3451,6 @@ mod tests {
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
-            // Blockchain Agent tx_id
-            .response("0x2".to_string(), 1)
             // gas_price
             .response("0x3B9ACA00".to_string(), 1)
             // Submit payments to blockchain

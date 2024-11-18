@@ -37,11 +37,6 @@ impl BlockchainAgent for BlockchainAgentNull {
         &self.wallet
     }
 
-    fn pending_transaction_id(&self) -> U256 {
-        self.log_function_call("pending_transaction_id()");
-        U256::zero()
-    }
-
     #[cfg(test)]
     fn dup(&self) -> Box<dyn BlockchainAgent> {
         intentionally_blank!()
@@ -175,18 +170,5 @@ mod tests {
 
         assert_eq!(result, &Wallet::null());
         assert_error_log(test_name, "consuming_wallet")
-    }
-
-    #[test]
-    fn null_agent_pending_transaction_id() {
-        init_test_logging();
-        let test_name = "null_agent_pending_transaction_id";
-        let mut subject = BlockchainAgentNull::new();
-        subject.logger = Logger::new(test_name);
-
-        let result = subject.pending_transaction_id();
-
-        assert_eq!(result, U256::zero());
-        assert_error_log(test_name, "pending_transaction_id");
     }
 }

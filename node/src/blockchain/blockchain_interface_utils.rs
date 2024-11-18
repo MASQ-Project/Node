@@ -36,7 +36,6 @@ pub struct BlockchainAgentFutureResult {
     pub gas_price_wei: U256,
     pub transaction_fee_balance: U256,
     pub masq_token_balance: U256,
-    pub pending_transaction_id: U256,
 }
 pub fn advance_used_nonce(current_nonce: U256) -> U256 {
     current_nonce
@@ -133,7 +132,7 @@ pub fn gas_limit(data: [u8; 68], chain: Chain) -> U256 {
     ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
         acc + if v == &0u8 { 4 } else { 68 }
     }))
-    .expect("Internal error")
+        .expect("Internal error")
 }
 
 pub fn sign_transaction(
@@ -281,7 +280,7 @@ pub fn send_payables_within_batch(
     pending_nonce: U256,
     new_fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
     accounts: Vec<PayableAccount>,
-) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError> + 'static>
+) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError> + 'static>
 {
     debug!(
             logger,
@@ -359,7 +358,6 @@ pub fn create_blockchain_agent_web3(
                 .transaction_fee_balance,
             masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance,
         },
-        blockchain_agent_future_result.pending_transaction_id,
     ))
 }
 
@@ -431,7 +429,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
         let pending_nonce = 1;
         let chain = TEST_DEFAULT_CHAIN;
@@ -476,7 +474,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -516,7 +514,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
@@ -538,7 +536,7 @@ mod tests {
             hash: H256::from_str(
                 "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2",
             )
-            .unwrap(),
+                .unwrap(),
             amount,
         };
         assert_eq!(result, expected_hash_and_amount);
@@ -552,7 +550,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
         let chain = DEFAULT_CHAIN;
         let gas_price = DEFAULT_GAS_PRICE;
@@ -579,14 +577,14 @@ mod tests {
                     hash: H256::from_str(
                         "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: 1000000000
                 },
                 HashAndAmount {
                     hash: H256::from_str(
                         "3811874d2b73cecd51234c94af46bcce918d0cb4de7d946c01d7da606fe761b5"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: 2000000000
                 }
             ]
@@ -707,7 +705,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .response("rpc_result".to_string(), 7)
@@ -738,7 +736,7 @@ mod tests {
             new_fingerprints_recipient,
             accounts.clone(),
         )
-        .wait();
+            .wait();
 
         System::current().stop();
         system.run();
@@ -756,14 +754,14 @@ mod tests {
                     hash: H256::from_str(
                         "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: accounts_1.balance_wei
                 },
                 HashAndAmount {
                     hash: H256::from_str(
                         "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: accounts_2.balance_wei
                 },
             ]
@@ -776,7 +774,7 @@ mod tests {
                 hash: H256::from_str(
                     "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         assert_eq!(
@@ -786,7 +784,7 @@ mod tests {
                 hash: H256::from_str(
                     "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         let tlh = TestLogHandler::new();
@@ -811,7 +809,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
         let recipient_wallet = make_wallet("blah123");
         let unimportant_recipient = Recorder::new().start().recipient();
@@ -836,7 +834,7 @@ mod tests {
             unimportant_recipient,
             vec![account],
         )
-        .wait();
+            .wait();
 
         assert_eq!(
             result,
@@ -868,7 +866,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let recipient_wallet = make_wallet("unlucky man");
         let consuming_wallet = make_wallet("bad_wallet");
         let gas_price = U256::from(123_000_000_000u64);
@@ -895,7 +893,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .err_response(
@@ -936,7 +934,7 @@ mod tests {
             new_fingerprints_recipient,
             accounts.clone(),
         )
-        .wait();
+            .wait();
 
         System::current().stop();
         system.run();
@@ -954,14 +952,14 @@ mod tests {
                     hash: H256::from_str(
                         "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: accounts_1.balance_wei
                 },
                 HashAndAmount {
                     hash: H256::from_str(
                         "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: accounts_2.balance_wei
                 },
             ]
@@ -1009,7 +1007,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
             .response("rpc_result".to_string(), 7)
@@ -1045,7 +1043,7 @@ mod tests {
             new_fingerprints_recipient,
             accounts.clone(),
         )
-        .wait();
+            .wait();
 
         System::current().stop();
         system.run();
@@ -1063,14 +1061,14 @@ mod tests {
                     hash: H256::from_str(
                         "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: accounts_1.balance_wei
                 },
                 HashAndAmount {
                     hash: H256::from_str(
                         "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
                     )
-                    .unwrap(),
+                        .unwrap(),
                     amount: accounts_2.balance_wei
                 },
             ]
@@ -1083,7 +1081,7 @@ mod tests {
                 hash: H256::from_str(
                     "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
                 )
-                .unwrap()
+                    .unwrap()
             })
         );
         assert_eq!(processed_payments[1], ProcessedPayableFallible::Failed(RpcPayableFailure {
@@ -1117,7 +1115,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let web3 = Web3::new(transport.clone());
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
@@ -1163,7 +1161,7 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
         let gas_limit = U256::from(5);
@@ -1291,13 +1289,13 @@ mod tests {
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,
         )
-        .unwrap();
+            .unwrap();
         let consuming_wallet = {
             let key_pair = Bip32EncryptionKeyProvider::from_raw_secret(
                 &decode_hex("97923d8fd8de4a00f912bfb77ef483141dec551bd73ea59343ef5c4aac965d04")
                     .unwrap(),
             )
-            .unwrap();
+                .unwrap();
             Wallet::from(key_pair)
         };
         let recipient_wallet = {
