@@ -1361,9 +1361,10 @@ impl Neighborhood {
         source: &'a PublicKey,
         minimum_hops: usize,
         payload_size: usize,
-    ) -> HashMap<PublicKey, ExitLocationsRoutes> {
+    ) -> (HashMap<PublicKey, ExitLocationsRoutes>, Vec<&'a PublicKey>) {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability = 0;
+        let research_exits: &mut Vec<&'a PublicKey> = &mut vec![];
         let over_routes = self
             .routing_engine(
                 vec![source],
@@ -1374,7 +1375,8 @@ impl Neighborhood {
                 RouteDirection::Over,
                 &mut minimum_undesirability,
                 None,
-                true
+                true,
+                research_exits
             );
 
         let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
@@ -1393,7 +1395,7 @@ impl Neighborhood {
                     }
                 );
         });
-        result_exit
+        (result_exit, research_exits.to_vec())
     }
 
     // Interface to main routing engine. Supply source key, target key--if any--in target_opt,
@@ -1427,7 +1429,8 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-                false
+                false,
+                &mut vec![],
             )
             .into_iter()
             .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
@@ -1451,6 +1454,7 @@ impl Neighborhood {
         minimum_undesirability: &mut i64,
         hostname_opt: Option<&str>,
         research_neighborhood: bool,
+        research_exits: &mut Vec<&'a PublicKey>
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability  && !research_neighborhood {
             return vec![];
@@ -1473,7 +1477,57 @@ impl Neighborhood {
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
             }
-            vec![ComputedRouteSegment::new(prefix, undesirability)]
+
+            if !research_neighborhood || research_exits.contains(&prefix[prefix.len() - 1]) {
+                vec![ComputedRouteSegment::new(prefix, undesirability)]
+            } else {
+                //let mut route_segments = vec![];
+                //route_segments.push(ComputedRouteSegment::new(prefix.clone(), undesirability));
+                research_exits.push(prefix[prefix.len() - 1]);
+                previous_node
+                    .full_neighbors(&self.neighborhood_database)
+                    .iter()
+                    .filter(|node_record| !prefix.contains(&node_record.public_key()))
+                    .filter(|node_record| {
+                        node_record.routes_data()
+                            || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
+                    })
+                    .flat_map(|node_record| {
+                        let mut new_prefix = prefix.clone();
+                        new_prefix.push(node_record.public_key());
+
+                        let new_hops_remaining = if hops_remaining == 0 {
+                            0
+                        } else {
+                            hops_remaining - 1
+                        };
+
+                        let new_undesirability = self.compute_new_undesirability(
+                            node_record,
+                            undesirability,
+                            target_opt,
+                            new_hops_remaining,
+                            payload_size as u64,
+                            direction,
+                            hostname_opt,
+                        );
+
+                        self.routing_engine(
+                            new_prefix.clone(),
+                            new_undesirability,
+                            target_opt,
+                            new_hops_remaining,
+                            payload_size,
+                            direction,
+                            minimum_undesirability,
+                            hostname_opt,
+                            research_neighborhood,
+                            research_exits
+                        )
+                    })
+                    .collect()
+            }
+
         } else if ((hops_remaining == 0) && target_opt.is_none() && !research_neighborhood) && //
             (self.user_exit_preferences.exit_location_preference == ExitPreference::Nothing ||
                 self.user_exit_preferences.exit_countries.is_empty()) // TODO implement the emptying the self.user_exit_preferences.exit_countries on every change of the database when there is no longer any country desired by user in the database
@@ -1519,7 +1573,8 @@ impl Neighborhood {
                         direction,
                         minimum_undesirability,
                         hostname_opt,
-                        research_neighborhood
+                        research_neighborhood,
+                        research_exits
                     )
                 })
                 .collect()
@@ -1745,7 +1800,7 @@ impl Neighborhood {
     fn init_db_countries(&mut self) {
         let root_key = self.neighborhood_database.root_key();
         let min_hops = self.min_hops as usize;
-        let exit_locations_db = self.find_exit_location(&root_key, min_hops, 10_000usize).to_owned();
+        let (exit_locations_db, _) = self.find_exit_location(&root_key, min_hops, 10_000usize).to_owned();
         //println!("min-hops {} init_db_countries exit_locations_db {:#?}", min_hops, exit_locations_db);
         let mut db_countries = vec![];
         for (pub_key, _routes) in &exit_locations_db {
@@ -4145,7 +4200,7 @@ mod tests {
             db.add_arbitrary_full_neighbor(&n1, &n2);
             db.add_arbitrary_full_neighbor(&n2, &n3);
             db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_half_neighbor(&n4, &n5);
+            db.add_arbitrary_full_neighbor(&n4, &n5);
             (n1, n2, n3, n4, n5)
         };
         let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
@@ -4153,9 +4208,9 @@ mod tests {
             let (s1, s2, s3, s4, s5) = second_row;
             db.add_arbitrary_full_neighbor(f1, s1);
             db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_half_neighbor(f3, s3);
-            db.add_arbitrary_half_neighbor(f4, s4);
-            db.add_arbitrary_half_neighbor(f5, s5);
+            db.add_arbitrary_full_neighbor(f3, s3);
+            db.add_arbitrary_full_neighbor(f4, s4);
+            db.add_arbitrary_full_neighbor(f5, s5);
         };
         // let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
         //     let root_node_key = db.root().public_key().clone();
@@ -4181,8 +4236,9 @@ mod tests {
         designate_root_node(db, &l);
         //let db_clone = db.clone();
 
-        let routes = subject.find_exit_location(&l, 3, 10_000);
+        let (routes, exit_nodes) = subject.find_exit_location(&l, 3, 10_000);
 
+        println!("exit_nodes: {:#?}", exit_nodes);
         let mut iter: u32 = 0;
         for key in subject.neighborhood_database.keys() {
             let undesi = subject.neighborhood_database.node_by_key(key);
@@ -4244,6 +4300,64 @@ mod tests {
     }
 
 
+    #[test]
+    fn find_exit_locations_in_row_structure_test() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let n1 = make_node(db);
+        let n2 = make_node(db);
+        let n3 = make_node(db);
+        let n4 = make_node(db);
+        let n5 = make_node(db);
+        let f1 = make_node(db);
+        let f2 = make_node(db);
+        let f3 = make_node(db);
+        let f4 = make_node(db);
+        let f5 = make_node(db);
+        db.add_arbitrary_full_neighbor(&n1, &n2);
+        db.add_arbitrary_full_neighbor(&n2, &n3);
+        db.add_arbitrary_full_neighbor(&n3, &n4);
+        db.add_arbitrary_full_neighbor(&n4, &n5);
+        db.add_arbitrary_full_neighbor(&n5, &f1);
+        db.add_arbitrary_full_neighbor(&f1, &f2);
+        db.add_arbitrary_full_neighbor(&f2, &f3);
+        db.add_arbitrary_full_neighbor(&f3, &f4);
+        db.add_arbitrary_full_neighbor(&f4, &f5);
+
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
+            let root_node_key = db.root_key().clone();
+            db.set_root_key(key);
+            db.remove_node(&root_node_key);
+        };
+
+        designate_root_node(db, &n1);
+        //let db_clone = db.clone();
+
+        let (routes, exit_nodes) = subject.find_exit_location(&n1, 2, 10_000);
+
+        let mut iter: u32 = 0;
+        for key in subject.neighborhood_database.keys() {
+            let undesi = subject.neighborhood_database.node_by_key(key);
+            if undesi.unwrap().inner.public_key == subject.neighborhood_database.node_by_key(&n1).unwrap().inner.public_key {
+                println!("key: {}", key);
+            }
+            assert_eq!(undesi.unwrap().metadata.country_undesirability, 0u32);
+            iter += 1;
+        }
+        //println!("l node: {:?}", subject.neighborhood_database.node_by_key(&l).unwrap());
+        println!("neighborhood db: {:?}", subject.neighborhood_database.to_dot_graph());
+        println!("nodes_count: {}\nexit_countries: {:?}\nroutes_len: {}\nroutes {:#?}", iter, &subject.user_exit_preferences.exit_countries, routes.len(), &routes);
+        let total_exit_nodes = routes.len();
+
+        assert_eq!(total_exit_nodes, 12);
+
+    }
 
     /*
             Database:
