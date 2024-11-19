@@ -9,7 +9,6 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
 use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::blockchain::blockchain_interface::BlockchainInterface;
 use crate::set_arbitrary_id_stamp_in_mock_impl;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -58,15 +57,13 @@ pub fn make_meaningless_seed() -> Seed {
     Seed::new(&mnemonic, "passphrase")
 }
 
-// TODO: GH-744: Look into removing options form port. and in places were are have defined port as None, just define a port anyway.
-pub fn make_blockchain_interface_web3(port_opt: Option<u16>) -> BlockchainInterfaceWeb3 {
-    let port = port_opt.unwrap_or_else(|| find_free_port());
+pub fn make_blockchain_interface_web3(port: u16) -> BlockchainInterfaceWeb3 {
     let chain = Chain::PolyMainnet;
     let (event_loop_handle, transport) = Http::with_max_parallel(
         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
         REQUESTS_IN_PARALLEL,
     )
-    .unwrap();
+        .unwrap();
 
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }
@@ -187,127 +184,6 @@ impl ReceiptResponseBuilder {
         };
         serde_json::to_string(&rpc_response).unwrap()
     }
-}
-
-#[derive(Default)]
-pub struct BlockchainInterfaceMock {
-    get_chain_results: RefCell<Vec<Chain>>,
-    lower_interface_result: Option<Box<dyn LowBlockchainInt>>,
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, u64, Address)>>>,
-    retrieve_transactions_results:
-        RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    build_blockchain_agent_params: Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
-    build_blockchain_agent_results:
-        RefCell<Vec<Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-}
-
-// TODO: GH-744: There are a few tests using BlockchainInterfaceMock, if we convert them to use MBCS then we can delete BlockchainInterfaceMock
-impl BlockchainInterface for BlockchainInterfaceMock {
-    fn contract_address(&self) -> Address {
-        unimplemented!("not needed so far")
-    }
-
-    fn get_chain(&self) -> Chain {
-        unimplemented!("not needed so far")
-    }
-
-    fn retrieve_transactions(
-        &self,
-        start_block: BlockNumber,
-        fallback_start_block_number: u64,
-        recipient: Address,
-    ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
-        self.retrieve_transactions_parameters.lock().unwrap().push((
-            start_block,
-            fallback_start_block_number,
-            recipient,
-        ));
-        Box::new(result(
-            self.retrieve_transactions_results.borrow_mut().remove(0),
-        ))
-    }
-
-    fn build_blockchain_agent(
-        &self,
-        _consuming_wallet: Wallet,
-    ) -> Box<dyn Future<Item = Box<dyn BlockchainAgent>, Error = BlockchainAgentBuildError>> {
-        unimplemented!("not needed so far")
-    }
-
-    fn lower_interface(&self) -> Box<dyn LowBlockchainInt> {
-        unimplemented!("not needed so far")
-    }
-
-    fn process_transaction_receipts(
-        &self,
-        _transaction_hashes: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
-        unimplemented!("not needed so far")
-    }
-
-    fn submit_payables_in_batch(
-        &self,
-        _logger: Logger,
-        _chain: Chain,
-        _agent: Box<dyn BlockchainAgent>,
-        _fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
-        _affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
-    {
-        unimplemented!("not needed so far")
-    }
-}
-
-impl BlockchainInterfaceMock {
-    pub fn retrieve_transactions_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(BlockNumber, u64, Address)>>>,
-    ) -> Self {
-        self.retrieve_transactions_parameters = params.clone();
-        self
-    }
-
-    pub fn retrieve_transactions_result(
-        self,
-        result: Result<RetrievedBlockchainTransactions, BlockchainError>,
-    ) -> Self {
-        self.retrieve_transactions_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn build_blockchain_agent_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Wallet, ArbitraryIdStamp)>>>,
-    ) -> Self {
-        self.build_blockchain_agent_params = params.clone();
-        self
-    }
-
-    pub fn build_blockchain_agent_result(
-        self,
-        result: Result<Box<dyn BlockchainAgent>, BlockchainAgentBuildError>,
-    ) -> Self {
-        self.build_blockchain_agent_results
-            .borrow_mut()
-            .push(result);
-        self
-    }
-
-    pub fn get_chain_result(self, result: Chain) -> Self {
-        self.get_chain_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn lower_interface_results(
-        mut self,
-        aggregated_results: Box<dyn LowBlockchainInt>,
-    ) -> Self {
-        self.lower_interface_result = Some(aggregated_results);
-        self
-    }
-
-    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 pub fn make_fake_event_loop_handle() -> EventLoopHandle {

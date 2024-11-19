@@ -21,7 +21,7 @@ use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder, Transact
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult};
-use crate::blockchain::blockchain_interface_utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
+use crate::blockchain::blockchain_interface_utils::{dynamically_create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -96,14 +96,13 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     ) -> Box<dyn Future<Item=RetrievedBlockchainTransactions, Error=BlockchainError>> {
         let lower_level_interface = self.lower_interface();
         let logger = self.logger.clone();
-        let contract_address = lower_level_interface.get_contract().address();
+        let contract_address = lower_level_interface.get_contract_address();
         let num_chain_id = self.chain.rec().num_chain_id;
         Box::new(
             lower_level_interface.get_block_number().then(move |response_block_number_result| {
                 let response_block_number = match response_block_number_result {
                     Ok(block_number) => {
                         debug!(logger, "Latest block number: {}", block_number.as_u64());
-                        // TODO: GH-744: This could be Eths type U64 instead of u64
                         block_number.as_u64()
                     }
                     Err(_) => {
@@ -133,8 +132,8 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                     .build();
                 lower_level_interface.get_transaction_logs(filter)
                     .then(move |logs| {
-                        // TODO: GH-744:  change the word Transactions for Logs and also to use trace! instead of debug!
-                        debug!(logger, "Transaction retrieval completed: {:?}", logs);
+                        trace!(logger, "Transaction logs retrieval completed: {:?}", logs);
+
                         future::result::<RetrievedBlockchainTransactions, BlockchainError>(
                             match logs {
                                 Ok(logs) => {
@@ -184,7 +183,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                             transaction_fee_balance,
                                             masq_token_balance,
                                         };
-                                    Ok(create_blockchain_agent_web3(
+                                    Ok(dynamically_create_blockchain_agent_web3(
                                         gas_limit_const_part,
                                         blockchain_agent_future_result,
                                         consuming_wallet,
@@ -386,7 +385,6 @@ mod tests {
         BlockchainAgentBuildError, BlockchainError, BlockchainInterface,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::blockchain_interface_utils::calculate_fallback_start_block_number;
     use crate::blockchain::test_utils::{
         all_chains, make_blockchain_interface_web3, ReceiptResponseBuilder,
     };
@@ -448,7 +446,7 @@ mod tests {
     #[test]
     fn blockchain_interface_web3_can_return_contract() {
         all_chains().iter().for_each(|chain| {
-            let mut subject = make_blockchain_interface_web3(None);
+            let mut subject = make_blockchain_interface_web3(find_free_port());
             subject.chain = *chain;
 
             assert_eq!(subject.contract_address(), chain.rec().contract)
@@ -501,7 +499,7 @@ mod tests {
             }"#.to_string()
             )
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let end_block_nbr = 1024u64;
 
         let result = subject
@@ -562,7 +560,7 @@ mod tests {
             .response("0x178def".to_string(), 2)
             .response(empty_transactions_result, 2)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let end_block_nbr = 1024u64;
 
         let result = subject
@@ -615,7 +613,7 @@ mod tests {
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .retrieve_transactions(
@@ -640,7 +638,7 @@ mod tests {
             .response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .retrieve_transactions(
@@ -703,10 +701,11 @@ mod tests {
             .response("trash", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let start_block_nbr = 42u64;
         let start_block = BlockNumber::Number(start_block_nbr.into());
-        let fallback_number = calculate_fallback_start_block_number(start_block_nbr, u64::MAX);
+        // let fallback_number = BlockchainBridge::calculate_fallback_start_block_number(start_block_nbr, u64::MAX);
+        let fallback_number = start_block_nbr + 1;
 
         let result = subject
             .retrieve_transactions(
@@ -744,7 +743,7 @@ mod tests {
             .start();
         let chain = Chain::PolyMainnet;
         let wallet = make_wallet("abc");
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .build_blockchain_agent(wallet.clone())
@@ -784,7 +783,7 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
         let wallet = make_wallet("abc");
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let err = subject.build_blockchain_agent(wallet).wait().err().unwrap();
 
@@ -801,7 +800,7 @@ mod tests {
         F: FnOnce(&Wallet) -> BlockchainAgentBuildError,
     {
         let wallet = make_wallet("bcd");
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let result = subject.build_blockchain_agent(wallet.clone()).wait();
         let err = match result {
             Err(e) => e,
@@ -916,7 +915,7 @@ mod tests {
             .raw_response(tx_receipt_response_success)
             .end_batch()
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .process_transaction_receipts(tx_hash_vec)

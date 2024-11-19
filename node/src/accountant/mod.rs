@@ -743,7 +743,7 @@ impl Accountant {
             stats_opt,
             query_results_opt,
         }
-        .tmb(context_id)
+            .tmb(context_id)
     }
 
     fn request_payable_accounts_by_specific_mode(
@@ -1032,11 +1032,11 @@ pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> S {
     politely_checked_conversion(num).unwrap_or_else(|msg| panic!("{}", msg))
 }
 
-pub fn gwei_to_wei<T: Mul<Output = T> + From<u32> + From<S>, S>(gwei: S) -> T {
+pub fn gwei_to_wei<T: Mul<Output=T> + From<u32> + From<S>, S>(gwei: S) -> T {
     (T::from(gwei)).mul(T::from(WEIS_IN_GWEI as u32))
 }
 
-pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32>>(wei: S) -> T {
+pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output=S> + From<u32>>(wei: S) -> T {
     checked_conversion::<S, T>(wei.div(S::from(WEIS_IN_GWEI as u32)))
 }
 
@@ -1364,7 +1364,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::Receivables,
             }
-            .tmb(4321),
+                .tmb(4321),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1456,7 +1456,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::Payables,
             }
-            .tmb(4321),
+                .tmb(4321),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1523,8 +1523,7 @@ mod tests {
     }
 
     #[test]
-    fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
-    ) {
+    fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge() {
         // the numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
@@ -1616,8 +1615,7 @@ mod tests {
     }
 
     #[test]
-    fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
-    ) {
+    fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge() {
         // the numbers for balances don't do real math, they need not to match either the condition for
         // the payment adjustment or the actual values that come from the payable size reducing algorithm;
         // all that is mocked in this test
@@ -1765,7 +1763,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::PendingPayables,
             }
-            .tmb(4321),
+                .tmb(4321),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -1820,7 +1818,7 @@ mod tests {
             body: UiScanRequest {
                 scan_type: ScanType::PendingPayables,
             }
-            .tmb(4321),
+                .tmb(4321),
         };
         let second_message = first_message.clone();
         let peer_actors = peer_actors_builder()
@@ -2011,8 +2009,7 @@ mod tests {
     }
 
     #[test]
-    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block(
-    ) {
+    fn accountant_processes_msg_with_received_payments_using_receivables_dao_and_then_updates_start_block() {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let set_by_guest_transaction_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2712,7 +2709,7 @@ mod tests {
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,
         })
-        .unwrap();
+            .unwrap();
 
         // We ignored the second ScanForPayables message because the first message meant a scan
         // was already in progress; now let's make it look like that scan has ended so that we
@@ -2725,7 +2722,7 @@ mod tests {
                     .mark_as_ended(&Logger::new("irrelevant"))
             }),
         })
-        .unwrap();
+            .unwrap();
         addr.try_send(message_after.clone()).unwrap();
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
@@ -3542,7 +3539,7 @@ mod tests {
             gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666);
         let wallet_account_1 = make_wallet("creditor1");
         let wallet_account_2 = make_wallet("creditor2");
-        let blockchain_interface = make_blockchain_interface_web3(Some(port));
+        let blockchain_interface = make_blockchain_interface_web3(port);
         let consuming_wallet = make_paying_wallet(b"wallet");
         let system = System::new("pending_transaction");
         let persistent_config_id_stamp = ArbitraryIdStamp::new();
@@ -4030,7 +4027,7 @@ mod tests {
                 top_records_opt: None,
                 custom_queries_opt: None,
             }
-            .tmb(2222),
+                .tmb(2222),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -4114,7 +4111,7 @@ mod tests {
                 top_records_opt: None,
                 custom_queries_opt: None,
             }
-            .tmb(2222),
+                .tmb(2222),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -4177,7 +4174,7 @@ mod tests {
                 }),
                 query_results_opt: None
             }
-            .tmb(context_id)
+                .tmb(context_id)
         )
     }
 
@@ -4254,12 +4251,12 @@ mod tests {
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 58,
                         pending_payable_hash_opt: None
-                    },]),
+                    }, ]),
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
                         age_s: extracted_receivable_ages[0],
                         balance_gwei: 3_788_455
-                    },])
+                    }, ])
                 }),
             }
         );
@@ -4420,7 +4417,7 @@ mod tests {
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 5,
                         pending_payable_hash_opt: None
-                    },]),
+                    }, ]),
                     receivable_opt: Some(vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
@@ -4609,8 +4606,7 @@ mod tests {
         expected = "Broken code: PayableAccount with less than 1 gwei passed through db query \
      constraints; wallet: 0x0000000000000000000000000061626364313233, balance: 8686005"
     )]
-    fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei(
-    ) {
+    fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei() {
         let payable_accounts_retrieved = vec![PayableAccount {
             wallet: make_wallet("abcd123"),
             balance_wei: 8_686_005,
@@ -4646,8 +4642,7 @@ mod tests {
         expected = "Broken code: ReceivableAccount with balance between 1 and 0 gwei passed through \
      db query constraints; wallet: 0x0000000000000000000000000061626364313233, balance: 7686005"
     )]
-    fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei(
-    ) {
+    fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei() {
         let receivable_accounts_retrieved = vec![ReceivableAccount {
             wallet: make_wallet("abcd123"),
             balance_wei: 7_686_005,
@@ -4886,11 +4881,10 @@ pub mod exportable_test_parts {
         }
     }
 
-    fn verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao(
-    ) -> ShouldWeRunTheTest {
+    fn verify_presence_of_user_defined_sqlite_fns_in_new_delinquencies_for_receivable_dao() -> ShouldWeRunTheTest {
         fn skip_down_to_first_line_saying_new_delinquencies(
-            previous: impl Iterator<Item = String>,
-        ) -> impl Iterator<Item = String> {
+            previous: impl Iterator<Item=String>,
+        ) -> impl Iterator<Item=String> {
             previous
                 .skip_while(|line| {
                     let adjusted_line: String = line
@@ -4901,7 +4895,7 @@ pub mod exportable_test_parts {
                 })
                 .skip(1)
         }
-        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item = String>) -> String {
+        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item=String>) -> String {
             fn yield_if_contains_semicolon(line: &str) -> Option<String> {
                 line.contains(';').then(|| line.to_string())
             }
@@ -4940,13 +4934,13 @@ pub mod exportable_test_parts {
                 skip_down_to_first_line_saying_new_delinquencies(
                     lines_with_cut_fn_trait_definition,
                 )
-                .take_while(|line| {
-                    let adjusted_line: String = line
-                        .chars()
-                        .skip_while(|char| char.is_whitespace())
-                        .collect();
-                    !adjusted_line.starts_with("fn")
-                });
+                    .take_while(|line| {
+                        let adjusted_line: String = line
+                            .chars()
+                            .skip_while(|char| char.is_whitespace())
+                            .collect();
+                        !adjusted_line.starts_with("fn")
+                    });
             assert_is_not_trait_definition(assumed_implemented_function_body)
         }
         fn user_defined_functions_detected(line_undivided_fn_body: &str) -> bool {

@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 // TODO: GH-744: At the end of the review rename this file to: web3_blockchain_interface_utils.rs
-// TODO: GH-744: Or we should move this file into blockchain_interface_web3
+//       Or we should move this file into blockchain_interface_web3
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
@@ -186,51 +186,31 @@ pub fn sign_transaction_locally(
 pub fn sign_and_append_payment(
     chain: Chain,
     web3_batch: &Web3<Batch<Http>>,
-    recipient_wallet: Wallet,
+    recipient: &PayableAccount,
     consuming_wallet: Wallet,
-    amount: u128,
     nonce: U256,
     gas_price_in_wei: u128,
-) -> H256 {
+) -> HashAndAmount {
     let signed_tx = sign_transaction(
         chain,
         web3_batch,
-        recipient_wallet,
+        recipient.wallet.clone(),
         consuming_wallet,
-        amount,
+        recipient.balance_wei,
         nonce,
         gas_price_in_wei,
     );
     append_signed_transaction_to_batch(web3_batch, signed_tx.raw_transaction);
-    signed_tx.transaction_hash
+
+    HashAndAmount {
+        hash: signed_tx.transaction_hash,
+        amount: recipient.balance_wei,
+    }
 }
 
 pub fn append_signed_transaction_to_batch(web3_batch: &Web3<Batch<Http>>, raw_transaction: Bytes) {
     // This function only prepares a raw transaction for a batch call and doesn't actually send it right here.
     web3_batch.eth().send_raw_transaction(raw_transaction);
-}
-
-pub fn handle_new_transaction(
-    chain: Chain,
-    web3_batch: &Web3<Batch<Http>>,
-    consuming_wallet: Wallet,
-    nonce: U256,
-    gas_price_in_wei: u128,
-    account: &PayableAccount,
-) -> HashAndAmount {
-    let hash = sign_and_append_payment(
-        chain,
-        web3_batch,
-        account.wallet.clone(),
-        consuming_wallet,
-        account.balance_wei,
-        nonce,
-        gas_price_in_wei,
-    );
-    HashAndAmount {
-        hash,
-        amount: account.balance_wei,
-    }
 }
 
 pub fn sign_and_append_multiple_payments(
@@ -252,13 +232,13 @@ pub fn sign_and_append_multiple_payments(
             pending_nonce
         );
 
-        let hash_and_amount = handle_new_transaction(
+        let hash_and_amount = sign_and_append_payment(
             chain,
             web3_batch,
+            payable,
             consuming_wallet.clone(),
             pending_nonce,
             gas_price_in_wei,
-            payable,
         );
 
         pending_nonce = advance_used_nonce(pending_nonce);
@@ -331,17 +311,7 @@ pub fn send_payables_within_batch(
     )
 }
 
-// TODO: GH-744: Migrate this to blockchain/blockchain_bridge.rs and remove pub
-pub fn calculate_fallback_start_block_number(start_block_number: u64, max_block_count: u64) -> u64 {
-    if max_block_count == u64::MAX {
-        start_block_number + 1u64
-    } else {
-        start_block_number + max_block_count
-    }
-}
-
-// TODO: GH-744: This function could be part of the trait BlockchainAgent (so gas_limit_const_part can go away)
-pub fn create_blockchain_agent_web3(
+pub fn dynamically_create_blockchain_agent_web3(
     gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
@@ -400,63 +370,6 @@ mod tests {
     use web3::Error::Rpc;
 
     #[test]
-    fn calculate_fallback_start_block_number_works() {
-        assert_eq!(
-            calculate_fallback_start_block_number(10_000, u64::MAX),
-            10_000 + 1
-        );
-        assert_eq!(
-            calculate_fallback_start_block_number(5_000, 10_000),
-            5_000 + 10_000
-        );
-    }
-
-    #[test]
-    fn append_signed_transaction_to_batch_works() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .response(
-                "0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string(),
-                7,
-            )
-            .end_batch()
-            .start();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let web3_batch = Web3::new(Batch::new(transport));
-        let pending_nonce = 1;
-        let chain = TEST_DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
-        let signed_transaction = sign_transaction(
-            chain,
-            &web3_batch,
-            account.wallet,
-            consuming_wallet,
-            account.balance_wei,
-            pending_nonce.into(),
-            (gas_price * 1_000_000_000) as u128,
-        );
-
-        append_signed_transaction_to_batch(&web3_batch, signed_transaction.raw_transaction);
-
-        let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
-        let result = batch_result.pop().unwrap().unwrap();
-        assert_eq!(
-            result,
-            Value::String(
-                "0x8290c22bd9b4d61bc57222698799edd7bbc8df5214be44e239a95f679249c59c".to_string()
-            )
-        );
-    }
-
-    // TODO: GH-744: Review this test. with the test above, do we really need both?
-    #[test]
     fn sign_and_append_payment_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
@@ -482,9 +395,8 @@ mod tests {
         let result = sign_and_append_payment(
             chain,
             &web3_batch,
-            account.wallet,
+            &account,
             consuming_wallet,
-            account.balance_wei,
             pending_nonce.into(),
             (gas_price * 1_000_000_000) as u128,
         );
@@ -492,8 +404,10 @@ mod tests {
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
         assert_eq!(
             result,
-            H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2")
-                .unwrap()
+            HashAndAmount {
+                hash: H256::from_str("94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2").unwrap(),
+                amount: account.balance_wei
+            }
         );
         assert_eq!(
             batch_result.pop().unwrap().unwrap(),
@@ -501,42 +415,6 @@ mod tests {
                 "0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string()
             )
         );
-    }
-
-    // TODO: GH-744: Review this test and the test below it, do we really need both?
-    #[test]
-    fn handle_new_transaction_works() {
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let web3_batch = Web3::new(Batch::new(transport));
-        let pending_nonce = 1;
-        let chain = DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
-        let consuming_wallet = make_paying_wallet(b"paying_wallet");
-        let account = make_payable_account(1);
-        let amount = account.balance_wei;
-
-        let result = handle_new_transaction(
-            chain,
-            &web3_batch,
-            consuming_wallet,
-            pending_nonce.into(),
-            (gas_price * 1_000_000_000) as u128,
-            &account,
-        );
-
-        let expected_hash_and_amount = HashAndAmount {
-            hash: H256::from_str(
-                "94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2",
-            )
-                .unwrap(),
-            amount,
-        };
-        assert_eq!(result, expected_hash_and_amount);
     }
 
     #[test]
@@ -692,7 +570,6 @@ mod tests {
         )
     }
 
-    // TODO: GH-744 Change gas_price & nonce from 1 to something else
     #[test]
     fn send_payables_within_batch_works() {
         init_test_logging();
@@ -714,8 +591,8 @@ mod tests {
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1_000_000_000;
-        let pending_nonce: U256 = 1.into();
+        let gas_price = 53_000_000_000;
+        let pending_nonce: U256 = 97.into();
         let new_fingerprints_recipient = accountant.start().recipient();
         let accounts_1 = make_payable_account(1);
         let accounts_2 = make_payable_account(2);
@@ -749,14 +626,14 @@ mod tests {
             vec![
                 HashAndAmount {
                     hash: H256::from_str(
-                        "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
+                        "27106b6f1e67f68ae1265f2c6e3d1ae9f16494fb71755555dbd30a37a8f57206"
                     )
                         .unwrap(),
                     amount: accounts_1.balance_wei
                 },
                 HashAndAmount {
                     hash: H256::from_str(
-                        "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
+                        "aeebcd2de0895e0eace9dcb99bbafc134591aa22408b243f5ff895b2ec993d25"
                     )
                         .unwrap(),
                     amount: accounts_2.balance_wei
@@ -769,7 +646,7 @@ mod tests {
             ProcessedPayableFallible::Correct(PendingPayable {
                 recipient_wallet: accounts_1.wallet,
                 hash: H256::from_str(
-                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
+                    "27106b6f1e67f68ae1265f2c6e3d1ae9f16494fb71755555dbd30a37a8f57206"
                 )
                     .unwrap()
             })
@@ -779,7 +656,7 @@ mod tests {
             ProcessedPayableFallible::Correct(PendingPayable {
                 recipient_wallet: accounts_2.wallet,
                 hash: H256::from_str(
-                    "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
+                    "aeebcd2de0895e0eace9dcb99bbafc134591aa22408b243f5ff895b2ec993d25"
                 )
                     .unwrap()
             })

@@ -32,7 +32,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -44,7 +44,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_service_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
         Box::new(
             self.contract
                 .query("balanceOf", address, None, Options::default(), None)
@@ -52,7 +52,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    fn get_gas_price(&self) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -61,7 +61,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
+    fn get_block_number(&self) -> Box<dyn Future<Item=U64, Error=BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -73,7 +73,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_id(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -85,7 +85,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
-    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=Vec<Result<Value, Error>>, Error=BlockchainError>> {
         let _ = hash_vec.into_iter().map(|hash| {
             self.web3_batch.eth().transaction_receipt(hash);
         });
@@ -97,15 +97,14 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    // TODO: GH-744: this should be just get_contract_address, we only need the address.
-    fn get_contract(&self) -> Contract<Http> {
-        self.contract.clone()
+    fn get_contract_address(&self) -> Address {
+        self.contract.address()
     }
 
     fn get_transaction_logs(
         &self,
         filter: Filter,
-    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>> {
+    ) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -156,7 +155,7 @@ mod tests {
             .response("0x23".to_string(), 1)
             .start();
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .lower_interface()
@@ -167,13 +166,12 @@ mod tests {
     }
 
     #[test]
-    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
-    ) {
+    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0xFFFQ".to_string(), 0)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .lower_interface()
@@ -198,7 +196,7 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x01".to_string(), 1)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject.lower_interface().get_gas_price().wait().unwrap();
 
@@ -209,7 +207,7 @@ mod tests {
     fn get_gas_price_returns_error() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let error = subject
             .lower_interface()
@@ -229,7 +227,7 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x23".to_string(), 1)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject.lower_interface().get_block_number().wait();
 
@@ -242,7 +240,7 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("trash".to_string(), 1)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let error = subject
             .lower_interface()
@@ -264,7 +262,7 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0x23".to_string(), 1)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
 
         let result = subject
@@ -281,7 +279,7 @@ mod tests {
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0xFFFQ".to_string(), 0)
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .lower_interface()
@@ -309,7 +307,7 @@ mod tests {
                 0,
             )
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .lower_interface()
@@ -334,7 +332,7 @@ mod tests {
             )
             .start();
         let expected_err_msg = "Invalid hex";
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
 
         let result = subject
             .lower_interface()
@@ -361,7 +359,7 @@ mod tests {
     fn transaction_receipt_batch_fails_on_submit_batch() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let tx_hash_1 =
             H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
                 .unwrap();
@@ -419,7 +417,7 @@ mod tests {
               ]
             }"#.to_string())
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let contract_address = subject.chain.rec().contract;
         let start_block = BlockNumber::Number(U64::from(100));
         let response_block_number = BlockNumber::Number(U64::from(200));
@@ -450,7 +448,7 @@ mod tests {
                 topics: vec![H256::from_str(
                     "241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80"
                 )
-                .unwrap()],
+                    .unwrap()],
                 data: Bytes(vec![
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 51, 16, 114, 0, 88, 197, 31, 13, 228,
                     86, 226, 115, 198, 38, 205, 211
@@ -459,14 +457,14 @@ mod tests {
                     H256::from_str(
                         "7c5a35e9cb3e8ae0e221ab470abae9d446c3a5626ce6689fc777dcffcab52c70"
                     )
-                    .unwrap()
+                        .unwrap()
                 ),
                 block_number: Some(U64::from(6040059)),
                 transaction_hash: Some(
                     H256::from_str(
                         "3dc91b98249fa9f2c5c37486a2427a3a7825be240c1c84961dfb3063d9c04d50"
                     )
-                    .unwrap()
+                        .unwrap()
                 ),
                 transaction_index: Some(U64::from(29)),
                 log_index: Some(U256::from(29)),
@@ -501,7 +499,7 @@ mod tests {
               ]
             }"#.to_string())
             .start();
-        let subject = make_blockchain_interface_web3(Some(port));
+        let subject = make_blockchain_interface_web3(port);
         let contract_address = subject.chain.rec().contract;
         let start_block = BlockNumber::Number(U64::from(100));
         let response_block_number = BlockNumber::Number(U64::from(200));
