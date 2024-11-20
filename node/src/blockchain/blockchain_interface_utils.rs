@@ -27,7 +27,7 @@ use std::iter::once;
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::transports::{Batch, Http};
-use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256, U256};
+use web3::types::{Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::Error as Web3Error;
 use web3::Web3;
 
@@ -220,10 +220,10 @@ pub fn sign_and_append_multiple_payments(
     consuming_wallet: Wallet,
     gas_price_in_wei: u128,
     mut pending_nonce: U256,
-    accounts: &Vec<PayableAccount>,
+    accounts: &[PayableAccount],
 ) -> Vec<HashAndAmount> {
     let mut hash_and_amount_list = vec![];
-    accounts.into_iter().for_each(|payable| {
+    accounts.iter().for_each(|payable| {
         debug!(
             logger,
             "Preparing payable future of {} wei to {} with nonce {}",
@@ -355,6 +355,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::decode_hex;
     use actix::{Actor, System};
     use ethabi::Address;
+    use ethereum_types::H256;
     use jsonrpc_core::ErrorCode::ServerError;
     use jsonrpc_core::{Error, ErrorCode};
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
