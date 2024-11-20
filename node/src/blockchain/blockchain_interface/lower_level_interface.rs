@@ -4,7 +4,6 @@ use crate::blockchain::blockchain_interface::data_structures::errors::Blockchain
 use ethereum_types::{H256, U64};
 use futures::Future;
 use serde_json::Value;
-use web3::contract::Contract;
 use web3::transports::{Batch, Http};
 use web3::types::{Address, Filter, Log, U256};
 use web3::{Error, Web3};
@@ -17,33 +16,33 @@ pub trait LowBlockchainInt {
     fn get_transaction_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_service_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_gas_price(&self) -> Box<dyn Future<Item=U256, Error=BlockchainError>>;
+    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
-    fn get_block_number(&self) -> Box<dyn Future<Item=U64, Error=BlockchainError>>;
+    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>>;
 
     fn get_transaction_id(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>>;
 
     fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
-    ) -> Box<dyn Future<Item=Vec<Result<Value, Error>>, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainError>>;
 
     fn get_contract_address(&self) -> Address;
 
     fn get_transaction_logs(
         &self,
         filter: Filter,
-    ) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>>;
+    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>>;
 
     fn get_web3_batch(&self) -> Web3<Batch<Http>>;
 }

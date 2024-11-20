@@ -85,12 +85,12 @@ impl ConsumingWalletBalances {
 mod tests {
     use crate::actor_system_factory::SubsFactory;
     use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactoryReal};
+    use crate::blockchain::test_utils::make_blockchain_interface_web3;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
     use actix::Actor;
-    use std::sync::{Arc, Mutex};
     use masq_lib::utils::find_free_port;
-    use crate::blockchain::test_utils::make_blockchain_interface_web3;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn blockchain_bridge_subs_debug() {

@@ -32,7 +32,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -44,7 +44,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_service_fee_balance(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         Box::new(
             self.contract
                 .query("balanceOf", address, None, Options::default(), None)
@@ -52,7 +52,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_gas_price(&self) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
+    fn get_gas_price(&self) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -61,7 +61,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         )
     }
 
-    fn get_block_number(&self) -> Box<dyn Future<Item=U64, Error=BlockchainError>> {
+    fn get_block_number(&self) -> Box<dyn Future<Item = U64, Error = BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -73,7 +73,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_id(
         &self,
         address: Address,
-    ) -> Box<dyn Future<Item=U256, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = U256, Error = BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -85,7 +85,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_receipt_in_batch(
         &self,
         hash_vec: Vec<H256>,
-    ) -> Box<dyn Future<Item=Vec<Result<Value, Error>>, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainError>> {
         let _ = hash_vec.into_iter().map(|hash| {
             self.web3_batch.eth().transaction_receipt(hash);
         });
@@ -104,7 +104,7 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
     fn get_transaction_logs(
         &self,
         filter: Filter,
-    ) -> Box<dyn Future<Item=Vec<Log>, Error=BlockchainError>> {
+    ) -> Box<dyn Future<Item = Vec<Log>, Error = BlockchainError>> {
         Box::new(
             self.web3
                 .eth()
@@ -166,7 +166,8 @@ mod tests {
     }
 
     #[test]
-    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance() {
+    fn get_transaction_fee_balance_returns_an_error_for_unintelligible_response_to_requesting_eth_balance(
+    ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .response("0xFFFQ".to_string(), 0)
@@ -448,7 +449,7 @@ mod tests {
                 topics: vec![H256::from_str(
                     "241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80"
                 )
-                    .unwrap()],
+                .unwrap()],
                 data: Bytes(vec![
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 51, 16, 114, 0, 88, 197, 31, 13, 228,
                     86, 226, 115, 198, 38, 205, 211
@@ -457,14 +458,14 @@ mod tests {
                     H256::from_str(
                         "7c5a35e9cb3e8ae0e221ab470abae9d446c3a5626ce6689fc777dcffcab52c70"
                     )
-                        .unwrap()
+                    .unwrap()
                 ),
                 block_number: Some(U64::from(6040059)),
                 transaction_hash: Some(
                     H256::from_str(
                         "3dc91b98249fa9f2c5c37486a2427a3a7825be240c1c84961dfb3063d9c04d50"
                     )
-                        .unwrap()
+                    .unwrap()
                 ),
                 transaction_index: Some(U64::from(29)),
                 log_index: Some(U256::from(29)),

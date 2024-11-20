@@ -2,39 +2,21 @@
 
 #![cfg(test)]
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainAgentBuildError, BlockchainError, PayableTransactionError};
-use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RetrievedBlockchainTransactions};
-use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
-use crate::set_arbitrary_id_stamp_in_mock_impl;
-use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use bip39::{Language, Mnemonic, Seed};
 use ethabi::Hash;
 use ethereum_types::{BigEndianHash, H160, H256, U64};
-use futures::future::result;
-use futures::Future;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::{find_free_port, to_string};
+use masq_lib::utils::to_string;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
-use std::sync::{Arc, Mutex};
-use actix::Recipient;
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{
-    Address, BlockNumber, Index, Log, SignedTransaction, TransactionReceipt, H2048, U256,
-};
-use masq_lib::logger::Logger;
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+use web3::types::{Index, Log, SignedTransaction, TransactionReceipt, H2048, U256};
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -63,7 +45,7 @@ pub fn make_blockchain_interface_web3(port: u16) -> BlockchainInterfaceWeb3 {
         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
         REQUESTS_IN_PARALLEL,
     )
-        .unwrap();
+    .unwrap();
 
     BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
 }

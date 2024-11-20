@@ -246,7 +246,7 @@ impl BlockchainBridge {
     fn handle_qualified_payable_msg(
         &mut self,
         incoming_message: QualifiedPayablesMessage,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         // TODO rewrite this into a batch call as soon as GH-629 gets into master
         let accountant_recipient = self.payable_payments_setup_subs_opt.clone();
         Box::new(
@@ -271,7 +271,7 @@ impl BlockchainBridge {
     fn handle_outbound_payments_instructions(
         &mut self,
         msg: OutboundPaymentsInstructions,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let skeleton_opt = msg.response_skeleton_opt;
         let sent_payable_subs = self
             .sent_payable_subs_opt
@@ -306,7 +306,7 @@ impl BlockchainBridge {
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let (start_block_nbr, max_block_count) = {
             let persistent_config_lock = self
                 .persistent_config_arc
@@ -388,7 +388,7 @@ impl BlockchainBridge {
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
-    ) -> Box<dyn Future<Item=(), Error=String>> {
+    ) -> Box<dyn Future<Item = (), Error = String>> {
         let logger = self.logger.clone();
         let accountant_recipient = self
             .pending_payable_confirmation
@@ -439,7 +439,7 @@ impl BlockchainBridge {
 
     fn handle_scan_future<M, F>(&mut self, handler: F, scan_type: ScanType, msg: M)
     where
-        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item=(), Error=String>>,
+        F: FnOnce(&mut BlockchainBridge, M) -> Box<dyn Future<Item = (), Error = String>>,
         M: SkeletonOptHolder,
     {
         let skeleton_opt = msg.skeleton_opt();
@@ -473,7 +473,7 @@ impl BlockchainBridge {
         &self,
         agent: Box<dyn BlockchainAgent>,
         affordable_accounts: Vec<PayableAccount>,
-    ) -> Box<dyn Future<Item=Vec<ProcessedPayableFallible>, Error=PayableTransactionError>>
+    ) -> Box<dyn Future<Item = Vec<ProcessedPayableFallible>, Error = PayableTransactionError>>
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
@@ -552,8 +552,7 @@ mod tests {
         BlockchainTransaction, RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::{
-        make_blockchain_interface_web3, make_tx_hash,
-        ReceiptResponseBuilder,
+        make_blockchain_interface_web3, make_tx_hash, ReceiptResponseBuilder,
     };
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
@@ -624,7 +623,7 @@ mod tests {
         addr.try_send(BindMessage {
             peer_actors: peer_actors_builder().build(),
         })
-            .unwrap();
+        .unwrap();
 
         System::current().stop();
         system.run();
@@ -667,7 +666,8 @@ mod tests {
     }
 
     #[test]
-    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant() {
+    fn qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant(
+    ) {
         let system = System::new(
             "qualified_payables_msg_is_handled_and_new_msg_with_an_added_blockchain_agent_returns_to_accountant",
         );
@@ -826,7 +826,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant() {
+    fn handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant(
+    ) {
         let system = System::new(
             "handle_outbound_payments_instructions_sees_payments_happen_and_sends_payment_results_back_to_accountant",
         );
@@ -894,7 +895,7 @@ mod tests {
                     hash: H256::from_str(
                         "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                     )
-                        .unwrap()
+                    .unwrap()
                 })]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -910,7 +911,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                    .unwrap(),
+                .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -985,7 +986,7 @@ mod tests {
                 hash: H256::from_str(
                     "36e9d7cdd657181317dd461192d537d9944c57a51ee950607de5a618b00e57a1"
                 )
-                    .unwrap(),
+                .unwrap(),
                 amount: accounts[0].balance_wei
             }]
         );
@@ -1051,7 +1052,7 @@ mod tests {
                 hash: H256::from_str(
                     "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
                 )
-                    .unwrap()
+                .unwrap()
             })
         );
         assert_eq!(
@@ -1061,7 +1062,7 @@ mod tests {
                 hash: H256::from_str(
                     "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
                 )
-                    .unwrap()
+                .unwrap()
             })
         );
         let recording = accountant_recording.lock().unwrap();
@@ -1255,7 +1256,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort() {
+    fn handle_request_transaction_receipts_short_circuits_on_failure_from_remote_process_sends_back_all_good_results_and_logs_abort(
+    ) {
         init_test_logging();
         let port = find_free_port();
         let block_number = U64::from(4545454);
@@ -1512,12 +1514,12 @@ mod tests {
                 BlockchainTransaction {
                     block_number: 6040059,
                     from: make_wallet("first_wallet"), // Points to topics of 1
-                    wei_amount: 42,  // Its points to the field data
+                    wei_amount: 42,                    // Its points to the field data
                 },
                 BlockchainTransaction {
                     block_number: 6040060,
                     from: make_wallet("second_wallet"), // Points to topics of 1
-                    wei_amount: 55, // Its points to the field data
+                    wei_amount: 55,                     // Its points to the field data
                 },
             ],
         };
@@ -2111,7 +2113,7 @@ pub mod exportable_test_parts {
     use crate::test_utils::unshared_test_utils::SubsFactoryTestAddrLeaker;
 
     impl SubsFactory<BlockchainBridge, BlockchainBridgeSubs>
-    for SubsFactoryTestAddrLeaker<BlockchainBridge>
+        for SubsFactoryTestAddrLeaker<BlockchainBridge>
     {
         fn make(&self, addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
             self.send_leaker_msg_and_return_meaningless_subs(
