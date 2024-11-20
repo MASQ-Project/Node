@@ -510,7 +510,7 @@ pub struct RouteQueryMessage {
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
     pub hostname_opt: Option<String>,
-    pub target_country_opt: Option<String>
+    pub target_country_opt: Option<String>,
 }
 
 impl Message for RouteQueryMessage {
@@ -529,7 +529,7 @@ impl RouteQueryMessage {
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
             hostname_opt,
-            target_country_opt
+            target_country_opt,
         }
     }
 }
