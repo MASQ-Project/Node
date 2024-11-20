@@ -570,33 +570,25 @@ mod tests {
         )
     }
 
-    #[test]
-    fn send_payables_within_batch_works() {
+    fn execute_send_payables_test(
+        test_name: &str,
+        accounts: Vec<PayableAccount>,
+        expected_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
+        port: u16,
+    ) {
         init_test_logging();
-        let test_name = "send_payables_within_batch_works";
-        let port = find_free_port();
         let (_event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .response("rpc_result_2".to_string(), 8)
-            .end_batch()
-            .start();
+        ).unwrap();
+        let gas_price = 1_000_000_000;
+        let pending_nonce: U256 = 1.into();
         let web3_batch = Web3::new(Batch::new(transport));
         let (accountant, _, accountant_recording) = make_recorder();
         let logger = Logger::new(test_name);
         let chain = DEFAULT_CHAIN;
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 53_000_000_000;
-        let pending_nonce: U256 = 97.into();
         let new_fingerprints_recipient = accountant.start().recipient();
-        let accounts_1 = make_payable_account(1);
-        let accounts_2 = make_payable_account(2);
-        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
         let system = System::new(test_name);
         let timestamp_before = SystemTime::now();
 
@@ -609,58 +601,16 @@ mod tests {
             pending_nonce,
             new_fingerprints_recipient,
             accounts.clone(),
-        )
-            .wait();
+        ).wait();
 
         System::current().stop();
         system.run();
         let timestamp_after = SystemTime::now();
         let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message =
-            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
+        let ppfs_message = accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
         assert_eq!(accountant_recording_result.len(), 1);
         assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
         assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
-        assert_eq!(
-            ppfs_message.hashes_and_balances,
-            vec![
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "27106b6f1e67f68ae1265f2c6e3d1ae9f16494fb71755555dbd30a37a8f57206"
-                    )
-                        .unwrap(),
-                    amount: accounts_1.balance_wei
-                },
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "aeebcd2de0895e0eace9dcb99bbafc134591aa22408b243f5ff895b2ec993d25"
-                    )
-                        .unwrap(),
-                    amount: accounts_2.balance_wei
-                },
-            ]
-        );
-        let processed_payments = result.unwrap();
-        assert_eq!(
-            processed_payments[0],
-            ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: accounts_1.wallet,
-                hash: H256::from_str(
-                    "27106b6f1e67f68ae1265f2c6e3d1ae9f16494fb71755555dbd30a37a8f57206"
-                )
-                    .unwrap()
-            })
-        );
-        assert_eq!(
-            processed_payments[1],
-            ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: accounts_2.wallet,
-                hash: H256::from_str(
-                    "aeebcd2de0895e0eace9dcb99bbafc134591aa22408b243f5ff895b2ec993d25"
-                )
-                    .unwrap()
-            })
-        );
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(
             &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -674,51 +624,126 @@ mod tests {
             "INFO: {test_name}: {}",
             transmission_log(chain, &accounts, gas_price)
         ));
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn send_payables_within_batch_works() {
+        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let expected_result = Ok(vec![
+            Correct(PendingPayable {
+                recipient_wallet: accounts[0].wallet.clone(),
+                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+            }),
+            Correct(PendingPayable {
+                recipient_wallet: accounts[1].wallet.clone(),
+                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+            }),
+        ]);
+
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .response("rpc_result".to_string(), 7)
+            .response("rpc_result_2".to_string(), 8)
+            .end_batch()
+            .start();
+        execute_send_payables_test("send_payables_within_batch_works", accounts, expected_result, port);
     }
 
     #[test]
     fn send_payables_within_batch_fails_on_submit_batch_call() {
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let recipient_wallet = make_wallet("blah123");
-        let unimportant_recipient = Recorder::new().start().recipient();
-        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
-            recipient_wallet.clone(),
-            5000,
-            None,
-        );
-        let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let gas_price = 123_000_000_000;
-        let nonce = U256::from(1);
+        let accounts = vec![make_payable_account(1), make_payable_account(2)];
         let os_code = transport_error_code();
         let os_msg = transport_error_message();
+        let expected_result = Err(Sending {
+            msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
+            hashes: vec![
+                H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+                H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap()
+            ],
+        });
 
-        let result = send_payables_within_batch(
-            &Logger::new("test"),
-            TEST_DEFAULT_CHAIN,
-            &Web3::new(Batch::new(transport)),
-            consuming_wallet,
-            gas_price,
-            nonce,
-            unimportant_recipient,
-            vec![account],
-        )
-            .wait();
+        let port = find_free_port();
+        execute_send_payables_test("send_payables_within_batch_fails_on_submit_batch_call", accounts, expected_result, port);
+    }
 
-        assert_eq!(
-            result,
-            Err(
-                Sending {
-                    msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
-                    hashes: vec![H256::from_str("424c0231591a9879d82f25e0d81e09f39499b2bfd56b3aba708491995e35b4ac").unwrap()]
-                }
+    #[test]
+    fn send_payables_within_batch_all_payments_fail() {
+        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let expected_result = Ok(vec![
+            Failed(RpcPayableFailure {
+                rpc_error: Rpc(Error {
+                    code: ServerError(429),
+                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                    data: None,
+                }),
+                recipient_wallet: accounts[0].wallet.clone(),
+                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+            }),
+            Failed(RpcPayableFailure {
+                rpc_error: Rpc(Error {
+                    code: ServerError(429),
+                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                    data: None,
+                }),
+                recipient_wallet: accounts[1].wallet.clone(),
+                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+            }),
+        ]);
+
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                7,
             )
-        );
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                8,
+            )
+            .end_batch()
+            .start();
+        execute_send_payables_test("send_payables_within_batch_all_payments_fail", accounts, expected_result, port);
+    }
+
+    #[test]
+    fn send_payables_within_batch_one_payment_works_the_other_fails() {
+        let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let expected_result = Ok(vec![
+            Correct(PendingPayable {
+                recipient_wallet: accounts[0].wallet.clone(),
+                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+            }),
+            Failed(RpcPayableFailure {
+                rpc_error: Rpc(Error {
+                    code: ServerError(429),
+                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                    data: None,
+                }),
+                recipient_wallet: accounts[1].wallet.clone(),
+                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+            }),
+        ]);
+
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .response("rpc_result".to_string(), 7)
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                7,
+            )
+            .end_batch()
+            .start();
+        execute_send_payables_test("send_payables_within_batch_one_payment_works_the_other_fails", accounts, expected_result, port);
     }
 
     #[test]
@@ -755,231 +780,6 @@ mod tests {
             nonce,
             gas_price,
         );
-    }
-
-    // TODO: GH-744: Find the tests similar to this one and refactor them to remove duplicated code.
-    #[test]
-    fn send_payables_within_batch_all_payments_fail() {
-        init_test_logging();
-        let test_name = "send_payables_within_batch_all_payments_fail";
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                7,
-            )
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                8,
-            )
-            .end_batch()
-            .start();
-        let web3_batch = Web3::new(Batch::new(transport));
-        let (accountant, _, accountant_recording) = make_recorder();
-        let logger = Logger::new(test_name);
-        let chain = DEFAULT_CHAIN;
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1_000_000_000;
-        let pending_nonce: U256 = 1.into();
-        let new_fingerprints_recipient = accountant.start().recipient();
-        let accounts_1 = make_payable_account(1);
-        let accounts_2 = make_payable_account(2);
-        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
-        let system = System::new(test_name);
-        let timestamp_before = SystemTime::now();
-
-        let result = send_payables_within_batch(
-            &logger,
-            chain,
-            &web3_batch,
-            consuming_wallet.clone(),
-            gas_price,
-            pending_nonce,
-            new_fingerprints_recipient,
-            accounts.clone(),
-        )
-            .wait();
-
-        System::current().stop();
-        system.run();
-        let timestamp_after = SystemTime::now();
-        let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message =
-            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(accountant_recording_result.len(), 1);
-        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
-        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
-        assert_eq!(
-            ppfs_message.hashes_and_balances,
-            vec![
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
-                    )
-                        .unwrap(),
-                    amount: accounts_1.balance_wei
-                },
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
-                    )
-                        .unwrap(),
-                    amount: accounts_2.balance_wei
-                },
-            ]
-        );
-        let processed_payments = result.unwrap();
-        assert_eq!(processed_payments[0], Failed(RpcPayableFailure {
-            rpc_error: Rpc(Error {
-                code: ServerError(429),
-                message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                data: None,
-            }),
-            recipient_wallet: accounts_1.wallet,
-            hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
-        }));
-        assert_eq!(processed_payments[1], Failed(RpcPayableFailure {
-            rpc_error: Rpc(Error {
-                code: ServerError(429),
-                message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                data: None,
-            }),
-            recipient_wallet: accounts_2.wallet,
-            hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
-        }));
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(
-            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
-                     consuming_wallet,
-                     chain.rec().contract,
-                     chain.rec().num_chain_id,
-                     gas_price
-            )
-        );
-        tlh.exists_log_containing(&format!(
-            "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
-        ));
-    }
-
-    #[test]
-    fn send_payables_within_batch_one_payment_works_the_other_fails() {
-        init_test_logging();
-        let test_name = "send_payables_within_batch_one_payment_works_the_other_fails";
-        let port = find_free_port();
-        let (_event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-            .unwrap();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                7,
-            )
-            .end_batch()
-            .start();
-        let web3_batch = Web3::new(Batch::new(transport.clone()));
-        let (accountant, _, accountant_recording) = make_recorder();
-        let logger = Logger::new(test_name);
-        let chain = DEFAULT_CHAIN;
-        let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let gas_price = 1_000_000_000;
-        let pending_nonce: U256 = 1.into();
-        let new_fingerprints_recipient = accountant.start().recipient();
-        let accounts_1 = make_payable_account(1);
-        let accounts_2 = make_payable_account(2);
-        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
-        let system = System::new(test_name);
-        let timestamp_before = SystemTime::now();
-
-        let result = send_payables_within_batch(
-            &logger,
-            chain,
-            &web3_batch,
-            consuming_wallet.clone(),
-            gas_price,
-            pending_nonce,
-            new_fingerprints_recipient,
-            accounts.clone(),
-        )
-            .wait();
-
-        System::current().stop();
-        system.run();
-        let timestamp_after = SystemTime::now();
-        let accountant_recording_result = accountant_recording.lock().unwrap();
-        let ppfs_message =
-            accountant_recording_result.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(accountant_recording_result.len(), 1);
-        assert!(timestamp_before <= ppfs_message.batch_wide_timestamp);
-        assert!(timestamp_after >= ppfs_message.batch_wide_timestamp);
-        assert_eq!(
-            ppfs_message.hashes_and_balances,
-            vec![
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
-                    )
-                        .unwrap(),
-                    amount: accounts_1.balance_wei
-                },
-                HashAndAmount {
-                    hash: H256::from_str(
-                        "7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3"
-                    )
-                        .unwrap(),
-                    amount: accounts_2.balance_wei
-                },
-            ]
-        );
-        let processed_payments = result.unwrap();
-        assert_eq!(
-            processed_payments[0],
-            ProcessedPayableFallible::Correct(PendingPayable {
-                recipient_wallet: accounts_1.wallet,
-                hash: H256::from_str(
-                    "35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4"
-                )
-                    .unwrap()
-            })
-        );
-        assert_eq!(processed_payments[1], ProcessedPayableFallible::Failed(RpcPayableFailure {
-            rpc_error: Rpc(Error {
-                code: ServerError(429),
-                message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                data: None,
-            }),
-            recipient_wallet: accounts_2.wallet,
-            hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
-        }));
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(
-            &format!("DEBUG: {test_name}: Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
-                     consuming_wallet,
-                     chain.rec().contract,
-                     chain.rec().num_chain_id,
-                     gas_price
-            )
-        );
-        tlh.exists_log_containing(&format!(
-            "INFO: {test_name}: {}",
-            transmission_log(chain, &accounts, gas_price)
-        ));
     }
 
     #[test]

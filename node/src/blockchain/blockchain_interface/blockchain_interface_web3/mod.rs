@@ -775,24 +775,6 @@ mod tests {
         )
     }
 
-    // TODO: GH-744: Migrate test to the place after the helper function below this test.
-    //   You'll find three more tests with a simplified api and I believe that the way it is done will suite also this test.
-    //   Please could do this for better hygiene so that our workspace is cleaner looking forward?
-    #[test]
-    fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let wallet = make_wallet("abc");
-        let subject = make_blockchain_interface_web3(port);
-
-        let err = subject.build_blockchain_agent(wallet).wait().err().unwrap();
-
-        let expected_err = BlockchainAgentBuildError::GasPrice(QueryFailed(
-            "Transport error: Error(IncompleteMessage)".to_string(),
-        ));
-        assert_eq!(err, expected_err)
-    }
-
     fn build_of_the_blockchain_agent_fails_on_blockchain_interface_error<F>(
         port: u16,
         expected_err_factory: F,
@@ -807,6 +789,21 @@ mod tests {
             _ => panic!("we expected Err() but got Ok()"),
         };
         let expected_err = expected_err_factory(&wallet);
+        assert_eq!(err, expected_err)
+    }
+
+    #[test]
+    fn build_of_the_blockchain_agent_fails_on_fetching_gas_price() {
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port).start();
+        let wallet = make_wallet("abc");
+        let subject = make_blockchain_interface_web3(port);
+
+        let err = subject.build_blockchain_agent(wallet).wait().err().unwrap();
+
+        let expected_err = BlockchainAgentBuildError::GasPrice(QueryFailed(
+            "Transport error: Error(IncompleteMessage)".to_string(),
+        ));
         assert_eq!(err, expected_err)
     }
 
