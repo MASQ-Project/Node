@@ -77,7 +77,7 @@ impl NeighborhoodDatabase {
         self.node_by_key(&self.this_node).expect("Internal error")
     }
 
-    pub fn root_key<'a>(&'a self) -> &'a PublicKey {
+    pub fn root_key(&self) -> &PublicKey {
         &self.this_node
     }
 

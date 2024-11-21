@@ -26,7 +26,6 @@ use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::i64::MAX;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::string::ToString;
@@ -125,10 +124,11 @@ impl UserExitPreferences {
     }
 
     pub fn assign_nodes_country_undesirability(&self, node_record: &mut NodeRecord) {
-        let country_code = match node_record.inner.country_code_opt.clone() {
-            Some(code) => code.clone(),
-            None => ZZ_COUNTRY_CODE_STRING.to_string(),
-        };
+        let country_code = node_record
+            .inner
+            .country_code_opt
+            .clone()
+            .unwrap_or_else(|| ZZ_COUNTRY_CODE_STRING.to_string());
         match &self.exit_locations_opt {
             Some(exit_locations_by_priority) => {
                 for exit_location in exit_locations_by_priority {
@@ -1297,7 +1297,7 @@ impl Neighborhood {
                     Some(country_code) => self
                         .user_exit_preferences
                         .exit_countries
-                        .contains(&country_code),
+                        .contains(country_code),
                     _ => false,
                 },
                 _ => false,
@@ -1382,7 +1382,7 @@ impl Neighborhood {
         );
         let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
         over_routes.into_iter().for_each(|segment| {
-            if segment.nodes.len() > 0 {
+            if !segment.nodes.is_empty() {
                 let exit_node = segment.nodes[segment.nodes.len() - 1];
                 result_exit
                     .entry(exit_node.clone())
@@ -1507,7 +1507,7 @@ impl Neighborhood {
                 || self.user_exit_preferences.exit_countries.is_empty())
         // TODO implement the emptying the self.user_exit_preferences.exit_countries on every change of the database when there is no longer any country desired by user in the database
         {
-            // don't continue a targetless search past the minimum hop count
+            // don't continue a targetless search past the minimum hop count //TODO update this comment
             vec![]
         } else {
             self.routing_guts(
@@ -1526,9 +1526,10 @@ impl Neighborhood {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn routing_guts<'a>(
         &'a self,
-        prefix: &Vec<&'a PublicKey>,
+        prefix: &[&'a PublicKey],
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
@@ -1561,7 +1562,7 @@ impl Neighborhood {
                 //
                 //     }
                 // }
-                let mut new_prefix = prefix.clone();
+                let mut new_prefix = prefix.to_owned();
                 new_prefix.push(node_record.public_key());
 
                 let new_hops_remaining = if hops_remaining == 0 {
@@ -1746,13 +1747,13 @@ impl Neighborhood {
         }
     }
 
-    fn set_exit_locations_opt(&mut self, exit_locations_by_priority: &Vec<ExitLocation>) {
+    fn set_exit_locations_opt(&mut self, exit_locations_by_priority: &[ExitLocation]) {
         self.user_exit_preferences.exit_locations_opt =
             match self.user_exit_preferences.exit_countries.is_empty() {
-                false => Some(exit_locations_by_priority.clone()),
+                false => Some(exit_locations_by_priority.to_owned()),
                 true => match self.user_exit_preferences.exit_location_preference {
                     ExitPreference::ExitCountryNoFallback => None,
-                    _ => Some(exit_locations_by_priority.clone()),
+                    _ => Some(exit_locations_by_priority.to_owned()),
                 },
             };
     }
@@ -1811,7 +1812,7 @@ impl Neighborhood {
         let root_key = self.neighborhood_database.root_key();
         let min_hops = self.min_hops as usize;
         let (exit_locations_db, exit_nodes) = self
-            .find_exit_location(&root_key, min_hops, 0usize)
+            .find_exit_location(root_key, min_hops, 0usize)
             .to_owned();
         let mut db_countries = vec![];
         match (exit_locations_db.is_empty(), exit_nodes.is_empty()) {
@@ -1819,12 +1820,10 @@ impl Neighborhood {
             _ => {
                 for pub_key in exit_nodes {
                     let node_opt = self.neighborhood_database.node_by_key(pub_key);
-                    match node_opt {
-                        Some(node_record) => match &node_record.inner.country_code_opt {
-                            Some(cc) => db_countries.push(cc.clone()),
-                            _ => (),
-                        },
-                        _ => (),
+                    if let Some(node_record) = node_opt {
+                        if let Some(cc) = &node_record.inner.country_code_opt {
+                            db_countries.push(cc.clone())
+                        }
                     }
                 }
             }
@@ -4259,7 +4258,7 @@ mod tests {
         designate_root_node(db, &l);
         //let db_clone = db.clone();
 
-        let (routes, mut exit_nodes) = subject.find_exit_location(&l, 3, 10_000);
+        let (_routes, mut exit_nodes) = subject.find_exit_location(&l, 3, 10_000);
 
         //println!("e_n len: {}\nexit_nodes: {:#?}", exit_nodes.len(), exit_nodes);
         // let mut iter: u32 = 0;
@@ -4362,7 +4361,7 @@ mod tests {
         };
         designate_root_node(db, &n1);
 
-        let (routes, mut exit_nodes) = subject.find_exit_location(&n1, 3, 10_000);
+        let (_routes, mut exit_nodes) = subject.find_exit_location(&n1, 3, 10_000);
 
         // let mut iter: u32 = 0;
         // for key in subject.neighborhood_database.keys() {
