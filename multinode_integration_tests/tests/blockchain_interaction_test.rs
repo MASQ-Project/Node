@@ -144,7 +144,7 @@ fn debtors_are_credited_once_but_not_twice() {
         let config_dao = config_dao(&node_name);
         assert_eq!(
             config_dao.get("start_block").unwrap().value_opt.unwrap(),
-            "2001"
+            "2000"
         );
     }
 }

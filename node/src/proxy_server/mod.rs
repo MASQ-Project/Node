@@ -50,8 +50,9 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
 use regex::Regex;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::rc::Rc;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
@@ -1066,7 +1067,26 @@ impl IBCDHelper for IBCDHelperReal {
         let stream_key = proxy.find_or_generate_stream_key(&msg);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
-            Ok(payload) => payload,
+            Ok(payload) => {
+                // todo!("Hit me");
+                debug!(Logger::new("test"), "*url: {:?}", payload.target_hostname);
+                let mut error_message_opt = None;
+                if let Some(host_name) = &payload.target_hostname {
+                    error_message_opt = match IpAddr::from_str(host_name) {
+                        Ok(ip_addr) => match ip_addr {
+                            IpAddr::V4(ipv4addr) => validate4(ipv4addr),
+                            IpAddr::V6(ipv6addr) => validate6(ipv6addr)
+                        },
+                        Err(_) => validate_name(host_name)
+                    };
+                }
+                debug!(Logger::new("test"), "*Error message: {:?}", error_message_opt);
+
+                match error_message_opt {
+                    None => payload,
+                    Some(e) => return Err(format!("Request to wildcard IP detected - {} (Most likely because Blockchain Service URL is not set)", e))
+                }
+            },
             Err(e) => return Err(e),
         };
 
@@ -1227,6 +1247,39 @@ impl Hostname {
             },
         };
         Self { hostname }
+    }
+}
+
+fn validate4(addr: Ipv4Addr) -> Option<String> {
+    return if addr.octets() == [0, 0, 0, 0] {
+        Some("0.0.0.0".to_string())
+    }
+    else if addr.octets() == [127, 0, 0, 1] {
+        Some("127.0.0.1".to_string())
+    }
+    else {
+        None
+    }
+}
+
+fn validate6(addr: Ipv6Addr) -> Option<String> {
+    return if addr.segments() == [0, 0, 0, 0, 0, 0, 0, 0] {
+        Some("::".to_string())
+    }
+    else if addr.segments() == [0, 0, 0, 0, 0, 0, 0, 1] {
+        Some("::1".to_string())
+    }
+    else {
+        None
+    }
+}
+
+fn validate_name(name: &str) -> Option<String> {
+    return if name == "localhost" {
+        Some("localhost".to_string())
+    }
+    else {
+        None
     }
 }
 
@@ -2533,6 +2586,58 @@ mod tests {
                 "Failed to find route to nowhere.com for stream key: {stream_key}"
             ))
         );
+    }
+
+    #[test]
+    fn proxy_server_sends_a_message_with_error_when_quad_zeros_are_detected() {
+        init_test_logging();
+        let test_name = "proxy_server_sends_a_message_with_error_when_quad_zeros_are_detected";
+        let cryptde = main_cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: 0.0.0.0\r\n\r\n";
+        let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
+        let route_query_response = None;
+        let (neighborhood_mock, _, _) = make_recorder();
+        let neighborhood_mock =
+            neighborhood_mock.route_query_response(route_query_response.clone());
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let msg_from_dispatcher = InboundClientData {
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr.clone(),
+            reception_port: Some(HTTP_PORT),
+            sequence_number: Some(0),
+            last_data: true,
+            is_clandestine: false,
+            data: expected_data.clone(),
+        };
+        let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
+        let system = System::new(test_name);
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        subject.stream_key_factory = Box::new(stream_key_factory);
+        subject.logger = Logger::new(test_name);
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let mut peer_actors = peer_actors_builder()
+            .proxy_server(proxy_server_mock)
+            .neighborhood(neighborhood_mock)
+            .build();
+        // Get the dns_retry_result recipient so we can partially mock it...
+        let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
+        peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(msg_from_dispatcher).unwrap();
+
+        System::current().stop();
+        system.run();
+
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: Request to wildcard IP detected - 0.0.0.0 (Most likely because Blockchain Service URL is not set)"));
     }
 
     #[test]

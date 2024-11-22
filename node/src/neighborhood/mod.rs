@@ -10,7 +10,7 @@ pub mod overall_connection_status;
 
 use std::collections::HashSet;
 use std::convert::TryFrom;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
 use actix::Context;
@@ -507,15 +507,6 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
-        if let Some(ref url) = msg.hostname_opt {
-            if let Ok(ip) = url.parse::<IpAddr>() {
-                if ip == IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-                    error!(self.logger, "Request to wildcard IP detected 0.0.0.0. Most likely because Blockchain Service URL is not set");
-                    return None;
-                }
-            }
-        }
-
         let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
         let route_result = if self.mode == NeighborhoodModeLight::ZeroHop {
             Ok(self.zero_hop_route_response())
