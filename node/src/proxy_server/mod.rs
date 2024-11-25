@@ -1068,25 +1068,13 @@ impl IBCDHelper for IBCDHelperReal {
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => {
-                // todo!("Hit me");
-                debug!(Logger::new("test"), "*url: {:?}", payload.target_hostname);
-                let mut error_message_opt = None;
-                if let Some(host_name) = &payload.target_hostname {
-                    error_message_opt = match IpAddr::from_str(host_name) {
-                        Ok(ip_addr) => match ip_addr {
-                            IpAddr::V4(ipv4addr) => validate4(ipv4addr),
-                            IpAddr::V6(ipv6addr) => validate6(ipv6addr)
-                        },
-                        Err(_) => validate_name(host_name)
-                    };
+                if let Some(hostname) = &payload.target_hostname {
+                    if let Err(e) = Hostname::new(hostname).is_valid() {
+                        return Err(format!("Request to wildcard IP detected - {} (Most likely because Blockchain Service URL is not set)", e));
+                    }
                 }
-                debug!(Logger::new("test"), "*Error message: {:?}", error_message_opt);
-
-                match error_message_opt {
-                    None => payload,
-                    Some(e) => return Err(format!("Request to wildcard IP detected - {} (Most likely because Blockchain Service URL is not set)", e))
-                }
-            },
+                payload
+            }
             Err(e) => return Err(e),
         };
 
@@ -1233,7 +1221,6 @@ struct Hostname {
 }
 
 impl Hostname {
-    #[allow(dead_code)]
     fn new(raw_url: &str) -> Self {
         let regex = Regex::new(
             r"^((http[s]?|ftp):/)?/?([^:/\s]+)((/\w+)*/)([\w\-.]+[^#?\s]+)(.*)?(#[\w\-]+)?$",
@@ -1248,38 +1235,43 @@ impl Hostname {
         };
         Self { hostname }
     }
-}
 
-fn validate4(addr: Ipv4Addr) -> Option<String> {
-    return if addr.octets() == [0, 0, 0, 0] {
-        Some("0.0.0.0".to_string())
+    fn is_valid(&self) -> Result<(), String> {
+        match IpAddr::from_str(&self.hostname) {
+            Ok(ip_addr) => match ip_addr {
+                IpAddr::V4(ipv4addr) => Self::validate_ipv4(ipv4addr),
+                IpAddr::V6(ipv6addr) => Self::validate_ipv6(ipv6addr),
+            },
+            Err(_) => Self::validate_raw_string(&self.hostname),
+        }
     }
-    else if addr.octets() == [127, 0, 0, 1] {
-        Some("127.0.0.1".to_string())
-    }
-    else {
-        None
-    }
-}
 
-fn validate6(addr: Ipv6Addr) -> Option<String> {
-    return if addr.segments() == [0, 0, 0, 0, 0, 0, 0, 0] {
-        Some("::".to_string())
+    fn validate_ipv4(addr: Ipv4Addr) -> Result<(), String> {
+        if addr.octets() == [0, 0, 0, 0] {
+            Err("0.0.0.0".to_string())
+        } else if addr.octets() == [127, 0, 0, 1] {
+            Err("127.0.0.1".to_string())
+        } else {
+            Ok(())
+        }
     }
-    else if addr.segments() == [0, 0, 0, 0, 0, 0, 0, 1] {
-        Some("::1".to_string())
-    }
-    else {
-        None
-    }
-}
 
-fn validate_name(name: &str) -> Option<String> {
-    return if name == "localhost" {
-        Some("localhost".to_string())
+    fn validate_ipv6(addr: Ipv6Addr) -> Result<(), String> {
+        if addr.segments() == [0, 0, 0, 0, 0, 0, 0, 0] {
+            Err("::".to_string())
+        } else if addr.segments() == [0, 0, 0, 0, 0, 0, 0, 1] {
+            Err("::1".to_string())
+        } else {
+            Ok(())
+        }
     }
-    else {
-        None
+
+    fn validate_raw_string(name: &str) -> Result<(), String> {
+        if name == "localhost" {
+            Err("localhost".to_string())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -2594,7 +2586,7 @@ mod tests {
         let test_name = "proxy_server_sends_a_message_with_error_when_quad_zeros_are_detected";
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: 0.0.0.0\r\n\r\n";
-        let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
+        let (proxy_server_mock, _, _) = make_recorder();
         let route_query_response = None;
         let (neighborhood_mock, _, _) = make_recorder();
         let neighborhood_mock =
@@ -6022,6 +6014,40 @@ mod tests {
             hostname: expected_hostname.to_string(),
         };
         assert_eq!(expected_result, clean_hostname);
+    }
+
+    #[test]
+    fn hostname_is_valid_works() {
+        // IPv4
+        assert_eq!(
+            Hostname::new("0.0.0.0").is_valid(),
+            Err("0.0.0.0".to_string())
+        );
+        assert_eq!(
+            Hostname::new("127.0.0.1").is_valid(),
+            Err("127.0.0.1".to_string())
+        );
+        assert_eq!(Hostname::new("192.168.1.158").is_valid(), Ok(()));
+        // IPv6
+        assert_eq!(
+            Hostname::new("0:0:0:0:0:0:0:0").is_valid(),
+            Err("::".to_string())
+        );
+        assert_eq!(
+            Hostname::new("0:0:0:0:0:0:0:1").is_valid(),
+            Err("::1".to_string())
+        );
+        assert_eq!(
+            Hostname::new("2001:0db8:85a3:0000:0000:8a2e:0370:7334").is_valid(),
+            Ok(())
+        );
+        // Hostname
+        assert_eq!(
+            Hostname::new("localhost").is_valid(),
+            Err("localhost".to_string())
+        );
+        assert_eq!(Hostname::new("example.com").is_valid(), Ok(()));
+        assert_eq!(Hostname::new("https://example.com").is_valid(), Ok(()));
     }
 
     #[test]

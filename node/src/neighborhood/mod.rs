@@ -2628,31 +2628,6 @@ mod tests {
     }
 
     #[test]
-    fn route_query_responds_with_none_when_wildcard_ip_is_requested() {
-        init_test_logging();
-        let test_name = "route_query_responds_with_none_when_wildcard_ip_is_requested";
-        let system = System::new(test_name);
-        let mut subject = make_standard_subject();
-        subject.logger = Logger::new(test_name);
-        let addr: Addr<Neighborhood> = subject.start();
-        let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            Some("0.0.0.0".to_string()),
-            430,
-        ));
-
-        System::current().stop_with_code(0);
-        system.run();
-        let result = future.wait().unwrap();
-        assert_eq!(result, None);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {}: Request to wildcard IP detected 0.0.0.0. Most likely because Blockchain Service URL is not set",
-            test_name
-        ));
-    }
-
-    #[test]
     fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
