@@ -135,7 +135,7 @@ impl UserExitPreferences {
                     if exit_location.country_codes.contains(&country_code)
                         && country_code != ZZ_COUNTRY_CODE_STRING
                     {
-                        node_record.metadata.country_undesirability =
+                        node_record.metadata.country_undesirability = //TODO make an outboard method with clear name
                             COUNTRY_UNDESIRABILITY_FACTOR * (exit_location.priority - 1) as u32;
                     }
                     if (self.exit_location_preference == ExitPreference::ExitCountryWithFallback
@@ -874,8 +874,14 @@ impl Neighborhood {
             neighborhood_metadata,
         );
         match acceptance_result {
-            GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
+            GossipAcceptanceResult::Accepted => {
+                //todo!("complete Accepted");
+                self.user_exit_preferences.db_countries = self.init_db_countries();
+                self.gossip_to_neighbors()
+            },
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
+                //todo!("complete Reply");
+                self.user_exit_preferences.db_countries = self.init_db_countries();
                 self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
             }
             GossipAcceptanceResult::Failed(failure, target_key, target_node_addr) => {
@@ -1784,7 +1790,7 @@ impl Neighborhood {
         message: &UiSetExitLocationRequest,
     ) -> (Vec<ExitLocation>, Vec<String>) {
         self.user_exit_preferences.db_countries = self.init_db_countries();
-        let mut countries_without_priorities = vec![];
+        let mut countries_lack_in_neighborhood = vec![];
         (
             message
                 .to_owned()
@@ -1792,10 +1798,14 @@ impl Neighborhood {
                 .into_iter()
                 .map(|cc| {
                     for code in &cc.country_codes {
-                        if self.user_exit_preferences.db_countries.contains(code) {
+                        if self.user_exit_preferences.db_countries.contains(code) ||
+                            self.user_exit_preferences.exit_location_preference == ExitPreference::ExitCountryWithFallback {
                             self.user_exit_preferences.exit_countries.push(code.clone());
+                            if self.user_exit_preferences.exit_location_preference == ExitPreference::ExitCountryWithFallback {
+                                countries_lack_in_neighborhood.push(code.clone());
+                            }
                         } else {
-                            countries_without_priorities.push(code.clone());
+                            countries_lack_in_neighborhood.push(code.clone());
                         }
                     }
                     ExitLocation {
@@ -1804,7 +1814,7 @@ impl Neighborhood {
                     }
                 })
                 .collect(),
-            countries_without_priorities,
+            countries_lack_in_neighborhood,
         )
     }
 
@@ -6061,6 +6071,54 @@ mod tests {
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
 
+    #[test]
+    fn handle_gossip_produces_new_entry_in_db_countries() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let neighbor = make_node_record(1050, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        println!("ndb: {:#?}", subject.neighborhood_database.to_dot_graph());
+        let mut full_neighbor = make_node_record(1234, true);
+        let mut new_neighbor = make_node_record(2345, true);
+        subject
+            .neighborhood_database
+            .add_node(neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(full_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), neighbor.public_key());
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(neighbor.public_key(), full_neighbor.public_key());
+        new_neighbor.add_half_neighbor_key(full_neighbor.public_key().clone()).unwrap();
+        full_neighbor.add_half_neighbor_key(new_neighbor.public_key().clone()).unwrap();
+        // println!("full_neighbor {:#?}", full_neighbor);
+        // println!("new_neighbor {:#?}", new_neighbor);
+        // new_neighbor.inner.neighbors = BTreeSet::from();full_neighbor.public_key().clone()
+        let (hopper, _, _hopper_recording_arc) = make_recorder();
+        let peer_actors = peer_actors_builder().hopper(hopper).build();
+        //let system = System::new("");
+        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
+        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+        let mut neighbor_db = subject.neighborhood_database.clone();
+        neighbor_db.add_node(new_neighbor.clone()).unwrap();
+        println!("db_countries: {:?}", &subject.user_exit_preferences.db_countries);
+        let gossip = GossipBuilder::new(&neighbor_db)
+            .node(full_neighbor.public_key(), true)
+            .node(new_neighbor.public_key(), false)
+            .build();
+        subject.handle_gossip(
+            gossip,
+            SocketAddr::from_str("1.0.5.0:1050").unwrap(),
+            make_cpm_recipient().0,
+        );
+        println!("ndb: {:#?}", subject.neighborhood_database.to_dot_graph());
+        println!("db_countries after: {:?}", &subject.user_exit_preferences.db_countries);
+    }
     #[test]
     fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
         init_test_logging();

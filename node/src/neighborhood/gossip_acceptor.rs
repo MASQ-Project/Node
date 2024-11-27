@@ -283,7 +283,7 @@ impl DebutHandler {
         match user_exit_preferences_opt {
             Some(user_exit_preferences) => {
                 //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
-                user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node)
+                user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node);
             }
             None => (),
         }
