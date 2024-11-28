@@ -185,10 +185,7 @@ impl Handler<BindMessage> for Neighborhood {
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
-        self.hopper_no_lookup_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
-        self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
-        self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.handle_bind_message(msg);
     }
 }
 
@@ -2003,6 +2000,13 @@ impl Neighborhood {
         self.min_hops = new_min_hops;
         self.db_patch_size = Neighborhood::calculate_db_patch_size(new_min_hops);
         debug!(self.logger, "The value of min_hops ({}-hop -> {}-hop) and db_patch_size ({} -> {}) has been changed", prev_min_hops, self.min_hops, prev_db_patch_size, self.db_patch_size);
+    }
+
+    fn handle_bind_message(&mut self, msg: BindMessage) {
+        self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
+        self.hopper_no_lookup_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
+        self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
+        self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
 
     // GH-728
@@ -6075,49 +6079,50 @@ mod tests {
     fn handle_gossip_produces_new_entry_in_db_countries() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
-        let neighbor = make_node_record(1050, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&neighbor));
-        println!("ndb: {:#?}", subject.neighborhood_database.to_dot_graph());
-        let mut full_neighbor = make_node_record(1234, true);
-        let mut new_neighbor = make_node_record(2345, true);
-        subject
+        let first_neighbor = make_node_record(1050, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&first_neighbor));
+        let second_neighbor = make_node_record(1234, false);
+        let new_neighbor = make_node_record(2345, false);
+        let first_key = subject
             .neighborhood_database
-            .add_node(neighbor.clone())
+            .add_node(first_neighbor)
+            .unwrap();
+        let second_key = subject
+            .neighborhood_database
+            .add_node(second_neighbor)
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(full_neighbor.clone())
-            .unwrap();
+            .add_arbitrary_full_neighbor(subject_node.public_key(), &first_key);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(subject_node.public_key(), neighbor.public_key());
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor.public_key(), full_neighbor.public_key());
-        new_neighbor.add_half_neighbor_key(full_neighbor.public_key().clone()).unwrap();
-        full_neighbor.add_half_neighbor_key(new_neighbor.public_key().clone()).unwrap();
-        // println!("full_neighbor {:#?}", full_neighbor);
-        // println!("new_neighbor {:#?}", new_neighbor);
-        // new_neighbor.inner.neighbors = BTreeSet::from();full_neighbor.public_key().clone()
-        let (hopper, _, _hopper_recording_arc) = make_recorder();
-        let peer_actors = peer_actors_builder().hopper(hopper).build();
-        //let system = System::new("");
-        subject.hopper_opt = Some(peer_actors.hopper.from_hopper_client);
-        subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
+            .add_arbitrary_full_neighbor(&first_key, &second_key);
+        subject.user_exit_preferences.db_countries = subject.init_db_countries();
+        let assetion_db_countries = subject.user_exit_preferences.db_countries.clone();
+        let peer_actors = peer_actors_builder().build();
+        subject.handle_bind_message(BindMessage { peer_actors });
+
         let mut neighbor_db = subject.neighborhood_database.clone();
         neighbor_db.add_node(new_neighbor.clone()).unwrap();
-        println!("db_countries: {:?}", &subject.user_exit_preferences.db_countries);
+        neighbor_db.this_node = first_key.clone();
+        neighbor_db.add_arbitrary_full_neighbor(&second_key, new_neighbor.public_key());
+        let mut new_second_neighbor = neighbor_db.node_by_key_mut(&second_key).unwrap();
+        new_second_neighbor.inner.version = 2;
+        new_second_neighbor.resign();
         let gossip = GossipBuilder::new(&neighbor_db)
-            .node(full_neighbor.public_key(), true)
+            .node(&first_key, true)
+            .node(&second_key, false)
             .node(new_neighbor.public_key(), false)
             .build();
+
         subject.handle_gossip(
             gossip,
             SocketAddr::from_str("1.0.5.0:1050").unwrap(),
             make_cpm_recipient().0,
         );
-        println!("ndb: {:#?}", subject.neighborhood_database.to_dot_graph());
-        println!("db_countries after: {:?}", &subject.user_exit_preferences.db_countries);
+
+        assert!(assetion_db_countries.is_empty());
+        assert_eq!(&subject.user_exit_preferences.db_countries, &["FR".to_string()])
     }
     #[test]
     fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
