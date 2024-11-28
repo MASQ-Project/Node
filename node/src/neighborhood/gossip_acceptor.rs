@@ -1011,7 +1011,6 @@ impl GossipHandler for StandardGossipHandler {
         let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.db_patch_size);
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
-        // TODO 468 get structs from neighborhood metadata
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
             database,
             &filtered_agrs,

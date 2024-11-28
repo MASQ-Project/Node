@@ -872,13 +872,12 @@ impl Neighborhood {
         );
         match acceptance_result {
             GossipAcceptanceResult::Accepted => {
-                //todo!("complete Accepted");
                 self.user_exit_preferences.db_countries = self.init_db_countries();
                 self.gossip_to_neighbors()
             },
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
-                //todo!("complete Reply");
-                self.user_exit_preferences.db_countries = self.init_db_countries();
+                // TODO 788 check if following line is needed
+                // self.user_exit_preferences.db_countries = self.init_db_countries();
                 self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
             }
             GossipAcceptanceResult::Failed(failure, target_key, target_node_addr) => {
@@ -6098,7 +6097,7 @@ mod tests {
             .neighborhood_database
             .add_arbitrary_full_neighbor(&first_key, &second_key);
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
-        let assetion_db_countries = subject.user_exit_preferences.db_countries.clone();
+        let assertion_db_countries = subject.user_exit_preferences.db_countries.clone();
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
 
@@ -6121,9 +6120,67 @@ mod tests {
             make_cpm_recipient().0,
         );
 
-        assert!(assetion_db_countries.is_empty());
+        assert!(assertion_db_countries.is_empty());
         assert_eq!(&subject.user_exit_preferences.db_countries, &["FR".to_string()])
     }
+
+    #[test]
+    fn handle_gossip_remove_last_node_country_from_db_countries() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let first_neighbor = make_node_record(1050, true);
+        let mut subject = neighborhood_from_nodes(&subject_node, Some(&first_neighbor));
+        let second_neighbor = make_node_record(1234, false);
+        let new_neighbor = make_node_record(2345, false);
+        let first_key = subject
+            .neighborhood_database
+            .add_node(first_neighbor)
+            .unwrap();
+        let second_key = subject
+            .neighborhood_database
+            .add_node(second_neighbor)
+            .unwrap();
+        let last_key = subject
+            .neighborhood_database
+            .add_node(new_neighbor)
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), &first_key);
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(&first_key, &second_key);
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(&second_key, &last_key);
+        subject.user_exit_preferences.db_countries = subject.init_db_countries();
+        let assertion_db_countries = subject.user_exit_preferences.db_countries.clone();
+        let peer_actors = peer_actors_builder().build();
+        subject.handle_bind_message(BindMessage { peer_actors });
+
+        let mut neighbor_db = subject.neighborhood_database.clone();
+        neighbor_db.this_node = first_key.clone();
+        neighbor_db.remove_arbitrary_half_neighbor(&second_key, &last_key);
+        neighbor_db.remove_arbitrary_half_neighbor(&last_key, &second_key);
+        let mut new_second_neighbor = neighbor_db.node_by_key_mut(&second_key).unwrap();
+        new_second_neighbor.inner.version = 2;
+        new_second_neighbor.resign();
+        let gossip = GossipBuilder::new(&neighbor_db)
+            .node(&first_key, true)
+            .node(&second_key, false)
+            .node(&last_key, false)
+            .build();
+
+        subject.handle_gossip(
+            gossip,
+            SocketAddr::from_str("1.0.5.0:1050").unwrap(),
+            make_cpm_recipient().0,
+        );
+
+        assert_eq!(&assertion_db_countries, &["FR".to_string()]);
+        assert!(subject.user_exit_preferences.db_countries.is_empty());
+    }
+
     #[test]
     fn neighborhood_sends_from_gossip_producer_when_acceptance_introductions_are_not_provided() {
         init_test_logging();
