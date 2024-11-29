@@ -877,7 +877,6 @@ impl Neighborhood {
                 self.gossip_to_neighbors()
             }
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
-                todo!("Test drive me for db_countries");
                 self.user_exit_preferences.db_countries = self.init_db_countries();
                 self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
             }
@@ -2172,6 +2171,53 @@ mod tests {
         let expected_db_patch_size = Neighborhood::calculate_db_patch_size(min_hops);
         assert_eq!(subject.min_hops, min_hops);
         assert_eq!(subject.db_patch_size, expected_db_patch_size);
+    }
+
+    // #[test]
+    // fn test_wtih_debut_allways_have_half_neighborship_in_handle_gossip() {
+    //     let mut subject = make_standard_subject();
+    //     subject.min_hops = Hops::OneHop;
+    //     let root_node_key = subject.neighborhood_database.root_key();
+    //     let first_neighbor = make_node_record(1111, true);
+    //     let mut debut_db = subject.neighborhood_database.clone();
+    //     debut_db.add_node(first_neighbor.clone()).unwrap();
+    //     debut_db.this_node = first_neighbor.public_key().clone();
+    //     debut_db.remove_node(&root_node_key.clone());
+    //     let resinging = debut_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
+    //     resinging.resign();
+    //     let debut = GossipBuilder::new(&debut_db).node(first_neighbor.public_key(), true).build();
+    //
+    //     let peer_actors = peer_actors_builder().build();
+    //     subject.handle_bind_message(BindMessage { peer_actors });
+    //
+    //
+    //     subject.handle_gossip(
+    //         debut,
+    //         SocketAddr::from_str("1.1.1.1:1111").unwrap(),
+    //         make_cpm_recipient().0,
+    //     );
+    //
+    //     print!("db after: {:?}\n", subject.neighborhood_database.to_dot_graph());
+    //     println!("db_countries: {:?}", subject.user_exit_preferences.db_countries);
+    // }
+
+    #[test]
+    fn init_db_countries_works_properly() {
+        let mut subject = make_standard_subject();
+        subject.min_hops = Hops::OneHop;
+        let root_node = subject.neighborhood_database.root().clone();
+        let mut first_neighbor = make_node_record(1111, true);
+        first_neighbor.inner.country_code_opt = Some("CZ".to_string());
+        subject.neighborhood_database.add_node(first_neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(root_node.public_key(), first_neighbor.public_key());
+
+        let filled_db_countries = subject.init_db_countries();
+
+        subject.neighborhood_database.remove_arbitrary_half_neighbor(root_node.public_key(), first_neighbor.public_key());
+        let emptied_db_countries = subject.init_db_countries();
+
+        assert_eq!(filled_db_countries, &["CZ".to_string()]);
+        assert!(emptied_db_countries.is_empty());
     }
 
     #[test]
@@ -5723,7 +5769,6 @@ mod tests {
 
     #[test]
     fn handle_gossip_produces_new_entry_in_db_countries() {
-        todo!("test drive init db_countries then here is needed only one test for boht calls Accept and Reply");
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let first_neighbor = make_node_record(1050, true);
