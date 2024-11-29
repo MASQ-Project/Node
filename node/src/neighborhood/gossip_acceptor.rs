@@ -287,7 +287,6 @@ impl DebutHandler {
             }
             None => (),
         }
-
         // TODO 468 make debuting_node mut and add country_undesirability to its metadata
         let debut_node_key = database
             .add_node(debuting_node)
@@ -900,7 +899,6 @@ impl IntroductionHandler {
                         .assign_nodes_country_undesirability(&mut new_introducer),
                     None => (),
                 }
-                //TODO probably make one function to use on all places
                 debug!(
                     self.logger,
                     "Adding introducer {} to database", introducer_key
@@ -2073,8 +2071,8 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
-            exit_location_preference: ExitPreference::ExitCountryNoFallback,
-            exit_locations_opt: Some(vec![ExitLocation {
+            location_preference: ExitPreference::ExitCountryNoFallback,
+            locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["FR".to_string()],
                 priority: 2,
             }]),
@@ -2470,8 +2468,8 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
-            exit_location_preference: ExitPreference::ExitCountryWithFallback,
-            exit_locations_opt: Some(vec![ExitLocation {
+            location_preference: ExitPreference::ExitCountryWithFallback,
+            locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
             }]),
@@ -3068,8 +3066,8 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["CZ".to_string()],
-            exit_location_preference: ExitPreference::ExitCountryWithFallback,
-            exit_locations_opt: Some(vec![ExitLocation {
+            location_preference: ExitPreference::ExitCountryWithFallback,
+            locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }]),
