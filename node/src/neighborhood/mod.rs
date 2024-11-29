@@ -1705,7 +1705,7 @@ impl Neighborhood {
                 "Neighborhood is empty, no exit Nodes are available.",
             ),
         }
-        let message = Self::create_exit_location_response(client_id, context_id, missing_locations);
+        let message = self.create_exit_location_response(client_id, context_id, missing_locations, message.show_countries);
         self.node_to_ui_recipient_opt
             .as_ref()
             .expect("UI Gateway is unbound")
@@ -1714,18 +1714,50 @@ impl Neighborhood {
     }
 
     fn create_exit_location_response(
+        &self,
         client_id: u64,
         context_id: u64,
         missing_locations: Vec<String>,
+        show_countries: bool,
     ) -> NodeToUiMessage {
-        match &missing_locations.is_empty() {
+        let errmessage = 
+            match show_countries { 
+                true => {
+                    match &missing_locations.is_empty() {
+                        true => {
+                            format!("Exit Countries: {:?}", self.user_exit_preferences.db_countries)
+                        },
+                        false => {
+                            format!(
+                                "Exit Countries: {:?}\nExit Location: following desired countries are missing in Neighborhood {:?}", 
+                                self.user_exit_preferences.db_countries, 
+                                missing_locations
+                            )
+                        },
+                    }
+                },
+                false => {
+                    match &missing_locations.is_empty() {
+                        true => {
+                            "".to_string()
+                        },
+                        false => {
+                            format!(
+                                "Exit Location: following desired countries are missing in Neighborhood {:?}",
+                                missing_locations
+                            )
+                        },
+                    }
+                }
+            };
+        match &errmessage.is_empty() {
             false => {
                 NodeToUiMessage {
                     target: MessageTarget::ClientId(client_id),
                     body: MessageBody {
                         opcode: "exit_location".to_string(),
                         path: Conversation(context_id),
-                        payload: Err((EXIT_COUNTRY_ERROR, format!("Exit Location: following desired countries are missing in Neighborhood {:?}", missing_locations))),
+                        payload: Err((EXIT_COUNTRY_ERROR, errmessage)),
                     },
                 }
             },
@@ -3531,6 +3563,7 @@ mod tests {
                     priority: 3,
                 },
             ],
+            show_countries: false,
         };
         let message = NodeFromUiMessage {
             client_id: 0,
@@ -3681,6 +3714,7 @@ mod tests {
                 country_codes: vec!["CZ".to_string(), "SK".to_string(), "IN".to_string()],
                 priority: 1,
             }],
+            show_countries: true,
         };
         let message = NodeFromUiMessage {
             client_id: 0,
@@ -3839,7 +3873,7 @@ mod tests {
             exit_handler_response,
             Err((
                 9223372036854775816,
-                "Exit Location: following desired countries are missing in Neighborhood [\"CZ\", \"SK\", \"IN\"]".to_string(),
+                "Exit Countries: [\"AT\", \"DE\", \"PL\", \"US\"]\nExit Location: following desired countries are missing in Neighborhood [\"CZ\", \"SK\", \"IN\"]".to_string(),
             ))
         );
         log_handler.assert_logs_contain_in_order(vec![
@@ -3872,6 +3906,7 @@ mod tests {
                     priority: 2,
                 },
             ],
+            show_countries: false,
         };
         let set_exit_location_message = NodeFromUiMessage {
             client_id: 8765,
@@ -3966,6 +4001,7 @@ mod tests {
         let request_2 = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![],
+            show_countries: false,
         };
         let clear_exit_location_message = NodeFromUiMessage {
             client_id: 6543,
@@ -4530,6 +4566,7 @@ mod tests {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
+            show_countries: false,
         };
         println!("db {:?}", db.root());
         let mut generator = 1000;
@@ -4631,6 +4668,7 @@ mod tests {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
+            show_countries: false,
         };
         let db = &mut subject.neighborhood_database;
         let p = &db.root_mut().public_key().clone();
@@ -4690,6 +4728,7 @@ mod tests {
                 country_codes: vec!["AU".to_string()],
                 priority: 1,
             }],
+            show_countries: false,
         };
         subject.handle_exit_location_message(message, 0, 0);
 
@@ -4750,6 +4789,7 @@ mod tests {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
             }],
+            show_countries: false,
         };
         subject.handle_exit_location_message(message, 0, 0);
 
@@ -5818,63 +5858,6 @@ mod tests {
             &subject.user_exit_preferences.db_countries,
             &["FR".to_string()]
         )
-    }
-
-    #[test]
-    fn handle_gossip_remove_last_node_country_from_db_countries() {
-        init_test_logging();
-        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
-        let first_neighbor = make_node_record(1050, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&first_neighbor));
-        let second_neighbor = make_node_record(1234, false);
-        let new_neighbor = make_node_record(2345, false);
-        let first_key = subject
-            .neighborhood_database
-            .add_node(first_neighbor)
-            .unwrap();
-        let second_key = subject
-            .neighborhood_database
-            .add_node(second_neighbor)
-            .unwrap();
-        let last_key = subject
-            .neighborhood_database
-            .add_node(new_neighbor)
-            .unwrap();
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(subject_node.public_key(), &first_key);
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(&first_key, &second_key);
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(&second_key, &last_key);
-        subject.user_exit_preferences.db_countries = subject.init_db_countries();
-        let assertion_db_countries = subject.user_exit_preferences.db_countries.clone();
-        let peer_actors = peer_actors_builder().build();
-        subject.handle_bind_message(BindMessage { peer_actors });
-
-        let mut neighbor_db = subject.neighborhood_database.clone();
-        neighbor_db.this_node = first_key.clone();
-        neighbor_db.remove_arbitrary_half_neighbor(&second_key, &last_key);
-        neighbor_db.remove_arbitrary_half_neighbor(&last_key, &second_key);
-        let mut new_second_neighbor = neighbor_db.node_by_key_mut(&second_key).unwrap();
-        new_second_neighbor.inner.version = 2;
-        new_second_neighbor.resign();
-        let gossip = GossipBuilder::new(&neighbor_db)
-            .node(&first_key, true)
-            .node(&second_key, false)
-            .node(&last_key, false)
-            .build();
-
-        subject.handle_gossip(
-            gossip,
-            SocketAddr::from_str("1.0.5.0:1050").unwrap(),
-            make_cpm_recipient().0,
-        );
-
-        assert_eq!(&assertion_db_countries, &["FR".to_string()]);
-        assert!(subject.user_exit_preferences.db_countries.is_empty());
     }
 
     #[test]

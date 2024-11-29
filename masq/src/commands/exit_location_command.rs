@@ -41,6 +41,7 @@ pub fn exit_location_subcommand() -> App<'static, 'static> {
 pub struct SetExitLocationCommand {
     pub exit_locations: Vec<CountryCodes>,
     pub fallback_routing: bool,
+    pub show_countries: bool,
 }
 
 impl SetExitLocationCommand {
@@ -64,9 +65,11 @@ impl SetExitLocationCommand {
                     ),
                     (false, true)
                 );
+                let show_countries = matches.is_present("show-countries");
                 Ok(SetExitLocationCommand {
                     exit_locations,
                     fallback_routing,
+                    show_countries,
                 })
             }
 
@@ -80,6 +83,7 @@ impl Command for SetExitLocationCommand {
         let input = UiSetExitLocationRequest {
             exit_locations: self.exit_locations.clone(),
             fallback_routing: self.fallback_routing,
+            show_countries: self.show_countries,
         };
 
         let _: UiSetExitLocationResponse =
@@ -107,6 +111,13 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
                 .long("fallback-routing")
                 .value_name("FALLBACK-ROUTING")
                 .help(FALLBACK_ROUTING_HELP)
+                .takes_value(false)
+                .required(false),
+        )
+        .arg(
+            Arg::with_name("show-countries")
+                .long("show-countries")
+                .value_name("SHOW-COUNTRIES")
                 .takes_value(false)
                 .required(false),
         )
@@ -156,6 +167,7 @@ pub mod tests {
                     priority: 3,
                 },
             ],
+            show_countries: false,
         };
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);
@@ -190,6 +202,7 @@ pub mod tests {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
+            show_countries: false,
         };
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);
@@ -216,6 +229,34 @@ pub mod tests {
         let expected_request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![],
+            show_countries: false,
+        };
+        let transact_params = transact_params_arc.lock().unwrap();
+        let expected_message_body = expected_request.tmb(0);
+        assert_eq!(
+            transact_params.as_slice(),
+            &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
+        );
+        let stderr = stderr_arc.lock().unwrap();
+        assert_eq!(&stderr.get_string(), "");
+    }
+
+    #[test]
+    fn providing_show_countries_cause_request_for_list_of_countries() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
+        let stderr_arc = context.stderr_arc();
+        let subject = SetExitLocationCommand::new(&["exit-location".to_string(), "--show-countries".to_string()]).unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let expected_request = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![],
+            show_countries: true,
         };
         let transact_params = transact_params_arc.lock().unwrap();
         let expected_message_body = expected_request.tmb(0);

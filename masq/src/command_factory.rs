@@ -287,6 +287,7 @@ mod tests {
                     priority: 1
                 }],
                 fallback_routing: false,
+                show_countries: false,
             }
         );
     }

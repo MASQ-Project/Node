@@ -873,6 +873,8 @@ pub struct UiSetExitLocationRequest {
     pub fallback_routing: bool,
     #[serde(rename = "exitLocations")]
     pub exit_locations: Vec<CountryCodes>,
+    #[serde(rename = "showCountries")]
+    pub show_countries: bool,
 }
 
 conversation_message!(UiSetExitLocationRequest, "exitLocation");
