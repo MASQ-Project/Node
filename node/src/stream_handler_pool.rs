@@ -310,7 +310,7 @@ impl StreamHandlerPool {
         match msg.endpoint.clone() {
             Endpoint::Key(key) => {
                 // It is used to query PublicKey inside Neighborhood
-                    let request = DispatcherNodeQueryMessage {
+                let request = DispatcherNodeQueryMessage {
                     query: NodeQueryMessage::PublicKey(key.clone()),
                     context: msg,
                     recipient: node_query_response_recipient,

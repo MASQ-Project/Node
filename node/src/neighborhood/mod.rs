@@ -874,7 +874,7 @@ impl Neighborhood {
             GossipAcceptanceResult::Accepted => {
                 self.user_exit_preferences.db_countries = self.init_db_countries();
                 self.gossip_to_neighbors()
-            },
+            }
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
                 // TODO 788 check if following line is needed
                 // self.user_exit_preferences.db_countries = self.init_db_countries();
@@ -1794,10 +1794,14 @@ impl Neighborhood {
                 .into_iter()
                 .map(|cc| {
                     for code in &cc.country_codes {
-                        if self.user_exit_preferences.db_countries.contains(code) ||
-                            self.user_exit_preferences.exit_location_preference == ExitPreference::ExitCountryWithFallback {
+                        if self.user_exit_preferences.db_countries.contains(code)
+                            || self.user_exit_preferences.exit_location_preference
+                                == ExitPreference::ExitCountryWithFallback
+                        {
                             self.user_exit_preferences.exit_countries.push(code.clone());
-                            if self.user_exit_preferences.exit_location_preference == ExitPreference::ExitCountryWithFallback {
+                            if self.user_exit_preferences.exit_location_preference
+                                == ExitPreference::ExitCountryWithFallback
+                            {
                                 countries_lack_in_neighborhood.push(code.clone());
                             }
                         } else {
@@ -6121,7 +6125,10 @@ mod tests {
         );
 
         assert!(assertion_db_countries.is_empty());
-        assert_eq!(&subject.user_exit_preferences.db_countries, &["FR".to_string()])
+        assert_eq!(
+            &subject.user_exit_preferences.db_countries,
+            &["FR".to_string()]
+        )
     }
 
     #[test]
