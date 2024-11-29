@@ -245,7 +245,7 @@ pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Pat
     )
 }
 
-#[derive(Message, Clone, PartialEq, Eq)]
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct MessageScheduler<M: Message> {
     pub scheduled_msg: M,
     pub delay: Duration,
