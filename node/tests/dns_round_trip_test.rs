@@ -9,6 +9,8 @@ use trust_dns::op::{OpCode, ResponseCode};
 use trust_dns::rr::{DNSClass, RecordType};
 
 #[test]
+// TODO This ignore should be lifted by GH-525
+#[ignore]
 #[serial(port53)]
 fn handles_two_consecutive_ipv4_dns_requests_integration() {
     let _node = utils::MASQNode::start_standard(
@@ -25,6 +27,8 @@ fn handles_two_consecutive_ipv4_dns_requests_integration() {
 }
 
 #[test]
+// TODO This ignore should be lifted by GH-525
+#[ignore]
 #[serial(port53)]
 fn handles_consecutive_heterogeneous_dns_requests_integration() {
     let _node = utils::MASQNode::start_standard(

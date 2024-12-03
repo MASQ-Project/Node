@@ -1076,6 +1076,7 @@ mod tests {
     };
     use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
+    use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
@@ -1395,7 +1396,11 @@ mod tests {
         config.suppress_initial_scans = true;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .config_dao(ConfigDaoMock::new().set_result(Ok(())))
+            .config_dao(
+                ConfigDaoMock::new()
+                    .get_result(Ok(ConfigDaoRecord::new("start_block", None, false)))
+                    .set_result(Ok(())),
+            )
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -2015,6 +2020,7 @@ mod tests {
     ) {
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let commit_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_by_guest_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
@@ -2038,6 +2044,8 @@ mod tests {
             .more_money_received_params(&more_money_received_params_arc)
             .more_money_received_result(wrapped_transaction);
         let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new("start_block", None, false)))
             .set_by_guest_transaction_params(&set_by_guest_transaction_params_arc)
             .set_by_guest_transaction_result(Ok(()));
         let accountant = AccountantBuilder::default()
@@ -4850,6 +4858,7 @@ mod tests {
             let factory = Accountant::dao_factory(data_dir);
             factory.make();
         };
+
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 }

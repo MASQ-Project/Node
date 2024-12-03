@@ -39,10 +39,7 @@ use web3::Web3;
 
 #[test]
 fn verify_bill_payment() {
-    let mut cluster = match MASQNodeCluster::start() {
-        Ok(cluster) => cluster,
-        Err(e) => panic!("{}", e),
-    };
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let blockchain_server = BlockchainServer {
         name: "ganache-cli",
     };

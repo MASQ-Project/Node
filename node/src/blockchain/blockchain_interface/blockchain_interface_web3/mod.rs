@@ -291,7 +291,9 @@ impl BlockchainInterfaceWeb3 {
     pub fn web3_gas_limit_const_part(chain: Chain) -> u128 {
         match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
+            Chain::PolyMainnet | Chain::PolyAmoy | Chain::BaseMainnet | Chain::BaseSepolia => {
+                70_000
+            }
         }
     }
 
@@ -312,15 +314,18 @@ impl BlockchainInterfaceWeb3 {
     }
 
     fn find_largest_transaction_block_number(
-        response_block_number: u64,
+        response_block_number: Option<u64>,
         transactions: &[BlockchainTransaction],
-    ) -> u64 {
+    ) -> Option<u64> {
         if transactions.is_empty() {
             response_block_number
         } else {
             transactions
                 .iter()
-                .fold(response_block_number, |a, b| a.max(b.block_number))
+                .fold(response_block_number.unwrap_or(0u64), |a, b| {
+                    a.max(b.block_number)
+                })
+                .into()
         }
     }
 
@@ -356,8 +361,11 @@ impl BlockchainInterfaceWeb3 {
             // Get the largest transaction block number, unless there are no
             // transactions, in which case use end_block, unless get_latest_block()
             // was not successful.
-            let transaction_max_block_number =
-                Self::find_largest_transaction_block_number(response_block_number, &transactions);
+            let transaction_max_block_number = Self::find_largest_transaction_block_number(
+                Some(response_block_number),
+                &transactions,
+            )
+            .unwrap();
             debug!(
                 logger,
                 "Discovered transaction max block nbr: {}", transaction_max_block_number
@@ -394,7 +402,6 @@ mod tests {
     use crate::test_utils::make_wallet;
     use ethsign_crypto::Keccak256;
     use futures::Future;
-    use indoc::indoc;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
@@ -982,6 +989,10 @@ mod tests {
             70_000
         );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
+        assert_eq!(
+            Subject::web3_gas_limit_const_part(Chain::BaseSepolia),
+            70_000
+        );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 }

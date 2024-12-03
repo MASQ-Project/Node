@@ -303,6 +303,106 @@ impl BlockchainBridge {
         )
     }
 
+    // TODO GH-744 - From Master
+    // fn handle_retrieve_transactions(&mut self, msg: RetrieveTransactions) -> Result<(), String> {
+    //     let start_block_nbr = match self.persistent_config.start_block() {
+    //         Ok(Some(sb)) => sb,
+    //         Ok(None) => u64::MAX,
+    //         Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
+    //     };
+    //     let max_block_count = match self.persistent_config.max_block_count() {
+    //         Ok(Some(mbc)) => mbc,
+    //         _ => u64::MAX,
+    //     };
+    //     let use_unlimited_block_count_range = u64::MAX == max_block_count;
+    //     let use_latest_block = u64::MAX == start_block_nbr;
+    //     let end_block = match self
+    //         .blockchain_interface
+    //         .lower_interface()
+    //         .get_block_number()
+    //     {
+    //         Ok(eb) => {
+    //             if use_unlimited_block_count_range || use_latest_block {
+    //                 BlockNumber::Number(eb)
+    //             } else {
+    //                 BlockNumber::Number(eb.as_u64().min(start_block_nbr + max_block_count).into())
+    //             }
+    //         }
+    //         Err(e) => {
+    //             if use_unlimited_block_count_range || use_latest_block {
+    //                 debug!(
+    //                     self.logger,
+    //                     "Using 'latest' block number instead of a literal number. {:?}", e
+    //                 );
+    //                 BlockNumber::Latest
+    //             } else {
+    //                 debug!(
+    //                     self.logger,
+    //                     "Using '{}' ending block number. {:?}",
+    //                     start_block_nbr + max_block_count,
+    //                     e
+    //                 );
+    //                 BlockNumber::Number((start_block_nbr + max_block_count).into())
+    //             }
+    //         }
+    //     };
+    //     let start_block = if use_latest_block {
+    //         end_block
+    //     } else {
+    //         BlockNumber::Number(start_block_nbr.into())
+    //     };
+    //     let retrieved_transactions =
+    //         self.blockchain_interface
+    //             .retrieve_transactions(start_block, end_block, &msg.recipient);
+    //     match retrieved_transactions {
+    //         Ok(transactions) => {
+    //             if let BlockNumber::Number(new_start_block_number) = transactions.new_start_block {
+    //                 if transactions.transactions.is_empty() {
+    //                     debug!(self.logger, "No new receivable detected");
+    //                 }
+    //                 self.received_payments_subs_opt
+    //                     .as_ref()
+    //                     .expect("Accountant is unbound")
+    //                     .try_send(ReceivedPayments {
+    //                         timestamp: SystemTime::now(),
+    //                         payments: transactions.transactions,
+    //                         new_start_block: new_start_block_number.as_u64(),
+    //                         response_skeleton_opt: msg.response_skeleton_opt,
+    //                     })
+    //                     .expect("Accountant is dead.");
+    //             }
+    //             Ok(())
+    //         }
+    //         Err(e) => {
+    //             if let Some(max_block_count) = self.extract_max_block_count(e.clone()) {
+    //                 debug!(self.logger, "Writing max_block_count({})", &max_block_count);
+    //                 self.persistent_config
+    //                     .set_max_block_count(Some(max_block_count))
+    //                     .map_or_else(
+    //                         |_| {
+    //                             warning!(self.logger, "{} update max_block_count to {}. Scheduling next scan with that limit.", e, &max_block_count);
+    //                             Err(format!("{} updated max_block_count to {}. Scheduling next scan with that limit.", e, &max_block_count))
+    //                         },
+    //                         |e| {
+    //                             warning!(self.logger, "Writing max_block_count failed: {:?}", e);
+    //                             Err(format!("Writing max_block_count failed: {:?}", e))
+    //                         },
+    //                     )
+    //             } else {
+    //                 warning!(
+    //                     self.logger,
+    //                     "Attempted to retrieve received payments but failed: {:?}",
+    //                     e
+    //                 );
+    //                 Err(format!(
+    //                     "Attempted to retrieve received payments but failed: {:?}",
+    //                     e
+    //                 ))
+    //             }
+    //         }
+    //     }
+    // }
+
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
@@ -312,9 +412,10 @@ impl BlockchainBridge {
                 .persistent_config_arc
                 .lock()
                 .expect("Unable to lock persistent config in BlockchainBridge");
-
+            // TODO: GH-744: Look into making start_block_nbr 0 instead of u64::MAX
             let start_block_nbr = match persistent_config_lock.start_block() {
-                Ok(sb) => sb,
+                Ok(Some(sb)) => sb,
+                Ok(None) => u64::MAX,
                 Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
             };
             let max_block_count = match persistent_config_lock.max_block_count() {
@@ -323,11 +424,10 @@ impl BlockchainBridge {
             };
             (start_block_nbr, max_block_count)
         };
-
         let logger = self.logger.clone();
         let fallback_next_start_block_number =
             Self::calculate_fallback_start_block_number(start_block_nbr, max_block_count);
-        let start_block = BlockNumber::Number(start_block_nbr.into());
+        let start_block = BlockNumber::Number(start_block_nbr.into()); // TODO: GH-744 Look at making this a u64 or an Option of u64
         let received_payments_subs = self
             .received_payments_subs_opt
             .as_ref()
@@ -372,7 +472,6 @@ impl BlockchainBridge {
                         payments: transactions.transactions,
                         new_start_block: transactions.new_start_block,
                     };
-
                     received_payments_subs
                         .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
@@ -463,7 +562,11 @@ impl BlockchainBridge {
 
     fn calculate_fallback_start_block_number(start_block_number: u64, max_block_count: u64) -> u64 {
         if max_block_count == u64::MAX {
-            start_block_number + 1u64
+            if start_block_number == u64::MAX {
+                start_block_number
+            } else {
+                start_block_number + 1u64 // TODO: GH-744 Way are we adding +1 can we just return the same value?
+            }
         } else {
             start_block_number + max_block_count
         }
@@ -496,7 +599,7 @@ impl BlockchainBridge {
 
     pub fn extract_max_block_count(error: BlockchainError) -> Option<u64> {
         let regex_result =
-            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \()(?P<max_block_count>\d+).*")
+            Regex::new(r".* (max: |allowed for your plan: |is limited to |block range limit \(|exceeds max block range )(?P<max_block_count>\d+).*")
                 .expect("Invalid regex");
         let max_block_count = match error {
             BlockchainError::QueryFailed(msg) => match regex_result.captures(msg.as_str()) {
@@ -1221,7 +1324,7 @@ mod tests {
         let blockchain_interface = make_blockchain_interface_web3(port);
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(100_000)))
-            .start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
+            .start_block_result(Ok(Some(5))); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Arc::new(Mutex::new(persistent_config)),
@@ -1484,7 +1587,7 @@ mod tests {
         let earning_wallet = make_wallet("somewallet");
         let persistent_config = PersistentConfigurationMock::new()
             .max_block_count_result(Ok(Some(10000u64)))
-            .start_block_result(Ok(100));
+            .start_block_result(Ok(Some(100)));
         let mut subject = BlockchainBridge::new(
             Box::new(make_blockchain_interface_web3(port)),
             Arc::new(Mutex::new(persistent_config)),
@@ -1544,6 +1647,102 @@ mod tests {
     }
 
     #[test]
+    fn handle_retrieve_transactions_when_start_block_number_starts_undefined_in_a_brand_new_database(
+    ) {
+        let system = System::new(
+            "handle_retrieve_transactions_when_start_block_number_starts_undefined_in_a_brand_new_database",
+        );
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .response("0x845FED".to_string(), 0)
+            .response(
+                vec![LogObject {
+                    removed: false,
+                    log_index: Some("0x20".to_string()),
+                    transaction_index: Some("0x30".to_string()),
+                    transaction_hash: Some(
+                        "0x2222222222222222222222222222222222222222222222222222222222222222"
+                            .to_string(),
+                    ),
+                    block_hash: Some(
+                        "0x1111111111111111111111111111111111111111111111111111111111111111"
+                            .to_string(),
+                    ),
+                    block_number: Some("0x845FEC".to_string()),
+                    address: "0x3333333333333333333333333333333333333334".to_string(),
+                    data: "0x000000000000000000000000000000000000000000000000000000003b5dc100"
+                        .to_string(),
+                    topics: vec![
+                        "0xddf252ad1be2c89b69c2b06800000000000000000000736f6d6577616c6c6574"
+                            .to_string(),
+                        "0xddf252ad1be2c89b69c2b06900000000000000000000736f6d6577616c6c6574"
+                            .to_string(),
+                    ],
+                }],
+                1,
+            )
+            .start();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let accountant_addr =
+            accountant.system_stop_conditions(match_every_type_id!(ReceivedPayments));
+        let some_wallet = make_wallet("somewallet");
+        let recipient_wallet = make_wallet("recipient_wallet");
+        let amount = 996000000;
+        let expected_transactions = RetrievedBlockchainTransactions {
+            new_start_block: 8675309u64,
+            transactions: vec![BlockchainTransaction {
+                block_number: 8675308u64,
+                from: some_wallet.clone(),
+                wei_amount: amount,
+            }],
+        };
+        let blockchain_interface = make_blockchain_interface_web3(port);
+        let persistent_config = PersistentConfigurationMock::new()
+            .max_block_count_result(Ok(None))
+            .start_block_result(Ok(None));
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Arc::new(Mutex::new(persistent_config)),
+            false,
+        );
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant_addr).build();
+        send_bind_message!(subject_subs, peer_actors);
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: recipient_wallet.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
+        let before = SystemTime::now();
+
+        let _ = addr.try_send(retrieve_transactions).unwrap();
+
+        system.run();
+        let after = SystemTime::now();
+        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_received_payment.len(), 1);
+        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        check_timestamp(before, received_payments.timestamp, after);
+        assert_eq!(
+            received_payments,
+            &ReceivedPayments {
+                timestamp: received_payments.timestamp,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321
+                }),
+                payments_and_start_block: PaymentsAndStartBlock {
+                    payments: expected_transactions.transactions,
+                    new_start_block: 8675309u64
+                },
+            }
+        );
+    }
+
+    #[test]
     fn handle_retrieve_transactions_sends_received_payments_back_to_accountant() {
         let system =
             System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
@@ -1593,7 +1792,7 @@ mod tests {
         };
         let blockchain_interface = make_blockchain_interface_web3(port);
         let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
+            .start_block_result(Ok(Some(6)))
             .max_block_count_result(Err(PersistentConfigError::NotPresent));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1617,7 +1816,6 @@ mod tests {
 
         system.run();
         let after = SystemTime::now();
-
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
         let received_payments_message = accountant_recording.get_record::<ReceivedPayments>(0);
@@ -1672,7 +1870,7 @@ mod tests {
         let mut blockchain_interface = make_blockchain_interface_web3(port);
         blockchain_interface.logger = logger;
         let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
+            .start_block_result(Ok(Some(6)))
             .max_block_count_result(Err(PersistentConfigError::DatabaseError(
                 "my tummy hurts".to_string(),
             )));
@@ -1730,7 +1928,7 @@ mod tests {
         let earning_wallet = make_wallet("earning_wallet");
         let blockchain_interface = make_blockchain_interface_web3(port);
         let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
+            .start_block_result(Ok(Some(6)))
             .max_block_count_result(Err(PersistentConfigError::DatabaseError(
                 "my tummy hurts".to_string(),
             )))
@@ -1790,7 +1988,7 @@ mod tests {
         let earning_wallet = make_wallet("earning_wallet");
         let blockchain_interface = make_blockchain_interface_web3(port);
         let persistent_config = PersistentConfigurationMock::new()
-            .start_block_result(Ok(6))
+            .start_block_result(Ok(Some(6)))
             .max_block_count_result(Err(PersistentConfigError::DatabaseError(
                 "my tummy hurts".to_string(),
             )))
@@ -1881,7 +2079,7 @@ mod tests {
             }"#.to_string())
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let start_block = 2000;
+        let start_block = Some(2000);
         let wallet = make_wallet("somewallet");
         let persistent_config = PersistentConfigurationMock::default()
             .start_block_result(Ok(start_block))
@@ -1940,7 +2138,7 @@ mod tests {
             .err_response(-32005, "My tummy hurts", 0)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let start_block = 2000;
+        let start_block = Some(2000);
         let persistent_config = PersistentConfigurationMock::default()
             .start_block_result(Ok(start_block))
             .max_block_count_result(Ok(None));
@@ -2066,6 +2264,15 @@ mod tests {
         let max_block_count = BlockchainBridge::extract_max_block_count(result);
 
         assert_eq!(None, max_block_count);
+    }
+
+    #[test]
+    fn extract_max_block_range_for_nodies_error_response() {
+        let result = BlockchainError::QueryFailed("RPC error: Error { code: InvalidParams, message: \"query exceeds max block range 100000\", data: None }".to_string());
+
+        let max_block_count = BlockchainBridge::extract_max_block_count(result);
+
+        assert_eq!(Some(100000), max_block_count);
     }
 
     #[test]
