@@ -33,6 +33,7 @@ use actix::Message;
 use actix::{Addr, Recipient};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -287,7 +288,7 @@ impl BlockchainBridge {
         };
         let max_block_count = match self.persistent_config.max_block_count() {
             Ok(Some(mbc)) => mbc,
-            _ => u64::MAX,
+            _ => DEFAULT_MAX_BLOCK_COUNT,
         };
         let use_unlimited_block_count_range = u64::MAX == max_block_count;
         let use_latest_block = u64::MAX == start_block_nbr;
@@ -1019,7 +1020,7 @@ mod tests {
             )))
             .lower_interface_results(Box::new(lower_interface));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(Some(100_000)))
+            .max_block_count_result(Ok(Some(DEFAULT_MAX_BLOCK_COUNT)))
             .start_block_result(Ok(Some(5))); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -1277,11 +1278,12 @@ mod tests {
     }
 
     #[test]
-    fn handle_retrieve_transactions_uses_latest_block_number_upon_get_block_number_error() {
+    fn handle_retrieve_transactions_uses_default_max_block_count_for_ending_block_number_upon_get_block_number_error(
+    ) {
         init_test_logging();
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(
-            "handle_retrieve_transactions_uses_latest_block_number_upon_get_block_number_error",
+            "handle_retrieve_transactions_uses_default_max_block_count_for_ending_block_number_upon_get_block_number_error",
         );
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let earning_wallet = make_wallet("somewallet");
@@ -1311,7 +1313,7 @@ mod tests {
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
             .lower_interface_results(Box::new(lower_interface));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(None))
+            .max_block_count_result(Ok(Some(DEFAULT_MAX_BLOCK_COUNT)))
             .start_block_result(Ok(Some(6)));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
@@ -1341,7 +1343,7 @@ mod tests {
             *retrieve_transactions_params,
             vec![(
                 BlockNumber::Number(6u64.into()),
-                BlockNumber::Latest,
+                BlockNumber::Number((DEFAULT_MAX_BLOCK_COUNT + 6u64).into()),
                 earning_wallet
             )]
         );
@@ -1361,7 +1363,7 @@ mod tests {
                 }),
             }
         );
-        TestLogHandler::new().exists_log_containing("DEBUG: BlockchainBridge: Using 'latest' block number instead of a literal number. QueryFailed(\"Failed to read the latest block number\")");
+        TestLogHandler::new().exists_log_containing("DEBUG: BlockchainBridge: Using '100006' ending block number. QueryFailed(\"Failed to read the latest block number\")");
     }
 
     #[test]
@@ -1400,7 +1402,7 @@ mod tests {
             .retrieve_transactions_result(Ok(expected_transactions.clone()))
             .lower_interface_results(Box::new(lower_interface));
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(None))
+            .max_block_count_result(Ok(Some(DEFAULT_MAX_BLOCK_COUNT)))
             .start_block_result(Ok(None));
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
@@ -1449,7 +1451,8 @@ mod tests {
     }
 
     #[test]
-    fn handle_retrieve_transactions_with_latest_for_start_and_end_block_is_supported() {
+    fn handle_retrieve_transactions_when_get_block_number_fails_uses_latest_for_start_and_end_block(
+    ) {
         let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
         let earning_wallet = make_wallet("somewallet");
         let amount = 42;
@@ -1471,11 +1474,11 @@ mod tests {
         };
 
         let system = System::new(
-            "handle_retrieve_transactions_with_latest_for_start_and_end_block_is_supported",
+            "handle_retrieve_transactions_when_get_block_number_fails_uses_latest_for_start_and_end_block",
         );
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let persistent_config = PersistentConfigurationMock::new()
-            .max_block_count_result(Ok(None))
+            .max_block_count_result(Ok(Some(DEFAULT_MAX_BLOCK_COUNT)))
             .start_block_result(Ok(None));
         let latest_block_number = LatestBlockNumber::Err(BlockchainError::QueryFailed(
             "Failed to read from block chain service".to_string(),

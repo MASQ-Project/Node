@@ -5,7 +5,7 @@ use crate::data_version::DataVersion;
 use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
-pub const CURRENT_SCHEMA_VERSION: usize = 9;
+pub const CURRENT_SCHEMA_VERSION: usize = 10;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -215,3 +215,5 @@ mod tests {
         })
     }
 }
+
+pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000u64;
