@@ -3,7 +3,7 @@
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_AMOY_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -13,6 +13,7 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -64,8 +65,9 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+     masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+     masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -256,7 +258,7 @@ pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
-        POLYGON_MUMBAI_FULL_IDENTIFIER,
+        POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
@@ -803,8 +805,9 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+                  masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -1207,7 +1210,7 @@ mod tests {
         let mut iterator = official_chain_names().iter();
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyAmoy);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
         assert_eq!(iterator.next(), None)
