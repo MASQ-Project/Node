@@ -2,7 +2,6 @@
 
 use crate::proxy_client::resolver_wrapper::ResolverWrapper;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
-use crossbeam_channel::{unbounded, SendError};
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup::Lookup;
@@ -16,15 +15,21 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
+use async_trait::async_trait;
+use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::unbounded_channel;
 
 pub struct ResolverWrapperMock {
     lookup_ip_results: RefCell<Vec<Result<LookupIp, ResolveError>>>,
     lookup_ip_params: Arc<Mutex<Vec<String>>>,
 }
 
+unsafe impl Sync for ResolverWrapperMock {}
+
+#[async_trait]
 impl ResolverWrapper for ResolverWrapperMock {
     async fn lookup_ip(&self, host: &str) -> Result<LookupIp, ResolveError> {
-        self.lookup_ip_params.lock().unwrap().push(host.to_string());
+        self.lookup_ip_params.lock()?.push(host.to_string());
         self.lookup_ip_results.borrow_mut().remove(0)
     }
 }
@@ -44,9 +49,9 @@ impl ResolverWrapperMock {
     pub fn lookup_ip_result(self, result: Result<Vec<IpAddr>, ResolveError>) -> Self {
         match result {
             Ok(ip_addrs) => {
-                // We don't have any use for the query in the results, so we're filling it with garbage
-                let query = Query::new_for_test("invalid".to_string(), 0, 0, 0);
-                let records = ip_addrs
+                // We don't have any use for the query in the results, so we just create a dummy one
+                let query = Query::new();
+                let record_vec = ip_addrs
                     .into_iter()
                     .map(|ip_addr| {
                         match ip_addr {
@@ -70,15 +75,15 @@ impl ResolverWrapperMock {
                             }
                         }
                     })
-                    .collect::<[Record]>();
-                let records_arc = Arc::new(records);
+                    .collect::<Vec<Record>>();
+                let records_arc: Arc<[Record]> = Arc::from(record_vec.into_boxed_slice());
                 let lookup = Lookup::new_with_max_ttl(query, records_arc);
                 let lookup_ip = LookupIp::from(lookup);
                 self.lookup_ip_results.borrow_mut().push(Ok(lookup_ip));
             }
             Err(e) => self.lookup_ip_results.borrow_mut().push(Err(e)),
         }
-        return self;
+        self
     }
 
     pub fn lookup_ip_params(mut self, parameters: &Arc<Mutex<Vec<String>>>) -> ResolverWrapperMock {
@@ -94,7 +99,7 @@ pub struct ResolverWrapperFactoryMock {
 impl ResolverWrapperFactory for ResolverWrapperFactoryMock {
     fn make(&self, config: ResolverConfig, options: ResolverOpts) -> Box<dyn ResolverWrapper> {
         self.make_parameters.lock().unwrap().push((config, options));
-        return self.make_results.borrow_mut().remove(0);
+        self.make_results.borrow_mut().remove(0)
     }
 }
 impl ResolverWrapperFactoryMock {
@@ -120,6 +125,6 @@ impl ResolverWrapperFactoryMock {
 }
 
 pub fn make_send_error<T>(msg: T) -> Result<(), SendError<T>> {
-    let (tx, _) = unbounded();
+    let (tx, _) = unbounded_channel();
     tx.send(msg)
 }

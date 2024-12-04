@@ -18,7 +18,7 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
-use tokio::task::JoinSet;
+use tokio::task::{JoinHandle, JoinSet};
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 
@@ -74,7 +74,7 @@ pub trait DumpConfigRunner {
 
 pub trait ServerInitializer: Send {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    fn spawn_futures(&mut self) -> JoinSet<()>;
+    fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>>;
     declare_as_any!();
 }
 
@@ -420,7 +420,7 @@ pub mod mocks {
             self.go_results.borrow_mut().remove(0)
         }
 
-        fn spawn_futures(self) -> JoinSet<()> {
+        fn spawn_long_lived_services(self) -> JoinSet<()> {
             self.spawn_futures_params.lock().unwrap().push(());
             self.spawn_futures_results.borrow_mut().remove(0)
         }

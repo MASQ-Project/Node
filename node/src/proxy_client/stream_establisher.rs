@@ -69,7 +69,7 @@ impl StreamEstablisher {
             rx_to_write,
             payload.stream_key,
         );
-        tokio::spawn(stream_writer);
+        tokio::spawn(stream_writer.future());
 
         self.stream_adder_tx
             .send((payload.stream_key, tx_to_write.dup()))

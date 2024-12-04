@@ -23,25 +23,6 @@ pub struct StreamWriter {
     shutting_down: bool,
 }
 
-impl Future for StreamWriter {
-    type Output = io::Result<()>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.shutting_down {
-            return self.shutdown(cx);
-        }
-
-        let read_result = self.read_data_from_channel(cx);
-        let write_result = self.write_from_buffer_to_stream(cx);
-
-        match (read_result, write_result) {
-            (_, Poll::Ready(Err(_))) => Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe))),
-            (Poll::Pending, _) => Poll::Pending,
-            (_, wr) => wr,
-        }
-    }
-}
-
 impl StreamWriter {
     pub fn new(
         stream: Box<dyn WriteHalfWrapper>,
@@ -61,7 +42,37 @@ impl StreamWriter {
         }
     }
 
-    async fn shutdown(&mut self, _: &mut Context<'_>) -> io::Result<()> {
+    pub async fn future(mut self) -> io::Result<()> {
+        loop {
+            if self.shutting_down {
+                return self.shutdown();
+            }
+
+            let read_result = self.read_data_from_channel().await;
+            let write_result = self.write_from_buffer_to_stream().await;
+
+            match (read_result, write_result) {
+                (_, Err(e)) => {
+                    // TODO: Drive this in:
+                    // if indicates_dead_stream(e.kind()) {
+                    //     error!(
+                    //         self.logger,
+                    //         "Error writing {} bytes: {}",
+                    //         self.sequence_buffer.len(),
+                    //         e
+                    //     );
+                    //     return Err(e);
+                    // } else {
+                    //     warning!(self.logger, "Continuing after write error: {}", e);
+                    // }
+                    return Err(e)
+                },
+                (_, wr) => (),
+            }
+        }
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
         self.stream.shutdown().await
     }
 
@@ -70,14 +81,13 @@ impl StreamWriter {
     // holding data only until the first part of our buffer has no holes in it, and then passing
     // that first part on. In other words, whenever the first slot in the buffer is not blank,
     // we should send it.
-    fn read_data_from_channel(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), ()>> {
+    async fn read_data_from_channel(&mut self) -> Result<(), ()> {
         loop {
-            match self.rx_to_write.poll(cx) {
-                Poll::Ready(Ok(Some(sequenced_packet))) => {
+            match self.rx_to_write.recv().await {
+                Some(sequenced_packet) => {
                     self.sequence_buffer.push(sequenced_packet);
                 }
-                Poll::Ready(Ok(None)) => return Poll::Ready(Ok(())),
-                Poll::Pending => return Poll::Pending,
+                None => return Ok(()),
                 Poll::Ready(Err(e)) => panic!(
                     "got an error from an unbounded channel which cannot return error: {:?}",
                     e
@@ -86,7 +96,7 @@ impl StreamWriter {
         }
     }
 
-    async fn write_from_buffer_to_stream(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    async fn write_from_buffer_to_stream(&mut self) -> io::Result<()> {
         loop {
             let packet_opt = self.sequence_buffer.poll();
 
@@ -144,7 +154,7 @@ impl StreamWriter {
                             } else if packet.last_data {
                                 debug!(self.logger, "Shutting down stream to server at {} in response to client-drop report", self.peer_addr);
                                 self.shutting_down = true;
-                                return self.shutdown(cx);
+                                return self.shutdown();
                             }
                         }
                     }
@@ -168,8 +178,8 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn stream_writer_writes_packets_in_sequenced_order() {
+    #[tokio::test]
+    async fn stream_writer_writes_packets_in_sequenced_order() {
         init_test_logging();
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
         let packet_b: Vec<u8> = vec![2, 4, 10, 8, 6, 3];
@@ -178,28 +188,28 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
 
         let mut rx_to_write = Box::new(ReceiverWrapperMock::new());
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
+        rx_to_write.recv_results = vec![
+            Some(SequencedPacket {
                 data: packet_c.to_vec(),
                 sequence_number: 2,
                 last_data: false,
-            }))),
-            Poll::Ready(Ok(Some(SequencedPacket {
+            }),
+            Some(SequencedPacket {
                 data: packet_b.to_vec(),
                 sequence_number: 1,
                 last_data: false,
-            }))),
-            Poll::Ready(Ok(Some(SequencedPacket {
+            }),
+            Some(SequencedPacket {
                 data: vec![],
                 sequence_number: 3,
                 last_data: false,
-            }))),
-            Poll::Ready(Ok(Some(SequencedPacket {
+            }),
+            Some(SequencedPacket {
                 data: packet_a.to_vec(),
                 sequence_number: 0,
                 last_data: false,
-            }))),
-            Poll::Ready(Ok(None)),
+            }),
+            None,
         ];
 
         let writer = WriteHalfWrapperMock::new()
@@ -213,7 +223,7 @@ mod tests {
 
         let mut subject = StreamWriter::new(Box::new(writer), peer_addr, rx_to_write, stream_key);
 
-        let _res = subject.poll();
+        let _res = subject.go();
 
         let write_params = write_params_mutex.lock().unwrap();
 
@@ -661,13 +671,13 @@ mod tests {
     }
 
     fn set_up_standard_results(rx_to_write: &mut Box<ReceiverWrapperMock<SequencedPacket>>, packet_a: &Vec<u8>) {
-        rx_to_write.poll_results = vec![
-            Poll::Ready(Ok(Some(SequencedPacket {
+        rx_to_write.recv_results = vec![
+            Some(SequencedPacket {
                 data: packet_a.to_vec(),
                 sequence_number: 0,
                 last_data: true,
-            }))),
-            Poll::Ready(Ok(None)),
+            }),
+            None,
         ];
     }
 }

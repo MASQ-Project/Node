@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::entry_dns::processing;
-use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, SpawnableConfiguredByPrivilege};
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
 use masq_lib::command::StdStreams;
@@ -9,12 +9,14 @@ use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
 use std::net::SocketAddr;
+use async_trait::async_trait;
 
 const DNS_PORT: u16 = 53;
 
 pub struct DnsSocketServer {
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
     logger: Logger,
+    // TODO: I think this field is unnecessary. It's only used in the async block below, so it could be a local variable.
     buf: [u8; 65536],
 }
 
@@ -41,8 +43,9 @@ impl ConfiguredByPrivilege for DnsSocketServer {
     }
 }
 
-impl ConfiguredServer for DnsSocketServer {
-    async fn make_server_future(self) -> std::io::Result<()> {
+#[async_trait]
+impl SpawnableConfiguredByPrivilege for DnsSocketServer {
+    async fn make_server_future(&mut self) -> std::io::Result<()> {
         loop {
             let mut buffer = self.buf;
             let (len, socket_addr) = match self.socket_wrapper.recv_from(&mut buffer).await {

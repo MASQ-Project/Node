@@ -188,43 +188,42 @@ impl StreamHandlerPoolReal {
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
 
-        Self::perform_write(payload.sequenced_packet, sender_wrapper.dup()).and_then(move |_| {
-            let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
-            if last_data {
-                match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(channel) => debug!(
-                        inner.logger,
-                        "Removing StreamWriter {:?} to {}",
-                        stream_key,
-                        channel.peer_addr()
-                    ),
-                    None => debug!(
-                        inner.logger,
-                        "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
-                    ),
-                }
+        Self::perform_write(payload.sequenced_packet, sender_wrapper.dup()).await?;
+        let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
+        if last_data {
+            match inner.stream_writer_channels.remove(&stream_key) {
+                Some(channel) => debug!(
+                    inner.logger,
+                    "Removing StreamWriter {:?} to {}",
+                    stream_key,
+                    channel.peer_addr()
+                ),
+                None => debug!(
+                    inner.logger,
+                    "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
+                ),
             }
-            if payload_size > 0 {
-                match paying_wallet_opt {
-                    Some(wallet) => inner
-                        .accountant_sub
-                        .try_send(ReportExitServiceProvidedMessage {
-                            timestamp: SystemTime::now(),
-                            paying_wallet: wallet,
-                            payload_size,
-                            service_rate: inner.exit_service_rate,
-                            byte_rate: inner.exit_byte_rate,
-                        })
-                        .expect("Accountant is dead"),
-                    // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
-                    None => debug!(
-                        inner.logger,
-                        "Sent {}-byte request without consuming wallet for free", payload_size
-                    ),
-                }
+        }
+        if payload_size > 0 {
+            match paying_wallet_opt {
+                Some(wallet) => inner
+                    .accountant_sub
+                    .try_send(ReportExitServiceProvidedMessage {
+                        timestamp: SystemTime::now(),
+                        paying_wallet: wallet,
+                        payload_size,
+                        service_rate: inner.exit_service_rate,
+                        byte_rate: inner.exit_byte_rate,
+                    })
+                    .expect("Accountant is dead"),
+                // This log is here mostly for testing, to prove that no Accountant message is sent in the no-wallet case
+                None => debug!(
+                    inner.logger,
+                    "Sent {}-byte request without consuming wallet for free", payload_size
+                ),
             }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
     fn make_stream_with_key(
@@ -318,7 +317,7 @@ impl StreamHandlerPoolReal {
             Ok(lookup_result) => match Self::handle_lookup_ip(
                 target_hostname.to_string(),
                 &payload,
-                lookup_result,
+                lookup_result, // TODO  We should probably be taking care of the error side of this here, rather than in handle_lookup_ip().
                 logger,
                 &mut establisher,
             )
@@ -328,9 +327,14 @@ impl StreamHandlerPoolReal {
                 Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
             },
             Err(err) => {
+                error!(
+                    logger,
+                    "Could not find IP address for host {}: {}", target_hostname, err
+                );
                 dns_resolve_failed_sub
                     .try_send(DnsResolveFailure_0v1::new(stream_key))
                     .expect("ProxyClient is poisoned");
+
                 // TODO SPIKE This code was returning a naked "err" before. How can that be right?
                 Err(format!("DNS resolution failure: {:?}", err))
                 // TODO SPIKE
@@ -341,20 +345,11 @@ impl StreamHandlerPoolReal {
     fn handle_lookup_ip(
         target_hostname: String,
         payload: &ClientRequestPayload_0v1,
-        lookup_result: Result<LookupIp, ResolveError>,
+        lookup_ip: LookupIp,
         logger: Logger,
         establisher: &mut StreamEstablisher,
     ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
-        let ip_addrs: Vec<IpAddr> = match lookup_result {
-            Err(e) => {
-                error!(
-                    logger,
-                    "Could not find IP address for host {}: {}", target_hostname, e
-                );
-                return Err(io::Error::from(e));
-            }
-            Ok(lookup_ip) => lookup_ip.iter().collect(),
-        };
+        let ip_addrs: Vec<IpAddr> = lookup_ip.iter().collect();
         debug!(
             logger,
             "Found IP addresses for {}: {:?}", target_hostname, &ip_addrs
@@ -372,7 +367,7 @@ impl StreamHandlerPoolReal {
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
         let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
-        sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
+        sender_wrapper_opt.map(|sender_wrapper_box_ref| Box::new(sender_wrapper_box_ref).clone())
     }
 
     fn make_logger_copy(inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>) -> Logger {

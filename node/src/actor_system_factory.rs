@@ -51,7 +51,7 @@ use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
-pub trait ActorSystemFactory {
+pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
         &self,
         config: BootstrapperConfig,
@@ -347,7 +347,7 @@ impl ActorSystemFactoryToolsReal {
     }
 }
 
-pub trait ActorFactory {
+pub trait ActorFactory: Send {
     fn make_and_start_dispatcher(
         &self,
         config: &BootstrapperConfig,
@@ -648,7 +648,6 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::assert_on_initialization_with_panic_on_migration;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::{alias_cryptde, rate_pack};

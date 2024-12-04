@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
@@ -16,6 +17,7 @@ pub trait ConfiguredByPrivilege: Send {
     ) -> Result<(), ConfiguratorError>;
 }
 
-pub trait ConfiguredServer: Send {
-    async fn make_server_future(self) -> std::io::Result<()>;
+#[async_trait]
+pub trait SpawnableConfiguredByPrivilege: ConfiguredByPrivilege {
+    async fn make_server_future(&mut self) -> std::io::Result<()>;
 }

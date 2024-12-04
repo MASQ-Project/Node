@@ -6,7 +6,7 @@ use crate::entry_dns::dns_socket_server::DnsSocketServer;
 use crate::node_configurator::node_configurator_standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
-use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, SpawnableConfiguredByPrivilege};
 use backtrace::Backtrace;
 use flexi_logger::{Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, LevelFilter, LogSpecBuilder, Logger, Naming, Record};
 use lazy_static::lazy_static;
@@ -21,10 +21,10 @@ use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use time::OffsetDateTime;
-use tokio::task::{JoinSet};
+use tokio::task::{JoinHandle, JoinSet};
 
 pub struct ServerInitializerReal {
-    dns_socket_server: Box<dyn ConfiguredServer>,
+    dns_socket_server_opt: Option<Box<dyn SpawnableConfiguredByPrivilege>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -36,8 +36,9 @@ impl ServerInitializer for ServerInitializerReal {
 
         let result: RunModeResult = Ok(())
             .combine_results(
-                self.dns_socket_server
+                self.dns_socket_server_opt
                     .as_mut()
+                    .expect("DNS Socket Server has already been spawned")
                     .initialize_as_privileged(&params.multi_config),
             )
             .combine_results(
@@ -52,8 +53,9 @@ impl ServerInitializer for ServerInitializerReal {
 
         result
             .combine_results(
-                self.dns_socket_server
+                self.dns_socket_server_opt
                     .as_mut()
+                    .expect("DNS Socket Server has already been spawned")
                     .initialize_as_unprivileged(&params.multi_config, streams),
             )
             .combine_results(
@@ -62,15 +64,15 @@ impl ServerInitializer for ServerInitializerReal {
             )
     }
 
-    // TODO: This JoinSet used to have both the dns_socket_server and the bootstrapper in it.
-    // We couldn't figure out a good reason for the bootstrapper to be in, because there wasn't
-    // any future-oriented behavior in the bootstrapper; so we took it out. That leaves a single-
-    // element JoinSet, which is kind of silly. However, we want to delay the rearchitecture of
-    // ServerInitializer until after we have passing tests. So, for now, we're leaving this as is.
-    fn spawn_futures(&mut self) -> JoinSet<io::Result<()>> {
-        let mut join_set = JoinSet::new();
-        let _ = join_set.spawn(self.dns_socket_server.make_server_future());
-        join_set
+    fn spawn_long_lived_services(&mut self) -> JoinHandle<io::Result<()>> {
+        let mut dns_socket_server = self
+            .dns_socket_server_opt
+            .take()
+            .expect("DNS Socket Server has already been spawned");
+        let server_future = async move {
+            dns_socket_server.make_server_future()
+        };
+        tokio::spawn(server_future)
     }
 
     implement_as_any!();
@@ -79,7 +81,7 @@ impl ServerInitializer for ServerInitializerReal {
 impl Default for ServerInitializerReal {
     fn default() -> ServerInitializerReal {
         ServerInitializerReal {
-            dns_socket_server: Box::new(DnsSocketServer::new()),
+            dns_socket_server_opt: Some(Box::new(DnsSocketServer::new())),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
             dirs_wrapper: Box::new(DirsWrapperReal),
@@ -134,7 +136,7 @@ lazy_static! {
     pub static ref LOGFILE_NAME: Mutex<PathBuf> = Mutex::new(PathBuf::from("uninitialized"));
 }
 
-pub trait LoggerInitializerWrapper {
+pub trait LoggerInitializerWrapper: Send {
     fn init(
         &mut self,
         file_path: PathBuf,
@@ -413,6 +415,8 @@ pub mod tests {
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
+    use async_trait::async_trait;
+    use itertools::Itertools;
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
         fn initialize_as_privileged(
@@ -427,6 +431,13 @@ pub mod tests {
             _multi_config: &MultiConfig,
             _streams: &mut StdStreams<'_>,
         ) -> Result<(), ConfiguratorError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl<C: Send + 'static> SpawnableConfiguredByPrivilege for CrashTestDummy<C> {
+        async fn make_server_future(&mut self) -> io::Result<()> {
             Ok(())
         }
     }
@@ -479,6 +490,13 @@ pub mod tests {
             self.initialize_as_unprivileged_results
                 .borrow_mut()
                 .remove(0)
+        }
+    }
+
+    #[async_trait]
+    impl SpawnableConfiguredByPrivilege for ConfiguredByPrivilegeMock {
+        async fn make_server_future(&mut self) -> io::Result<()> {
+            unimplemented!("This probably isn't needed");
         }
     }
 
@@ -543,7 +561,7 @@ pub mod tests {
                 .map(|key| {
                     multi_config
                         .arg_matches_ref()
-                        .value_of(key)
+                        .get_one::<String>(key)
                         .unwrap()
                         .to_string()
                 })
@@ -688,7 +706,7 @@ pub mod tests {
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializerReal {
-            dns_socket_server: Box::new(dns_socket_server),
+            dns_socket_server_opt: Some(Box::new(dns_socket_server)),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(dirs_wrapper),
@@ -705,15 +723,10 @@ pub mod tests {
             .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
             .unwrap();
 
-        let mut join_set = subject.spawn_futures();
+        let mut join_handle = subject.spawn_long_lived_services();
 
-        let mut error = false;
-        while let Some(result) = join_set.join_next().await {
-            if result.is_err() {
-                error = true;
-            }
-        }
-        assert_eq!(error, true);
+        let result = join_handle.await;
+        assert_eq!(result.is_err(), true, "Expected an error, but received {:?}", result);
     }
 
     #[test]
@@ -724,16 +737,16 @@ pub mod tests {
         let dirs_wrapper = DirsWrapperMock::new();
 
         let mut subject = ServerInitializerReal {
-            dns_socket_server: Box::new(CrashTestDummy::panic(
+            dns_socket_server_opt: Some(Box::new(CrashTestDummy::panic(
                 "EntryDnsServerMock was instructed to panic".to_string(),
                 (),
-            )),
+            ))),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(dirs_wrapper),
         };
 
-        let _ = subject.spawn_futures();
+        let _ = subject.spawn_long_lived_services();
     }
 
     #[test]
@@ -743,7 +756,7 @@ pub mod tests {
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
         let mut subject = ServerInitializerReal {
-            dns_socket_server: Box::new(dns_socket_server),
+            dns_socket_server_opt: Some(Box::new(dns_socket_server)),
             bootstrapper: Box::new(CrashTestDummy::panic(
                 "BootstrapperMock was instructed to panic".to_string(),
                 BootstrapperConfig::new(),
@@ -752,7 +765,7 @@ pub mod tests {
             dirs_wrapper: Box::new(dirs_wrapper),
         };
 
-        let _ = subject.spawn_futures();
+        let _ = subject.spawn_long_lived_services();
     }
 
     #[test]
@@ -795,7 +808,7 @@ pub mod tests {
             stderr,
         };
         let mut subject = ServerInitializerReal {
-            dns_socket_server: Box::new(dns_socket_server),
+            dns_socket_server_opt: Some(Box::new(dns_socket_server)),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(dirs_wrapper),
@@ -867,7 +880,7 @@ pub mod tests {
             )));
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializerReal {
-            dns_socket_server: Box::new(dns_socket_server),
+            dns_socket_server_opt: Some(Box::new(dns_socket_server)),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),

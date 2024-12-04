@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 use sysinfo::{Pid, ProcessStatus, Signal};
 use workflow_websocket::client::{ConnectOptions, Error, Message, WebSocket};
+use masq_lib::test_utils::utils::make_rt;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -59,11 +60,15 @@ impl VerifierTools for VerifierToolsReal {
 
     fn kill_process(&self, process_id: u32) {
         if let Some(process) = Self::system().process(Self::convert_pid(process_id)) {
-            if !process.kill_with(Signal::Term) && !process.kill_with(Signal::Kill) {
-                error!(
-                    self.logger,
-                    "Process {} could be neither terminated nor killed", process_id
-                );
+            match process.kill_with(Signal::Term) {
+                Some(true) => (),
+                _ => match process.kill_with(Signal::Kill) {
+                    Some(true) => (),
+                    _ => error!(
+                        self.logger,
+                        "Process {} could be neither terminated nor killed", process_id
+                    ),
+                },
             }
         }
     }
@@ -207,33 +212,36 @@ pub struct ClientWrapperReal {
 }
 
 impl ClientWrapper for ClientWrapperReal {
-    fn send_message(&mut self, message: Message) -> Result<&Self, Arc<Error>> {
-        self.client.send(message)
+    fn send_message(&mut self, message: Message) -> Result<(), Arc<Error>> {
+        let future = self.client.send(message);
+        make_rt().block_on(future)?;
+        Ok(())
     }
 }
 
 impl ClientWrapperReal {
-    fn new(url: &str) -> Result<Self, workflow_websocket::client::error::Error> {
+    fn new(url: &str) -> Result<Self, workflow_websocket::client::Error> {
         let client = WebSocket::new(Some (url), None)?;
-        client.connect(ConnectOptions::default())?;
-        return Ok(ClientWrapperReal {client})
+        let future = client.connect(ConnectOptions::default());
+        make_rt().block_on(future)?;
+        Ok(ClientWrapperReal {client})
     }
 }
 
 pub trait ClientBuilderWrapper {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::error::Error>;
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::Error>;
     fn add_protocol(&self, protocol: &str);
-    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error>;
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error>;
 }
 
 #[derive(Default)]
-struct ClientBuilderWrapperReal<'a> {
+struct ClientBuilderWrapperReal {
     address: String,
 }
 
-impl ClientBuilderWrapper for ClientBuilderWrapperReal<'_> {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::error::Error> {
-        self.address = address.toString();
+impl ClientBuilderWrapper for ClientBuilderWrapperReal {
+    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::Error> {
+        self.address = address.to_string();
         Ok(())
     }
 
@@ -241,9 +249,9 @@ impl ClientBuilderWrapper for ClientBuilderWrapperReal<'_> {
         todo!("Figure out how to do protocols with workflow-websockets")
     }
 
-    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error> {
+    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error> {
         let client = ClientWrapperReal::new(self.address.as_str())?;
-        return Ok(Box::new(client));
+        Ok(Box::new(client))
     }
 }
 
@@ -472,7 +480,7 @@ mod tests {
 
         let result = subject.initiate_client_builder(url_address);
 
-        assert_eq!(result, Err(workflow_websocket::client::error::Error::MissingUrl));
+        assert_eq!(format!("{:?}", result.err().unwrap()), "MissingUrl".to_string());
     }
 
     fn make_long_running_child() -> Child {

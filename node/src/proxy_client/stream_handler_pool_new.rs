@@ -420,8 +420,9 @@ impl StreamHandlerPool {
         };
         self.stream_pairs.insert(stream_key, stream_pair);
         let future = async {
-            let ip_addrs = match Self::to_ip_addr(&host_name) {
+            let ip_addrs = match IpAddr::from_str(&host_name) {
                 Ok(ip_addr) => {
+                    // TODO: Make sure there's something in here rejecting all-zeros, loopback, and localhost addresses
                     todo!("Test-drive me") // vec![ip_addr]
                 }
                 Err(_) => {
@@ -960,7 +961,7 @@ mod tests {
         fn poll_read(
             self: Pin<&mut Self>,
             cx: &mut std::task::Context<'_>,
-            buf: &mut [u8],
+            mut buf: &mut [u8],
         ) -> Poll<io::Result<usize>> {
             let mut buffers = self.data_arc.lock().unwrap();
             let data = buffers.remove(0);
@@ -1187,7 +1188,7 @@ mod tests {
         let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},
-            if let Some(name) = target_hostname {&name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
+            if let Some(name) = target_hostname.ref() {name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
             originator_public_key));
         tlh.exists_log_containing(&format!(
             "{} DEBUG Stream key '{}' unknown; creating new stream",
@@ -1491,7 +1492,7 @@ mod tests {
             data_len,
             sequence_number,
             if last_data { " (final)" } else { "" }
-        ))
+        ));
     }
 
     #[test]

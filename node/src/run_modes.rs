@@ -241,7 +241,7 @@ impl Runner for RunnerReal {
         server_initializer.go(streams, args)?;
         let _ = task::spawn(async move {
             // There's only one .join_next() here because there's only ever one future in the JoinSet.
-            let result = server_initializer.spawn_futures().join_next().await;
+            let result = server_initializer.spawn_long_lived_services().await;
             match result.expect("There should have been exactly one future in this JoinSet") {
                 Ok(x) => panic!(
                     "DNS server was never supposed to stop, but terminated with {:?}",

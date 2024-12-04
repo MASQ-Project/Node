@@ -30,7 +30,7 @@ pub trait ListenerHandler: Send {
 }
 
 pub trait ListenerHandlerFactory: Send {
-    fn make(&self) -> Box<dyn Future<Output = io::Result<()>>>;
+    fn make(&self) -> Box<dyn ListenerHandler>;
 }
 
 pub struct ListenerHandlerReal {
@@ -164,7 +164,7 @@ impl ListenerHandlerReal {
 pub struct ListenerHandlerFactoryReal {}
 
 impl ListenerHandlerFactory for ListenerHandlerFactoryReal {
-    fn make(&self) -> Box<dyn Future<Output = io::Result<()>>> {
+    fn make(&self) -> Box<dyn ListenerHandler> {
         Box::new(ListenerHandlerReal::new())
     }
 }
@@ -198,7 +198,7 @@ mod tests {
     use std::net::Shutdown;
     use std::net::TcpStream as StdTcpStream;
     use std::str::FromStr;
-    use std::sync::{Arc};
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
     use tokio;
@@ -207,7 +207,7 @@ mod tests {
     use masq_lib::test_utils::utils::make_rt;
 
     struct TokioListenerWrapperMock {
-        logger_arc: Arc<TestLog>,
+        bind_params: Arc<Mutex<Vec<SocketAddr>>>,
         bind_results: Vec<io::Result<()>>,
         poll_accept_results: RefCell<Vec<Poll<io::Result<(TcpStream, SocketAddr)>>>>,
     }
@@ -215,7 +215,7 @@ mod tests {
     impl TokioListenerWrapperMock {
         fn new() -> TokioListenerWrapperMock {
             TokioListenerWrapperMock {
-                logger_arc: Arc::new(TestLog::new()),
+                bind_params: Arc::new(Mutex::new(vec![])),
                 bind_results: vec![],
                 poll_accept_results: RefCell::new(vec![]),
             }
@@ -224,22 +224,27 @@ mod tests {
 
     impl TokioListenerWrapper for TokioListenerWrapperMock {
         fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
-            self.logger_arc
-                .lock()
-                .unwrap()
-                .log(format!("bind ({:?})", addr));
+            self.bind_params.lock().unwrap().push(addr);
             self.bind_results.remove(0)
+        }
+
+        async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+            todo!()
         }
 
         fn poll_accept(
             &mut self,
-            cx: &mut Context<'_>,
+            _: &mut Context<'_>,
         ) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
             self.poll_accept_results.borrow_mut().remove(0)
         }
     }
 
     impl TokioListenerWrapperMock {
+        pub fn bind_params(mut self, params: &Arc<Mutex<Vec<SocketAddr>>>) -> Self {
+            self.bind_params = params.clone();
+            self
+        }
         pub fn bind_result(mut self, result: io::Result<()>) -> TokioListenerWrapperMock {
             self.bind_results.push(result);
             self
@@ -256,11 +261,10 @@ mod tests {
         }
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "TcpListener not initialized - bind to a SocketAddr")]
-    fn panics_if_tried_to_run_without_initializing() {
-        let subject = ListenerHandlerReal::new();
-        make_rt().block_on(subject).unwrap();
+    async fn panics_if_tried_to_run_without_initializing() {
+        let subject = ListenerHandlerReal::new().await;
     }
 
     #[test]
@@ -281,8 +285,10 @@ mod tests {
 
     #[test]
     fn handles_bind_port_and_configuration_success_for_clandestine_port() {
-        let listener = TokioListenerWrapperMock::new().bind_result(Ok(()));
-        let listener_log = listener.logger_arc.clone();
+        let bind_params_arc = Arc::new(Mutex::new(vec![]));
+        let listener = TokioListenerWrapperMock::new()
+            .bind_params(&bind_params_arc)
+            .bind_result(Ok(()));
         let discriminator_factory =
             NullDiscriminatorFactory::new().discriminator_nature(vec![b"booga".to_vec()]);
         let mut subject = ListenerHandlerReal::new();
@@ -294,7 +300,8 @@ mod tests {
         );
 
         assert_eq!(result.unwrap(), ());
-        assert_eq!(listener_log.dump(), vec!(format!("bind (0.0.0.0:2345)")));
+        let bind_params = bind_params_arc.lock().unwrap();
+        assert_eq!(*bind_params, vec![SocketAddr::from_str("0.0.0.0:2345").unwrap()]);
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);
@@ -306,8 +313,10 @@ mod tests {
 
     #[test]
     fn handles_bind_port_and_configuration_success_for_non_clandestine_port() {
-        let listener = TokioListenerWrapperMock::new().bind_result(Ok(()));
-        let listener_log = listener.logger_arc.clone();
+        let bind_params_arc = Arc::new(Mutex::new(vec![]));
+        let listener = TokioListenerWrapperMock::new()
+            .bind_params(&bind_params_arc)
+            .bind_result(Ok(()));
         let discriminator_factory =
             NullDiscriminatorFactory::new().discriminator_nature(vec![b"booga".to_vec()]);
         let mut subject = ListenerHandlerReal::new();
@@ -319,7 +328,8 @@ mod tests {
         );
 
         assert_eq!(result.unwrap(), ());
-        assert_eq!(listener_log.dump(), vec!(format!("bind (127.0.0.1:2345)")));
+        let bind_params = bind_params_arc.lock().unwrap();
+        assert_eq!(*bind_params, vec![SocketAddr::from_str("127.0.0.1:2345").unwrap()]);
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);

@@ -80,7 +80,7 @@ impl PersistentConfigError {
     }
 }
 
-pub trait PersistentConfiguration {
+pub trait PersistentConfiguration: Send {
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError>;
     fn current_schema_version(&self) -> String;
