@@ -111,7 +111,7 @@ impl DisqualificationArbiter {
 pub struct DisqualificationSuspectedAccount<'account> {
     pub wallet: &'account Wallet,
     pub weight: u128,
-    // The rest is for diagnostics and logging
+    // The rest serves diagnostics and logging
     pub proposed_adjusted_balance_minor: u128,
     pub disqualification_limit_minor: u128,
     pub initial_account_balance_minor: u128,
@@ -177,11 +177,11 @@ impl DisqualificationGaugeReal {
         let considered_forgiven = threshold_intercept_minor - permanent_debt_allowed_minor;
         let minimal_acceptable_payment = exceeding_threshold + permanent_debt_allowed_minor;
 
-        let condition_of_debt_fast_growth =
-            minimal_acceptable_payment >= Self::FIRST_QUALIFICATION_CONDITION_COEFFICIENT * considered_forgiven;
+        let condition_of_debt_fast_growth = minimal_acceptable_payment
+            >= Self::FIRST_QUALIFICATION_CONDITION_COEFFICIENT * considered_forgiven;
 
-        let condition_of_position_on_rather_the_left_half_of_the_slope =
-            considered_forgiven >= Self::SECOND_QUALIFICATION_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
+        let condition_of_position_on_rather_the_left_half_of_the_slope = considered_forgiven
+            >= Self::SECOND_QUALIFICATION_CONDITION_COEFFICIENT * permanent_debt_allowed_minor;
 
         condition_of_debt_fast_growth && condition_of_position_on_rather_the_left_half_of_the_slope
     }
@@ -228,8 +228,14 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(DisqualificationGaugeReal::FIRST_QUALIFICATION_CONDITION_COEFFICIENT, 2);
-        assert_eq!(DisqualificationGaugeReal::SECOND_QUALIFICATION_CONDITION_COEFFICIENT, 2);
+        assert_eq!(
+            DisqualificationGaugeReal::FIRST_QUALIFICATION_CONDITION_COEFFICIENT,
+            2
+        );
+        assert_eq!(
+            DisqualificationGaugeReal::SECOND_QUALIFICATION_CONDITION_COEFFICIENT,
+            2
+        );
         assert_eq!(DisqualificationGaugeReal::MULTIPLIER_FOR_THICKER_MARGIN, 2)
     }
 
