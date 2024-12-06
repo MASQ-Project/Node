@@ -38,7 +38,7 @@ pub struct PaymentAdjusterTestBuilder {
     start_with_inner_null: bool,
     now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
-    criterion_calculator_mock_opt: Option<CriterionCalculatorMock>,
+    mock_replacing_calculators_opt: Option<CriterionCalculatorMock>,
     max_debt_above_threshold_in_qualified_payables_opt: Option<u128>,
     transaction_limit_count_opt: Option<u16>,
     logger_opt: Option<Logger>,
@@ -59,7 +59,7 @@ impl PaymentAdjusterTestBuilder {
             ));
             payment_adjuster.inner = inner;
         }
-        if let Some(calculator) = self.criterion_calculator_mock_opt {
+        if let Some(calculator) = self.mock_replacing_calculators_opt {
             payment_adjuster.calculators = vec![Box::new(calculator)]
         }
         payment_adjuster
@@ -70,8 +70,11 @@ impl PaymentAdjusterTestBuilder {
         self
     }
 
-    pub fn criterion_calculator(mut self, calculator_mock: CriterionCalculatorMock) -> Self {
-        self.criterion_calculator_mock_opt = Some(calculator_mock);
+    pub fn replace_calculators_with_mock(
+        mut self,
+        calculator_mock: CriterionCalculatorMock,
+    ) -> Self {
+        self.mock_replacing_calculators_opt = Some(calculator_mock);
         self
     }
 

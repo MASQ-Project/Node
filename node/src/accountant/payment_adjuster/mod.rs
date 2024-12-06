@@ -566,7 +566,9 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustmentIterationResult, WeightedPayable,
     };
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
+    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
+        find_largest_exceeding_balance, sum_as,
+    };
     use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_mammoth_payables, make_meaningless_analyzed_account_by_wallet, multiply_by_billion,
@@ -1283,19 +1285,20 @@ mod tests {
     }
 
     #[test]
-    fn account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them()
-    {
-        // We test that a condition to short-circuit through is integrated in for a situation where
-        // a performed disqualification frees means that will become available for other accounts,
-        // and it happens that the remaining accounts require together less than what is left to
-        // give out.
+    fn account_disqualification_makes_the_rest_flooded_with_enough_money_suddenly() {
+        // We test a condition to short-circuit that is built in for the case of an account
+        // disqualification has just been processed which has freed means, until then tied with this
+        // account that is gone now, and which will become an extra portion newly available for
+        // the other accounts from which they can gain, however, at the same time the remaining
+        // accounts require together less than how much can be given out.
         init_test_logging();
-        let test_name = "account_disqualification_makes_the_rest_outweighed_as_cw_balance_becomes_excessive_for_them";
+        let test_name =
+            "account_disqualification_makes_the_rest_flooded_with_enough_money_suddenly";
         let now = SystemTime::now();
-        // This simplifies the overall picture, the debt age doesn't mean anything to our calculator,
-        // still, it influences the height of the intercept point read out from the payment thresholds
-        // which can induce an impact on the value of the disqualification limit which is derived
-        // from the intercept
+        // This common value simplifies the settings for visualisation, the debt age doesn't mean
+        // anything, especially with all calculators mocked out, it only influences the height of
+        // the intercept with the payment thresholds which can in turn take role in evaluating
+        // the disqualification limit in each account
         let common_age_for_accounts_as_unimportant =
             now.checked_sub(Duration::from_secs(200_000)).unwrap();
         let balance_1 = multiply_by_billion(80_000_000_000);
@@ -1323,20 +1326,28 @@ mod tests {
         let analyzed_accounts =
             make_analyzed_payables(payables, &PRESERVED_TEST_PAYMENT_THRESHOLDS, now);
         let calculator_mock = CriterionCalculatorMock::default()
-            .calculate_result(0)
-            .calculate_result(multiply_by_billion(50_000_000_000))
+            // If we consider that the consuming wallet holds less than the sum of
+            // the disqualification limits of all these 3 accounts (as also formally checked by one
+            // of the attached assertions below), this must mean that disqualification has to be
+            // ruled in the first round, where the first account is eventually eliminated for its
+            // lowest weight.
+            .calculate_result(multiply_by_billion(10_000_000_000))
+            .calculate_result(multiply_by_billion(30_000_000_000))
             .calculate_result(multiply_by_billion(50_000_000_000));
+        let sum_of_disqualification_limits = sum_as(&analyzed_accounts, |account| {
+            account.disqualification_limit_minor
+        });
         let mut subject = PaymentAdjusterTestBuilder::default()
             .start_with_inner_null()
+            .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
             .build();
-        subject.calculators.push(Box::new(calculator_mock));
         let agent_id_stamp = ArbitraryIdStamp::new();
-        let service_fee_balance_in_minor_units = balance_2 + balance_3 + ((balance_1 * 10) / 100);
+        let service_fee_balance_minor = balance_2 + balance_3 + ((balance_1 * 10) / 100);
         let agent = {
             let mock = BlockchainAgentMock::default()
                 .set_arbitrary_id_stamp(agent_id_stamp)
-                .service_fee_balance_minor_result(service_fee_balance_in_minor_units);
+                .service_fee_balance_minor_result(service_fee_balance_minor);
             Box::new(mock)
         };
         let adjustment_setup = PreparedAdjustment {
@@ -1353,7 +1364,11 @@ mod tests {
         let expected_affordable_accounts = { vec![account_3, account_2] };
         assert_eq!(result.affordable_accounts, expected_affordable_accounts);
         assert_eq!(result.response_skeleton_opt, None);
-        assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp)
+        assert_eq!(result.agent.arbitrary_id_stamp(), agent_id_stamp);
+        // This isn't any kind of universal requirement, but this condition is enough to be
+        // certain that at least one account must be offered a smaller amount than what says its
+        // disqualification limit, and therefore a disqualification needs to take place.
+        assert!(sum_of_disqualification_limits > service_fee_balance_minor);
     }
 
     #[test]
@@ -1518,6 +1533,7 @@ mod tests {
             threshold_intercept_major: 2_000_000_000,
             permanent_debt_allowed_major: 1_000_000_000,
         };
+
         let balance_account_2 = 6_000_000_000_123_456_789;
         let sketched_account_2 = SketchedPayableAccount {
             wallet_addr_seed: "def",
@@ -1532,6 +1548,9 @@ mod tests {
             threshold_intercept_major: 2_000_000_000,
             permanent_debt_allowed_major: 1_111_111_111,
         };
+        let total_weight_account_1 = multiply_by_billion(400_000_000);
+        let total_weight_account_2 = multiply_by_billion(200_000_000);
+        let total_weight_account_3 = multiply_by_billion(300_000_000);
         let account_seeds = [
             sketched_account_1.clone(),
             sketched_account_2.clone(),
@@ -1541,12 +1560,12 @@ mod tests {
             make_analyzed_accounts_and_show_their_actual_disqualification_limits(account_seeds);
         let calculator_mock = CriterionCalculatorMock::default()
             .calculate_params(&calculate_params_arc)
-            .calculate_result(multiply_by_billion(4_600_000_000))
-            .calculate_result(multiply_by_billion(4_200_000_000))
-            .calculate_result(multiply_by_billion(3_800_000_000));
+            .calculate_result(total_weight_account_1)
+            .calculate_result(total_weight_account_2)
+            .calculate_result(total_weight_account_3);
         let mut subject = PaymentAdjusterTestBuilder::default()
             .start_with_inner_null()
-            .criterion_calculator(calculator_mock)
+            .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
             .build();
         let agent_id_stamp = ArbitraryIdStamp::new();
@@ -1643,19 +1662,22 @@ mod tests {
             threshold_intercept_major: 100_000_000,
             permanent_debt_allowed_major: 40_000_000,
         };
+        let total_weight_account_1 = multiply_by_billion(400_000_000);
+        // This account will have to fall off because of its lowest weight and that only two
+        // accounts can be kept according to the limitations detected in the transaction fee
+        // balance
+        let total_weight_account_2 = multiply_by_billion(200_000_000);
+        let total_weight_account_3 = multiply_by_billion(300_000_000);
         let sketched_accounts = [sketched_account_1, sketched_account_2, sketched_account_3];
         let (analyzed_payables, _actual_disqualification_limits) =
             make_analyzed_accounts_and_show_their_actual_disqualification_limits(sketched_accounts);
         let calculator_mock = CriterionCalculatorMock::default()
-            .calculate_result(multiply_by_billion(400_000_000))
-            // This account will have to fall off because of its lowest weight and that only two
-            // accounts can be kept according to the limitations detected in the transaction fee
-            // balance
-            .calculate_result(multiply_by_billion(120_000_000))
-            .calculate_result(multiply_by_billion(250_000_000));
+            .calculate_result(total_weight_account_1)
+            .calculate_result(total_weight_account_2)
+            .calculate_result(total_weight_account_3);
         let mut subject = PaymentAdjusterTestBuilder::default()
             .start_with_inner_null()
-            .criterion_calculator(calculator_mock)
+            .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
             .build();
         let agent_id_stamp = ArbitraryIdStamp::new();
@@ -1736,16 +1758,19 @@ mod tests {
             threshold_intercept_major: 100_000_000,
             permanent_debt_allowed_major: 35_000_000,
         };
+        let total_weight_account_1 = multiply_by_billion(400_000_000);
+        let total_weight_account_2 = multiply_by_billion(200_000_000);
+        let total_weight_account_3 = multiply_by_billion(300_000_000);
         let sketched_accounts = [sketched_account_1, sketched_account_2, sketched_account_3];
         let (analyzed_payables, actual_disqualification_limits) =
             make_analyzed_accounts_and_show_their_actual_disqualification_limits(sketched_accounts);
         let calculator_mock = CriterionCalculatorMock::default()
-            .calculate_result(multiply_by_billion(400_000_000))
-            .calculate_result(multiply_by_billion(200_000_000))
-            .calculate_result(multiply_by_billion(300_000_000));
+            .calculate_result(total_weight_account_1)
+            .calculate_result(total_weight_account_2)
+            .calculate_result(total_weight_account_3);
         let mut subject = PaymentAdjusterTestBuilder::default()
             .start_with_inner_null()
-            .criterion_calculator(calculator_mock)
+            .replace_calculators_with_mock(calculator_mock)
             .build();
         let cw_service_fee_balance_minor = actual_disqualification_limits.account_1
             + actual_disqualification_limits.account_3
@@ -1822,16 +1847,19 @@ mod tests {
             threshold_intercept_major: 400_000_000,
             permanent_debt_allowed_major: 100_000_000,
         };
+        let total_weight_account_1 = multiply_by_billion(900_000_000);
+        let total_weight_account_2 = multiply_by_billion(1_100_000_000);
+        let total_weight_account_3 = multiply_by_billion(600_000_000);
         let sketched_accounts = [sketched_account_1, sketched_account_2, sketched_account_3];
         let (analyzed_payables, actual_disqualification_limits) =
             make_analyzed_accounts_and_show_their_actual_disqualification_limits(sketched_accounts);
         let calculator_mock = CriterionCalculatorMock::default()
-            .calculate_result(multiply_by_billion(900_000_000))
-            .calculate_result(multiply_by_billion(1_100_000_000))
-            .calculate_result(multiply_by_billion(600_000_000));
+            .calculate_result(total_weight_account_1)
+            .calculate_result(total_weight_account_2)
+            .calculate_result(total_weight_account_3);
         let mut subject = PaymentAdjusterTestBuilder::default()
             .start_with_inner_null()
-            .criterion_calculator(calculator_mock)
+            .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
             .build();
         let service_fee_balance_in_minor_units = actual_disqualification_limits.account_1
@@ -1921,16 +1949,19 @@ mod tests {
             threshold_intercept_major: 90_000_000_000,
             permanent_debt_allowed_major: 20_000_000_000,
         };
+        let total_weight_account_1 = multiply_by_billion(900_000_000_000);
+        let total_weight_account_2 = multiply_by_billion(500_000_000_000);
+        let total_weight_account_3 = multiply_by_billion(750_000_000_000);
         let sketched_accounts = [sketched_account_1, sketched_account_2, sketched_account_3];
         let (analyzed_payables, actual_disqualification_limits) =
             make_analyzed_accounts_and_show_their_actual_disqualification_limits(sketched_accounts);
         let calculator_mock = CriterionCalculatorMock::default()
-            .calculate_result(multiply_by_billion(900_000_000_000))
-            .calculate_result(multiply_by_billion(500_000_000_000))
-            .calculate_result(multiply_by_billion(750_000_000_000));
+            .calculate_result(total_weight_account_1)
+            .calculate_result(total_weight_account_2)
+            .calculate_result(total_weight_account_3);
         let mut subject = PaymentAdjusterTestBuilder::default()
             .start_with_inner_null()
-            .criterion_calculator(calculator_mock)
+            .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
             .build();
         let service_fee_balance_in_minor = balance_account_1 - multiply_by_billion(10_000_000_000);
