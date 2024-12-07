@@ -674,10 +674,10 @@ mod tests {
         // Service fee balance > payments
         let input_1 = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                account_balances: Either::Right(vec![
+                payable_account_balances_minor: vec![
                     multiply_by_billion(85),
                     multiply_by_billion(15) - 1,
-                ]),
+                ],
                 cw_balance_minor: multiply_by_billion(100),
             }),
             None,
@@ -685,7 +685,7 @@ mod tests {
         // Service fee balance == payments
         let input_2 = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                account_balances: Either::Left(vec![85, 15]),
+                payable_account_balances_minor: vec![85, 15],
                 cw_balance_minor: multiply_by_billion(100),
             }),
             None,
@@ -701,7 +701,7 @@ mod tests {
             Some(TestConfigForTransactionFees {
                 gas_price_major: 100,
                 number_of_accounts: 6,
-                estimated_transaction_fee_units_per_transaction: 53_000,
+                tx_computation_units: 53_000,
                 cw_transaction_fee_balance_minor: transaction_fee_balance_exactly_required_minor
                     + 1,
             }),
@@ -712,7 +712,7 @@ mod tests {
             Some(TestConfigForTransactionFees {
                 gas_price_major: 100,
                 number_of_accounts: 6,
-                estimated_transaction_fee_units_per_transaction: 53_000,
+                tx_computation_units: 53_000,
                 cw_transaction_fee_balance_minor: transaction_fee_balance_exactly_required_minor,
             }),
         );
@@ -744,7 +744,7 @@ mod tests {
             Some(TestConfigForTransactionFees {
                 gas_price_major: 100,
                 number_of_accounts,
-                estimated_transaction_fee_units_per_transaction: 55_000,
+                tx_computation_units: 55_000,
                 cw_transaction_fee_balance_minor: TRANSACTION_FEE_MARGIN
                     .add_percent_to(multiply_by_billion(100 * 3 * 55_000))
                     - 1,
@@ -785,10 +785,10 @@ mod tests {
         subject.logger = logger;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                account_balances: Either::Right(vec![
+                payable_account_balances_minor: vec![
                     multiply_by_billion(85),
                     multiply_by_billion(15) + 1,
-                ]),
+                ],
                 cw_balance_minor: multiply_by_billion(100),
             }),
             None,
@@ -828,13 +828,13 @@ mod tests {
         let cw_transaction_fee_balance_minor = tx_fee_exactly_required_for_single_tx - 1;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                account_balances: Either::Left(vec![123]),
+                payable_account_balances_minor: vec![multiply_by_billion(123)],
                 cw_balance_minor: multiply_by_billion(444),
             }),
             Some(TestConfigForTransactionFees {
                 gas_price_major: 100,
                 number_of_accounts,
-                estimated_transaction_fee_units_per_transaction: 55_000,
+                tx_computation_units: 55_000,
                 cw_transaction_fee_balance_minor,
             }),
         );
@@ -865,7 +865,11 @@ mod tests {
         let test_name = "checking_three_accounts_happy_for_transaction_fee_but_service_fee_balance_throws_error";
         let garbage_cw_service_fee_balance = u128::MAX;
         let service_fee_balances_config_opt = Some(TestConfigForServiceFeeBalances {
-            account_balances: Either::Left(vec![120, 300, 500]),
+            payable_account_balances_minor: vec![
+                multiply_by_billion(120),
+                multiply_by_billion(300),
+                multiply_by_billion(500),
+            ],
             cw_balance_minor: garbage_cw_service_fee_balance,
         });
         let (qualified_payables, boxed_agent) =
@@ -910,13 +914,16 @@ mod tests {
         let number_of_accounts = 2;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                account_balances: Either::Left(vec![200, 300]),
+                payable_account_balances_minor: vec![
+                    multiply_by_billion(200),
+                    multiply_by_billion(300),
+                ],
                 cw_balance_minor: 0,
             }),
             Some(TestConfigForTransactionFees {
                 gas_price_major: 123,
                 number_of_accounts,
-                estimated_transaction_fee_units_per_transaction: 55_000,
+                tx_computation_units: 55_000,
                 cw_transaction_fee_balance_minor: 0,
             }),
         );
@@ -1549,8 +1556,8 @@ mod tests {
             permanent_debt_allowed_major: 1_111_111_111,
         };
         let total_weight_account_1 = multiply_by_billion(400_000_000);
-        let total_weight_account_2 = multiply_by_billion(200_000_000);
-        let total_weight_account_3 = multiply_by_billion(300_000_000);
+        let total_weight_account_2 = multiply_by_billion(300_000_000);
+        let total_weight_account_3 = multiply_by_billion(200_000_000);
         let account_seeds = [
             sketched_account_1.clone(),
             sketched_account_2.clone(),
@@ -2109,10 +2116,10 @@ mod tests {
     // End of happy path section
 
     #[test]
-    fn late_error_after_transaction_fee_adjustment_but_rechecked_transaction_fee_found_fatally_insufficient(
-    ) {
+    fn late_error_after_tx_fee_adjusted_but_rechecked_service_fee_found_fatally_insufficient() {
         init_test_logging();
-        let test_name = "late_error_after_transaction_fee_adjustment_but_rechecked_transaction_fee_found_fatally_insufficient";
+        let test_name =
+            "late_error_after_tx_fee_adjusted_but_rechecked_service_fee_found_fatally_insufficient";
         let now = SystemTime::now();
         let balance_account_1 = multiply_by_billion(500_000_000_000);
         let sketched_account_1 = SketchedPayableAccount {
@@ -2141,7 +2148,7 @@ mod tests {
             make_analyzed_accounts_and_show_their_actual_disqualification_limits(sketched_accounts);
         let mut subject = PaymentAdjusterReal::new();
         subject.logger = Logger::new(test_name);
-        // This is exactly the amount which will provoke an error
+        // This is exactly the amount which provokes an error
         let cw_service_fee_balance_minor = actual_disqualification_limits.account_2 - 1;
         let agent = BlockchainAgentMock::default()
             .service_fee_balance_minor_result(cw_service_fee_balance_minor);
@@ -2198,41 +2205,48 @@ mod tests {
     }
 
     struct TestConfigForServiceFeeBalances {
-        // Either gwei or wei
-        account_balances: Either<Vec<u64>, Vec<u128>>,
+        payable_account_balances_minor: Vec<u128>,
         cw_balance_minor: u128,
+    }
+
+    impl Default for TestConfigForServiceFeeBalances {
+        fn default() -> Self {
+            TestConfigForServiceFeeBalances {
+                payable_account_balances_minor: vec![1, 2],
+                cw_balance_minor: u64::MAX as u128,
+            }
+        }
     }
 
     struct TestConfigForTransactionFees {
         gas_price_major: u64,
         number_of_accounts: usize,
-        estimated_transaction_fee_units_per_transaction: u64,
+        tx_computation_units: u64,
         cw_transaction_fee_balance_minor: u128,
     }
 
     fn make_input_for_initial_check_tests(
-        service_fee_balances_config_opt: Option<TestConfigForServiceFeeBalances>,
-        transaction_fee_config_opt: Option<TestConfigForTransactionFees>,
+        service_fee_config_opt: Option<TestConfigForServiceFeeBalances>,
+        tx_fee_config_opt: Option<TestConfigForTransactionFees>,
     ) -> (Vec<QualifiedPayableAccount>, Box<dyn BlockchainAgent>) {
-        let service_fee_balances_config =
-            get_service_fee_balances_config(service_fee_balances_config_opt);
-        let balances_of_accounts_minor =
-            get_service_fee_balances(service_fee_balances_config.account_balances);
+        let service_fee_balances_config = service_fee_config_opt.unwrap_or_default();
+        let balances_of_accounts_minor = service_fee_balances_config.payable_account_balances_minor;
         let accounts_count_from_sf_config = balances_of_accounts_minor.len();
 
-        let transaction_fee_config =
-            get_transaction_fee_config(transaction_fee_config_opt, accounts_count_from_sf_config);
-
-        let payable_accounts = prepare_payable_accounts(
-            transaction_fee_config.number_of_accounts,
-            accounts_count_from_sf_config,
-            balances_of_accounts_minor,
-        );
+        let transaction_fee_config = tx_fee_config_opt
+            .unwrap_or_else(|| default_transaction_fee_config(accounts_count_from_sf_config));
+        let payable_accounts = if transaction_fee_config.number_of_accounts
+            != accounts_count_from_sf_config
+        {
+            prepare_payable_accounts_from(Either::Left(transaction_fee_config.number_of_accounts))
+        } else {
+            prepare_payable_accounts_from(Either::Right(balances_of_accounts_minor))
+        };
         let qualified_payables = prepare_qualified_payables(payable_accounts);
 
-        let blockchain_agent = make_agent(
+        let blockchain_agent = prepare_agent(
             transaction_fee_config.cw_transaction_fee_balance_minor,
-            transaction_fee_config.estimated_transaction_fee_units_per_transaction,
+            transaction_fee_config.tx_computation_units,
             transaction_fee_config.gas_price_major,
             service_fee_balances_config.cw_balance_minor,
         );
@@ -2240,47 +2254,25 @@ mod tests {
         (qualified_payables, blockchain_agent)
     }
 
-    fn get_service_fee_balances_config(
-        service_fee_balances_config_opt: Option<TestConfigForServiceFeeBalances>,
-    ) -> TestConfigForServiceFeeBalances {
-        service_fee_balances_config_opt.unwrap_or_else(|| TestConfigForServiceFeeBalances {
-            account_balances: Either::Left(vec![1, 1]),
-            cw_balance_minor: u64::MAX as u128,
-        })
-    }
-    fn get_service_fee_balances(account_balances: Either<Vec<u64>, Vec<u128>>) -> Vec<u128> {
-        match account_balances {
-            Either::Left(in_major) => in_major
-                .into_iter()
-                .map(|major| multiply_by_billion(major as u128))
-                .collect(),
-            Either::Right(in_minor) => in_minor,
+    fn default_transaction_fee_config(
+        accounts_count_from_sf_config: usize,
+    ) -> TestConfigForTransactionFees {
+        TestConfigForTransactionFees {
+            gas_price_major: 120,
+            number_of_accounts: accounts_count_from_sf_config,
+            tx_computation_units: 55_000,
+            cw_transaction_fee_balance_minor: u128::MAX,
         }
     }
 
-    fn get_transaction_fee_config(
-        transaction_fee_config_opt: Option<TestConfigForTransactionFees>,
-        accounts_count_from_sf_config: usize,
-    ) -> TestConfigForTransactionFees {
-        transaction_fee_config_opt.unwrap_or(TestConfigForTransactionFees {
-            gas_price_major: 120,
-            number_of_accounts: accounts_count_from_sf_config,
-            estimated_transaction_fee_units_per_transaction: 55_000,
-            cw_transaction_fee_balance_minor: u128::MAX,
-        })
-    }
-
-    fn prepare_payable_accounts(
-        accounts_count_from_tf_config: usize,
-        accounts_count_from_sf_config: usize,
-        balances_of_accounts_minor: Vec<u128>,
+    fn prepare_payable_accounts_from(
+        balances_or_desired_accounts_count: Either<usize, Vec<u128>>,
     ) -> Vec<PayableAccount> {
-        if accounts_count_from_tf_config != accounts_count_from_sf_config {
-            (0..accounts_count_from_tf_config)
+        match balances_or_desired_accounts_count {
+            Either::Left(desired_accounts_count) => (0..desired_accounts_count)
                 .map(|idx| make_payable_account(idx as u64))
-                .collect()
-        } else {
-            balances_of_accounts_minor
+                .collect(),
+            Either::Right(balances_of_accounts_minor) => balances_of_accounts_minor
                 .into_iter()
                 .enumerate()
                 .map(|(idx, balance)| {
@@ -2288,7 +2280,7 @@ mod tests {
                     account.balance_wei = balance;
                     account
                 })
-                .collect()
+                .collect(),
         }
     }
 
@@ -2310,15 +2302,14 @@ mod tests {
             .collect()
     }
 
-    fn make_agent(
+    fn prepare_agent(
         cw_transaction_fee_minor: u128,
-        estimated_transaction_fee_units_per_transaction: u64,
+        tx_computation_units: u64,
         gas_price: u64,
         cw_service_fee_balance_minor: u128,
     ) -> Box<dyn BlockchainAgent> {
-        let estimated_transaction_fee_per_transaction_minor = multiply_by_billion(
-            (estimated_transaction_fee_units_per_transaction * gas_price) as u128,
-        );
+        let estimated_transaction_fee_per_transaction_minor =
+            multiply_by_billion((tx_computation_units * gas_price) as u128);
 
         let blockchain_agent = BlockchainAgentMock::default()
             .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
@@ -2354,7 +2345,8 @@ mod tests {
         )
     }
 
-    // The following tests together prove the use of correct calculators in the production code
+    // The following tests put together evidences pointing to the use of correct calculators in
+    // the production code
 
     #[test]
     fn each_of_defaulted_calculators_returns_different_value() {
@@ -2384,43 +2376,62 @@ mod tests {
             .into_iter()
             .map(|calculator| calculator.calculate(&qualified_payable, &context))
             .fold(0, |previous_result, current_result| {
-                let min = (current_result * 97) / 100;
-                let max = (current_result * 97) / 100;
+                let slightly_less_than_current = (current_result * 97) / 100;
+                let slightly_more_than_current = (current_result * 103) / 100;
                 assert_ne!(current_result, 0);
-                assert!(min <= previous_result || previous_result <= max);
+                assert!(
+                    previous_result <= slightly_less_than_current
+                        || slightly_more_than_current <= previous_result
+                );
                 current_result
             });
     }
 
+    struct CalculatorTestScenario {
+        payable: QualifiedPayableAccount,
+        expected_weight: u128,
+    }
+
     type InputMatrixConfigurator = fn(
         (QualifiedPayableAccount, QualifiedPayableAccount, SystemTime),
-    ) -> Vec<[(QualifiedPayableAccount, u128); 2]>;
+    ) -> Vec<[CalculatorTestScenario; 2]>;
+
+    // This is the value that is computed if the account stays unmodified. Same for both nominal
+    // accounts.
+    const NOMINAL_ACCOUNT_WEIGHT: u128 = 8000000000000000;
 
     #[test]
     fn defaulted_calculators_react_on_correct_params() {
-        // When adding a test case for a new calculator, you need to make an array of inputs. Don't
-        // create brand-new accounts but clone the provided nominal accounts and modify them
-        // accordingly. Modify only those parameters that affect your calculator.
+        // When adding a test case for a new calculator, you need to make a two-dimensional array
+        // of inputs. Don't create brand-new accounts but clone the provided nominal accounts and
+        // modify them accordingly. Modify only those parameters that affect your calculator.
         // It's recommended to orientate the modifications rather positively (additions), because
         // there is a smaller chance you would run into some limit
         let input_matrix: InputMatrixConfigurator =
             |(nominal_account_1, nominal_account_2, _now)| {
                 vec![
-                    // First test case: BalanceCalculator
+                    // This puts only the first calculator on test, the BalanceCalculator...
                     {
                         let mut account_1 = nominal_account_1;
                         account_1.bare_account.balance_wei += 123_456_789;
                         let mut account_2 = nominal_account_2;
                         account_2.bare_account.balance_wei += 999_999_999;
-                        [(account_1, 8000001876543209), (account_2, 8000000999999999)]
+                        [
+                            CalculatorTestScenario {
+                                payable: account_1,
+                                expected_weight: 8000001876543209,
+                            },
+                            CalculatorTestScenario {
+                                payable: account_2,
+                                expected_weight: 8000000999999999,
+                            },
+                        ]
                     },
+                    // ...your newly added calculator should come here, and so on...
                 ]
             };
-        // This is the value that is computed if the account stays unmodified. Same for both nominal
-        // accounts.
-        let current_nominal_weight = 8000000000000000;
 
-        test_calculators_reactivity(input_matrix, current_nominal_weight)
+        test_calculators_reactivity(input_matrix)
     }
 
     #[derive(Clone, Copy)]
@@ -2433,10 +2444,7 @@ mod tests {
         weight: u128,
     }
 
-    fn test_calculators_reactivity(
-        input_matrix_configurator: InputMatrixConfigurator,
-        nominal_weight: u128,
-    ) {
+    fn test_calculators_reactivity(input_matrix_configurator: InputMatrixConfigurator) {
         let calculators_count = PaymentAdjusterReal::default().calculators.len();
         let now = SystemTime::now();
         let cw_service_fee_balance_minor = multiply_by_billion(1_000_000);
@@ -2445,7 +2453,10 @@ mod tests {
                 now,
                 cw_service_fee_balance_minor,
             );
-        assert_eq!(template_computed_weight.common_weight, nominal_weight);
+        assert_eq!(
+            template_computed_weight.common_weight,
+            NOMINAL_ACCOUNT_WEIGHT
+        );
         let mut template_accounts = template_accounts.to_vec();
         let mut pop_account = || template_accounts.remove(0);
         let nominal_account_1 = pop_account();
@@ -2454,13 +2465,15 @@ mod tests {
         assert_eq!(
             input_matrix.len(),
             calculators_count,
-            "If you've recently added in a new calculator, you should add in its new test case to \
-            this test. See the input matrix, it is the place where you should use the two accounts \
-            you can clone. Make sure you modify only those parameters processed by your new calculator "
+            "Testing production code, the number of defaulted calculators should match the number \
+            of test scenarios included in this test. If there are any missing, and you've recently \
+            added in a new calculator, you should construct a new test case to it. See the input \
+            matrix, it is the place where you should use the two accounts you can clone. Be careful \
+            to modify only those parameters that are processed within your new calculator "
         );
         test_accounts_from_input_matrix(
-            input_matrix,
             now,
+            input_matrix,
             cw_service_fee_balance_minor,
             template_computed_weight,
         )
@@ -2583,20 +2596,22 @@ mod tests {
     }
 
     fn test_accounts_from_input_matrix(
-        input_matrix: Vec<[(QualifiedPayableAccount, u128); 2]>,
         now: SystemTime,
+        input_matrix: Vec<[CalculatorTestScenario; 2]>,
         cw_service_fee_balance_minor: u128,
         template_computed_weight: TemplateComputedWeight,
     ) {
-        fn prepare_args_expected_weights_for_comparison(
-            (qualified_payable, expected_computed_weight): (QualifiedPayableAccount, u128),
+        fn prepare_inputs_with_expected_weights(
+            particular_calculator_scenario: CalculatorTestScenario,
         ) -> (QualifiedPayableAccount, ExpectedWeightWithWallet) {
-            let wallet = qualified_payable.bare_account.wallet.clone();
-            let expected_weight = ExpectedWeightWithWallet {
-                wallet,
-                weight: expected_computed_weight,
-            };
-            (qualified_payable, expected_weight)
+            let wallet = particular_calculator_scenario
+                .payable
+                .bare_account
+                .wallet
+                .clone();
+            let weight = particular_calculator_scenario.expected_weight;
+            let expected_weight = ExpectedWeightWithWallet { wallet, weight };
+            (particular_calculator_scenario.payable, expected_weight)
         }
 
         input_matrix
@@ -2604,23 +2619,23 @@ mod tests {
             .map(|test_case| {
                 test_case
                     .into_iter()
-                    .map(prepare_args_expected_weights_for_comparison)
+                    .map(prepare_inputs_with_expected_weights)
                     .collect::<Vec<_>>()
             })
-            .for_each(|qualified_payments_and_expected_computed_weights| {
+            .for_each(|qualified_payables_and_their_expected_weights| {
                 let (qualified_payments, expected_computed_weights): (Vec<_>, Vec<_>) =
-                    qualified_payments_and_expected_computed_weights
+                    qualified_payables_and_their_expected_weights
                         .into_iter()
                         .unzip();
 
-                let weighted_accounts = exercise_production_code_to_get_weighted_accounts(
+                let actual_weighted_accounts = exercise_production_code_to_get_weighted_accounts(
                     qualified_payments,
                     now,
                     cw_service_fee_balance_minor,
                 );
 
                 assert_results(
-                    weighted_accounts,
+                    actual_weighted_accounts,
                     expected_computed_weights,
                     template_computed_weight,
                 )
@@ -2664,9 +2679,9 @@ mod tests {
                 );
                 assert_ne!(
                     actual_account.weight, previous_account_actual_weight,
-                    "You were expected to prepare two accounts with at least slightly \
-                    different parameters. Therefore, the evenness of their weights is \
-                    highly improbable and suspicious."
+                    "You were expected to prepare two accounts with at least slightly different \
+                    parameters. Therefore, the evenness of their weights is highly improbable and \
+                    suspicious."
                 );
                 actual_account.weight
             },
