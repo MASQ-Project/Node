@@ -569,6 +569,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         find_largest_exceeding_balance, sum_as,
     };
+    use crate::accountant::payment_adjuster::service_fee_adjuster::test_helpers::illustrate_why_we_need_to_prevent_exceeding_the_original_value;
     use crate::accountant::payment_adjuster::test_utils::{
         make_mammoth_payables, make_meaningless_analyzed_account_by_wallet, multiply_by_billion,
         CriterionCalculatorMock, PaymentAdjusterTestBuilder, ServiceFeeAdjusterMock,
@@ -1119,8 +1120,7 @@ mod tests {
         // limit, chosen quite down, as the disqualification limit, for optimisation. In its
         // extremity, the naked algorithm of the reallocation of funds could have granted a value
         // above the original debt size, which is clearly unfair.
-        illustrate_that_we_need_to_prevent_exceeding_the_original_value(
-            subject,
+        illustrate_why_we_need_to_prevent_exceeding_the_original_value(
             cw_service_fee_balance_minor,
             weighted_payables.clone(),
             wallet_2,
@@ -1147,43 +1147,6 @@ mod tests {
             disqualification_limit_1
         );
         assert!(result.is_empty());
-    }
-
-    fn illustrate_that_we_need_to_prevent_exceeding_the_original_value(
-        mut subject: PaymentAdjusterReal,
-        cw_service_fee_balance_minor: u128,
-        weighted_accounts: Vec<WeightedPayable>,
-        wallet_of_expected_outweighed: Wallet,
-        original_balance_of_outweighed_account: u128,
-    ) {
-        let garbage_max_debt_above_threshold_in_qualified_payables = 123456789;
-        subject.inner = Box::new(PaymentAdjusterInnerReal::new(
-            SystemTime::now(),
-            None,
-            cw_service_fee_balance_minor,
-            garbage_max_debt_above_threshold_in_qualified_payables,
-        ));
-        let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
-        // The results are sorted from the biggest weights down
-        assert_eq!(
-            unconfirmed_adjustments[1].wallet(),
-            &wallet_of_expected_outweighed
-        );
-        // To prevent unjust reallocation we used to secure a rule an account could never demand
-        // more than 100% of its size.
-
-        // Later it was changed to a different policy, so called "outweighed" account gains
-        // automatically a balance equal to its disqualification limit. Still, later on it's very
-        // likely to be given a bit more from the remains languishing in the consuming wallet.
-        let proposed_adjusted_balance = unconfirmed_adjustments[1].proposed_adjusted_balance_minor;
-        assert!(
-            proposed_adjusted_balance > (original_balance_of_outweighed_account * 11 / 10),
-            "we expected the proposed balance at least 1.1 times bigger than the original balance \
-            which is {} but it was {}",
-            original_balance_of_outweighed_account.separate_with_commas(),
-            proposed_adjusted_balance.separate_with_commas()
-        );
     }
 
     #[test]

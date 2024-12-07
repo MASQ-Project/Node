@@ -75,7 +75,7 @@ impl ServiceFeeAdjusterReal {
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
         let (accounts_above_disq_limit, accounts_below_disq_limit) =
-            Self::filter_and_process_winners(unconfirmed_adjustments);
+            Self::filter_and_process_confirmable_accounts(unconfirmed_adjustments);
 
         if accounts_above_disq_limit.is_empty() {
             Either::Left(accounts_below_disq_limit)
@@ -112,36 +112,37 @@ impl ServiceFeeAdjusterReal {
         }
     }
 
-    fn filter_and_process_winners(
+    fn filter_and_process_confirmable_accounts(
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> (
         Vec<AdjustedAccountBeforeFinalization>,
         Vec<UnconfirmedAdjustment>,
     ) {
         let init: (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>) = (vec![], vec![]);
-        let (thriving_competitors, losing_competitors) = unconfirmed_adjustments.into_iter().fold(
-            init,
-            |(mut thriving_competitors, mut losing_competitors), current| {
-                let disqualification_limit = current.disqualification_limit_minor();
-                if current.proposed_adjusted_balance_minor >= disqualification_limit {
-                    thriving_competitor_found_diagnostics(&current, disqualification_limit);
-                    let mut adjusted = current;
-                    adjusted.proposed_adjusted_balance_minor = disqualification_limit;
-                    thriving_competitors.push(adjusted)
-                } else {
-                    losing_competitors.push(current)
-                }
-                (thriving_competitors, losing_competitors)
-            },
-        );
-
-        let decided_accounts = if thriving_competitors.is_empty() {
-            vec![]
-        } else {
-            convert_collection(thriving_competitors)
+        let fold_guts = |(mut above_disq_limit, mut below_disq_limit): (Vec<_>, Vec<_>),
+                         current: UnconfirmedAdjustment| {
+            let disqualification_limit = current.disqualification_limit_minor();
+            if current.proposed_adjusted_balance_minor >= disqualification_limit {
+                thriving_competitor_found_diagnostics(&current, disqualification_limit);
+                let mut adjusted = current;
+                adjusted.proposed_adjusted_balance_minor = disqualification_limit;
+                above_disq_limit.push(adjusted)
+            } else {
+                below_disq_limit.push(current)
+            }
+            (above_disq_limit, below_disq_limit)
         };
 
-        (decided_accounts, losing_competitors)
+        let (accounts_above_disq_limit, accounts_below_disq_limit) =
+            unconfirmed_adjustments.into_iter().fold(init, fold_guts);
+
+        let decided_accounts = if accounts_above_disq_limit.is_empty() {
+            vec![]
+        } else {
+            convert_collection(accounts_above_disq_limit)
+        };
+
+        (decided_accounts, accounts_below_disq_limit)
     }
 }
 
@@ -279,7 +280,7 @@ mod tests {
         ];
 
         let (thriving_competitors, losing_competitors) =
-            ServiceFeeAdjusterReal::filter_and_process_winners(unconfirmed_accounts);
+            ServiceFeeAdjusterReal::filter_and_process_confirmable_accounts(unconfirmed_accounts);
 
         assert_eq!(losing_competitors, vec![account_3, account_5]);
         let expected_adjusted_outweighed_accounts = vec![
@@ -312,5 +313,42 @@ mod tests {
             ),
         ];
         assert_eq!(thriving_competitors, expected_adjusted_outweighed_accounts)
+    }
+}
+
+#[cfg(test)]
+pub mod test_helpers {
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::WeightedPayable;
+    use crate::accountant::payment_adjuster::service_fee_adjuster::compute_unconfirmed_adjustments;
+    use crate::sub_lib::wallet::Wallet;
+    use thousands::Separable;
+
+    pub fn illustrate_why_we_need_to_prevent_exceeding_the_original_value(
+        cw_service_fee_balance_minor: u128,
+        weighted_accounts: Vec<WeightedPayable>,
+        wallet_of_expected_outweighed: Wallet,
+        original_balance_of_outweighed_account: u128,
+    ) {
+        let unconfirmed_adjustments =
+            compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
+        // The results are sorted from the biggest weights down
+        assert_eq!(
+            unconfirmed_adjustments[1].wallet(),
+            &wallet_of_expected_outweighed
+        );
+        // To prevent unjust reallocation we used to secure a rule an account could never demand
+        // more than 100% of its size.
+
+        // Later it was changed to a different policy, so called "outweighed" account gains
+        // automatically a balance equal to its disqualification limit. Still, later on it's very
+        // likely to be given a bit more from the remains languishing in the consuming wallet.
+        let proposed_adjusted_balance = unconfirmed_adjustments[1].proposed_adjusted_balance_minor;
+        assert!(
+            proposed_adjusted_balance > (original_balance_of_outweighed_account * 11 / 10),
+            "we expected the proposed balance at least 1.1 times bigger than the original balance \
+            which is {} but it was {}",
+            original_balance_of_outweighed_account.separate_with_commas(),
+            proposed_adjusted_balance.separate_with_commas()
+        );
     }
 }

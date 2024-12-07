@@ -207,23 +207,17 @@ impl DisqualificationGaugeReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::payment_adjuster::disqualification_arbiter::{
         DisqualificationArbiter, DisqualificationGauge, DisqualificationGaugeReal,
         DisqualificationSuspectedAccount,
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
-    use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_non_guaranteed_unconfirmed_adjustment, PaymentAdjusterTestBuilder,
+        make_non_guaranteed_unconfirmed_adjustment, make_weighed_account,
     };
-    use crate::accountant::test_utils::make_qualified_payables;
-    use crate::sub_lib::accountant::PaymentThresholds;
-    use crate::test_utils::make_wallet;
+    use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::utils::convert_collection;
-    use std::time::SystemTime;
 
     #[test]
     fn constants_are_correct() {
@@ -421,73 +415,67 @@ mod tests {
 
     #[test]
     fn only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration() {
-        let test_name =
-            "only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration";
-        let now = SystemTime::now();
-        let cw_service_fee_balance_minor = 200_000_000_000;
-        let mut payment_thresholds = PaymentThresholds::default();
-        payment_thresholds.permanent_debt_allowed_gwei = 10;
-        payment_thresholds.maturity_threshold_sec = 1_000;
-        payment_thresholds.threshold_interval_sec = 10_000;
-        let logger = Logger::new(test_name);
-        let wallet_1 = make_wallet("abc");
-        // Meaning we're operating in the horizontal area defined by "permanent debt allowed"
-        let common_timestamp = from_time_t(
-            (payment_thresholds.maturity_threshold_sec
-                + payment_thresholds.threshold_interval_sec
-                + 1) as i64,
-        );
-        let account_1 = PayableAccount {
-            wallet: wallet_1.clone(),
-            balance_wei: 120_000_000_000 + 1,
-            last_paid_timestamp: common_timestamp,
-            pending_payable_opt: None,
-        };
-        let wallet_2 = make_wallet("def");
-        let account_2 = PayableAccount {
-            wallet: wallet_2.clone(),
-            balance_wei: 120_000_000_000,
-            last_paid_timestamp: common_timestamp,
-            pending_payable_opt: None,
-        };
-        let wallet_3 = make_wallet("ghi");
-        // This account has the largest exceeding balance and therefore has the smallest weight
-        let account_3 = PayableAccount {
-            wallet: wallet_3.clone(),
-            balance_wei: 120_000_000_000 + 2,
-            last_paid_timestamp: common_timestamp,
-            pending_payable_opt: None,
-        };
-        let wallet_4 = make_wallet("jkl");
-        let account_4 = PayableAccount {
-            wallet: wallet_4.clone(),
-            balance_wei: 120_000_000_000 - 1,
-            last_paid_timestamp: common_timestamp,
-            pending_payable_opt: None,
-        };
-        let accounts = vec![account_1, account_2, account_3, account_4];
-        let qualified_payables = make_qualified_payables(accounts, &payment_thresholds, now);
-        let analyzed_accounts = convert_collection(qualified_payables);
-        let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
-        let payment_adjuster = PaymentAdjusterTestBuilder::default()
-            .now(now)
-            .cw_service_fee_balance_minor(cw_service_fee_balance_minor)
-            .max_debt_above_threshold_in_qualified_payables(largest_exceeding_balance)
-            .build();
-        let weights_and_accounts = payment_adjuster.calculate_weights(analyzed_accounts);
+        let mut account_1 = make_weighed_account(123);
+        account_1.analyzed_account.disqualification_limit_minor = 1_000_000;
+        account_1.weight = 1000;
+        let mut account_2 = make_weighed_account(456);
+        account_2.analyzed_account.disqualification_limit_minor = 1_000_000;
+        account_2.weight = 1002;
+        let mut account_3 = make_weighed_account(789);
+        account_3.analyzed_account.disqualification_limit_minor = 1_000_000;
+        account_3.weight = 999;
+        let wallet_3 = account_3
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .wallet
+            .clone();
+        let mut account_4 = make_weighed_account(012);
+        account_4.analyzed_account.disqualification_limit_minor = 1_000_000;
+        account_4.weight = 1001;
+        // Notice that each proposed adjustment is below 1_000_000 which makes it clear all these
+        // accounts are nominated for disqualification, only one can be picked though
+        let seeds = vec![
+            (account_1, 900_000),
+            (account_2, 920_000),
+            (account_3, 910_000),
+            (account_4, 930_000),
+        ];
+        let unconfirmed_adjustments = seeds
+            .into_iter()
+            .map(
+                |(weighted_account, proposed_adjusted_balance_minor)| UnconfirmedAdjustment {
+                    weighted_account,
+                    proposed_adjusted_balance_minor,
+                },
+            )
+            .collect_vec();
         let subject = DisqualificationArbiter::default();
-        let unconfirmed_adjustments = compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
 
-        let result = subject
-            .find_an_account_to_disqualify_in_this_iteration(&unconfirmed_adjustments, &logger);
+        let result = subject.find_an_account_to_disqualify_in_this_iteration(
+            &unconfirmed_adjustments,
+            &Logger::new("test"),
+        );
 
-        unconfirmed_adjustments.iter().for_each(|payable| {
-            // In the horizontal area, the disqualification limit equals to the entire debt size.
-            // This check says that every account qualified for disqualification but only one
-            // will eventually be chosen
-            assert!(payable.proposed_adjusted_balance_minor < payable.initial_balance_minor())
-        });
         assert_eq!(result, wallet_3);
+        // Hardening of the test with more formal checks
+        let all_wallets = unconfirmed_adjustments
+            .iter()
+            .map(|unconfirmed_adjustment| {
+                &unconfirmed_adjustment
+                    .weighted_account
+                    .analyzed_account
+                    .qualified_as
+                    .bare_account
+                    .wallet
+            })
+            .collect_vec();
+        assert_eq!(all_wallets.len(), 4);
+        let wallets_as_wallet_3 = all_wallets
+            .iter()
+            .filter(|wallet| wallet == &&&wallet_3)
+            .collect_vec();
+        assert_eq!(wallets_as_wallet_3.len(), 1);
     }
 
     fn make_unconfirmed_adjustments(weights: Vec<u128>) -> Vec<UnconfirmedAdjustment> {

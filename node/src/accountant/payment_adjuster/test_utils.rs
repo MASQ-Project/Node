@@ -284,7 +284,7 @@ pub fn make_meaningless_analyzed_account_by_wallet(
 }
 
 pub fn make_weighed_account(n: u64) -> WeightedPayable {
-    WeightedPayable::new(make_meaningless_analyzed_account(n), 123456789)
+    WeightedPayable::new(make_meaningless_analyzed_account(n), 123456 * n as u128)
 }
 
 // Should stay test only!!
