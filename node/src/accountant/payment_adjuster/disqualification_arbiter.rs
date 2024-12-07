@@ -215,7 +215,6 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
-    use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_non_guaranteed_unconfirmed_adjustment, PaymentAdjusterTestBuilder,
     };
@@ -477,8 +476,7 @@ mod tests {
             .build();
         let weights_and_accounts = payment_adjuster.calculate_weights(analyzed_accounts);
         let subject = DisqualificationArbiter::default();
-        let unconfirmed_adjustments = AdjustmentComputer::default()
-            .compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
+        let unconfirmed_adjustments = compute_unconfirmed_adjustments(weights_and_accounts, cw_service_fee_balance_minor);
 
         let result = subject
             .find_an_account_to_disqualify_in_this_iteration(&unconfirmed_adjustments, &logger);

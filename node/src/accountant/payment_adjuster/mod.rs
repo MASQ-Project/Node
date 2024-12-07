@@ -569,7 +569,6 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
         find_largest_exceeding_balance, sum_as,
     };
-    use crate::accountant::payment_adjuster::service_fee_adjuster::AdjustmentComputer;
     use crate::accountant::payment_adjuster::test_utils::{
         make_mammoth_payables, make_meaningless_analyzed_account_by_wallet, multiply_by_billion,
         CriterionCalculatorMock, PaymentAdjusterTestBuilder, ServiceFeeAdjusterMock,

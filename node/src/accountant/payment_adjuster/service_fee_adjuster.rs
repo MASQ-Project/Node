@@ -24,9 +24,8 @@ pub trait ServiceFeeAdjuster {
     ) -> AdjustmentIterationResult;
 }
 
-pub struct ServiceFeeAdjusterReal {
-    adjustment_computer: AdjustmentComputer,
-}
+#[derive(Default)]
+pub struct ServiceFeeAdjusterReal {}
 
 impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
     fn perform_adjustment_by_service_fee(
@@ -36,11 +35,10 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
         cw_service_fee_balance_minor: u128,
         logger: &Logger,
     ) -> AdjustmentIterationResult {
-        let unconfirmed_adjustments = self
-            .adjustment_computer
-            .compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
+        let unconfirmed_adjustments =
+            compute_unconfirmed_adjustments(weighted_accounts, cw_service_fee_balance_minor);
 
-        let checked_accounts = Self::handle_winning_accounts(unconfirmed_adjustments);
+        let checked_accounts = Self::try_confirm_some_accounts(unconfirmed_adjustments);
 
         match checked_accounts {
             Either::Left(no_thriving_competitors) => Self::disqualify_single_account(
@@ -53,51 +51,39 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
     }
 }
 
-impl Default for ServiceFeeAdjusterReal {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ServiceFeeAdjusterReal {
-    fn new() -> Self {
-        Self {
-            adjustment_computer: Default::default(),
-        }
-    }
-
-    // The thin term "outweighed account" coma from a phenomenon with an account whose weight
-    // increases significantly based on a different parameter than the debt size. Untreated, we
-    // would wind up granting the account (much) more money than what it got recorded by
+    // The thin term "outweighed account" comes from a phenomenon related to an account whose weight
+    // increases significantly based on a different parameter than the debt size. Untreated, it
+    // could easily wind up with granting the account (much) more money than it was recorded by
     // the Accountant.
     //
-    // Each outweighed account, as well as any one with the proposed balance computed as a value
-    // between the disqualification limit of this account and the entire balance (originally
-    // requested), will gain instantly the same portion that equals the disqualification limit
-    // of this account. Anything below that is, in turn, considered unsatisfying, hence a reason
-    // for that account to go away simply disqualified.
+    // Each outweighed account, and even further, also any account with the proposed adjusted
+    // balance higher than its disqualification limit, will gain instantly equally to its
+    // disqualification limit. Anything below that is, in turn, considered unsatisfying, hence
+    // the reason to be disqualified.
     //
-    // The idea is that we want to spare as much as possible in the held means that could be
-    // continuously distributed among the rest of accounts until it is possible to adjust an account
-    // and unmeet the condition for a disqualification.
+    // The idea is that we try to spare as much as possible from the means that could be, if done
+    // wisely, better redistributed among the rest of accounts, as much as the wider group of them
+    // can be satisfied, even though just partially.
     //
-    // On the other hand, if it begins being clear that the remaining money can keep no other
-    // account up in the selection there is yet another operation to come where the already
-    // selected accounts are reviewed again in the order of their significance and some of
-    // the unused money is poured into them, which goes on until zero.
-    fn handle_winning_accounts(
+    // However, if it begins to be clear that the remaining money doesn't allow to keep any
+    // additional account in the selection, there is the next step to come, where the already
+    // selected accounts are reviewed again in the order of their significance resolved from
+    // remembering their weights from the earlier processing, and the unused money is poured into,
+    // until all resources are used.
+    fn try_confirm_some_accounts(
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
-        let (thriving_competitors, losing_competitors) =
+        let (accounts_above_disq_limit, accounts_below_disq_limit) =
             Self::filter_and_process_winners(unconfirmed_adjustments);
 
-        if thriving_competitors.is_empty() {
-            Either::Left(losing_competitors)
+        if accounts_above_disq_limit.is_empty() {
+            Either::Left(accounts_below_disq_limit)
         } else {
             let remaining_undecided_accounts: Vec<WeightedPayable> =
-                convert_collection(losing_competitors);
+                convert_collection(accounts_below_disq_limit);
             let pre_processed_decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
-                convert_collection(thriving_competitors);
+                convert_collection(accounts_above_disq_limit);
             Either::Right(AdjustmentIterationResult {
                 decided_accounts: pre_processed_decided_accounts,
                 remaining_undecided_accounts,
@@ -159,62 +145,56 @@ impl ServiceFeeAdjusterReal {
     }
 }
 
-#[derive(Default)]
-pub struct AdjustmentComputer {}
+fn compute_unconfirmed_adjustments(
+    weighted_accounts: Vec<WeightedPayable>,
+    unallocated_cw_service_fee_balance_minor: u128,
+) -> Vec<UnconfirmedAdjustment> {
+    let weights_total = sum_as(&weighted_accounts, |weighted_account| {
+        weighted_account.weight
+    });
+    let cw_service_fee_balance = unallocated_cw_service_fee_balance_minor;
 
-impl AdjustmentComputer {
-    pub fn compute_unconfirmed_adjustments(
-        &self,
-        weighted_accounts: Vec<WeightedPayable>,
-        unallocated_cw_service_fee_balance_minor: u128,
-    ) -> Vec<UnconfirmedAdjustment> {
-        let weights_total = sum_as(&weighted_accounts, |weighted_account| {
-            weighted_account.weight
-        });
-        let cw_service_fee_balance = unallocated_cw_service_fee_balance_minor;
+    let multiplication_coefficient =
+        compute_mul_coefficient_preventing_fractional_numbers(cw_service_fee_balance);
 
-        let multiplication_coefficient =
-            compute_mul_coefficient_preventing_fractional_numbers(cw_service_fee_balance);
+    let proportional_cw_balance_fragment = compute_proportional_cw_fragment(
+        cw_service_fee_balance,
+        weights_total,
+        multiplication_coefficient,
+    );
 
-        let proportional_cw_balance_fragment = Self::compute_proportional_cw_fragment(
-            cw_service_fee_balance,
-            weights_total,
-            multiplication_coefficient,
-        );
+    let compute_proposed_adjusted_balance =
+        |weight: u128| weight * proportional_cw_balance_fragment / multiplication_coefficient;
 
-        let compute_proposed_adjusted_balance =
-            |weight: u128| weight * proportional_cw_balance_fragment / multiplication_coefficient;
+    weighted_accounts
+        .into_iter()
+        .map(|weighted_account| {
+            let proposed_adjusted_balance =
+                compute_proposed_adjusted_balance(weighted_account.weight);
 
-        weighted_accounts
-            .into_iter()
-            .map(|weighted_account| {
-                let proposed_adjusted_balance =
-                    compute_proposed_adjusted_balance(weighted_account.weight);
+            proposed_adjusted_balance_diagnostics(&weighted_account, proposed_adjusted_balance);
 
-                proposed_adjusted_balance_diagnostics(&weighted_account, proposed_adjusted_balance);
+            UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance)
+        })
+        .collect()
+}
 
-                UnconfirmedAdjustment::new(weighted_account, proposed_adjusted_balance)
-            })
-            .collect()
-    }
-
-    fn compute_proportional_cw_fragment(
-        cw_service_fee_balance_minor: u128,
-        weights_total: u128,
-        multiplication_coefficient: u128,
-    ) -> u128 {
-        cw_service_fee_balance_minor
-            // Considered safe due to the process of getting this coefficient
-            .checked_mul(multiplication_coefficient)
-            .unwrap_or_else(|| {
-                panic!(
-                    "mul overflow from {} * {}",
-                    cw_service_fee_balance_minor, multiplication_coefficient
-                )
-            })
-            .checked_div(weights_total)
-            .expect("div overflow")
-    }
+fn compute_proportional_cw_fragment(
+    cw_service_fee_balance_minor: u128,
+    weights_total: u128,
+    multiplication_coefficient: u128,
+) -> u128 {
+    cw_service_fee_balance_minor
+        // Considered safe due to the process of getting this coefficient
+        .checked_mul(multiplication_coefficient)
+        .unwrap_or_else(|| {
+            panic!(
+                "mul overflow from {} * {}",
+                cw_service_fee_balance_minor, multiplication_coefficient
+            )
+        })
+        .checked_div(weights_total)
+        .expect("div overflow")
 }
 
 #[cfg(test)]
