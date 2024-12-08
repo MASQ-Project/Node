@@ -2278,11 +2278,7 @@ mod tests {
             .join(BlockChain::PolyAmoy.rec().literal_identifier); //not a default
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            (
-                "chain",
-                BlockChain::PolyAmoy.rec().literal_identifier,
-                Set,
-            ),
+            ("chain", BlockChain::PolyAmoy.rec().literal_identifier, Set),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),

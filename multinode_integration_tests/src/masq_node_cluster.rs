@@ -337,6 +337,25 @@ impl MASQNodeCluster {
             )),
         }
     }
+
+    fn create_world_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {
+        let mut command = Command::new(
+            "docker",
+            Command::strings(vec![
+                "network",
+                "create",
+                format!("--subnet={}/16", ipv4addr).as_str(),
+                name,
+            ]),
+        );
+        match command.wait_for_exit() {
+            0 => Ok(()),
+            _ => Err(format!(
+                "Could not create network integration_net: {}",
+                command.stderr_as_string()
+            )),
+        }
+    }
 }
 
 pub struct DockerHostSocketAddr {

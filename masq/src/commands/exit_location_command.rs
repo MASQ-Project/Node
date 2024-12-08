@@ -248,7 +248,11 @@ pub mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
         let stderr_arc = context.stderr_arc();
-        let subject = SetExitLocationCommand::new(&["exit-location".to_string(), "--show-countries".to_string()]).unwrap();
+        let subject = SetExitLocationCommand::new(&[
+            "exit-location".to_string(),
+            "--show-countries".to_string(),
+        ])
+        .unwrap();
 
         let result = subject.execute(&mut context);
 
