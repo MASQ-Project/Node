@@ -134,7 +134,9 @@ impl UserExitPreferences {
                         && country_code != ZZ_COUNTRY_CODE_STRING
                     {
                         node_record.metadata.country_undesirability =
-                            Self::calculate_country_undesirability((exit_location.priority - 1) as u32);
+                            Self::calculate_country_undesirability(
+                                (exit_location.priority - 1) as u32,
+                            );
                     }
                     if (self.location_preference == ExitPreference::ExitCountryWithFallback
                         && !self.exit_countries.contains(&country_code))
@@ -1705,7 +1707,12 @@ impl Neighborhood {
                 "Neighborhood is empty, no exit Nodes are available.",
             ),
         }
-        let message = self.create_exit_location_response(client_id, context_id, missing_locations, message.show_countries);
+        let message = self.create_exit_location_response(
+            client_id,
+            context_id,
+            missing_locations,
+            message.show_countries,
+        );
         self.node_to_ui_recipient_opt
             .as_ref()
             .expect("UI Gateway is unbound")
@@ -1720,53 +1727,45 @@ impl Neighborhood {
         missing_locations: Vec<String>,
         show_countries: bool,
     ) -> NodeToUiMessage {
-        let errmessage = 
-            match show_countries { 
+        let errmessage = match show_countries {
+            true => match &missing_locations.is_empty() {
                 true => {
-                    match &missing_locations.is_empty() {
-                        true => {
-                            format!("Exit Countries: {:?}", self.user_exit_preferences.db_countries)
-                        },
-                        false => {
-                            format!(
+                    format!(
+                        "Exit Countries: {:?}",
+                        self.user_exit_preferences.db_countries
+                    )
+                }
+                false => {
+                    format!(
                                 "Exit Countries: {:?}\nExit Location: following desired countries are missing in Neighborhood {:?}", 
-                                self.user_exit_preferences.db_countries, 
+                                self.user_exit_preferences.db_countries,
                                 missing_locations
                             )
-                        },
-                    }
-                },
+                }
+            },
+            false => match &missing_locations.is_empty() {
+                true => "".to_string(),
                 false => {
-                    match &missing_locations.is_empty() {
-                        true => {
-                            "".to_string()
-                        },
-                        false => {
-                            format!(
+                    format!(
                                 "Exit Location: following desired countries are missing in Neighborhood {:?}",
                                 missing_locations
                             )
-                        },
-                    }
-                }
-            };
-        match &errmessage.is_empty() {
-            false => {
-                NodeToUiMessage {
-                    target: MessageTarget::ClientId(client_id),
-                    body: MessageBody {
-                        opcode: "exit_location".to_string(),
-                        path: Conversation(context_id),
-                        payload: Err((EXIT_COUNTRY_ERROR, errmessage)),
-                    },
                 }
             },
-            true => {
-                NodeToUiMessage {
-                    target: MessageTarget::ClientId(client_id),
-                    body: UiSetExitLocationResponse {}.tmb(context_id),
-                }
-            }
+        };
+        match &errmessage.is_empty() {
+            false => NodeToUiMessage {
+                target: MessageTarget::ClientId(client_id),
+                body: MessageBody {
+                    opcode: "exit_location".to_string(),
+                    path: Conversation(context_id),
+                    payload: Err((EXIT_COUNTRY_ERROR, errmessage)),
+                },
+            },
+            true => NodeToUiMessage {
+                target: MessageTarget::ClientId(client_id),
+                body: UiSetExitLocationResponse {}.tmb(context_id),
+            },
         }
     }
 
@@ -2240,12 +2239,19 @@ mod tests {
         let root_node = subject.neighborhood_database.root().clone();
         let mut first_neighbor = make_node_record(1111, true);
         first_neighbor.inner.country_code_opt = Some("CZ".to_string());
-        subject.neighborhood_database.add_node(first_neighbor.clone()).unwrap();
-        subject.neighborhood_database.add_arbitrary_full_neighbor(root_node.public_key(), first_neighbor.public_key());
+        subject
+            .neighborhood_database
+            .add_node(first_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(root_node.public_key(), first_neighbor.public_key());
 
         let filled_db_countries = subject.init_db_countries();
 
-        subject.neighborhood_database.remove_arbitrary_half_neighbor(root_node.public_key(), first_neighbor.public_key());
+        subject
+            .neighborhood_database
+            .remove_arbitrary_half_neighbor(root_node.public_key(), first_neighbor.public_key());
         let emptied_db_countries = subject.init_db_countries();
 
         assert_eq!(filled_db_countries, &["CZ".to_string()]);
@@ -4660,8 +4666,7 @@ mod tests {
         let mut subject = make_standard_subject();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
-        subject.user_exit_preferences.location_preference =
-            ExitPreference::ExitCountryWithFallback;
+        subject.user_exit_preferences.location_preference = ExitPreference::ExitCountryWithFallback;
         let message = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![CountryCodes {
