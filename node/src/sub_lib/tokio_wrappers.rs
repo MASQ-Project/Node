@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use std::io;
+use std::io::Error;
 use std::marker::Send;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -21,7 +22,11 @@ pub trait ReadHalfWrapper: Send + AsyncRead + Unpin {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<()>>;
 }
 
-pub trait WriteHalfWrapper: Send + AsyncWrite + Unpin {}
+pub trait WriteHalfWrapper: Send + AsyncWrite + Unpin {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<()>>;
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+}
 
 pub trait TokioListenerWrapperFactory {
     fn make(&self) -> Box<dyn TokioListenerWrapper>;
@@ -83,11 +88,25 @@ impl ReadHalfWrapperReal {
 }
 
 impl AsyncWrite for WriteHalfWrapperReal {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
+        WriteHalfWrapper::poll_write(self, cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        todo!()
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        todo!()
+    }
+}
+
+impl WriteHalfWrapper for WriteHalfWrapperReal {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<io::Result<()>> {
         self.delegate.poll_write(cx, buf)
     }
 
@@ -99,8 +118,6 @@ impl AsyncWrite for WriteHalfWrapperReal {
         self.delegate.poll_shutdown(cx)
     }
 }
-
-impl WriteHalfWrapper for WriteHalfWrapperReal {}
 
 impl WriteHalfWrapperReal {
     pub fn new(writer: OwnedWriteHalf) -> WriteHalfWrapperReal {
@@ -120,8 +137,9 @@ impl TokioListenerWrapperReal {
     }
 
     fn delegate(&self) -> &TcpListener {
-        &self
+        self
             .delegate
+            .as_ref()
             .expect("TcpListener not initialized - bind to a SocketAddr")
     }
 

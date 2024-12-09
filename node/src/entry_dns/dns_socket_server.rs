@@ -132,7 +132,7 @@ mod tests {
 
     #[async_trait]
     impl UdpSocketWrapperTrait for UdpSocketWrapperMock {
-        fn bind(&mut self, addr: SocketAddr) -> io::Result<bool> {
+        async fn bind(&mut self, addr: SocketAddr) -> io::Result<bool> {
             let mut unwrapped_guts = self.guts.lock().unwrap();
             let guts_ref = unwrapped_guts.borrow_mut();
             let guts: &mut UdpSocketWrapperMockGuts = guts_ref.deref_mut();

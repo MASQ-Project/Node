@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use actix::{ContextFutureSpawner, Recipient};
+use actix::{Recipient};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -60,9 +60,10 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
         web3: &Web3<Batch<T>>,
         key: &SecP256K1SecretsKeySecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
-        web3.accounts()
-            .sign_transaction(transaction_params, key)
-            .wait()
+        todo!()
+        // web3.accounts()
+        //     .sign_transaction(transaction_params, key)
+        //     .wait()
     }
 
     fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
@@ -90,8 +91,9 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<Web3TransportsResult<T>>, Web3Error> {
-        web3.transport().submit_batch().wait()
+    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error> {
+        todo!()
+        // web3.transport().submit_batch().wait()
     }
 }
 
