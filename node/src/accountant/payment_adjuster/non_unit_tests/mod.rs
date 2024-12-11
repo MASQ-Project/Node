@@ -20,6 +20,7 @@ use crate::accountant::test_utils::{
     make_single_qualified_payable_opt, try_making_guaranteed_qualified_payables,
 };
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
@@ -41,26 +42,40 @@ use web3::types::U256;
 
 #[test]
 // TODO If an option for "occasional tests" is added, this is a good adept
-#[ignore]
+//#[ignore]
 fn loading_test_with_randomized_params() {
-    // This is a fuzz test, a generator of possibly an overwhelming amount of scenarios that could
-    // get the PaymentAdjuster to be asked to sort them out even in real situations while there
-    // might be many and many combinations that a human is having a hard time just imagining; of
-    // them some might be corner cases whose threatening wasn't known when this was being designed.
-    // This test is to prove that even a huge number of runs, with hopefully highly variable inputs,
-    // will not shoot the PaymentAdjuster down and the Node with it; on the contrary, it should
-    // be able to give reasonable results and live up to its original purpose of adjustments.
+    // This is a fuzz test. It generates possibly an overwhelming amount of scenarios that
+    // the PaymentAdjuster could be given sort them out, as realistic as it can get, while its
+    // nature of randomness offers chances to have a dense range of combinations that a human fails
+    // to even try imagining. The hypothesis is that some of those might be corner cases whose
+    // trickiness wasn't recognized when the functionality was still at design. This test is to
+    // prove that despite highly variable input over a lot of attempts, the PaymentAdjuster can do
+    // its job reliably and won't endanger the Node. Also, it is important that it should give
+    // reasonable payment adjustments.
 
-    // Part of the requested count is rejected before the test begins as there are generated
-    // scenarios with such parameters that don't fit to a variety of conditions. It's easier to keep
-    // it this way than setting up an algorithm with enough "tamed" randomness. Other bunch of them
-    // will likely be marked as legitimate errors that the PaymentAdjuster can detect.
-    // When the test reaches its end, a text file is filled in with some key figures of the performed
-    // exercises and finally also an overall summary with useful statistics that can serve to
-    // evaluate the actual behavior against the desired.
+    // We can consider the test having an exo-parameter. It's the count of scenarios to be generated.
+    // This number must be thought of just as a rough parameter, because many of those attempted
+    // scenarios, loosely randomized, will be rejected in the setup stage.
+
+    // The rejection happens before the actual test unwinds as there will always be scenarios with
+    // attributes that don't fit to a variety of conditions which needs to be insisted on. Those are
+    // that the accounts under each scenario can hold that they are legitimately qualified payables
+    // as those to be passed on to the payment adjuster in the real world. It goes much easier if
+    // we allow this always implied waste than trying to invent an algorithm whose randomness would
+    // be exercised within strictly controlled boundaries.
+
+    // Some other are lost quite early as legitimate errors that the PaymentAdjuster can detect,
+    // which would prevent finishing the search for given scenario.
+
+    // When the test reaches its end, it produces important output in a text file, located:
+    // node/generated/test/payment_adjuster/tests/home/loading_test_output.txt
+
+    // This file begins with some key figures of those exercises just run, which is followed by
+    // a summary loaded with statistics that can serve well on inspection of the actual behavior
+    // against the desired.
 
     // If you are new to this algorithm, there might be results (maybe rare, but absolutely valid
-    // and wanted, and so deserving some interest) that can have one puzzled, though.
+    // and wanted) that can keep one puzzled.
 
     // The example further below presents a tricky-to-understand output belonging to one set of
     // payables. See those percentages. They may not excel at explaining themselves when it comes to
@@ -231,63 +246,138 @@ fn make_payable_account(
     now: SystemTime,
     gn: &mut ThreadRng,
 ) -> PayableAccount {
-    // Why is this construction so complicated? Well, I wanted to get the test showing partially
-    // fulfilling adjustments where the final accounts can be paid enough but still not all up to
-    // their formerly claimed balance. It turned out it is very difficult to achieve with the use of
-    // randomized ranges, I couldn't really come up with parameters that would promise this condition.
-    // I ended up experimenting and looking for an algorithm that would make the parameters as random
-    // as possible because the generator alone is not much good at it, using gradually, but
-    // individually generated parameters that I put together for better chances of randomness. Many
-    // produced accounts will not make it through into the actual test, filtered out when attempted
-    // to be converted into a proper QualifiedPayableAccount. This isn't optimal, sure, but it allows
-    // to observe some of those partial adjustments, however, with rather a low rate of occurrence
-    // among those all attempts of acceptable scenarios.
     let wallet = make_wallet(&format!("wallet{}", idx));
-    let mut generate_age_segment = || {
-        generate_non_zero_usize(
-            gn,
-            (thresholds.maturity_threshold_sec + thresholds.threshold_interval_sec) as usize,
-        ) / 2
-    };
-    let debt_age = generate_age_segment() + generate_age_segment();
-    let service_fee_balance_minor = {
-        let mut generate_u128 = || generate_non_zero_usize(gn, 100) as u128;
-        let parameter_a = generate_u128();
-        let parameter_b = generate_u128();
-        let parameter_c = generate_u128();
-        let parameter_d = generate_u128();
-        let parameter_e = generate_u128();
-        let parameter_f = generate_u128();
-        let mut use_variable_exponent = |parameter: u128, up_to: usize| {
-            parameter.pow(generate_non_zero_usize(gn, up_to) as u32)
-        };
-        let a_b_c_d_e = parameter_a
-            * use_variable_exponent(parameter_b, 2)
-            * use_variable_exponent(parameter_c, 3)
-            * use_variable_exponent(parameter_d, 4)
-            * use_variable_exponent(parameter_e, 5);
-        let addition = (0..6).fold(a_b_c_d_e, |so_far, subtrahend| {
-            if so_far != a_b_c_d_e {
-                so_far
-            } else {
-                if let Some(num) =
-                    a_b_c_d_e.checked_sub(use_variable_exponent(parameter_f, 6 - subtrahend))
-                {
-                    num
-                } else {
-                    so_far
-                }
-            }
-        });
-
-        thresholds.permanent_debt_allowed_gwei as u128 + addition
-    };
+    let debt_age = generate_debt_age(gn, thresholds);
+    let service_fee_balance_minor =
+        generate_highly_randomized_payable_account_balance(gn, thresholds);
     let last_paid_timestamp = from_time_t(to_time_t(now) - debt_age as i64);
     PayableAccount {
         wallet,
         balance_wei: service_fee_balance_minor,
         last_paid_timestamp,
         pending_payable_opt: None,
+    }
+}
+
+fn generate_debt_age(gn: &mut ThreadRng, thresholds: &PaymentThresholds) -> u64 {
+    generate_range(
+        gn,
+        thresholds.maturity_threshold_sec,
+        thresholds.maturity_threshold_sec + thresholds.threshold_interval_sec,
+    ) / 2
+}
+
+fn generate_highly_randomized_payable_account_balance(
+    gn: &mut ThreadRng,
+    thresholds: &PaymentThresholds,
+) -> u128 {
+    // This seems overcomplicated, damn. As a result of simple intentions though. I wanted to ensure
+    // occurrence of accounts with balances having different magnitudes in the frame of a single
+    // scenario. This was crucial to me so much that I was ready to write even this piece of code
+    // a bit crazy by look.
+    // This setup worked well to stress the randomness I needed, a lot more significant compared to
+    // what the naked number generator can put for you. Using some nesting, it broke the rigid
+    // pattern and gave an existence to accounts with diverse balances.
+    let mut generate_u128 = || generate_non_zero_usize(gn, 100) as u128;
+
+    let parameter_a = generate_u128();
+    let parameter_b = generate_u128();
+    let parameter_c = generate_u128();
+    let parameter_d = generate_u128();
+    let parameter_e = generate_u128();
+    let parameter_f = generate_u128();
+
+    let mut use_variable_exponent =
+        |parameter: u128, up_to: usize| parameter.pow(generate_non_zero_usize(gn, up_to) as u32);
+
+    let a_b_c_d_e = parameter_a
+        * use_variable_exponent(parameter_b, 2)
+        * use_variable_exponent(parameter_c, 3)
+        * use_variable_exponent(parameter_d, 4)
+        * use_variable_exponent(parameter_e, 5);
+    let addition = (0..6).fold(a_b_c_d_e, |so_far, subtrahend| {
+        if so_far != a_b_c_d_e {
+            so_far
+        } else {
+            if let Some(num) =
+                a_b_c_d_e.checked_sub(use_variable_exponent(parameter_f, 6 - subtrahend))
+            {
+                num
+            } else {
+                so_far
+            }
+        }
+    });
+
+    thresholds.permanent_debt_allowed_gwei as u128 + addition
+}
+
+fn try_make_qualified_payables_by_applied_thresholds(
+    payable_accounts: Vec<PayableAccount>,
+    applied_thresholds: &AppliedThresholds,
+    now: SystemTime,
+) -> (
+    Vec<QualifiedPayableAccount>,
+    Vec<(Wallet, PaymentThresholds)>,
+) {
+    let payment_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
+    match applied_thresholds {
+        AppliedThresholds::Defaulted => (
+            try_making_guaranteed_qualified_payables(
+                payable_accounts,
+                &PRESERVED_TEST_PAYMENT_THRESHOLDS,
+                now,
+                false,
+            ),
+            vec![],
+        ),
+        AppliedThresholds::SingleButRandomized { common_thresholds } => (
+            try_making_guaranteed_qualified_payables(
+                payable_accounts,
+                common_thresholds,
+                now,
+                false,
+            ),
+            vec![],
+        ),
+        AppliedThresholds::RandomizedForEachAccount {
+            individual_thresholds,
+        } => {
+            let vec_of_thresholds = individual_thresholds
+                .thresholds
+                .as_ref()
+                .left()
+                .expect("should be Vec at this stage");
+            assert_eq!(
+                payable_accounts.len(),
+                vec_of_thresholds.len(),
+                "The number of generated \
+            payables {} differs from their sets of thresholds {}, but one should've been derived \
+            from the other",
+                payable_accounts.len(),
+                vec_of_thresholds.len()
+            );
+            let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
+            zipped.fold(
+                (vec![], vec![]),
+                |(mut qualified_payables, mut wallet_thresholds_pairs),
+                 (payable, its_thresholds)| match make_single_qualified_payable_opt(
+                    payable,
+                    &payment_inspector,
+                    &its_thresholds,
+                    false,
+                    now,
+                ) {
+                    Some(qualified_payable) => {
+                        let wallet = qualified_payable.bare_account.wallet.clone();
+                        qualified_payables.push(qualified_payable);
+                        wallet_thresholds_pairs.push((wallet, *its_thresholds));
+                        (qualified_payables, wallet_thresholds_pairs)
+                    }
+                    None => (qualified_payables, wallet_thresholds_pairs),
+                },
+            )
+        }
     }
 }
 
@@ -323,6 +413,7 @@ fn try_generating_qualified_payables_and_cw_balance(
         let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
         balance_average / multiplier as u128 * number_of_pieces
     };
+    //
     let required_service_fee_total: u128 = sum_as(&qualified_payables, |account| {
         account.initial_balance_minor()
     });
@@ -335,6 +426,21 @@ fn try_generating_qualified_payables_and_cw_balance(
             wallet_and_thresholds_pairs,
         ))
     }
+}
+
+fn pick_appropriate_cw_service_fee_balance(
+    gn: &mut ThreadRng,
+    qualified_payables: &[QualifiedPayableAccount],
+    accounts_count: usize,
+) -> u128 {
+    // Value picked empirically
+    const COEFFICIENT: usize = 1000;
+    let balance_average = sum_as(qualified_payables, |account| {
+        account.initial_balance_minor()
+    }) / accounts_count as u128;
+    let max_pieces = accounts_count * COEFFICIENT;
+    let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
+    balance_average / COEFFICIENT as u128 * number_of_pieces
 }
 
 fn make_payables_according_to_thresholds_setup(
@@ -375,7 +481,7 @@ fn make_payables_with_common_thresholds(
 ) -> Vec<PayableAccount> {
     (0..accounts_count)
         .map(|idx| make_payable_account(idx, common_thresholds, now, gn))
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 fn make_payables_with_individual_thresholds(
@@ -418,16 +524,13 @@ fn return_single_randomized_thresholds(gn: &mut ThreadRng) -> PaymentThresholds 
     let permanent_debt_allowed_gwei = generate_range(gn, 100, 1_000_000_000);
     let debt_threshold_gwei =
         permanent_debt_allowed_gwei + generate_range(gn, 10_000, 10_000_000_000);
-    let maturity_threshold_sec = generate_range(gn, 100, 10_000);
-    let threshold_interval_sec = generate_range(gn, 1000, 100_000);
-    let unban_below_gwei = permanent_debt_allowed_gwei;
     PaymentThresholds {
         debt_threshold_gwei,
-        maturity_threshold_sec,
+        maturity_threshold_sec: generate_range(gn, 100, 10_000),
         payment_grace_period_sec: 0,
         permanent_debt_allowed_gwei,
-        threshold_interval_sec,
-        unban_below_gwei,
+        threshold_interval_sec: generate_range(gn, 1000, 100_000),
+        unban_below_gwei: permanent_debt_allowed_gwei,
     }
 }
 
@@ -443,7 +546,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
-        .gas_price_margin_result(PurePercentage::try_from(15).unwrap())
+        .gas_price_margin_result(TRANSACTION_FEE_MARGIN.clone())
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {
@@ -554,30 +657,29 @@ fn preserve_account_infos(
 fn render_results_to_file_and_attempt_basic_assertions(
     scenario_results: Vec<ScenarioResult>,
     number_of_requested_scenarios: usize,
-    overall_output_collector: TestOverallOutputCollector,
+    output_collector: TestOverallOutputCollector,
 ) {
     let file_dir = ensure_node_home_directory_exists("payment_adjuster", "tests");
     let mut file = File::create(file_dir.join("loading_test_output.txt")).unwrap();
     introduction(&mut file);
-    let test_overall_output_collector =
+    let output_collector =
         scenario_results
             .into_iter()
-            .fold(overall_output_collector, |acc, scenario_result| {
+            .fold(output_collector, |acc, scenario_result| {
                 do_final_processing_of_single_scenario(&mut file, acc, scenario_result)
             });
-    let total_scenarios_evaluated = test_overall_output_collector
-        .scenarios_denied_before_adjustment_started
-        + test_overall_output_collector.oks
-        + test_overall_output_collector.all_accounts_eliminated
-        + test_overall_output_collector.late_immoderately_insufficient_service_fee_balance;
+    let total_scenarios_evaluated = output_collector.scenarios_denied_before_adjustment_started
+        + output_collector.oks
+        + output_collector.all_accounts_eliminated
+        + output_collector.late_immoderately_insufficient_service_fee_balance;
     write_brief_test_summary_into_file(
         &mut file,
-        &test_overall_output_collector,
+        &output_collector,
         number_of_requested_scenarios,
         total_scenarios_evaluated,
     );
     let total_scenarios_handled_including_invalid_ones =
-        total_scenarios_evaluated + test_overall_output_collector.invalidly_generated_scenarios;
+        total_scenarios_evaluated + output_collector.invalidly_generated_scenarios;
     assert_eq!(
         total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios,
         "All handled scenarios including those invalid ones ({}) != requested scenarios count ({})",
@@ -589,7 +691,7 @@ fn render_results_to_file_and_attempt_basic_assertions(
     // to the use case and the expected conditions. Therefore, we insist on making "guaranteed"
     // QualifiedPayableAccounts out of PayableAccount which is where we take the losses.
     let entry_check_pass_rate = 100
-        - ((test_overall_output_collector.scenarios_denied_before_adjustment_started * 100)
+        - ((output_collector.scenarios_denied_before_adjustment_started * 100)
             / total_scenarios_evaluated);
     let required_pass_rate = 50;
     assert!(
@@ -601,9 +703,8 @@ fn render_results_to_file_and_attempt_basic_assertions(
         total_scenarios_evaluated,
         entry_check_pass_rate
     );
-    let ok_adjustment_percentage = (test_overall_output_collector.oks * 100)
-        / (total_scenarios_evaluated
-            - test_overall_output_collector.scenarios_denied_before_adjustment_started);
+    let ok_adjustment_percentage = (output_collector.oks * 100)
+        / (total_scenarios_evaluated - output_collector.scenarios_denied_before_adjustment_started);
     let required_success_rate = 70;
     assert!(
         ok_adjustment_percentage >= required_success_rate,
@@ -652,7 +753,8 @@ fn write_brief_test_summary_into_file(
          With 'RecursionDrainedAllAccounts':.......... {}\n\
          With late insufficient balance errors:. {}\n\n\
          Legend\n\
-         Partially adjusted accounts mark:...... {}",
+         Adjusted balances are highlighted by \
+         this mark by the side:................. {}",
         number_of_requested_scenarios,
         total_of_scenarios_evaluated,
         overall_output_collector.oks,
@@ -1188,73 +1290,4 @@ impl AppliedThresholds {
 
 struct IndividualThresholds {
     thresholds: Either<Vec<PaymentThresholds>, HashMap<Wallet, PaymentThresholds>>,
-}
-
-fn try_make_qualified_payables_by_applied_thresholds(
-    payable_accounts: Vec<PayableAccount>,
-    applied_thresholds: &AppliedThresholds,
-    now: SystemTime,
-) -> (
-    Vec<QualifiedPayableAccount>,
-    Vec<(Wallet, PaymentThresholds)>,
-) {
-    let payment_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
-    match applied_thresholds {
-        AppliedThresholds::Defaulted => (
-            try_making_guaranteed_qualified_payables(
-                payable_accounts,
-                &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-                now,
-                false,
-            ),
-            vec![],
-        ),
-        AppliedThresholds::SingleButRandomized { common_thresholds } => (
-            try_making_guaranteed_qualified_payables(
-                payable_accounts,
-                common_thresholds,
-                now,
-                false,
-            ),
-            vec![],
-        ),
-        AppliedThresholds::RandomizedForEachAccount {
-            individual_thresholds,
-        } => {
-            let vec_of_thresholds = individual_thresholds
-                .thresholds
-                .as_ref()
-                .left()
-                .expect("should be Vec at this stage");
-            assert_eq!(
-                payable_accounts.len(),
-                vec_of_thresholds.len(),
-                "The number of generated \
-            payables {} differs from their sets of thresholds {}, but one should've been derived \
-            from the other",
-                payable_accounts.len(),
-                vec_of_thresholds.len()
-            );
-            let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
-            zipped.fold(
-                (vec![], vec![]),
-                |(mut qualified_payables, mut wallet_thresholds_pairs),
-                 (payable, its_thresholds)| match make_single_qualified_payable_opt(
-                    payable,
-                    &payment_inspector,
-                    &its_thresholds,
-                    false,
-                    now,
-                ) {
-                    Some(qualified_payable) => {
-                        let wallet = qualified_payable.bare_account.wallet.clone();
-                        qualified_payables.push(qualified_payable);
-                        wallet_thresholds_pairs.push((wallet, *its_thresholds));
-                        (qualified_payables, wallet_thresholds_pairs)
-                    }
-                    None => (qualified_payables, wallet_thresholds_pairs),
-                },
-            )
-        }
-    }
 }

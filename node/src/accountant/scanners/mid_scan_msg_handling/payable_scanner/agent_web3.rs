@@ -154,10 +154,6 @@ mod tests {
             agent.maximum_added_gas_margin,
             WEB3_MAXIMAL_GAS_LIMIT_MARGIN
         );
-        let expected_result: u128 = {
-            let gwei_amount = ((77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN) as u128) * 244;
-            gwei_to_wei(gwei_amount)
-        };
-        assert_eq!(result, expected_result);
+        assert_eq!(result, 19789620000000000);
     }
 }
