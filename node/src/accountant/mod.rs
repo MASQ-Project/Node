@@ -1792,15 +1792,15 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "WARN: {test_name}: Payment adjustment has not produced any executable payments. Add \
             more funds into your consuming wallet in order to become able to repay already expired \
-            liabilities as the creditors would respond by delinquency bans otherwise. Details: \
-            The adjustment algorithm had to eliminate each payable from the recently urged payment \
-            due to lack of resources"
+            liabilities as the creditors would respond by delinquency bans otherwise. Details: The \
+            payments adjusting process failed to find any combination of payables that can be paid \
+            immediately with the finances provided"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            The cause appears to be in competence of the user"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for \
+            payments. The cause appears to be in competence of the user"
         ));
     }
 

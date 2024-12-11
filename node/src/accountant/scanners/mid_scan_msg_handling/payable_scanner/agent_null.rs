@@ -28,8 +28,8 @@ impl BlockchainAgent for BlockchainAgentNull {
         0
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
-        self.log_function_call("agreed_fee_per_computation_unit()");
+    fn gas_price(&self) -> u64 {
+        self.log_function_call("gas_price()");
         0
     }
 
@@ -163,16 +163,16 @@ mod tests {
     }
 
     #[test]
-    fn null_agent_agreed_fee_per_computation_unit() {
+    fn null_agent_gas_price() {
         init_test_logging();
-        let test_name = "null_agent_agreed_fee_per_computation_unit";
+        let test_name = "null_agent_gas_price";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.agreed_fee_per_computation_unit();
+        let result = subject.gas_price();
 
         assert_eq!(result, 0);
-        assert_error_log(test_name, "agreed_fee_per_computation_unit")
+        assert_error_log(test_name, "gas_price")
     }
 
     #[test]

@@ -95,7 +95,7 @@ pub mod ordinary_diagnostic_functions {
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeighedPayable,
     };
     use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
@@ -130,11 +130,11 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn minimal_acceptable_balance_assigned_diagnostics(
-        weighted_account: &WeightedPayable,
+        weighed_account: &WeighedPayable,
         disqualification_limit: u128,
     ) {
         diagnostics!(
-            weighted_account.wallet(),
+            weighed_account.wallet(),
             "MINIMAL ACCEPTABLE BALANCE ASSIGNED",
             "Used disqualification limit for given account {}",
             disqualification_limit.separate_with_commas()
@@ -167,7 +167,7 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn proposed_adjusted_balance_diagnostics(
-        account: &WeightedPayable,
+        account: &WeighedPayable,
         proposed_adjusted_balance: u128,
     ) {
         diagnostics!(

@@ -123,7 +123,7 @@ impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
     fn from(unconfirmed_account: &'unconfirmed_accounts UnconfirmedAdjustment) -> Self {
         DisqualificationSuspectedAccount {
             wallet: unconfirmed_account.wallet(),
-            weight: unconfirmed_account.weighted_account.weight,
+            weight: unconfirmed_account.weighed_account.weight,
             proposed_adjusted_balance_minor: unconfirmed_account.proposed_adjusted_balance_minor,
             disqualification_limit_minor: unconfirmed_account.disqualification_limit_minor(),
             initial_account_balance_minor: unconfirmed_account.initial_balance_minor(),
@@ -378,7 +378,7 @@ mod tests {
         let mut account = make_non_guaranteed_unconfirmed_adjustment(444);
         account.proposed_adjusted_balance_minor = 1_000_000_000;
         account
-            .weighted_account
+            .weighed_account
             .analyzed_account
             .disqualification_limit_minor = 1_000_000_000;
         let accounts = vec![account];
@@ -444,8 +444,8 @@ mod tests {
         let unconfirmed_adjustments = seeds
             .into_iter()
             .map(
-                |(weighted_account, proposed_adjusted_balance_minor)| UnconfirmedAdjustment {
-                    weighted_account,
+                |(weighed_account, proposed_adjusted_balance_minor)| UnconfirmedAdjustment {
+                    weighed_account,
                     proposed_adjusted_balance_minor,
                 },
             )
@@ -463,7 +463,7 @@ mod tests {
             .iter()
             .map(|unconfirmed_adjustment| {
                 &unconfirmed_adjustment
-                    .weighted_account
+                    .weighed_account
                     .analyzed_account
                     .qualified_as
                     .bare_account
@@ -484,7 +484,7 @@ mod tests {
             .enumerate()
             .map(|(idx, weight)| {
                 let mut account = make_non_guaranteed_unconfirmed_adjustment(idx as u64);
-                account.weighted_account.weight = weight;
+                account.weighed_account.weight = weight;
                 account
             })
             .collect()

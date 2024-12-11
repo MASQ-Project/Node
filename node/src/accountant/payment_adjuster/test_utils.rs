@@ -9,7 +9,7 @@ use crate::accountant::payment_adjuster::disqualification_arbiter::{
 };
 use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AdjustmentIterationResult, UnconfirmedAdjustment, WeightedPayable,
+    AdjustmentIterationResult, UnconfirmedAdjustment, WeighedPayable,
 };
 use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjuster;
 use crate::accountant::payment_adjuster::PaymentAdjusterReal;
@@ -29,12 +29,12 @@ use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref MAX_POSSIBLE_SERVICE_FEE_BALANCE_IN_MINOR: u128 =
-        multiply_by_billion(multiply_by_billion(MASQ_TOTAL_SUPPLY as u128));
+        multiply_by_quintillion(MASQ_TOTAL_SUPPLY as u128);
     pub static ref ONE_MONTH_LONG_DEBT_SEC: u64 = 30 * 24 * 60 * 60;
 }
 
 #[derive(Default)]
-pub struct PaymentAdjusterTestBuilder {
+pub struct PaymentAdjusterBuilder {
     start_with_inner_null: bool,
     now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
@@ -44,7 +44,7 @@ pub struct PaymentAdjusterTestBuilder {
     logger_opt: Option<Logger>,
 }
 
-impl PaymentAdjusterTestBuilder {
+impl PaymentAdjusterBuilder {
     pub fn build(self) -> PaymentAdjusterReal {
         let mut payment_adjuster = PaymentAdjusterReal::default();
         let logger = self.logger_opt.unwrap_or(Logger::new("test"));
@@ -148,14 +148,14 @@ pub(in crate::accountant::payment_adjuster) const PRESERVED_TEST_PAYMENT_THRESHO
 
 pub fn make_non_guaranteed_unconfirmed_adjustment(n: u64) -> UnconfirmedAdjustment {
     let qualified_account = make_meaningless_qualified_payable(n);
-    let proposed_adjusted_balance_minor =
-        (qualified_account.bare_account.balance_wei / 2) * (n as f64).sqrt() as u128;
+    let account_balance = qualified_account.bare_account.balance_wei;
+    let proposed_adjusted_balance_minor = (2 * account_balance) / 3;
     let disqualification_limit_minor = (3 * proposed_adjusted_balance_minor) / 4;
     let analyzed_account =
         AnalyzedPayableAccount::new(qualified_account, disqualification_limit_minor);
-    let weight = (n as u128).pow(3);
+    let weight = multiply_by_billion(n as u128);
     UnconfirmedAdjustment::new(
-        WeightedPayable::new(analyzed_account, weight),
+        WeighedPayable::new(analyzed_account, weight),
         proposed_adjusted_balance_minor,
     )
 }
@@ -228,13 +228,13 @@ impl DisqualificationGaugeMock {
 
 #[derive(Default)]
 pub struct ServiceFeeAdjusterMock {
-    perform_adjustment_by_service_fee_params: Arc<Mutex<Vec<(Vec<WeightedPayable>, u128)>>>,
+    perform_adjustment_by_service_fee_params: Arc<Mutex<Vec<(Vec<WeighedPayable>, u128)>>>,
     perform_adjustment_by_service_fee_results: RefCell<Vec<AdjustmentIterationResult>>,
 }
 impl ServiceFeeAdjuster for ServiceFeeAdjusterMock {
     fn perform_adjustment_by_service_fee(
         &self,
-        weighted_accounts: Vec<WeightedPayable>,
+        weighed_accounts: Vec<WeighedPayable>,
         _disqualification_arbiter: &DisqualificationArbiter,
         unallocated_cw_service_fee_balance_minor: u128,
         _logger: &Logger,
@@ -242,7 +242,7 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterMock {
         self.perform_adjustment_by_service_fee_params
             .lock()
             .unwrap()
-            .push((weighted_accounts, unallocated_cw_service_fee_balance_minor));
+            .push((weighed_accounts, unallocated_cw_service_fee_balance_minor));
         self.perform_adjustment_by_service_fee_results
             .borrow_mut()
             .remove(0)
@@ -252,7 +252,7 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterMock {
 impl ServiceFeeAdjusterMock {
     pub fn perform_adjustment_by_service_fee_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Vec<WeightedPayable>, u128)>>>,
+        params: &Arc<Mutex<Vec<(Vec<WeighedPayable>, u128)>>>,
     ) -> Self {
         self.perform_adjustment_by_service_fee_params = params.clone();
         self
@@ -269,8 +269,37 @@ impl ServiceFeeAdjusterMock {
     }
 }
 
+// = 1 gwei
 pub fn multiply_by_billion(num: u128) -> u128 {
     gwei_to_wei(num)
+}
+
+// = 1 MASQ
+pub fn multiply_by_quintillion(num: u128) -> u128 {
+    multiply_by_billion(multiply_by_billion(num))
+}
+
+// = 1 gwei
+pub fn multiply_by_billion_concise(num: f64) -> u128 {
+    multiple_by(num, 9, "billion")
+}
+
+// = 1 MASQ
+pub fn multiply_by_quintillion_concise(num: f64) -> u128 {
+    multiple_by(num, 18, "quintillion")
+}
+
+fn multiple_by(
+    num_in_concise_form: f64,
+    desired_increase_in_magnitude: usize,
+    mathematical_name: &str,
+) -> u128 {
+    if (num_in_concise_form * 1000.0).fract() != 0.0 {
+        panic!("Multiplying by {mathematical_name}: It's allowed only when applied on numbers with three \
+        digits after the decimal point at maximum!")
+    }
+    let significant_digits = (num_in_concise_form * 1000.0) as u128;
+    significant_digits * 10_u128.pow(desired_increase_in_magnitude as u32 - 3)
 }
 
 pub fn make_meaningless_analyzed_account_by_wallet(
@@ -283,8 +312,8 @@ pub fn make_meaningless_analyzed_account_by_wallet(
     account
 }
 
-pub fn make_weighed_account(n: u64) -> WeightedPayable {
-    WeightedPayable::new(make_meaningless_analyzed_account(n), 123456 * n as u128)
+pub fn make_weighed_account(n: u64) -> WeighedPayable {
+    WeighedPayable::new(make_meaningless_analyzed_account(n), 123456 * n as u128)
 }
 
 // Should stay test only!!

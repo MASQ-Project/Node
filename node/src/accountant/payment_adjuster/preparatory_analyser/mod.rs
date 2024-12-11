@@ -8,7 +8,7 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
     log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    AffordableAndRequiredTxCounts, WeightedPayable,
+    AffordableAndRequiredTxCounts, WeighedPayable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::{
@@ -137,18 +137,18 @@ impl PreparatoryAnalyzer {
 
     pub fn recheck_if_service_fee_adjustment_is_needed(
         &self,
-        weighted_accounts: &[WeightedPayable],
+        weighed_accounts: &[WeighedPayable],
         cw_service_fee_balance_minor: u128,
         error_factory: LateServiceFeeSingleTxErrorFactory,
         logger: &Logger,
     ) -> Result<bool, PaymentAdjusterError> {
         if Self::is_service_fee_adjustment_needed(
-            weighted_accounts,
+            weighed_accounts,
             cw_service_fee_balance_minor,
             logger,
         ) {
             if let Err(e) = Self::check_adjustment_possibility(
-                weighted_accounts,
+                weighed_accounts,
                 cw_service_fee_balance_minor,
                 error_factory,
             ) {
@@ -333,7 +333,7 @@ pub struct LateServiceFeeSingleTxErrorFactory {
 }
 
 impl LateServiceFeeSingleTxErrorFactory {
-    pub fn new(unadjusted_accounts: &[WeightedPayable]) -> Self {
+    pub fn new(unadjusted_accounts: &[WeighedPayable]) -> Self {
         let original_number_of_accounts = unadjusted_accounts.len();
         let original_service_fee_required_total_minor = sum_as(unadjusted_accounts, |account| {
             account.initial_balance_minor()
@@ -373,7 +373,8 @@ mod tests {
         PreparatoryAnalyzer, ServiceFeeSingleTXErrorFactory,
     };
     use crate::accountant::payment_adjuster::test_utils::{
-        make_weighed_account, multiply_by_billion, DisqualificationGaugeMock,
+        make_weighed_account, multiply_by_billion, multiply_by_billion_concise,
+        multiply_by_quintillion, multiply_by_quintillion_concise, DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
@@ -457,13 +458,13 @@ mod tests {
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_slightly_bigger() {
         let mut account_1 = make_meaningless_qualified_payable(111);
-        account_1.bare_account.balance_wei = 1_000_000_000;
+        account_1.bare_account.balance_wei = multiply_by_billion_concise(1.0);
         let mut account_2 = make_meaningless_qualified_payable(333);
-        account_2.bare_account.balance_wei = 2_000_000_000;
-        let cw_service_fee_balance = 750_000_001;
+        account_2.bare_account.balance_wei = multiply_by_billion_concise(2.0);
+        let cw_service_fee_balance = multiply_by_billion_concise(0.75) + 1;
         let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(750_000_000)
-            .determine_limit_result(1_500_000_000);
+            .determine_limit_result(multiply_by_billion_concise(0.75))
+            .determine_limit_result(multiply_by_billion_concise(1.5));
         let original_accounts = [account_1, account_2];
 
         test_adjustment_possibility_nearly_rejected(
@@ -477,13 +478,13 @@ mod tests {
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_equal() {
         let mut account_1 = make_meaningless_qualified_payable(111);
-        account_1.bare_account.balance_wei = 2_000_000_000;
+        account_1.bare_account.balance_wei = multiply_by_billion_concise(2.0);
         let mut account_2 = make_meaningless_qualified_payable(333);
-        account_2.bare_account.balance_wei = 1_000_000_000;
-        let cw_service_fee_balance = 750_000_000;
+        account_2.bare_account.balance_wei = multiply_by_billion_concise(1.0);
+        let cw_service_fee_balance = multiply_by_billion_concise(0.75);
         let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(1_500_000_000)
-            .determine_limit_result(750_000_000);
+            .determine_limit_result(multiply_by_billion_concise(1.5))
+            .determine_limit_result(multiply_by_billion_concise(0.75));
         let original_accounts = [account_1, account_2];
 
         test_adjustment_possibility_nearly_rejected(
@@ -577,24 +578,24 @@ mod tests {
     }
 
     #[test]
-    fn accounts_analyzing_works_even_for_weighted_payable() {
+    fn accounts_analyzing_works_even_for_weighed_payable() {
         init_test_logging();
-        let test_name = "accounts_analyzing_works_even_for_weighted_payable";
+        let test_name = "accounts_analyzing_works_even_for_weighed_payable";
         let balance_1 = multiply_by_billion(2_000_000);
-        let mut weighted_account_1 = make_weighed_account(123);
-        weighted_account_1
+        let mut weighed_account_1 = make_weighed_account(123);
+        weighed_account_1
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_1;
         let balance_2 = multiply_by_billion(3_456_000);
-        let mut weighted_account_2 = make_weighed_account(456);
-        weighted_account_2
+        let mut weighed_account_2 = make_weighed_account(456);
+        weighed_account_2
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_2;
-        let accounts = vec![weighted_account_1, weighted_account_2];
+        let accounts = vec![weighed_account_1, weighed_account_2];
         let service_fee_totally_required_minor = balance_1 + balance_2;
         let cw_service_fee_balance_minor = service_fee_totally_required_minor + 1;
         let error_factory = LateServiceFeeSingleTxErrorFactory::new(&accounts);
@@ -639,9 +640,9 @@ mod tests {
             .qualified_as
             .bare_account
             .balance_wei = balance_2;
-        let weighted_accounts = vec![account_1, account_2];
+        let weighed_accounts = vec![account_1, account_2];
 
-        let result = LateServiceFeeSingleTxErrorFactory::new(&weighted_accounts);
+        let result = LateServiceFeeSingleTxErrorFactory::new(&weighed_accounts);
 
         assert_eq!(
             result,

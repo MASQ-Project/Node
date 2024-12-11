@@ -6,12 +6,12 @@ use crate::sub_lib::wallet::Wallet;
 use web3::types::U256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WeightedPayable {
+pub struct WeighedPayable {
     pub analyzed_account: AnalyzedPayableAccount,
     pub weight: u128,
 }
 
-impl WeightedPayable {
+impl WeighedPayable {
     pub fn new(analyzed_account: AnalyzedPayableAccount, weight: u128) -> Self {
         Self {
             analyzed_account,
@@ -31,7 +31,7 @@ impl WeightedPayable {
 #[derive(Debug, PartialEq, Eq)]
 pub struct AdjustmentIterationResult {
     pub decided_accounts: Vec<AdjustedAccountBeforeFinalization>,
-    pub remaining_undecided_accounts: Vec<WeightedPayable>,
+    pub remaining_undecided_accounts: Vec<WeighedPayable>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -57,28 +57,28 @@ impl AdjustedAccountBeforeFinalization {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UnconfirmedAdjustment {
-    pub weighted_account: WeightedPayable,
+    pub weighed_account: WeighedPayable,
     pub proposed_adjusted_balance_minor: u128,
 }
 
 impl UnconfirmedAdjustment {
-    pub fn new(weighted_account: WeightedPayable, proposed_adjusted_balance_minor: u128) -> Self {
+    pub fn new(weighed_account: WeighedPayable, proposed_adjusted_balance_minor: u128) -> Self {
         Self {
-            weighted_account,
+            weighed_account,
             proposed_adjusted_balance_minor,
         }
     }
 
     pub fn wallet(&self) -> &Wallet {
-        self.weighted_account.wallet()
+        self.weighed_account.wallet()
     }
 
     pub fn initial_balance_minor(&self) -> u128 {
-        self.weighted_account.initial_balance_minor()
+        self.weighed_account.initial_balance_minor()
     }
 
     pub fn disqualification_limit_minor(&self) -> u128 {
-        self.weighted_account
+        self.weighed_account
             .analyzed_account
             .disqualification_limit_minor
     }

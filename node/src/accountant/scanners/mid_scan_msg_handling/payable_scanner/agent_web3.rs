@@ -38,7 +38,7 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
             .service_fee_balance_in_minor_units
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
+    fn gas_price(&self) -> u64 {
         self.gas_price_gwei
     }
 
@@ -118,7 +118,7 @@ mod tests {
             pending_transaction_id,
         );
 
-        assert_eq!(subject.agreed_fee_per_computation_unit(), gas_price_gwei);
+        assert_eq!(subject.gas_price(), gas_price_gwei);
         assert_eq!(subject.consuming_wallet(), &consuming_wallet);
         assert_eq!(
             subject.transaction_fee_balance_minor(),

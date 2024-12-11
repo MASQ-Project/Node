@@ -278,7 +278,7 @@ where
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let consuming_wallet = agent.consuming_wallet();
-        let gas_price = agent.agreed_fee_per_computation_unit();
+        let gas_price = agent.gas_price();
         let pending_nonce = agent.pending_transaction_id();
 
         debug!(
@@ -1065,7 +1065,7 @@ mod tests {
             result.gas_price_margin(),
             PurePercentage::try_from(15).unwrap()
         );
-        assert_eq!(result.agreed_fee_per_computation_unit(), 50);
+        assert_eq!(result.gas_price(), 50);
         assert_eq!(
             result.estimated_transaction_fee_per_transaction_minor(),
             3666400000000000
@@ -2173,7 +2173,7 @@ mod tests {
         Box::new(
             BlockchainAgentMock::default()
                 .consuming_wallet_result(consuming_wallet)
-                .agreed_fee_per_computation_unit_result(gas_price_gwei)
+                .gas_price_result(gas_price_gwei)
                 .pending_transaction_id_result(nonce),
         )
     }

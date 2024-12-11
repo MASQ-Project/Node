@@ -1,13 +1,13 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::WeightedPayable;
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::WeighedPayable;
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 
 pub trait BalanceProvidingAccount {
     fn initial_balance_minor(&self) -> u128;
 }
 
-impl BalanceProvidingAccount for WeightedPayable {
+impl BalanceProvidingAccount for WeighedPayable {
     fn initial_balance_minor(&self) -> u128 {
         self.analyzed_account.initial_balance_minor()
     }
@@ -29,7 +29,7 @@ pub trait DisqualificationLimitProvidingAccount {
     fn disqualification_limit(&self) -> u128;
 }
 
-impl DisqualificationLimitProvidingAccount for WeightedPayable {
+impl DisqualificationLimitProvidingAccount for WeighedPayable {
     fn disqualification_limit(&self) -> u128 {
         self.analyzed_account.disqualification_limit()
     }

@@ -6,7 +6,7 @@ use crate::accountant::payment_adjuster::diagnostics;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     exhausting_cw_balance_diagnostics, not_exhausting_cw_balance_diagnostics,
 };
-use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, WeightedPayable};
+use crate::accountant::payment_adjuster::miscellaneous::data_structures::{AdjustedAccountBeforeFinalization, WeighedPayable};
 use crate::accountant::{AnalyzedPayableAccount};
 use itertools::{Either, Itertools};
 
@@ -28,10 +28,10 @@ where
 }
 
 pub fn eliminate_accounts_by_tx_fee_limit(
-    weighted_accounts: Vec<WeightedPayable>,
+    weighed_accounts: Vec<WeighedPayable>,
     affordable_transaction_count: u16,
-) -> Vec<WeightedPayable> {
-    let sorted_accounts = sort_in_descending_order_by_weights(weighted_accounts);
+) -> Vec<WeighedPayable> {
+    let sorted_accounts = sort_in_descending_order_by_weights(weighed_accounts);
 
     diagnostics!(
         "ACCOUNTS CUTBACK FOR TRANSACTION FEE",
@@ -49,7 +49,7 @@ pub fn eliminate_accounts_by_tx_fee_limit(
         .collect()
 }
 
-fn sort_in_descending_order_by_weights(unsorted: Vec<WeightedPayable>) -> Vec<WeightedPayable> {
+fn sort_in_descending_order_by_weights(unsorted: Vec<WeighedPayable>) -> Vec<WeighedPayable> {
     unsorted
         .into_iter()
         .sorted_by(|account_a, account_b| Ord::cmp(&account_b.weight, &account_a.weight))
