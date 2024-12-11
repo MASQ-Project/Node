@@ -12,6 +12,7 @@ pub struct NodeRenderableInner {
     pub version: u32,
     pub accepts_connections: bool,
     pub routes_data: bool,
+    pub country_code: String
 }
 
 pub struct NodeRenderable {
@@ -45,10 +46,11 @@ impl NodeRenderable {
     fn render_label(&self) -> String {
         let inner_string = match &self.inner {
             Some(inner) => format!(
-                "{}{} v{}\\n",
+                "{}{} v{} {}\\n",
                 if inner.accepts_connections { "A" } else { "a" },
                 if inner.routes_data { "R" } else { "r" },
                 inner.version,
+                inner.country_code
             ),
             None => String::new(),
         };
@@ -107,6 +109,7 @@ mod tests {
                 version: 1,
                 accepts_connections: true,
                 routes_data: true,
+                country_code: "ZZ".to_string(),
             }),
             public_key: public_key.clone(),
             node_addr: None,
@@ -120,7 +123,7 @@ mod tests {
         assert_string_contains(
             &result,
             &format!(
-                "\"{}\" [label=\"AR v1\\n{}\"];",
+                "\"{}\" [label=\"AR v1 ZZ\\n{}\"];",
                 public_key_64, public_key_trunc
             ),
         );
@@ -135,6 +138,7 @@ mod tests {
                 version: 1,
                 accepts_connections: false,
                 routes_data: false,
+                country_code: "ZZ".to_string(),
             }),
             public_key: public_key.clone(),
             node_addr: None,
@@ -148,7 +152,7 @@ mod tests {
         assert_string_contains(
             &result,
             &format!(
-                "\"{}\" [label=\"ar v1\\n{}\"];",
+                "\"{}\" [label=\"ar v1 ZZ\\n{}\"];",
                 public_key_64, public_key_64
             ),
         );

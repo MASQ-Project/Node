@@ -299,11 +299,16 @@ impl NeighborhoodDatabase {
                         to: k.clone(),
                     })
                 });
+                let country_code = match &nr.inner.country_code_opt {
+                    Some(cc) => cc.clone(),
+                    None => "ZZ".to_string(),
+                };
                 node_renderables.push(NodeRenderable {
                     inner: Some(NodeRenderableInner {
                         version: nr.version(),
                         accepts_connections: nr.accepts_connections(),
                         routes_data: nr.routes_data(),
+                        country_code
                     }),
                     public_key: public_key.clone(),
                     node_addr: nr.node_addr_opt(),

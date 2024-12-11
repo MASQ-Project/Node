@@ -1284,16 +1284,42 @@ impl Neighborhood {
         }
     }
 
+    fn validate_fallback_country_exit_codes(&self, last_node: &PublicKey) -> bool {
+        let last_cc = match self.neighborhood_database.node_by_key(last_node) {
+            Some(nr) => match nr.clone().inner.country_code_opt {
+                Some(cc) => cc,
+                None => "ZZ".to_string(),
+            },
+            None => "ZZ".to_string()
+        };
+        if self.user_exit_preferences.exit_countries.contains(&last_cc) {
+            return true;
+        }
+        if self.user_exit_preferences.exit_countries.is_empty() {
+            return true;
+        }
+        for country in &self.user_exit_preferences.exit_countries {
+            if country == &last_cc {
+                return true;
+            }
+            if self.user_exit_preferences.db_countries.contains(country) && country != &last_cc {
+                return false;
+            }
+        }
+        return true;
+    }
+
     fn validate_last_node_country_code(
         &self,
-        prefix_len: usize,
         first_node_key: &PublicKey,
         research_neighborhood: bool,
+        direction: RouteDirection,
     ) -> bool {
-        if prefix_len <= 2
-            || self.user_exit_preferences.location_preference
-                != ExitPreference::ExitCountryNoFallback
+        if self.user_exit_preferences.location_preference == ExitPreference::Nothing
+            || (self.user_exit_preferences.location_preference == ExitPreference::ExitCountryWithFallback
+                && self.validate_fallback_country_exit_codes(first_node_key))
             || research_neighborhood
+            || direction == RouteDirection::Back
         {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
@@ -1460,9 +1486,10 @@ impl Neighborhood {
         research_neighborhood: bool,
         research_exits: &mut Vec<&'a PublicKey>,
     ) -> Vec<ComputedRouteSegment<'a>> {
-        if undesirability > *minimum_undesirability && !research_neighborhood {
+        if undesirability > *minimum_undesirability && !research_neighborhood && self.user_exit_preferences.location_preference == ExitPreference::Nothing {
             return vec![];
         }
+        //TODO when target node is present ignore all country_codes selection - write test for route back and ignore the country code
         let first_node_key = prefix.first().expect("Empty prefix");
         let previous_node = self
             .neighborhood_database
@@ -1476,22 +1503,22 @@ impl Neighborhood {
                 *first_node_key,
                 previous_node.public_key(),
             )
-            && self.validate_last_node_country_code(
-                prefix.len(),
+        {
+            if !research_neighborhood && self.validate_last_node_country_code(
                 previous_node.public_key(),
                 research_neighborhood,
-            )
-        {
-            if undesirability < *minimum_undesirability {
-                *minimum_undesirability = undesirability;
-            }
-
-            if !research_neighborhood {
+                direction
+            ) {
+                if undesirability < *minimum_undesirability {
+                    *minimum_undesirability = undesirability;
+                }
                 vec![ComputedRouteSegment::new(prefix, undesirability)]
-            } else if research_exits.contains(&prefix[prefix.len() - 1]) {
+            } else if research_neighborhood && research_exits.contains(&prefix[prefix.len() - 1]) {
                 vec![]
             } else {
-                research_exits.push(prefix[prefix.len() - 1]);
+                if research_neighborhood {
+                    research_exits.push(prefix[prefix.len() - 1]);
+                }
                 self.routing_guts(
                     &prefix,
                     undesirability,
@@ -4484,6 +4511,16 @@ mod tests {
     fn route_optimization_test() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(recipient);
+        let message = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["CZ".to_string()],
+                priority: 1,
+            }],
+            show_countries: false,
+        };
         let mut generator = 1000;
         let mut make_node = |db: &mut NeighborhoodDatabase| {
             let node = &db.add_node(make_node_record(generator, true)).unwrap();
@@ -4526,6 +4563,7 @@ mod tests {
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
+        subject.handle_exit_location_message(message, 0, 0);
         let before = Instant::now();
 
         // All the target-designated routes from L to N
