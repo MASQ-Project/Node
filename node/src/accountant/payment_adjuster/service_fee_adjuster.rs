@@ -201,7 +201,7 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::AdjustedAccountBeforeFinalization;
     use crate::accountant::payment_adjuster::service_fee_adjuster::ServiceFeeAdjusterReal;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_non_guaranteed_unconfirmed_adjustment, multiply_by_billion, multiply_by_quintillion,
+        make_non_guaranteed_unconfirmed_adjustment, multiply_by_quintillion,
         multiply_by_quintillion_concise,
     };
 

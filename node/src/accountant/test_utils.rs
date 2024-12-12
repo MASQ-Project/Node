@@ -1754,7 +1754,7 @@ pub fn make_qualified_payables(
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<QualifiedPayableAccount> {
-    try_making_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
+    try_to_make_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
 }
 
 pub fn make_analyzed_payables(
@@ -1765,7 +1765,7 @@ pub fn make_analyzed_payables(
     convert_collection(make_qualified_payables(payables, payment_thresholds, now))
 }
 
-pub fn try_making_guaranteed_qualified_payables(
+pub fn try_to_make_guaranteed_qualified_payables(
     payables: Vec<PayableAccount>,
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,

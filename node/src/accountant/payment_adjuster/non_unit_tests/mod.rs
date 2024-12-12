@@ -17,7 +17,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     PayableInspector, PayableThresholdsGaugeReal,
 };
 use crate::accountant::test_utils::{
-    make_single_qualified_payable_opt, try_making_guaranteed_qualified_payables,
+    make_single_qualified_payable_opt, try_to_make_guaranteed_qualified_payables,
 };
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
@@ -26,7 +26,6 @@ use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::{Either, Itertools};
-use masq_lib::percentage::PurePercentage;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::convert_collection;
 use rand;
@@ -187,7 +186,7 @@ fn loading_test_with_randomized_params() {
             administrate_single_scenario_result(
                 payment_adjuster_result,
                 account_infos,
-                scenario.used_thresholds,
+                scenario.applied_thresholds,
                 required_adjustment,
                 cw_service_fee_balance_minor,
             )
@@ -216,16 +215,10 @@ fn try_making_single_valid_scenario(
     now: SystemTime,
 ) -> Option<PreparedAdjustmentAndThresholds> {
     let accounts_count = generate_non_zero_usize(gn, 25) + 1;
-    let thresholds_to_be_used = choose_thresholds(gn, accounts_count);
-    let (cw_service_fee_balance, qualified_payables, wallet_and_thresholds_pairs) =
-        try_generating_qualified_payables_and_cw_balance(
-            gn,
-            &thresholds_to_be_used,
-            accounts_count,
-            now,
-        )?;
-    let used_thresholds =
-        thresholds_to_be_used.fix_individual_thresholds_if_needed(wallet_and_thresholds_pairs);
+
+    let (cw_service_fee_balance, qualified_payables, applied_thresholds) =
+        try_generating_qualified_payables_and_cw_balance(gn, accounts_count, now)?;
+
     let analyzed_accounts: Vec<AnalyzedPayableAccount> = convert_collection(qualified_payables);
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, analyzed_accounts.len());
@@ -236,17 +229,16 @@ fn try_making_single_valid_scenario(
     );
     Some(PreparedAdjustmentAndThresholds {
         prepared_adjustment,
-        used_thresholds,
+        applied_thresholds,
     })
 }
 
 fn make_payable_account(
-    idx: usize,
+    wallet: Wallet,
     thresholds: &PaymentThresholds,
     now: SystemTime,
     gn: &mut ThreadRng,
 ) -> PayableAccount {
-    let wallet = make_wallet(&format!("wallet{}", idx));
     let debt_age = generate_debt_age(gn, thresholds);
     let service_fee_balance_minor =
         generate_highly_randomized_payable_account_balance(gn, thresholds);
@@ -316,104 +308,57 @@ fn try_make_qualified_payables_by_applied_thresholds(
     payable_accounts: Vec<PayableAccount>,
     applied_thresholds: &AppliedThresholds,
     now: SystemTime,
-) -> (
-    Vec<QualifiedPayableAccount>,
-    Vec<(Wallet, PaymentThresholds)>,
-) {
+) -> Vec<QualifiedPayableAccount> {
     let payment_inspector = PayableInspector::new(Box::new(PayableThresholdsGaugeReal::default()));
     match applied_thresholds {
-        AppliedThresholds::Defaulted => (
-            try_making_guaranteed_qualified_payables(
-                payable_accounts,
-                &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-                now,
-                false,
-            ),
-            vec![],
+        AppliedThresholds::Defaulted => try_to_make_guaranteed_qualified_payables(
+            payable_accounts,
+            &PRESERVED_TEST_PAYMENT_THRESHOLDS,
+            now,
+            false,
         ),
-        AppliedThresholds::SingleButRandomized { common_thresholds } => (
-            try_making_guaranteed_qualified_payables(
+        AppliedThresholds::CommonButRandomized { common_thresholds } => {
+            try_to_make_guaranteed_qualified_payables(
                 payable_accounts,
                 common_thresholds,
                 now,
                 false,
-            ),
-            vec![],
-        ),
+            )
+        }
         AppliedThresholds::RandomizedForEachAccount {
             individual_thresholds,
         } => {
-            let vec_of_thresholds = individual_thresholds
-                .thresholds
-                .as_ref()
-                .left()
-                .expect("should be Vec at this stage");
-            assert_eq!(
-                payable_accounts.len(),
-                vec_of_thresholds.len(),
-                "The number of generated \
-            payables {} differs from their sets of thresholds {}, but one should've been derived \
-            from the other",
-                payable_accounts.len(),
-                vec_of_thresholds.len()
-            );
+            let vec_of_thresholds = individual_thresholds.values().collect_vec();
             let zipped = payable_accounts.into_iter().zip(vec_of_thresholds.iter());
-            zipped.fold(
-                (vec![], vec![]),
-                |(mut qualified_payables, mut wallet_thresholds_pairs),
-                 (payable, its_thresholds)| match make_single_qualified_payable_opt(
-                    payable,
-                    &payment_inspector,
-                    &its_thresholds,
-                    false,
-                    now,
-                ) {
-                    Some(qualified_payable) => {
-                        let wallet = qualified_payable.bare_account.wallet.clone();
-                        qualified_payables.push(qualified_payable);
-                        wallet_thresholds_pairs.push((wallet, *its_thresholds));
-                        (qualified_payables, wallet_thresholds_pairs)
-                    }
-                    None => (qualified_payables, wallet_thresholds_pairs),
-                },
-            )
+            zipped
+                .flat_map(|(qualified_payable, thresholds)| {
+                    make_single_qualified_payable_opt(
+                        qualified_payable,
+                        &payment_inspector,
+                        &thresholds,
+                        false,
+                        now,
+                    )
+                })
+                .collect()
         }
     }
 }
 
 fn try_generating_qualified_payables_and_cw_balance(
     gn: &mut ThreadRng,
-    thresholds_to_be_used: &AppliedThresholds,
     accounts_count: usize,
     now: SystemTime,
-) -> Option<(
-    u128,
-    Vec<QualifiedPayableAccount>,
-    Vec<(Wallet, PaymentThresholds)>,
-)> {
-    let payables = make_payables_according_to_thresholds_setup(
-        gn,
-        &thresholds_to_be_used,
-        accounts_count,
-        now,
-    );
+) -> Option<(u128, Vec<QualifiedPayableAccount>, AppliedThresholds)> {
+    let (payables, applied_thresholds) =
+        make_payables_according_to_thresholds_setup(gn, accounts_count, now);
 
-    let (qualified_payables, wallet_and_thresholds_pairs) =
-        try_make_qualified_payables_by_applied_thresholds(payables, &thresholds_to_be_used, now);
+    let qualified_payables =
+        try_make_qualified_payables_by_applied_thresholds(payables, &applied_thresholds, now);
 
-    let balance_average = {
-        let sum: u128 = sum_as(&qualified_payables, |account| {
-            account.initial_balance_minor()
-        });
-        sum / accounts_count as u128
-    };
-    let cw_service_fee_balance_minor = {
-        let multiplier = 1000;
-        let max_pieces = accounts_count * multiplier;
-        let number_of_pieces = generate_usize(gn, max_pieces - 2) as u128 + 2;
-        balance_average / multiplier as u128 * number_of_pieces
-    };
-    //
+    let cw_service_fee_balance_minor =
+        pick_appropriate_cw_service_fee_balance(gn, &qualified_payables, accounts_count);
+
     let required_service_fee_total: u128 = sum_as(&qualified_payables, |account| {
         account.initial_balance_minor()
     });
@@ -423,7 +368,7 @@ fn try_generating_qualified_payables_and_cw_balance(
         Some((
             cw_service_fee_balance_minor,
             qualified_payables,
-            wallet_and_thresholds_pairs,
+            applied_thresholds,
         ))
     }
 }
@@ -445,79 +390,80 @@ fn pick_appropriate_cw_service_fee_balance(
 
 fn make_payables_according_to_thresholds_setup(
     gn: &mut ThreadRng,
-    thresholds_to_be_used: &AppliedThresholds,
     accounts_count: usize,
     now: SystemTime,
-) -> Vec<PayableAccount> {
-    match thresholds_to_be_used {
+) -> (Vec<PayableAccount>, AppliedThresholds) {
+    let wallets = prepare_account_wallets(accounts_count);
+
+    let nominated_thresholds = choose_thresholds(gn, &wallets);
+
+    let payables = match &nominated_thresholds {
         AppliedThresholds::Defaulted => make_payables_with_common_thresholds(
             gn,
+            wallets,
             &PRESERVED_TEST_PAYMENT_THRESHOLDS,
-            accounts_count,
             now,
         ),
-        AppliedThresholds::SingleButRandomized { common_thresholds } => {
-            make_payables_with_common_thresholds(gn, common_thresholds, accounts_count, now)
+        AppliedThresholds::CommonButRandomized { common_thresholds } => {
+            make_payables_with_common_thresholds(gn, wallets, common_thresholds, now)
         }
         AppliedThresholds::RandomizedForEachAccount {
             individual_thresholds,
-        } => {
-            let vec_of_thresholds = individual_thresholds
-                .thresholds
-                .as_ref()
-                .left()
-                .expect("should be Vec at this stage");
-            assert_eq!(vec_of_thresholds.len(), accounts_count);
-            make_payables_with_individual_thresholds(gn, vec_of_thresholds, now)
+        } => make_payables_with_individual_thresholds(gn, &individual_thresholds, now),
+    };
+
+    (payables, nominated_thresholds)
+}
+
+fn prepare_account_wallets(accounts_count: usize) -> Vec<Wallet> {
+    (0..accounts_count)
+        .map(|idx| make_wallet(&format!("wallet{}", idx)))
+        .collect()
+}
+
+fn choose_thresholds(gn: &mut ThreadRng, prepared_wallets: &[Wallet]) -> AppliedThresholds {
+    let be_defaulted = generate_boolean(gn);
+    if be_defaulted {
+        AppliedThresholds::Defaulted
+    } else {
+        let be_same_for_all_accounts = generate_boolean(gn);
+        if be_same_for_all_accounts {
+            AppliedThresholds::CommonButRandomized {
+                common_thresholds: return_single_randomized_thresholds(gn),
+            }
+        } else {
+            let individual_thresholds = prepared_wallets
+                .iter()
+                .map(|wallet| (wallet.clone(), return_single_randomized_thresholds(gn)))
+                .collect::<HashMap<Wallet, PaymentThresholds>>();
+            AppliedThresholds::RandomizedForEachAccount {
+                individual_thresholds,
+            }
         }
     }
 }
 
 fn make_payables_with_common_thresholds(
     gn: &mut ThreadRng,
+    prepared_wallets: Vec<Wallet>,
     common_thresholds: &PaymentThresholds,
-    accounts_count: usize,
     now: SystemTime,
 ) -> Vec<PayableAccount> {
-    (0..accounts_count)
-        .map(|idx| make_payable_account(idx, common_thresholds, now, gn))
+    prepared_wallets
+        .into_iter()
+        .map(|wallet| make_payable_account(wallet, common_thresholds, now, gn))
         .collect()
 }
 
 fn make_payables_with_individual_thresholds(
     gn: &mut ThreadRng,
-    individual_thresholds: &[PaymentThresholds],
+    wallets_and_thresholds: &HashMap<Wallet, PaymentThresholds>,
     now: SystemTime,
 ) -> Vec<PayableAccount> {
-    individual_thresholds
+    wallets_and_thresholds
         .iter()
-        .enumerate()
-        .map(|(idx, thresholds)| make_payable_account(idx, thresholds, now, gn))
+        .map(|(wallet, thresholds)| make_payable_account(wallet.clone(), thresholds, now, gn))
         .collect()
-}
-
-fn choose_thresholds(gn: &mut ThreadRng, accounts_count: usize) -> AppliedThresholds {
-    let be_defaulted = generate_boolean(gn);
-    if be_defaulted {
-        AppliedThresholds::Defaulted
-    } else {
-        let be_common_for_all = generate_boolean(gn);
-        if be_common_for_all {
-            AppliedThresholds::SingleButRandomized {
-                common_thresholds: return_single_randomized_thresholds(gn),
-            }
-        } else {
-            let thresholds_set = (0..accounts_count)
-                .map(|_| return_single_randomized_thresholds(gn))
-                .collect();
-            let individual_thresholds = IndividualThresholds {
-                thresholds: Either::Left(thresholds_set),
-            };
-            AppliedThresholds::RandomizedForEachAccount {
-                individual_thresholds,
-            }
-        }
-    }
 }
 
 fn return_single_randomized_thresholds(gn: &mut ThreadRng) -> PaymentThresholds {
@@ -849,8 +795,8 @@ fn render_scenario_header(
 
 fn resolve_comment_on_thresholds(applied_thresholds: &AppliedThresholds) -> String {
     match applied_thresholds {
-        AppliedThresholds::Defaulted | AppliedThresholds::SingleButRandomized { .. } => {
-            if let AppliedThresholds::SingleButRandomized { common_thresholds } = applied_thresholds
+        AppliedThresholds::Defaulted | AppliedThresholds::CommonButRandomized { .. } => {
+            if let AppliedThresholds::CommonButRandomized { common_thresholds } = applied_thresholds
             {
                 format!("SHARED BUT CUSTOM\n{}", common_thresholds)
             } else {
@@ -887,39 +833,54 @@ fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
     )
 }
 
-fn render_accounts<A, F>(
+fn render_accounts<Account, F>(
     file: &mut File,
-    accounts: &[A],
+    accounts: &[Account],
     used_thresholds: &AppliedThresholds,
     mut render_account: F,
 ) where
-    A: AccountWithWallet,
-    F: FnMut(&mut File, &A, Option<&PaymentThresholds>),
+    Account: AccountWithWallet,
+    F: FnMut(&mut File, &Account, Option<&PaymentThresholds>),
 {
-    let set_of_individual_thresholds_opt = if let AppliedThresholds::RandomizedForEachAccount {
+    let individual_thresholds_opt = if let AppliedThresholds::RandomizedForEachAccount {
         individual_thresholds,
     } = used_thresholds
     {
-        Some(individual_thresholds.thresholds.as_ref().right().unwrap())
+        Some(individual_thresholds)
     } else {
         None
     };
+
     accounts
         .iter()
         .map(|account| {
             (
                 account,
-                set_of_individual_thresholds_opt.map(|thresholds| {
-                    thresholds
-                        .get(&account.wallet())
-                        .expect("Original thresholds missing")
-                }),
+                fetch_individual_thresholds_for_account_if_appropriate(
+                    individual_thresholds_opt,
+                    account,
+                ),
             )
         })
         .for_each(|(account, individual_thresholds_opt)| {
             render_account(file, account, individual_thresholds_opt)
         });
+
     file.write(b"\n").unwrap();
+}
+
+fn fetch_individual_thresholds_for_account_if_appropriate<'a, Account>(
+    individual_thresholds_opt: Option<&'a HashMap<Wallet, PaymentThresholds>>,
+    account: &'a Account,
+) -> Option<&'a PaymentThresholds>
+where
+    Account: AccountWithWallet,
+{
+    individual_thresholds_opt.map(|wallets_and_thresholds| {
+        wallets_and_thresholds
+            .get(&account.wallet())
+            .expect("Original thresholds missing")
+    })
 }
 
 trait AccountWithWallet {
@@ -1222,7 +1183,7 @@ impl PercentageFulfillmentDistribution {
 
 struct PreparedAdjustmentAndThresholds {
     prepared_adjustment: PreparedAdjustment,
-    used_thresholds: AppliedThresholds,
+    applied_thresholds: AppliedThresholds,
 }
 
 struct CommonScenarioInfo {
@@ -1256,38 +1217,10 @@ impl AccountWithWallet for AccountInfo {
 
 enum AppliedThresholds {
     Defaulted,
-    SingleButRandomized {
+    CommonButRandomized {
         common_thresholds: PaymentThresholds,
     },
     RandomizedForEachAccount {
-        individual_thresholds: IndividualThresholds,
+        individual_thresholds: HashMap<Wallet, PaymentThresholds>,
     },
-}
-
-impl AppliedThresholds {
-    fn fix_individual_thresholds_if_needed(
-        self,
-        wallet_and_thresholds_pairs: Vec<(Wallet, PaymentThresholds)>,
-    ) -> Self {
-        match self {
-            AppliedThresholds::RandomizedForEachAccount { .. } => {
-                assert!(
-                    !wallet_and_thresholds_pairs.is_empty(),
-                    "Pairs should be missing by now"
-                );
-                let hash_map = HashMap::from_iter(wallet_and_thresholds_pairs);
-                let individual_thresholds = IndividualThresholds {
-                    thresholds: Either::Right(hash_map),
-                };
-                AppliedThresholds::RandomizedForEachAccount {
-                    individual_thresholds,
-                }
-            }
-            x => x,
-        }
-    }
-}
-
-struct IndividualThresholds {
-    thresholds: Either<Vec<PaymentThresholds>, HashMap<Wallet, PaymentThresholds>>,
 }

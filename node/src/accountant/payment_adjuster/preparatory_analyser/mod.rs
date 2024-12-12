@@ -374,7 +374,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::test_utils::{
         make_weighed_account, multiply_by_billion, multiply_by_billion_concise,
-        multiply_by_quintillion, multiply_by_quintillion_concise, DisqualificationGaugeMock,
+        DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
