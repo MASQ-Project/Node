@@ -1399,8 +1399,10 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability = 0;
         let research_exits: &mut Vec<&'a PublicKey> = &mut vec![];
+        let mut prefix = Vec::with_capacity(10);
+        prefix.push(source);
         let over_routes = self.routing_engine(
-            vec![source],
+            &mut prefix,
             initial_undesirability,
             None,
             minimum_hops,
@@ -1449,9 +1451,11 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
+        let mut prefix = Vec::with_capacity(10);
+        prefix.push(source);
         let result = self
             .routing_engine(
-                vec![source],
+                &mut vec![source],
                 initial_undesirability,
                 target_opt,
                 minimum_hops,
@@ -1475,7 +1479,7 @@ impl Neighborhood {
     #[allow(clippy::too_many_arguments)]
     fn routing_engine<'a>(
         &'a self,
-        prefix: Vec<&'a PublicKey>,
+        prefix: &mut Vec<&'a PublicKey>,
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
@@ -1512,7 +1516,7 @@ impl Neighborhood {
                 if undesirability < *minimum_undesirability {
                     *minimum_undesirability = undesirability;
                 }
-                vec![ComputedRouteSegment::new(prefix, undesirability)]
+                vec![ComputedRouteSegment::new(prefix.clone(), undesirability)]
             } else if research_neighborhood && research_exits.contains(&prefix[prefix.len() - 1]) {
                 vec![]
             } else {
@@ -1520,7 +1524,7 @@ impl Neighborhood {
                     research_exits.push(prefix[prefix.len() - 1]);
                 }
                 self.routing_guts(
-                    &prefix,
+                    prefix,
                     undesirability,
                     target_opt,
                     hops_remaining,
@@ -1542,7 +1546,7 @@ impl Neighborhood {
             vec![]
         } else {
             self.routing_guts(
-                &prefix,
+                prefix,
                 undesirability,
                 target_opt,
                 hops_remaining,
@@ -1560,7 +1564,7 @@ impl Neighborhood {
     #[allow(clippy::too_many_arguments)]
     fn routing_guts<'a>(
         &'a self,
-        prefix: &[&'a PublicKey],
+        prefix: &mut [&'a PublicKey],
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
@@ -1602,7 +1606,7 @@ impl Neighborhood {
                 );
 
                 self.routing_engine(
-                    new_prefix.clone(),
+                    &mut new_prefix,
                     new_undesirability,
                     target_opt,
                     new_hops_remaining,
@@ -4514,11 +4518,8 @@ mod tests {
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
         let message = UiSetExitLocationRequest {
-            fallback_routing: false,
-            exit_locations: vec![CountryCodes {
-                country_codes: vec!["CZ".to_string()],
-                priority: 1,
-            }],
+            fallback_routing: true,
+            exit_locations: vec![],
             show_countries: false,
         };
         let mut generator = 1000;
@@ -4605,7 +4606,7 @@ mod tests {
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
         let message = UiSetExitLocationRequest {
-            fallback_routing: true,
+            fallback_routing: false,
             exit_locations: vec![CountryCodes {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
