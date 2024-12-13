@@ -33,6 +33,7 @@ use rand::distributions::uniform::SampleUniform;
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
 use std::time::SystemTime;
@@ -94,7 +95,7 @@ fn loading_test_with_randomized_params() {
 
     // CW service fee balance: 32,041,461,894,055,482 wei
     // Portion of CW balance used: 100%
-    // Maximal txt count due to CW txt fee balance: UNLIMITED
+    // Maximal txn count due to CW txn fee balance: UNLIMITED
     // Used PaymentThresholds: DEFAULTED
     // 2000000|1000|1000|1000000|500000|1000000
     // _____________________________________________________________________________________________
@@ -116,16 +117,15 @@ fn loading_test_with_randomized_params() {
     let number_of_requested_scenarios = 2000;
     let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
     let invalidly_generated_scenarios = number_of_requested_scenarios - scenarios.len();
-    let test_overall_output_collector =
-        TestOverallOutputCollector::new(invalidly_generated_scenarios);
+    let output_collector = TestOverallOutputCollector::new(invalidly_generated_scenarios);
 
     struct FirstStageOutput {
-        test_overall_output_collector: TestOverallOutputCollector,
+        output_collector: TestOverallOutputCollector,
         allowed_scenarios: Vec<PreparedAdjustmentAndThresholds>,
     }
 
     let init = FirstStageOutput {
-        test_overall_output_collector,
+        output_collector,
         allowed_scenarios: vec![],
     };
     let first_stage_output = scenarios
@@ -155,7 +155,7 @@ fn loading_test_with_randomized_params() {
                 }
                 Err(_) => {
                     output_collector
-                        .test_overall_output_collector
+                        .output_collector
                         .scenarios_denied_before_adjustment_started += 1;
                     None
                 }
@@ -170,7 +170,7 @@ fn loading_test_with_randomized_params() {
         });
 
     let second_stage_scenarios = first_stage_output.allowed_scenarios;
-    let test_overall_output_collector = first_stage_output.test_overall_output_collector;
+    let test_overall_output_collector = first_stage_output.output_collector;
     let scenario_adjustment_results = second_stage_scenarios
         .into_iter()
         .map(|scenario| {
@@ -518,24 +518,26 @@ fn administrate_single_scenario_result(
     let common = CommonScenarioInfo {
         cw_service_fee_balance_minor,
         required_adjustment,
-        used_thresholds,
+        payment_thresholds: used_thresholds,
     };
     let reinterpreted_result = match payment_adjuster_result {
         Ok(outbound_payment_instructions) => {
-            let mut adjusted_accounts = outbound_payment_instructions.affordable_accounts;
-            let portion_of_cw_cumulatively_used_percents = {
-                let used_absolute: u128 = sum_as(&adjusted_accounts, |account| account.balance_wei);
-                ((100 * used_absolute) / common.cw_service_fee_balance_minor) as u8
-            };
-            let adjusted_accounts =
-                interpretable_adjustment_results(account_infos, &mut adjusted_accounts);
+            let adjusted_accounts = outbound_payment_instructions.affordable_accounts;
+            let portion_of_cw_cumulatively_used_percents =
+                PercentPortionOfCWUsed::new(&adjusted_accounts, &common);
+            let merged =
+                merge_information_about_particular_account(account_infos, adjusted_accounts);
+            let interpretable_adjustments = merged
+                .into_iter()
+                .map(InterpretableAccountAdjustmentResult::new)
+                .collect_vec();
             let (partially_sorted_interpretable_adjustments, were_no_accounts_eliminated) =
-                sort_interpretable_adjustments(adjusted_accounts);
+                sort_interpretable_adjustments(interpretable_adjustments);
             Ok(SuccessfulAdjustment {
                 common,
                 portion_of_cw_cumulatively_used_percents,
                 partially_sorted_interpretable_adjustments,
-                were_no_accounts_eliminated,
+                no_accounts_eliminated: were_no_accounts_eliminated,
             })
         }
         Err(adjuster_error) => Err(FailedAdjustment {
@@ -548,16 +550,55 @@ fn administrate_single_scenario_result(
     ScenarioResult::new(reinterpreted_result)
 }
 
-fn interpretable_adjustment_results(
-    account_infos: Vec<AccountInfo>,
-    adjusted_accounts: &mut Vec<PayableAccount>,
-) -> Vec<InterpretableAdjustmentResult> {
-    account_infos
+fn merge_information_about_particular_account(
+    accounts_infos: Vec<AccountInfo>,
+    accounts_after_adjustment: Vec<PayableAccount>,
+) -> Vec<(AccountInfo, Option<PayableAccount>)> {
+    let mut accounts_hashmap = accounts_after_adjustment
         .into_iter()
-        .map(|account_info| {
-            prepare_interpretable_adjustment_result(account_info, adjusted_accounts)
+        .map(|account| (account.wallet.clone(), account))
+        .collect::<HashMap<Wallet, PayableAccount>>();
+
+    accounts_infos
+        .into_iter()
+        .map(|info| {
+            let adjusted_account_opt = accounts_hashmap.remove(&info.wallet);
+            (info, adjusted_account_opt)
         })
         .collect()
+}
+
+enum PercentPortionOfCWUsed {
+    Percents(u8),
+    LessThanOnePercent,
+}
+
+impl PercentPortionOfCWUsed {
+    fn new(adjusted_accounts: &[PayableAccount], common: &CommonScenarioInfo) -> Self {
+        let used_absolute: u128 = sum_as(adjusted_accounts, |account| account.balance_wei);
+        let percents = ((100 * used_absolute) / common.cw_service_fee_balance_minor) as u8;
+        if percents >= 1 {
+            PercentPortionOfCWUsed::Percents(percents)
+        } else {
+            PercentPortionOfCWUsed::LessThanOnePercent
+        }
+    }
+
+    fn as_plain_number(&self) -> u8 {
+        match self {
+            Self::Percents(percents) => *percents,
+            Self::LessThanOnePercent => 1,
+        }
+    }
+}
+
+impl Display for PercentPortionOfCWUsed {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Percents(percents) => write!(f, "{percents}"),
+            Self::LessThanOnePercent => write!(f, "< 1"),
+        }
+    }
 }
 
 struct ScenarioResult {
@@ -572,9 +613,9 @@ impl ScenarioResult {
 
 struct SuccessfulAdjustment {
     common: CommonScenarioInfo,
-    portion_of_cw_cumulatively_used_percents: u8,
-    partially_sorted_interpretable_adjustments: Vec<InterpretableAdjustmentResult>,
-    were_no_accounts_eliminated: bool,
+    portion_of_cw_cumulatively_used_percents: PercentPortionOfCWUsed,
+    partially_sorted_interpretable_adjustments: Vec<InterpretableAccountAdjustmentResult>,
+    no_accounts_eliminated: bool,
 }
 
 struct FailedAdjustment {
@@ -606,26 +647,24 @@ fn render_results_to_file_and_attempt_basic_assertions(
     output_collector: TestOverallOutputCollector,
 ) {
     let file_dir = ensure_node_home_directory_exists("payment_adjuster", "tests");
-    let mut file = File::create(file_dir.join("loading_test_output.txt")).unwrap();
-    introduction(&mut file);
+    let mut output_file = File::create(file_dir.join("loading_test_output.txt")).unwrap();
+    introduction(&mut output_file);
     let output_collector =
         scenario_results
             .into_iter()
             .fold(output_collector, |acc, scenario_result| {
-                do_final_processing_of_single_scenario(&mut file, acc, scenario_result)
+                do_final_processing_of_single_scenario(&mut output_file, acc, scenario_result)
             });
-    let total_scenarios_evaluated = output_collector.scenarios_denied_before_adjustment_started
-        + output_collector.oks
-        + output_collector.all_accounts_eliminated
-        + output_collector.late_immoderately_insufficient_service_fee_balance;
-    write_brief_test_summary_into_file(
-        &mut file,
+    let total_scenarios_evaluated =
+        output_collector.total_evaluated_scenarios_except_those_discarded_early();
+    write_brief_test_summary_at_file_s_tail(
+        &mut output_file,
         &output_collector,
         number_of_requested_scenarios,
         total_scenarios_evaluated,
     );
     let total_scenarios_handled_including_invalid_ones =
-        total_scenarios_evaluated + output_collector.invalidly_generated_scenarios;
+        output_collector.total_evaluated_scenarios_including_invalid_ones();
     assert_eq!(
         total_scenarios_handled_including_invalid_ones, number_of_requested_scenarios,
         "All handled scenarios including those invalid ones ({}) != requested scenarios count ({})",
@@ -636,26 +675,27 @@ fn render_results_to_file_and_attempt_basic_assertions(
     // so that they are picked up and let in the PaymentAdjuster. We'll be better off truly faithful
     // to the use case and the expected conditions. Therefore, we insist on making "guaranteed"
     // QualifiedPayableAccounts out of PayableAccount which is where we take the losses.
-    let entry_check_pass_rate = 100
+    let actual_entry_check_pass_percentage = 100
         - ((output_collector.scenarios_denied_before_adjustment_started * 100)
             / total_scenarios_evaluated);
-    let required_pass_rate = 50;
+    const REQUIRED_ENTRY_CHECK_PASS_PERCENTAGE: usize = 50;
     assert!(
-        entry_check_pass_rate >= required_pass_rate,
-        "Not at least {}% from those {} scenarios \
-    generated for this test allows PaymentAdjuster to continue doing its job and ends too early. \
-    Instead only {}%. Setup of the test might be needed",
-        required_pass_rate,
+        actual_entry_check_pass_percentage >= REQUIRED_ENTRY_CHECK_PASS_PERCENTAGE,
+        "Not at least {}% from those {} scenarios generated for this test allows PaymentAdjuster to \
+        continue doing its job and ends too early. Instead only {}%. Setup of the test might be \
+        needed",
+        REQUIRED_ENTRY_CHECK_PASS_PERCENTAGE,
         total_scenarios_evaluated,
-        entry_check_pass_rate
+        actual_entry_check_pass_percentage
     );
     let ok_adjustment_percentage = (output_collector.oks * 100)
         / (total_scenarios_evaluated - output_collector.scenarios_denied_before_adjustment_started);
-    let required_success_rate = 70;
+    const REQUIRED_SUCCESSFUL_ADJUSTMENT_PERCENTAGE: usize = 70;
     assert!(
-        ok_adjustment_percentage >= required_success_rate,
-        "Not at least {}% from {} adjustment procedures from PaymentAdjuster runs finished with success, only {}%",
-        required_success_rate,
+        ok_adjustment_percentage >= REQUIRED_SUCCESSFUL_ADJUSTMENT_PERCENTAGE,
+        "Not at least {}% from {} adjustment procedures from PaymentAdjuster runs finished with \
+        success, only {}%",
+        REQUIRED_SUCCESSFUL_ADJUSTMENT_PERCENTAGE,
         total_scenarios_evaluated,
         ok_adjustment_percentage
     );
@@ -674,11 +714,11 @@ fn introduction(file: &mut File) {
     write_thick_dividing_line(file)
 }
 
-fn write_brief_test_summary_into_file(
+fn write_brief_test_summary_at_file_s_tail(
     file: &mut File,
-    overall_output_collector: &TestOverallOutputCollector,
-    number_of_requested_scenarios: usize,
-    total_of_scenarios_evaluated: usize,
+    output_collector: &TestOverallOutputCollector,
+    scenarios_requested: usize,
+    scenarios_evaluated: usize,
 ) {
     write_thick_dividing_line(file);
     file.write_fmt(format_args!(
@@ -696,30 +736,30 @@ fn write_brief_test_summary_into_file(
          {}\n\n\
          Unsuccessful\n\
          Caught by the entry check:............. {}\n\
-         With 'RecursionDrainedAllAccounts':.......... {}\n\
+         With 'RecursionDrainedAllAccounts':.... {}\n\
          With late insufficient balance errors:. {}\n\n\
          Legend\n\
          Adjusted balances are highlighted by \
-         this mark by the side:................. {}",
-        number_of_requested_scenarios,
-        total_of_scenarios_evaluated,
-        overall_output_collector.oks,
-        overall_output_collector.with_no_accounts_eliminated,
-        overall_output_collector
+         these marks by the side:............. . {}",
+        scenarios_requested,
+        scenarios_evaluated,
+        output_collector.oks,
+        output_collector.with_no_accounts_eliminated,
+        output_collector
             .fulfillment_distribution_for_transaction_fee_adjustments
             .total_scenarios(),
-        overall_output_collector
+        output_collector
             .fulfillment_distribution_for_transaction_fee_adjustments
             .render_in_two_lines(),
-        overall_output_collector
+        output_collector
             .fulfillment_distribution_for_service_fee_adjustments
             .total_scenarios(),
-        overall_output_collector
+        output_collector
             .fulfillment_distribution_for_service_fee_adjustments
             .render_in_two_lines(),
-        overall_output_collector.scenarios_denied_before_adjustment_started,
-        overall_output_collector.all_accounts_eliminated,
-        overall_output_collector.late_immoderately_insufficient_service_fee_balance,
+        output_collector.scenarios_denied_before_adjustment_started,
+        output_collector.all_accounts_eliminated,
+        output_collector.late_immoderately_insufficient_service_fee_balance,
         NON_EXHAUSTED_ACCOUNT_MARKER
     ))
     .unwrap()
@@ -727,32 +767,43 @@ fn write_brief_test_summary_into_file(
 
 fn do_final_processing_of_single_scenario(
     file: &mut File,
-    mut test_overall_output: TestOverallOutputCollector,
+    mut output_collector: TestOverallOutputCollector,
     scenario: ScenarioResult,
 ) -> TestOverallOutputCollector {
     match scenario.result {
         Ok(positive) => {
-            if positive.were_no_accounts_eliminated {
-                test_overall_output.with_no_accounts_eliminated += 1
+            if positive.no_accounts_eliminated {
+                output_collector.with_no_accounts_eliminated += 1
             }
             if matches!(
                 positive.common.required_adjustment,
                 Adjustment::BeginByTransactionFee { .. }
             ) {
-                test_overall_output
+                output_collector
                     .fulfillment_distribution_for_transaction_fee_adjustments
                     .collected_fulfillment_percentages
-                    .push(positive.portion_of_cw_cumulatively_used_percents)
+                    .push(
+                        positive
+                            .portion_of_cw_cumulatively_used_percents
+                            .as_plain_number(),
+                    )
             }
-            if positive.common.required_adjustment == Adjustment::ByServiceFee {
-                test_overall_output
+            if matches!(
+                positive.common.required_adjustment,
+                Adjustment::ByServiceFee
+            ) {
+                output_collector
                     .fulfillment_distribution_for_service_fee_adjustments
                     .collected_fulfillment_percentages
-                    .push(positive.portion_of_cw_cumulatively_used_percents)
+                    .push(
+                        positive
+                            .portion_of_cw_cumulatively_used_percents
+                            .as_plain_number(),
+                    )
             }
             render_positive_scenario(file, positive);
-            test_overall_output.oks += 1;
-            test_overall_output
+            output_collector.oks += 1;
+            output_collector
         }
         Err(negative) => {
             match negative.adjuster_error {
@@ -760,14 +811,14 @@ fn do_final_processing_of_single_scenario(
                     panic!("Such errors should be already filtered out")
                 }
                 PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction { .. } => {
-                    test_overall_output.late_immoderately_insufficient_service_fee_balance += 1
+                    output_collector.late_immoderately_insufficient_service_fee_balance += 1
                 }
                 PaymentAdjusterError::RecursionDrainedAllAccounts => {
-                    test_overall_output.all_accounts_eliminated += 1
+                    output_collector.all_accounts_eliminated += 1
                 }
             }
             render_negative_scenario(file, negative);
-            test_overall_output
+            output_collector
         }
     }
 }
@@ -775,36 +826,22 @@ fn do_final_processing_of_single_scenario(
 fn render_scenario_header(
     file: &mut File,
     scenario_common: &CommonScenarioInfo,
-    portion_of_cw_used_percents: u8,
+    portion_of_cw_used_percents: PercentPortionOfCWUsed,
 ) {
     write_thick_dividing_line(file);
     file.write_fmt(format_args!(
-        "CW service fee balance: {} wei\n\
-         Portion of CW balance used: {}%\n\
-         Maximal txt count due to CW txt fee balance: {}\n\
-         Used PaymentThresholds: {}\n",
+        "CW service fee balance:                      {} wei\n\
+         Portion of CW balance used:                  {} %\n\
+         Maximal txn count due to CW txn fee balance: {}\n\
+         Used PaymentThresholds:                      {}\n\n",
         scenario_common
             .cw_service_fee_balance_minor
             .separate_with_commas(),
         portion_of_cw_used_percents,
-        resolve_affordable_transaction_count(&scenario_common.required_adjustment),
-        resolve_comment_on_thresholds(&scenario_common.used_thresholds)
+        scenario_common.resolve_affordable_tx_count_by_tx_fee(),
+        scenario_common.resolve_thresholds_description()
     ))
     .unwrap();
-}
-
-fn resolve_comment_on_thresholds(applied_thresholds: &AppliedThresholds) -> String {
-    match applied_thresholds {
-        AppliedThresholds::Defaulted | AppliedThresholds::CommonButRandomized { .. } => {
-            if let AppliedThresholds::CommonButRandomized { common_thresholds } = applied_thresholds
-            {
-                format!("SHARED BUT CUSTOM\n{}", common_thresholds)
-            } else {
-                format!("DEFAULTED\n{}", PRESERVED_TEST_PAYMENT_THRESHOLDS)
-            }
-        }
-        AppliedThresholds::RandomizedForEachAccount { .. } => "INDIVIDUAL".to_string(),
-    }
 }
 
 fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
@@ -813,24 +850,44 @@ fn render_positive_scenario(file: &mut File, result: SuccessfulAdjustment) {
         &result.common,
         result.portion_of_cw_cumulatively_used_percents,
     );
-    write_thin_dividing_line(file);
 
     let adjusted_accounts = result.partially_sorted_interpretable_adjustments;
 
     render_accounts(
         file,
         &adjusted_accounts,
-        &result.common.used_thresholds,
+        &result.common.payment_thresholds,
         |file, account, individual_thresholds_opt| {
             single_account_output(
                 file,
-                account.info.initially_requested_service_fee_minor,
-                account.info.debt_age_s,
                 individual_thresholds_opt,
-                account.bills_coverage_in_percentage_opt,
+                &account.info,
+                account.bill_coverage_in_percentage_opt,
             )
         },
     )
+}
+
+fn render_negative_scenario(file: &mut File, negative_result: FailedAdjustment) {
+    render_scenario_header(
+        file,
+        &negative_result.common,
+        PercentPortionOfCWUsed::Percents(0),
+    );
+    render_accounts(
+        file,
+        &negative_result.account_infos,
+        &negative_result.common.payment_thresholds,
+        |file, account, individual_thresholds_opt| {
+            single_account_output(file, individual_thresholds_opt, account, None)
+        },
+    );
+    write_thin_dividing_line(file);
+    write_error(file, negative_result.adjuster_error)
+}
+
+trait AccountWithWallet {
+    fn wallet(&self) -> &Wallet;
 }
 
 fn render_accounts<Account, F>(
@@ -883,45 +940,40 @@ where
     })
 }
 
-trait AccountWithWallet {
-    fn wallet(&self) -> &Wallet;
-}
-
-const FIRST_COLUMN_WIDTH: usize = 50;
+const FIRST_COLUMN_WIDTH: usize = 34;
 const AGE_COLUMN_WIDTH: usize = 8;
-
 const STARTING_GAP: usize = 6;
 
 fn single_account_output(
     file: &mut File,
-    balance_minor: u128,
-    age_s: u64,
     individual_thresholds_opt: Option<&PaymentThresholds>,
+    account_info: &AccountInfo,
     bill_coverage_in_percentage_opt: Option<u8>,
 ) {
     let first_column_width = FIRST_COLUMN_WIDTH;
     let age_width = AGE_COLUMN_WIDTH;
     let starting_gap = STARTING_GAP;
-    let _ = file
-        .write_fmt(format_args!(
-            "{}{:<starting_gap$}{:>first_column_width$} wei | {:>age_width$} s | {}\n",
-            individual_thresholds_opt
-                .map(|thresholds| format!(
-                    "{:<starting_gap$}This account thresholds: {:>first_column_width$}\n",
-                    "", thresholds
-                ))
-                .unwrap_or("".to_string()),
-            "",
-            balance_minor.separate_with_commas(),
-            age_s.separate_with_commas(),
-            resolve_account_ending_status_graphically(bill_coverage_in_percentage_opt),
-        ))
-        .unwrap();
+    file.write_fmt(format_args!(
+        "{}{:<starting_gap$}{:>first_column_width$} wei | {:>age_width$} s | {}\n",
+        individual_thresholds_opt
+            .map(|thresholds| format!(
+                "{:<starting_gap$}This account thresholds: {:>first_column_width$}\n",
+                "", thresholds
+            ))
+            .unwrap_or("".to_string()),
+        "",
+        account_info
+            .initially_requested_service_fee_minor
+            .separate_with_commas(),
+        account_info.debt_age_s.separate_with_commas(),
+        resolve_account_fulfilment_status_graphically(bill_coverage_in_percentage_opt),
+    ))
+    .unwrap();
 }
 
 const NON_EXHAUSTED_ACCOUNT_MARKER: &str = "# # # # # # # #";
 
-fn resolve_account_ending_status_graphically(
+fn resolve_account_fulfilment_status_graphically(
     bill_coverage_in_percentage_opt: Option<u8>,
 ) -> String {
     match bill_coverage_in_percentage_opt {
@@ -937,42 +989,12 @@ fn resolve_account_ending_status_graphically(
     }
 }
 
-fn render_negative_scenario(file: &mut File, negative_result: FailedAdjustment) {
-    render_scenario_header(file, &negative_result.common, 0);
-    write_thin_dividing_line(file);
-    render_accounts(
-        file,
-        &negative_result.account_infos,
-        &negative_result.common.used_thresholds,
-        |file, account, individual_thresholds_opt| {
-            single_account_output(
-                file,
-                account.initially_requested_service_fee_minor,
-                account.debt_age_s,
-                individual_thresholds_opt,
-                None,
-            )
-        },
-    );
-    write_thin_dividing_line(file);
-    write_error(file, negative_result.adjuster_error)
-}
-
 fn write_error(file: &mut File, error: PaymentAdjusterError) {
     file.write_fmt(format_args!(
         "Scenario resulted in a failure: {:?}\n",
         error
     ))
     .unwrap()
-}
-
-fn resolve_affordable_transaction_count(adjustment: &Adjustment) -> String {
-    match adjustment {
-        Adjustment::ByServiceFee => "UNLIMITED".to_string(),
-        Adjustment::BeginByTransactionFee {
-            transaction_count_limit,
-        } => transaction_count_limit.to_string(),
-    }
 }
 
 fn write_thick_dividing_line(file: &mut dyn Write) {
@@ -991,64 +1013,34 @@ fn write_ln_made_of(file: &mut dyn Write, char: char) {
         .unwrap();
 }
 
-fn prepare_interpretable_adjustment_result(
-    account_info: AccountInfo,
-    resulted_affordable_accounts: &mut Vec<PayableAccount>,
-) -> InterpretableAdjustmentResult {
-    let adjusted_account_idx_opt = resulted_affordable_accounts
-        .iter()
-        .position(|account| account.wallet == account_info.wallet);
-    let bills_coverage_in_percentage_opt = match adjusted_account_idx_opt {
-        Some(idx) => {
-            let adjusted_account = resulted_affordable_accounts.remove(idx);
-            assert_eq!(adjusted_account.wallet, account_info.wallet);
-            let bill_coverage_in_percentage = {
-                let percentage = (adjusted_account.balance_wei * 100)
-                    / account_info.initially_requested_service_fee_minor;
-                u8::try_from(percentage).unwrap()
-            };
-            Some(bill_coverage_in_percentage)
-        }
-        None => None,
-    };
-    InterpretableAdjustmentResult {
-        info: AccountInfo {
-            wallet: account_info.wallet,
-            debt_age_s: account_info.debt_age_s,
-            initially_requested_service_fee_minor: account_info
-                .initially_requested_service_fee_minor,
-        },
-
-        bills_coverage_in_percentage_opt,
-    }
-}
-
 fn sort_interpretable_adjustments(
-    interpretable_adjustments: Vec<InterpretableAdjustmentResult>,
-) -> (Vec<InterpretableAdjustmentResult>, bool) {
+    interpretable_adjustments: Vec<InterpretableAccountAdjustmentResult>,
+) -> (Vec<InterpretableAccountAdjustmentResult>, bool) {
     let (finished, eliminated): (
-        Vec<InterpretableAdjustmentResult>,
-        Vec<InterpretableAdjustmentResult>,
+        Vec<InterpretableAccountAdjustmentResult>,
+        Vec<InterpretableAccountAdjustmentResult>,
     ) = interpretable_adjustments
         .into_iter()
-        .partition(|adjustment| adjustment.bills_coverage_in_percentage_opt.is_some());
+        .partition(|adjustment| adjustment.bill_coverage_in_percentage_opt.is_some());
     let were_no_accounts_eliminated = eliminated.is_empty();
+    // Sorting in descending order by bills coverage in percentage and ascending by balances
     let finished_sorted = finished.into_iter().sorted_by(|result_a, result_b| {
         Ord::cmp(
             &(
-                result_b.bills_coverage_in_percentage_opt,
+                result_b.bill_coverage_in_percentage_opt,
                 result_a.info.initially_requested_service_fee_minor,
             ),
             &(
-                result_a.bills_coverage_in_percentage_opt,
+                result_a.bill_coverage_in_percentage_opt,
                 result_b.info.initially_requested_service_fee_minor,
             ),
         )
     });
+    // Sorting in descending order
     let eliminated_sorted = eliminated.into_iter().sorted_by(|result_a, result_b| {
         Ord::cmp(
-            &result_a.info.initially_requested_service_fee_minor,
             &result_b.info.initially_requested_service_fee_minor,
+            &result_a.info.initially_requested_service_fee_minor,
         )
     });
     let all_results = finished_sorted.chain(eliminated_sorted).collect();
@@ -1102,6 +1094,18 @@ impl TestOverallOutputCollector {
             all_accounts_eliminated: 0,
             late_immoderately_insufficient_service_fee_balance: 0,
         }
+    }
+
+    fn total_evaluated_scenarios_except_those_discarded_early(&self) -> usize {
+        self.scenarios_denied_before_adjustment_started
+            + self.oks
+            + self.all_accounts_eliminated
+            + self.late_immoderately_insufficient_service_fee_balance
+    }
+
+    fn total_evaluated_scenarios_including_invalid_ones(&self) -> usize {
+        self.total_evaluated_scenarios_except_those_discarded_early()
+            + self.invalidly_generated_scenarios
     }
 }
 
@@ -1189,17 +1193,66 @@ struct PreparedAdjustmentAndThresholds {
 struct CommonScenarioInfo {
     cw_service_fee_balance_minor: u128,
     required_adjustment: Adjustment,
-    used_thresholds: AppliedThresholds,
-}
-struct InterpretableAdjustmentResult {
-    info: AccountInfo,
-    // Account was eliminated from payment if None
-    bills_coverage_in_percentage_opt: Option<u8>,
+    payment_thresholds: AppliedThresholds,
 }
 
-impl AccountWithWallet for InterpretableAdjustmentResult {
+impl CommonScenarioInfo {
+    fn resolve_affordable_tx_count_by_tx_fee(&self) -> String {
+        match self.required_adjustment {
+            Adjustment::ByServiceFee => "UNLIMITED".to_string(),
+            Adjustment::BeginByTransactionFee {
+                transaction_count_limit,
+            } => transaction_count_limit.to_string(),
+        }
+    }
+
+    fn resolve_thresholds_description(&self) -> String {
+        match self.payment_thresholds {
+            AppliedThresholds::Defaulted => {
+                format!("DEFAULTED\n{}", PRESERVED_TEST_PAYMENT_THRESHOLDS)
+            }
+            AppliedThresholds::CommonButRandomized { common_thresholds } => {
+                format!("SHARED BUT CUSTOM\n{}", common_thresholds)
+            }
+            AppliedThresholds::RandomizedForEachAccount { .. } => "INDIVIDUAL".to_string(),
+        }
+    }
+}
+
+struct InterpretableAccountAdjustmentResult {
+    info: AccountInfo,
+    // Account was eliminated from payment if None
+    bill_coverage_in_percentage_opt: Option<u8>,
+}
+
+impl AccountWithWallet for InterpretableAccountAdjustmentResult {
     fn wallet(&self) -> &Wallet {
         &self.info.wallet
+    }
+}
+
+impl InterpretableAccountAdjustmentResult {
+    fn new((info, non_eliminated_payable): (AccountInfo, Option<PayableAccount>)) -> Self {
+        let bill_coverage_in_percentage_opt = match &non_eliminated_payable {
+            Some(payable) => {
+                let bill_coverage_in_percentage = {
+                    let percentage =
+                        (payable.balance_wei * 100) / info.initially_requested_service_fee_minor;
+                    u8::try_from(percentage).unwrap()
+                };
+                Some(bill_coverage_in_percentage)
+            }
+            None => None,
+        };
+        InterpretableAccountAdjustmentResult {
+            info: AccountInfo {
+                wallet: info.wallet,
+                debt_age_s: info.debt_age_s,
+                initially_requested_service_fee_minor: info.initially_requested_service_fee_minor,
+            },
+
+            bill_coverage_in_percentage_opt,
+        }
     }
 }
 
