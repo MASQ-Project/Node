@@ -20,7 +20,7 @@ use crate::accountant::test_utils::{
     make_single_qualified_payable_opt, try_to_make_guaranteed_qualified_payables,
 };
 use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use crate::sub_lib::wallet::Wallet;
@@ -492,7 +492,7 @@ fn make_agent(cw_service_fee_balance: u128) -> BlockchainAgentMock {
         .service_fee_balance_minor_result(cw_service_fee_balance)
         // For PaymentAdjuster itself
         .service_fee_balance_minor_result(cw_service_fee_balance)
-        .gas_price_margin_result(TRANSACTION_FEE_MARGIN.clone())
+        .gas_price_margin_result(TX_FEE_MARGIN_IN_PERCENT.clone())
 }
 
 fn make_adjustment(gn: &mut ThreadRng, accounts_count: usize) -> Adjustment {

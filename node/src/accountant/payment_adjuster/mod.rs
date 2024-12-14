@@ -591,7 +591,7 @@ mod tests {
     use crate::accountant::{
         AnalyzedPayableAccount, CreditorThresholds, QualifiedPayableAccount, ResponseSkeleton,
     };
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -686,14 +686,14 @@ mod tests {
         // Service fee balance == payments
         let input_2 = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                payable_account_balances_minor: vec![85, 15],
+                payable_account_balances_minor: vec![multiply_by_billion(85), multiply_by_billion(15)],
                 cw_balance_minor: multiply_by_billion(100),
             }),
             None,
         );
         let transaction_fee_balance_exactly_required_minor: u128 = {
             let base_value = (100 * 6 * 53_000) as u128;
-            let with_margin = TRANSACTION_FEE_MARGIN.add_percent_to(base_value);
+            let with_margin = TX_FEE_MARGIN_IN_PERCENT.add_percent_to(base_value);
             multiply_by_billion(with_margin)
         };
         // Transaction fee balance > payments
@@ -746,7 +746,7 @@ mod tests {
                 gas_price_major: 100,
                 number_of_accounts,
                 tx_computation_units: 55_000,
-                cw_transaction_fee_balance_minor: TRANSACTION_FEE_MARGIN
+                cw_transaction_fee_balance_minor: TX_FEE_MARGIN_IN_PERCENT
                     .add_percent_to(multiply_by_billion(100 * 3 * 55_000))
                     - 1,
             }),
@@ -824,7 +824,7 @@ mod tests {
         let number_of_accounts = 3;
         let tx_fee_exactly_required_for_single_tx = {
             let base_minor = multiply_by_billion(55_000 * 100);
-            TRANSACTION_FEE_MARGIN.add_percent_to(base_minor)
+            TX_FEE_MARGIN_IN_PERCENT.add_percent_to(base_minor)
         };
         let cw_transaction_fee_balance_minor = tx_fee_exactly_required_for_single_tx - 1;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
@@ -844,7 +844,7 @@ mod tests {
 
         let per_transaction_requirement_minor = {
             let base_minor = multiply_by_billion(55_000 * 100);
-            TRANSACTION_FEE_MARGIN.add_percent_to(base_minor)
+            TX_FEE_MARGIN_IN_PERCENT.add_percent_to(base_minor)
         };
         assert_eq!(
             result,
@@ -932,7 +932,7 @@ mod tests {
         let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         let per_transaction_requirement_minor =
-            TRANSACTION_FEE_MARGIN.add_percent_to(55_000 * multiply_by_billion(123));
+            TX_FEE_MARGIN_IN_PERCENT.add_percent_to(55_000 * multiply_by_billion(123));
         assert_eq!(
             result,
             Err(
@@ -1196,7 +1196,7 @@ mod tests {
         let cw_service_fee_balance_minor = balance_2;
         let disqualification_arbiter = &subject.disqualification_arbiter;
         let agent_for_analysis = BlockchainAgentMock::default()
-            .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
+            .gas_price_margin_result(*TX_FEE_MARGIN_IN_PERCENT)
             .service_fee_balance_minor_result(cw_service_fee_balance_minor)
             .transaction_fee_balance_minor_result(U256::MAX)
             .estimated_transaction_fee_per_transaction_minor_result(12356);
@@ -2275,7 +2275,7 @@ mod tests {
             multiply_by_billion((tx_computation_units * gas_price) as u128);
 
         let blockchain_agent = BlockchainAgentMock::default()
-            .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
+            .gas_price_margin_result(*TX_FEE_MARGIN_IN_PERCENT)
             .transaction_fee_balance_minor_result(cw_transaction_fee_minor.into())
             .service_fee_balance_minor_result(cw_service_fee_balance_minor)
             .estimated_transaction_fee_per_transaction_minor_result(

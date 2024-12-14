@@ -71,7 +71,7 @@ pub const REQUESTS_IN_PARALLEL: usize = 1;
 
 lazy_static! {
     // TODO In the future, we'll replace this by a dynamical value of the user's choice.
-    pub static ref TRANSACTION_FEE_MARGIN: PurePercentage = PurePercentage::try_from(15).expect("Value below 100 should cause no issue");
+    pub static ref TX_FEE_MARGIN_IN_PERCENT: PurePercentage = PurePercentage::try_from(15).expect("Value below 100 should cause no issue");
 }
 
 pub struct BlockchainInterfaceWeb3<T>
@@ -612,7 +612,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_FEE_MARGIN,
+        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TX_FEE_MARGIN_IN_PERCENT,
         TRANSACTION_LITERAL,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(REQUESTS_IN_PARALLEL, 1);
         assert_eq!(
-            *TRANSACTION_FEE_MARGIN,
+            *TX_FEE_MARGIN_IN_PERCENT,
             PurePercentage::try_from(15).unwrap()
         );
     }

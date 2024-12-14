@@ -385,7 +385,7 @@ mod tests {
         make_meaningless_analyzed_account, make_meaningless_qualified_payable,
     };
     use crate::accountant::QualifiedPayableAccount;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
     use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -411,7 +411,7 @@ mod tests {
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let subject = PreparatoryAnalyzer {};
         let blockchain_agent = BlockchainAgentMock::default()
-            .gas_price_margin_result(*TRANSACTION_FEE_MARGIN)
+            .gas_price_margin_result(*TX_FEE_MARGIN_IN_PERCENT)
             .transaction_fee_balance_minor_result(U256::MAX)
             .estimated_transaction_fee_per_transaction_minor_result(123456)
             .service_fee_balance_minor_result(cw_service_fee_balance);
