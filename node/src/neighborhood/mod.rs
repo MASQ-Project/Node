@@ -1272,11 +1272,10 @@ impl Neighborhood {
 
     fn validate_last_node_not_too_close_to_first_node(
         &self,
-        prefix_len: usize,
         first_node_key: &PublicKey,
         candidate_node_key: &PublicKey,
     ) -> bool {
-        if prefix_len <= 2 {
+        if self.min_hops as usize <= 1usize {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
             !self
@@ -1285,13 +1284,10 @@ impl Neighborhood {
         }
     }
 
-    fn validate_fallback_country_exit_codes(&self, last_node: &PublicKey) -> bool {
-        let last_cc = match self.neighborhood_database.node_by_key(last_node) {
-            Some(nr) => match nr.clone().inner.country_code_opt {
-                Some(cc) => cc,
-                None => "ZZ".to_string(),
-            },
-            None => "ZZ".to_string()
+    fn validate_fallback_country_exit_codes(&self, last_node_cc_opt: Option<&String>) -> bool {
+        let last_cc = match last_node_cc_opt {
+            Some(cc) => cc.to_owned(),
+            None => "ZZ".to_string(),
         };
         if self.user_exit_preferences.exit_countries.contains(&last_cc) {
             return true;
@@ -1312,26 +1308,23 @@ impl Neighborhood {
 
     fn validate_last_node_country_code(
         &self,
-        first_node_key: &PublicKey,
+        last_node: &NodeRecord,
         research_neighborhood: bool,
         direction: RouteDirection,
     ) -> bool {
         if self.user_exit_preferences.location_preference == ExitPreference::Nothing
             || (self.user_exit_preferences.location_preference == ExitPreference::ExitCountryWithFallback
-                && self.validate_fallback_country_exit_codes(first_node_key))
+                && self.validate_fallback_country_exit_codes(last_node.inner.country_code_opt.as_ref()))
             || research_neighborhood
             || direction == RouteDirection::Back
         {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
-            match self.neighborhood_database.node_by_key(first_node_key) {
-                Some(node_record) => match &node_record.inner.country_code_opt {
-                    Some(country_code) => self
-                        .user_exit_preferences
-                        .exit_countries
-                        .contains(country_code),
-                    _ => false,
-                },
+            match last_node.inner.country_code_opt.as_ref() {
+                Some(country_code) => self
+                    .user_exit_preferences
+                    .exit_countries
+                    .contains(&country_code),
                 _ => false,
             }
         }
@@ -1452,12 +1445,15 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
-        let mut prefix = Vec::with_capacity(10);
-        prefix.push(source);
+        let prefix = Rc::new(RouteElement {
+            previous: None,
+            public_key: source.clone(),
+            undesirability: initial_undesirability,
+        });
         let result = self
             .routing_engine(
-                &mut vec![source],
-                initial_undesirability,
+                source,
+                prefix,
                 target_opt,
                 minimum_hops,
                 payload_size,
@@ -1468,20 +1464,18 @@ impl Neighborhood {
                 &mut vec![],
             )
             .into_iter()
-            .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
-                true => Some(cr.nodes),
-                false => None,
-            })
+            .filter(|cr| cr.undesirability <= minimum_undesirability)
             .next();
 
+        //TODO reverse the public keys from Rc list
         result
     }
 
     #[allow(clippy::too_many_arguments)]
     fn routing_engine<'a>(
         &'a self,
-        prefix: &mut Vec<&'a PublicKey>,
-        undesirability: i64,
+        first_node_key: &PublicKey,
+        prefix: Rc<RouteElement>,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
         payload_size: usize,
@@ -1490,43 +1484,41 @@ impl Neighborhood {
         hostname_opt: Option<&str>,
         research_neighborhood: bool,
         research_exits: &mut Vec<&'a PublicKey>,
-    ) -> Vec<ComputedRouteSegment<'a>> {
-        if undesirability > *minimum_undesirability && !research_neighborhood && self.user_exit_preferences.location_preference == ExitPreference::Nothing {
+    ) -> Vec<Rc<RouteElement>> {
+        if prefix.undesirability > *minimum_undesirability && !research_neighborhood && self.user_exit_preferences.location_preference == ExitPreference::Nothing {
             return vec![];
         }
         //TODO when target node is present ignore all country_codes selection - write test for route back and ignore the country code
-        let first_node_key = prefix.first().expect("Empty prefix");
         let previous_node = self
             .neighborhood_database
-            .node_by_key(prefix.last().expect("Empty prefix"))
+            .node_by_key(&prefix.public_key)
             .expect("Last Node magically disappeared");
         // Check to see if we're done. If we are, all three of these qualifications will pass.
         if self.route_length_qualifies(hops_remaining)
             && self.last_key_qualifies(previous_node, target_opt)
             && self.validate_last_node_not_too_close_to_first_node(
-                prefix.len(),
-                *first_node_key,
+                first_node_key,
                 previous_node.public_key(),
             )
         {
             if !research_neighborhood && self.validate_last_node_country_code(
-                previous_node.public_key(),
+                &previous_node,
                 research_neighborhood,
                 direction
             ) {
-                if undesirability < *minimum_undesirability {
-                    *minimum_undesirability = undesirability;
+                if prefix.undesirability < *minimum_undesirability {
+                    *minimum_undesirability = prefix.undesirability;
                 }
-                vec![ComputedRouteSegment::new(prefix.clone(), undesirability)]
-            } else if research_neighborhood && research_exits.contains(&prefix[prefix.len() - 1]) {
+                vec![prefix.clone()]
+            } else if research_neighborhood && research_exits.contains(&&prefix.public_key) {
                 vec![]
             } else {
                 if research_neighborhood {
-                    research_exits.push(prefix[prefix.len() - 1]);
+                    research_exits.push(&prefix.public_key);
                 }
                 self.routing_guts(
+                    first_node_key,
                     prefix,
-                    undesirability,
                     target_opt,
                     hops_remaining,
                     payload_size,
@@ -1547,8 +1539,8 @@ impl Neighborhood {
             vec![]
         } else {
             self.routing_guts(
+                first_node_key,
                 prefix,
-                undesirability,
                 target_opt,
                 hops_remaining,
                 payload_size,
@@ -1562,11 +1554,28 @@ impl Neighborhood {
         }
     }
 
+    fn prefix_contains(prefix: Rc<RouteElement>) -> bool {
+        let current_key = prefix.public_key.clone();
+        let mut pref = Some(prefix);
+        while pref.is_some() {
+            pref = match &prefix.previous {
+                Some(element) => {
+                    if current_key == element.public_key {
+                        return true;
+                    }
+                    Some(element.clone())
+                },
+                None => None,
+            }
+        }
+        false
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn routing_guts<'a>(
         &'a self,
-        prefix: &mut [&'a PublicKey],
-        undesirability: i64,
+        first_node_key: &PublicKey,
+        prefix: Rc<RouteElement>,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
         payload_size: usize,
@@ -1576,20 +1585,17 @@ impl Neighborhood {
         research_neighborhood: bool,
         research_exits: &mut Vec<&'a PublicKey>,
         previous_node: &NodeRecord,
-    ) -> Vec<ComputedRouteSegment> {
+    ) -> Vec<Rc<RouteElement>> {
         // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
         previous_node
             .full_neighbors(&self.neighborhood_database)
             .iter()
-            .filter(|node_record| !prefix.contains(&node_record.public_key()))
+            .filter(|node_record| !Self::prefix_contains(prefix)) //TODO make method to travers the elements
             .filter(|node_record| {
                 node_record.routes_data()
                     || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
             })
             .flat_map(|node_record| {
-                let mut new_prefix = prefix.to_owned();
-                new_prefix.push(node_record.public_key());
-
                 let new_hops_remaining = if hops_remaining == 0 {
                     0
                 } else {
@@ -1598,17 +1604,22 @@ impl Neighborhood {
 
                 let new_undesirability = self.compute_new_undesirability(
                     node_record,
-                    undesirability,
+                    prefix.undesirability,
                     target_opt,
                     new_hops_remaining,
                     payload_size as u64,
                     direction,
                     hostname_opt,
                 );
+                let new_prefix = Rc::new(RouteElement {
+                    previous: Some(Rc::clone(&prefix)),
+                    public_key: node_record.public_key().clone(),
+                    undesirability: new_undesirability,
+                });
 
                 self.routing_engine(
-                    &mut new_prefix,
-                    new_undesirability,
+                    first_node_key,
+                    new_prefix,
                     target_opt,
                     new_hops_remaining,
                     payload_size,
