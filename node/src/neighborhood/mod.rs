@@ -28,6 +28,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::string::ToString;
 
 use crate::bootstrapper::BootstrapperConfig;
@@ -2092,6 +2093,12 @@ enum UndesirabilityType<'hostname> {
 #[derive(Debug)]
 struct ComputedRouteSegment<'a> {
     pub nodes: Vec<&'a PublicKey>,
+    pub undesirability: i64,
+}
+
+struct RouteElement {
+    pub previous: Option<Rc<RouteElement>>,
+    pub public_key: PublicKey,
     pub undesirability: i64,
 }
 
