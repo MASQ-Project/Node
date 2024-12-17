@@ -372,7 +372,7 @@ impl BlockchainInterfaceWeb3 {
             );
 
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: transaction_max_block_number,
+                new_start_block: transaction_max_block_number + 1,
                 transactions,
             })
         }
@@ -715,8 +715,7 @@ mod tests {
         let subject = make_blockchain_interface_web3(port);
         let start_block_nbr = 42u64;
         let start_block = BlockNumber::Number(start_block_nbr.into());
-        // let fallback_number = BlockchainBridge::calculate_fallback_start_block_number(start_block_nbr, u64::MAX);
-        let fallback_number = start_block_nbr + 1;
+        let fallback_number = start_block_nbr;
 
         let result = subject
             .retrieve_transactions(
@@ -728,11 +727,11 @@ mod tests {
             )
             .wait();
 
-        let expected_fallback_start_block = start_block_nbr + 1u64;
+        let expected_start_block = fallback_number + 1u64;
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: expected_fallback_start_block,
+                new_start_block: expected_start_block,
                 transactions: vec![]
             })
         );

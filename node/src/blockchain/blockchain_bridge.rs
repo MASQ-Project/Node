@@ -566,6 +566,7 @@ impl BlockchainBridge {
                 start_block_number
             } else {
                 start_block_number + 1u64 // TODO: GH-744 Way are we adding +1 can we just return the same value?
+                //start_block_number
             }
         } else {
             start_block_number + max_block_count
