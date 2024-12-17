@@ -17,8 +17,8 @@ use web3::{Error, Web3};
 pub enum TransactionReceiptResult {
     NotPresent,
     Found(TransactionReceipt),
-    TransactionFailed(TransactionReceipt), // RemoteFailure
-    Error(String),                         // LocalFailure
+    TransactionFailed(TransactionReceipt), // RemoteFail ure
+    LocalError(String),                         // LocalFailure
 }
 
 pub struct LowBlockchainIntWeb3 {
@@ -355,6 +355,8 @@ mod tests {
             err_msg
         )
     }
+
+
 
     #[test]
     fn transaction_receipt_batch_fails_on_submit_batch() {

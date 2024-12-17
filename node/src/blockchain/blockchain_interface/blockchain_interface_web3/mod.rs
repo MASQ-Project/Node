@@ -162,6 +162,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let get_service_fee_balance = self
             .lower_interface()
             .get_service_fee_balance(wallet_address);
+        let chain = self.chain;
 
         Box::new(
             get_gas_price
@@ -187,6 +188,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         gas_limit_const_part,
                                         blockchain_agent_future_result,
                                         consuming_wallet,
+                                        chain
                                     ))
                                 })
                         })
@@ -222,12 +224,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         if e.to_string().contains("invalid type: null") {
                                             TransactionReceiptResult::NotPresent
                                         } else {
-                                            TransactionReceiptResult::Error(e.to_string())
+                                            TransactionReceiptResult::LocalError(e.to_string())
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TransactionReceiptResult::Error(e.to_string()),
+                            Err(e) => TransactionReceiptResult::LocalError(e.to_string()),
                         })
                         .collect::<Vec<TransactionReceiptResult>>())
                 }),
@@ -237,7 +239,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn submit_payables_in_batch(
         &self,
         logger: Logger,
-        chain: Chain,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
@@ -249,6 +250,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             .lower_interface()
             .get_transaction_id(consuming_wallet.address());
         let gas_price_wei = agent.agreed_fee_per_computation_unit();
+        let chain = agent.get_chain();
 
         Box::new(
             get_transaction_id
@@ -930,11 +932,11 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(result[0], TransactionReceiptResult::Error("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
+        assert_eq!(result[0], TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
         assert_eq!(result[1], TransactionReceiptResult::NotPresent);
         assert_eq!(
             result[2],
-            TransactionReceiptResult::Error(
+            TransactionReceiptResult::LocalError(
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
             )
         );

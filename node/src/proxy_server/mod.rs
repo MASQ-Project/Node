@@ -2586,11 +2586,6 @@ mod tests {
         let test_name = "proxy_server_sends_a_message_with_error_when_quad_zeros_are_detected";
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: 0.0.0.0\r\n\r\n";
-        let (proxy_server_mock, _, _) = make_recorder();
-        let route_query_response = None;
-        let (neighborhood_mock, _, _) = make_recorder();
-        let neighborhood_mock =
-            neighborhood_mock.route_query_response(route_query_response.clone());
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
@@ -2615,13 +2610,8 @@ mod tests {
         subject.stream_key_factory = Box::new(stream_key_factory);
         subject.logger = Logger::new(test_name);
         let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
-            .proxy_server(proxy_server_mock)
-            .neighborhood(neighborhood_mock)
+        let peer_actors = peer_actors_builder()
             .build();
-        // Get the dns_retry_result recipient so we can partially mock it...
-        let dns_retry_result_recipient = peer_actors.proxy_server.route_result_sub;
-        peer_actors.proxy_server.route_result_sub = dns_retry_result_recipient; //Partial mocking
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();

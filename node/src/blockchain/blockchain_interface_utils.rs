@@ -315,6 +315,7 @@ pub fn dynamically_create_blockchain_agent_web3(
     gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
+    chain: Chain
 ) -> Box<dyn BlockchainAgent> {
     Box::new(BlockchainAgentWeb3::new(
         blockchain_agent_future_result.gas_price_wei.as_u128(),
@@ -325,6 +326,7 @@ pub fn dynamically_create_blockchain_agent_web3(
                 .transaction_fee_balance,
             masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance,
         },
+        chain
     ))
 }
 

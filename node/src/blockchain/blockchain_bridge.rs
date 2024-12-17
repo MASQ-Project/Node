@@ -580,10 +580,8 @@ impl BlockchainBridge {
     {
         let new_fingerprints_recipient = self.new_fingerprints_recipient();
         let logger = self.logger.clone();
-        let chain = self.blockchain_interface.get_chain();
         self.blockchain_interface.submit_payables_in_batch(
             logger,
-            chain,
             agent,
             new_fingerprints_recipient,
             affordable_accounts,
@@ -968,7 +966,8 @@ mod tests {
         let agent = BlockchainAgentMock::default()
             .set_arbitrary_id_stamp(agent_id_stamp)
             .agreed_fee_per_computation_unit_result(123)
-            .consuming_wallet_result(consuming_wallet);
+            .consuming_wallet_result(consuming_wallet)
+            .get_chain_result(Chain::PolyMainnet);
 
         send_bind_message!(subject_subs, peer_actors);
 
@@ -1056,7 +1055,8 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let agent = BlockchainAgentMock::default()
             .consuming_wallet_result(consuming_wallet)
-            .agreed_fee_per_computation_unit_result(123);
+            .agreed_fee_per_computation_unit_result(123)
+            .get_chain_result(Chain::PolyMainnet);;
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -1128,7 +1128,8 @@ mod tests {
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default()
             .consuming_wallet_result(consuming_wallet)
-            .agreed_fee_per_computation_unit_result(1);
+            .agreed_fee_per_computation_unit_result(1)
+            .get_chain_result(Chain::PolyMainnet);
         let msg = OutboundPaymentsInstructions::new(accounts, Box::new(agent), None);
         let persistent_config = PersistentConfigurationMock::new();
         let mut subject = BlockchainBridge::new(
@@ -1462,7 +1463,7 @@ mod tests {
                     (TransactionReceiptResult::NotPresent, fingerprint_1),
                     (TransactionReceiptResult::Found(transaction_receipt), fingerprint_2),
                     (TransactionReceiptResult::NotPresent, fingerprint_3),
-                    (TransactionReceiptResult::Error("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()), fingerprint_4)
+                    (TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()), fingerprint_4)
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,

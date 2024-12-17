@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use masq_lib::blockchains::chains::Chain;
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
@@ -25,6 +26,8 @@ pub trait BlockchainAgent: Send {
     fn consuming_wallet_balances(&self) -> ConsumingWalletBalances;
     fn agreed_fee_per_computation_unit(&self) -> u128;
     fn consuming_wallet(&self) -> &Wallet;
+
+    fn get_chain(&self) -> Chain;
 
     #[cfg(test)]
     fn dup(&self) -> Box<dyn BlockchainAgent> {

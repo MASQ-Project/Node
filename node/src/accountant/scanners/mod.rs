@@ -654,8 +654,6 @@ impl PendingPayableScanner {
         msg: ReportTransactionReceipts,
         logger: &Logger,
     ) -> PendingPayableScanReport {
-        // TODO: We want to ensure that failed transactions are not marked still pending,
-        // and also adjust log levels accordingly.
         fn handle_none_receipt(
             mut scan_report: PendingPayableScanReport,
             payable: PendingPayableFingerprint,
@@ -689,7 +687,7 @@ impl PendingPayableScanner {
                     "none was given".to_string(),
                     logger,
                 ),
-                TransactionReceiptResult::Error(e) => handle_none_receipt(
+                TransactionReceiptResult::LocalError(e) => handle_none_receipt(
                     scan_report_so_far,
                     fingerprint,
                     format!("failed due to {}", e),
