@@ -55,7 +55,7 @@ jobs:
         shell: bash
 
       - name: Publish ${{ matrix.target.os }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Node-${{ matrix.target.name }}
           path: results
@@ -71,7 +71,8 @@ jobs:
           with:
             ref: ${{ github.event.pull_request.head.sha }}
 
-        - uses: actions/download-artifact@v3
+        - name: Download artifacts
+          uses: actions/download-artifact@v4
 
         - name: Display structure of downloaded files
           run: ls -R
