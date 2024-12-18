@@ -4,7 +4,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::{
-    PaymentsAndStartBlock, ReceivedPayments, ResponseSkeleton, ScanError,
+    ReceivedPayments, ResponseSkeleton, ScanError,
     SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
@@ -365,16 +365,12 @@ impl BlockchainBridge {
                     }
                     format!("Error while retrieving transactions: {:?}", e)
                 })
-                .and_then(move |transactions| {
-                    let payments_and_start_block = PaymentsAndStartBlock {
-                        payments: transactions.transactions,
-                        new_start_block: transactions.new_start_block,
-                    };
-                    received_payments_subs
-                        .try_send(ReceivedPayments {
+                .and_then(move |retrieved_blockchain_transactions| {
+                              received_payments_subs.try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
-                            payments_and_start_block,
+                            new_start_block: retrieved_blockchain_transactions.new_start_block,
                             response_skeleton_opt: msg.response_skeleton_opt,
+                            transactions: retrieved_blockchain_transactions.transactions,
                         })
                         .expect("Accountant is dead.");
                     Ok(())
@@ -539,9 +535,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::{
-        make_empty_payments_and_start_block, protect_payables_in_test,
-    };
+    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::BlockchainInterfaceWeb3;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
@@ -1532,9 +1526,6 @@ mod tests {
                 },
             ],
         };
-        let mut payments_and_start_block = make_empty_payments_and_start_block();
-        payments_and_start_block.payments = expected_transactions.transactions;
-        payments_and_start_block.new_start_block = expected_transactions.new_start_block;
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
@@ -1543,11 +1534,12 @@ mod tests {
             received_payments,
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
-                payments_and_start_block,
+                new_start_block: expected_transactions.new_start_block,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
+                transactions: expected_transactions.transactions,
             }
         );
     }
@@ -1636,14 +1628,12 @@ mod tests {
             received_payments,
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
+                new_start_block: 8675309u64 + 1,
+                transactions: expected_transactions.transactions,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
-                payments_and_start_block: PaymentsAndStartBlock {
-                    payments: expected_transactions.transactions,
-                    new_start_block: 8675309u64 + 1
-                },
             }
         );
     }
@@ -1730,14 +1720,12 @@ mod tests {
             received_payments_message,
             &ReceivedPayments {
                 timestamp: received_payments_message.timestamp,
-                payments_and_start_block: PaymentsAndStartBlock {
-                    payments: expected_transactions.transactions,
-                    new_start_block: expected_transactions.new_start_block,
-                },
+                new_start_block: expected_transactions.new_start_block,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
                 }),
+                transactions: expected_transactions.transactions,
             }
         );
     }

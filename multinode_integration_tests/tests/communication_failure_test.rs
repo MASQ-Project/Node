@@ -28,6 +28,7 @@ use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
+use std::net::Ipv4Addr;
 use std::thread;
 use std::time::Duration;
 
@@ -271,45 +272,46 @@ fn dns_resolution_failure_with_real_nodes() {
     );
 }
 
-// >>> TODO: GH-744: - Re-Enable this test.
-// #[test]
-// fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
-//     let dns_server_that_fails = Ipv4Addr::new(1, 1, 1, 3).into();
-//     let mut cluster = MASQNodeCluster::start().unwrap();
-//     let exit_node = cluster.start_real_node(
-//         NodeStartupConfigBuilder::standard()
-//             .chain(cluster.chain)
-//             .consuming_wallet_info(make_consuming_wallet_info("exit_node"))
-//             .dns_servers(vec![dns_server_that_fails])
-//             .build(),
-//     );
-//     let originating_node = cluster.start_real_node(
-//         NodeStartupConfigBuilder::standard()
-//             .neighbor(exit_node.node_reference())
-//             .consuming_wallet_info(make_consuming_wallet_info("originating_node"))
-//             .chain(cluster.chain)
-//             .min_hops(Hops::OneHop)
-//             .build(),
-//     );
-//
-//     thread::sleep(Duration::from_millis(1000));
-//     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
-//     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.xvideos.com\r\n\r\n");
-//     let response = client.wait_for_chunk();
-//
-//     assert_eq!(
-//         index_of(&response, &b"<h2>Title: DNS Resolution Problem</h2>"[..]).is_some(),
-//         true,
-//         "Actual response:\n{}",
-//         String::from_utf8(response.clone()).unwrap()
-//     );
-//     assert_eq!(
-//         index_of(&response, &b"<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address www.xvideos.com</p>"[..]).is_some(),
-//         true,
-//         "Actual response:\n{}",
-//         String::from_utf8(response).unwrap()
-//     );
-// }
+// >>> TODO: GH-744: - Fix this test.
+#[test]
+#[ignore]
+fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
+    let dns_server_that_fails = Ipv4Addr::new(1, 1, 1, 3).into();
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let exit_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .chain(cluster.chain)
+            .consuming_wallet_info(make_consuming_wallet_info("exit_node"))
+            .dns_servers(vec![dns_server_that_fails])
+            .build(),
+    );
+    let originating_node = cluster.start_real_node(
+        NodeStartupConfigBuilder::standard()
+            .neighbor(exit_node.node_reference())
+            .consuming_wallet_info(make_consuming_wallet_info("originating_node"))
+            .chain(cluster.chain)
+            .min_hops(Hops::OneHop)
+            .build(),
+    );
+
+    thread::sleep(Duration::from_millis(1000));
+    let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.xvideos.com\r\n\r\n");
+    let response = client.wait_for_chunk();
+
+    assert_eq!(
+        index_of(&response, &b"<h2>Title: DNS Resolution Problem</h2>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response.clone()).unwrap()
+    );
+    assert_eq!(
+        index_of(&response, &b"<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address www.xvideos.com</p>"[..]).is_some(),
+        true,
+        "Actual response:\n{}",
+        String::from_utf8(response).unwrap()
+    );
+}
 
 #[test]
 fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
