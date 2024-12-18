@@ -13,7 +13,7 @@ use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchai
 use crate::sub_lib::wallet::Wallet;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use web3::types::{Address, BlockNumber};
+use web3::types::Address;
 use masq_lib::logger::Logger;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
@@ -28,7 +28,7 @@ pub trait BlockchainInterface {
 
     fn retrieve_transactions(
         &self,
-        start_block: BlockNumber,
+        start_block: u64,
         fallback_start_block_number: u64,
         recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>>;

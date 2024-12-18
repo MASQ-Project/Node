@@ -44,7 +44,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
-use web3::types::{BlockNumber, H256};
+use web3::types::H256;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
@@ -303,116 +303,15 @@ impl BlockchainBridge {
         )
     }
 
-    // TODO GH-744 - From Master
-    // fn handle_retrieve_transactions(&mut self, msg: RetrieveTransactions) -> Result<(), String> {
-    //     let start_block_nbr = match self.persistent_config.start_block() {
-    //         Ok(Some(sb)) => sb,
-    //         Ok(None) => u64::MAX,
-    //         Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
-    //     };
-    //     let max_block_count = match self.persistent_config.max_block_count() {
-    //         Ok(Some(mbc)) => mbc,
-    //         _ => u64::MAX,
-    //     };
-    //     let use_unlimited_block_count_range = u64::MAX == max_block_count;
-    //     let use_latest_block = u64::MAX == start_block_nbr;
-    //     let end_block = match self
-    //         .blockchain_interface
-    //         .lower_interface()
-    //         .get_block_number()
-    //     {
-    //         Ok(eb) => {
-    //             if use_unlimited_block_count_range || use_latest_block {
-    //                 BlockNumber::Number(eb)
-    //             } else {
-    //                 BlockNumber::Number(eb.as_u64().min(start_block_nbr + max_block_count).into())
-    //             }
-    //         }
-    //         Err(e) => {
-    //             if use_unlimited_block_count_range || use_latest_block {
-    //                 debug!(
-    //                     self.logger,
-    //                     "Using 'latest' block number instead of a literal number. {:?}", e
-    //                 );
-    //                 BlockNumber::Latest
-    //             } else {
-    //                 debug!(
-    //                     self.logger,
-    //                     "Using '{}' ending block number. {:?}",
-    //                     start_block_nbr + max_block_count,
-    //                     e
-    //                 );
-    //                 BlockNumber::Number((start_block_nbr + max_block_count).into())
-    //             }
-    //         }
-    //     };
-    //     let start_block = if use_latest_block {
-    //         end_block
-    //     } else {
-    //         BlockNumber::Number(start_block_nbr.into())
-    //     };
-    //     let retrieved_transactions =
-    //         self.blockchain_interface
-    //             .retrieve_transactions(start_block, end_block, &msg.recipient);
-    //     match retrieved_transactions {
-    //         Ok(transactions) => {
-    //             if let BlockNumber::Number(new_start_block_number) = transactions.new_start_block {
-    //                 if transactions.transactions.is_empty() {
-    //                     debug!(self.logger, "No new receivable detected");
-    //                 }
-    //                 self.received_payments_subs_opt
-    //                     .as_ref()
-    //                     .expect("Accountant is unbound")
-    //                     .try_send(ReceivedPayments {
-    //                         timestamp: SystemTime::now(),
-    //                         payments: transactions.transactions,
-    //                         new_start_block: new_start_block_number.as_u64(),
-    //                         response_skeleton_opt: msg.response_skeleton_opt,
-    //                     })
-    //                     .expect("Accountant is dead.");
-    //             }
-    //             Ok(())
-    //         }
-    //         Err(e) => {
-    //             if let Some(max_block_count) = self.extract_max_block_count(e.clone()) {
-    //                 debug!(self.logger, "Writing max_block_count({})", &max_block_count);
-    //                 self.persistent_config
-    //                     .set_max_block_count(Some(max_block_count))
-    //                     .map_or_else(
-    //                         |_| {
-    //                             warning!(self.logger, "{} update max_block_count to {}. Scheduling next scan with that limit.", e, &max_block_count);
-    //                             Err(format!("{} updated max_block_count to {}. Scheduling next scan with that limit.", e, &max_block_count))
-    //                         },
-    //                         |e| {
-    //                             warning!(self.logger, "Writing max_block_count failed: {:?}", e);
-    //                             Err(format!("Writing max_block_count failed: {:?}", e))
-    //                         },
-    //                     )
-    //             } else {
-    //                 warning!(
-    //                     self.logger,
-    //                     "Attempted to retrieve received payments but failed: {:?}",
-    //                     e
-    //                 );
-    //                 Err(format!(
-    //                     "Attempted to retrieve received payments but failed: {:?}",
-    //                     e
-    //                 ))
-    //             }
-    //         }
-    //     }
-    // }
-
     fn handle_retrieve_transactions(
         &mut self,
         msg: RetrieveTransactions,
     ) -> Box<dyn Future<Item = (), Error = String>> {
-        let (start_block_nbr, max_block_count) = {
+        let (start_block, max_block_count) = {
             let persistent_config_lock = self
                 .persistent_config_arc
                 .lock()
                 .expect("Unable to lock persistent config in BlockchainBridge");
-            // TODO: GH-744: Look into making start_block_nbr 0 instead of u64::MAX
             let start_block_nbr = match persistent_config_lock.start_block() {
                 Ok(Some(sb)) => sb,
                 Ok(None) => u64::MAX,
@@ -426,8 +325,7 @@ impl BlockchainBridge {
         };
         let logger = self.logger.clone();
         let fallback_next_start_block_number =
-            Self::calculate_fallback_start_block_number(start_block_nbr, max_block_count);
-        let start_block = BlockNumber::Number(start_block_nbr.into()); // TODO: GH-744 Look at making this a u64 or an Option of u64
+            Self::calculate_fallback_start_block_number(start_block, max_block_count);
         let received_payments_subs = self
             .received_payments_subs_opt
             .as_ref()

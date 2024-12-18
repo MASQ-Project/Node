@@ -90,7 +90,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn retrieve_transactions(
         &self,
-        start_block: BlockNumber,
+        start_block: u64,
         fallback_start_block_number: u64,
         recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
@@ -121,7 +121,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 );
                 let filter = FilterBuilder::default()
                     .address(vec![contract_address])
-                    .from_block(start_block)
+                    .from_block(BlockNumber::Number(U64::from(start_block)))
                     .to_block(BlockNumber::Number(U64::from(response_block_number)))
                     .topics(
                         Some(vec![TRANSACTION_LITERAL]),
@@ -414,7 +414,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use web3::transports::Http;
-    use web3::types::{BlockNumber, H256, U256};
+    use web3::types::{H256, U256};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceipt;
 
     #[test]
@@ -516,7 +516,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 end_block_nbr,
                 Wallet::from_str(&to).unwrap().address(),
             )
@@ -577,7 +577,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 end_block_nbr,
                 to_wallet.address(),
             )
@@ -630,7 +630,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 555u64,
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
@@ -656,7 +656,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 555u64,
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
@@ -688,7 +688,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 end_block_nbr,
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
@@ -718,9 +718,8 @@ mod tests {
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         let subject = make_blockchain_interface_web3(port);
-        let start_block_nbr = 42u64;
-        let start_block = BlockNumber::Number(start_block_nbr.into());
-        let fallback_number = start_block_nbr;
+        let start_block = 42u64;
+        let fallback_number = start_block;
 
         let result = subject
             .retrieve_transactions(
