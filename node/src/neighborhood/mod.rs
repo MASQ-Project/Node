@@ -1419,9 +1419,9 @@ impl Neighborhood {
         );
         let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
         let mut research_exit: Vec<PublicKey> = vec![];
-        for mut exit_node in over_routes {
+        for exit_node in over_routes {
             let mut segment = VecDeque::from(vec![]);
-            let mut key = PublicKey::new(&[]);
+            let key = PublicKey::new(&[]);
             let undesirability = exit_node.undesirability;
             let mut current = Some(Rc::clone(&exit_node));
             while let Some(node) = current {
@@ -1438,7 +1438,7 @@ impl Neighborhood {
                     routes: vec![(Vec::from(segment.clone()), undesirability)],
                 });
         }
-        for mut exit_node in &research_exits {
+        for exit_node in &research_exits {
             let mut segment = VecDeque::from(vec![]);
             let undesirability = exit_node.undesirability;
             let mut current = Some(Rc::clone(&exit_node));
@@ -1519,11 +1519,12 @@ impl Neighborhood {
 
         //TODO reverse the public keys from Rc list
         match result {
-            Some(mut route_node) => {
+            Some(route_node) => {
                 let mut segment = VecDeque::from(vec![]);
-                while route_node.previous.is_some() {
-                    segment.push_front(route_node.public_key.clone());
-                    route_node = route_node.previous.clone().expect("expexted pointer");
+                let mut current = Some(Rc::clone(&route_node));
+                while let Some(node) = current {
+                    segment.push_front(node.public_key.clone());
+                    current = node.previous.as_ref().map(Rc::clone);
                 }
                 Some(Vec::from(segment))
             },
@@ -1546,7 +1547,7 @@ impl Neighborhood {
         research_neighborhood: bool,
         research_exits: &mut Vec<Rc<RouteElement>>,
     ) -> Vec<Rc<RouteElement>> {
-        if prefix.undesirability > *minimum_undesirability && !research_neighborhood && self.user_exit_preferences.location_preference == ExitPreference::Nothing {
+        if prefix.undesirability > *minimum_undesirability && !research_neighborhood {
             return vec![];
         }
         //TODO when target node is present ignore all country_codes selection - write test for route back and ignore the country code
@@ -1620,6 +1621,7 @@ impl Neighborhood {
         }
     }
 
+    //TODO testdrive me
     fn research_exit_contains(research_exits: &Vec<Rc<RouteElement>>, current_key: &PublicKey) -> bool {
         for prefix in research_exits {
             let mut current = Some(Rc::clone(&prefix));
@@ -1633,11 +1635,11 @@ impl Neighborhood {
         false
     }
 
-    fn prefix_contains(prefix: &Rc<RouteElement>) -> bool {
-        let current_key = prefix.public_key.clone();
+    //TODO testdrive me
+    fn prefix_contains(prefix: &Rc<RouteElement>, node_key_searched: &PublicKey) -> bool {
         let mut current = Some(Rc::clone(&prefix));
         while let Some(node) = current {
-            if current_key == node.public_key {
+            if node_key_searched == &node.public_key {
                 return true;
             }
             current = node.previous.as_ref().map(Rc::clone);
@@ -1661,10 +1663,12 @@ impl Neighborhood {
         previous_node: &NodeRecord,
     ) -> Vec<Rc<RouteElement>> {
         // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
-        previous_node
-            .full_neighbors(&self.neighborhood_database)
+        let neighbor_nodes = previous_node.full_neighbors(&self.neighborhood_database);
+        let mut result_vector = Vec::with_capacity(neighbor_nodes.len());
+
+        let result_iter = neighbor_nodes
             .iter()
-            .filter(|node_record| !Self::prefix_contains(&prefix)) //TODO make method to travers the elements
+            .filter(|node_record| !Self::prefix_contains(&prefix, node_record.public_key())) //TODO make method to travers the elements
             .filter(|node_record| {
                 node_record.routes_data()
                     || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
@@ -1703,8 +1707,9 @@ impl Neighborhood {
                     research_neighborhood,
                     research_exits,
                 )
-            })
-            .collect()
+            });
+        result_vector.extend(result_iter);
+        result_vector
     }
 
     fn send_ask_about_debut_gossip_message(
@@ -2175,25 +2180,10 @@ enum UndesirabilityType<'hostname> {
     ExitAndRouteResponse,
 }
 
-#[derive(Debug)]
-struct ComputedRouteSegment<'a> {
-    pub nodes: Vec<&'a PublicKey>,
-    pub undesirability: i64,
-}
-
 struct RouteElement {
     pub previous: Option<Rc<RouteElement>>,
     pub public_key: PublicKey,
     pub undesirability: i64,
-}
-
-impl<'a> ComputedRouteSegment<'a> {
-    pub fn new(nodes: Vec<&'a PublicKey>, undesirability: i64) -> Self {
-        Self {
-            nodes,
-            undesirability,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -4700,6 +4690,7 @@ mod tests {
             All these Nodes are standard-mode. L is the root Node.
 
     */
+    // TODO drive in the test where C route will be more expensive, than T route, so we have to pick up T exit-node
     #[test]
     fn route_optimization_country_codes() {
         let mut subject = make_standard_subject();
@@ -4770,7 +4761,7 @@ mod tests {
         let before = Instant::now();
 
         let route_cz =
-            subject.find_best_route_segment(&l, None, 3, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(&l, None, 2, 10000, RouteDirection::Over, None);
 
         let after = Instant::now();
         let exit_node = checkdb.node_by_key(
