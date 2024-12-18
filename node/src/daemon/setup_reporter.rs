@@ -26,7 +26,7 @@ use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
-use clap::value_t;
+use clap::{value_t, App};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
 use masq_lib::constants::DEFAULT_CHAIN;
@@ -36,8 +36,10 @@ use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupRespo
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
-use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directory, to_string, ExpectValue};
+use masq_lib::shared_schema::{data_directory_arg, shared_app, ConfiguratorError};
+use masq_lib::utils::{
+    add_chain_specific_directory, to_string, ExpectValue, DATA_DIRECTORY_DAEMON_HELP,
+};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -65,6 +67,10 @@ pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) 
         .into_iter()
         .map(|(k, v, s)| (k.to_string(), UiSetupResponseValue::new(k, v, s)))
         .collect::<SetupCluster>()
+}
+
+fn daemon_shared_app() -> App<'static, 'static> {
+    shared_app(app_head()).arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
 pub trait SetupReporter {
@@ -222,7 +228,7 @@ impl SetupReporterReal {
     }
 
     pub fn get_default_params() -> SetupCluster {
-        let schema = shared_app(app_head());
+        let schema = daemon_shared_app();
         schema
             .p
             .opts
@@ -492,7 +498,7 @@ impl SetupReporterReal {
         environment: bool,
         config_file: bool,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-        let app = shared_app(app_head());
+        let app = daemon_shared_app();
         let mut vcls: Vec<Box<dyn VirtualCommandLine>> = vec![];
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
@@ -742,7 +748,7 @@ impl ValueRetriever for DataDirectory {
 }
 impl std::default::Default for DataDirectory {
     fn default() -> Self {
-        Self::new(&DirsWrapperReal)
+        Self::new(&DirsWrapperReal::default())
     }
 }
 impl DataDirectory {
@@ -1136,7 +1142,7 @@ impl ValueRetriever for RealUser {
 }
 impl std::default::Default for RealUser {
     fn default() -> Self {
-        Self::new(&DirsWrapperReal {})
+        Self::new(&DirsWrapperReal::default())
     }
 }
 impl RealUser {
@@ -1224,11 +1230,13 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, rate_pack};
+    use crate::test_utils::{
+        assert_string_contains,
+        make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir, rate_pack,
+    };
     use core::option::Option;
-    use dirs::home_dir;
     use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::blockchains::chains::Chain::PolyMumbai;
+    use masq_lib::blockchains::chains::Chain::PolyAmoy;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1378,7 +1386,7 @@ mod tests {
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
         .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -1436,7 +1444,7 @@ mod tests {
             (
                 "real-user",
                 &RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
+                    .populate(&DirsWrapperReal::default())
                     .to_string(),
                 Default,
             ),
@@ -1496,7 +1504,7 @@ mod tests {
             ("scan-intervals","150|150|150",Set),
             ("scans", "off", Set),
         ]);
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
@@ -1568,7 +1576,7 @@ mod tests {
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -1643,7 +1651,7 @@ mod tests {
             ("MASQ_SCAN_INTERVALS","133|133|111")
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let params = vec![];
         let subject = SetupReporterReal::new(dirs_wrapper);
 
@@ -1956,7 +1964,7 @@ mod tests {
             ("scan-intervals", "111|111|111", Set),
             ("scans", "off", Set),
             ]);
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
@@ -2048,19 +2056,16 @@ mod tests {
     #[test]
     fn get_modified_setup_tilde_in_config_file_path() {
         let _guard = EnvironmentGuard::new();
-        let base_dir = ensure_node_home_directory_exists(
-            "setup_reporter",
-            "get_modified_setup_tilde_in_data_directory",
-        );
-        let data_dir = base_dir.join("data_dir");
-        std::fs::create_dir_all(home_dir().expect("expect home dir").join("masqhome")).unwrap();
-        let mut config_file = File::create(
-            home_dir()
-                .expect("expect home dir")
-                .join("masqhome")
-                .join("config.toml"),
-        )
-        .unwrap();
+        let (node_base_dir, node_base_dir_relative_to_os_home_dir) =
+            make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
+                "setup_reporter",
+                "get_modified_setup_tilde_in_config_file_path",
+            );
+        let existing_data_dir = node_base_dir.join("obsolete_data_dir");
+        let new_dir_levels = PathBuf::new().join("whatever_dir").join("new_data_dir");
+        let new_data_dir = node_base_dir.join(new_dir_levels.as_path());
+        create_dir_all(new_data_dir.as_path()).unwrap();
+        let mut config_file = File::create(new_data_dir.join("config.toml")).unwrap();
         config_file
             .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
             .unwrap();
@@ -2069,24 +2074,30 @@ mod tests {
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
-                &data_dir.to_string_lossy().to_string(),
+                &existing_data_dir.to_string_lossy().to_string(),
                 Default,
             ),
         ]);
+        let data_dir_referenced_from_the_home_dir = node_base_dir_relative_to_os_home_dir
+            .join(new_dir_levels)
+            .as_os_str()
+            .to_str()
+            .unwrap()
+            .to_string();
         let incoming_setup = vec![
-            ("data-directory", "~/masqhome"),
-            ("config-file", "~/masqhome/config.toml"),
+            (
+                "data-directory",
+                &format!("~/{}", data_dir_referenced_from_the_home_dir),
+            ),
+            (
+                "config-file",
+                &format!("~/{}/config.toml", data_dir_referenced_from_the_home_dir),
+            ),
         ]
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
         .collect_vec();
-
-        let expected_config_file_data = "https://www.mainnet.com";
-        let dirs_wrapper = Box::new(
-            DirsWrapperMock::new()
-                .data_dir_result(Some(data_dir))
-                .home_dir_result(Some(base_dir)),
-        );
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -2094,7 +2105,7 @@ mod tests {
             .unwrap();
 
         let actual_config_file_data = result.get("blockchain-service-url").unwrap().value.as_str();
-        assert_eq!(actual_config_file_data, expected_config_file_data);
+        assert_eq!(actual_config_file_data, "https://www.mainnet.com");
     }
 
     #[test]
@@ -2264,14 +2275,10 @@ mod tests {
         let current_data_dir = base_dir
             .join("data_dir")
             .join("MASQ")
-            .join(BlockChain::PolyMumbai.rec().literal_identifier); //not a default
+            .join(BlockChain::PolyAmoy.rec().literal_identifier); //not a default
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            (
-                "chain",
-                BlockChain::PolyMumbai.rec().literal_identifier,
-                Set,
-            ),
+            ("chain", BlockChain::PolyAmoy.rec().literal_identifier, Set),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -2310,7 +2317,7 @@ mod tests {
             .get_modified_setup(existing_setup, incoming_setup)
             .unwrap_err();
 
-        let expected_chain = PolyMumbai.rec().literal_identifier;
+        let expected_chain = PolyAmoy.rec().literal_identifier;
         let actual_chain = &resulting_setup_cluster.get("chain").unwrap().value;
         assert_eq!(actual_chain, expected_chain);
         let actual_data_directory =
@@ -2338,7 +2345,7 @@ mod tests {
             (
                 "real-user",
                 &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
+                    .populate(&DirsWrapperReal::default())
                     .to_string(),
                 Default,
             ),
@@ -2347,7 +2354,7 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let _ = subject
@@ -2375,7 +2382,7 @@ mod tests {
             ),
         ]);
         let incoming_setup = vec![UiSetupRequestValue::clear("neighbors")];
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -2487,7 +2494,7 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2518,7 +2525,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2549,7 +2556,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2576,7 +2583,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2599,12 +2606,13 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
             Some(
-                crate::bootstrapper::RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+                crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal::default())
             )
         );
         assert_eq!(data_directory_opt, None);
@@ -2618,7 +2626,7 @@ mod tests {
             "setup_reporter",
             "blanking_a_parameter_with_a_default_produces_that_default",
         );
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -2690,7 +2698,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
@@ -2736,7 +2744,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let (result, _) = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
+        let (result, _) = SetupReporterReal::new(Box::new(DirsWrapperReal::default()))
             .calculate_configured_setup(&setup, &*data_directory);
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2757,7 +2765,7 @@ mod tests {
         }
         let setup = vec![
             //no config-file setting
-            UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
+            UiSetupResponseValue::new("chain", "polygon-amoy", Set),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new("config-file", "booga/special.toml", Set),
             UiSetupResponseValue::new(
@@ -2769,7 +2777,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
             .0;
@@ -2795,7 +2803,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
@@ -2833,7 +2841,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
@@ -2848,7 +2856,7 @@ mod tests {
         );
         let config_file_dir = config_file_dir.canonicalize().unwrap();
         let config_file_path = config_file_dir.join("nonexistent.toml");
-        let wrapper = DirsWrapperReal {};
+        let wrapper = DirsWrapperReal::default();
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -2866,7 +2874,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
@@ -2919,11 +2927,14 @@ mod tests {
 
     #[test]
     fn data_directory_computed_default() {
-        let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
-        let expected =
-            data_directory_from_context(&DirsWrapperReal {}, &real_user, Blockchain::EthMainnet)
-                .to_string_lossy()
-                .to_string();
+        let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal::default());
+        let expected = data_directory_from_context(
+            &DirsWrapperReal::default(),
+            &real_user,
+            Blockchain::EthMainnet,
+        )
+        .to_string_lossy()
+        .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
         config.blockchain_bridge_config.chain = Blockchain::from("eth-mainnet");
@@ -3317,7 +3328,7 @@ mod tests {
             result,
             Some((
                 RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
+                    .populate(&DirsWrapperReal::default())
                     .to_string(),
                 Default
             ))
@@ -3699,7 +3710,7 @@ mod tests {
             "data-directory",
             &masqhome.to_str().unwrap(),
         )];
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, incoming_setup);
@@ -3716,10 +3727,10 @@ mod tests {
         let _guard = EnvironmentGuard::new();
         let existing_setup =
             setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
+        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-amoy")];
         let home_directory = Path::new("/home/booga");
         let data_directory = home_directory.join("data");
-        let expected = data_directory.join("MASQ").join("polygon-mumbai");
+        let expected = data_directory.join("MASQ").join("polygon-amoy");
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(data_directory))

@@ -378,11 +378,16 @@ impl Gossip_0v1 {
                     to: k.clone(),
                 })
             });
+            let country_code = match &nri.country_code_opt {
+                Some(cc) => cc.clone(),
+                None => "ZZ".to_string(),
+            };
             node_renderables.push(NodeRenderable {
                 inner: Some(NodeRenderableInner {
                     version: nri.version,
                     accepts_connections: nri.accepts_connections,
                     routes_data: nri.routes_data,
+                    country_code
                 }),
                 public_key: nri.public_key.clone(),
                 node_addr: addr.clone(),

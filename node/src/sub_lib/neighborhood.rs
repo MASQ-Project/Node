@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
-use crate::neighborhood::Neighborhood;
+use crate::neighborhood::{Neighborhood, UserExitPreferences};
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -380,6 +380,39 @@ pub enum Hops {
     SixHops = 6,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ExitLocation {
+    pub country_codes: Vec<String>,
+    pub priority: usize,
+}
+
+pub struct ExitLocationSet {
+    pub locations: Vec<ExitLocation>,
+}
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_codes, self.priority
+        )
+    }
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for exit_location in self.locations.iter() {
+            write!(
+                f,
+                "Country Codes: {:?} - Priority: {}; ",
+                exit_location.country_codes, exit_location.priority
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl FromStr for Hops {
     type Err = String;
 
@@ -406,7 +439,6 @@ impl Display for Hops {
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
     pub min_hops: Hops,
-    pub country: String,
 }
 
 lazy_static! {
@@ -478,6 +510,7 @@ pub struct RouteQueryMessage {
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
     pub hostname_opt: Option<String>,
+    pub target_country_opt: Option<String>,
 }
 
 impl Message for RouteQueryMessage {
@@ -487,6 +520,7 @@ impl Message for RouteQueryMessage {
 impl RouteQueryMessage {
     pub fn data_indefinite_route_request(
         hostname_opt: Option<String>,
+        target_country_opt: Option<String>,
         payload_size: usize,
     ) -> RouteQueryMessage {
         RouteQueryMessage {
@@ -495,6 +529,7 @@ impl RouteQueryMessage {
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
             hostname_opt,
+            target_country_opt,
         }
     }
 }
@@ -595,6 +630,7 @@ pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
     pub db_patch_size: u8,
+    pub user_exit_preferences_opt: Option<UserExitPreferences>,
 }
 
 pub struct NeighborhoodTools {
@@ -718,12 +754,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_mumbai() {
-        let descriptor = "masq://polygon-mumbai:as45cs5c5@1.2.3.4:4444";
+    fn parse_works_for_amoy() {
+        let descriptor = "masq://polygon-amoy:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
-        assert_eq!(result, (Chain::PolyMumbai, "as45cs5c5", "1.2.3.4:4444"))
+        assert_eq!(result, (Chain::PolyAmoy, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
@@ -750,7 +786,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -849,7 +885,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]
@@ -1049,7 +1085,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
+        let result = RouteQueryMessage::data_indefinite_route_request(None, None, 7500);
 
         assert_eq!(
             result,
@@ -1058,7 +1094,8 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
-                hostname_opt: None
+                hostname_opt: None,
+                target_country_opt: None,
             }
         );
     }

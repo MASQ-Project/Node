@@ -3,7 +3,7 @@
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
     ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -13,6 +13,7 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -64,8 +65,9 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+     masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+     masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -256,7 +258,7 @@ pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
-        POLYGON_MUMBAI_FULL_IDENTIFIER,
+        POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
@@ -388,7 +390,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
-    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -484,6 +485,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
+    use ip_country_lib::countries::INDEX_BY_ISO3166;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -518,6 +520,44 @@ pub mod common_validators {
             Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
             _ => Err(clandestine_port),
         }
+    }
+
+    pub fn validate_country_code(country_code: &str) -> Result<(), String> {
+        match INDEX_BY_ISO3166.contains_key(country_code) {
+            true => Ok(()),
+            false => Err(format!(
+                "'{}' is not a valid ISO3166 country code",
+                country_code
+            )),
+        }
+    }
+
+    pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
+        validate_pipe_separated_values(exit_location, |country: String| {
+            let mut collect_fails = "".to_string();
+            country.split(',').into_iter().for_each(|country_code| {
+                match validate_country_code(country_code) {
+                    Ok(_) => (),
+                    Err(e) => collect_fails.push_str(&e),
+                }
+            });
+            match collect_fails.is_empty() {
+                true => Ok(()),
+                false => Err(collect_fails),
+            }
+        })
+    }
+
+    pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
+        validate_pipe_separated_values(values, |segment: String| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
+                        .to_string()
+                })
+                .map(|_| ())
+        })
     }
 
     pub fn validate_private_key(key: String) -> Result<(), String> {
@@ -606,16 +646,24 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
-        values_with_delimiters.split('|').try_for_each(|segment| {
-            segment
-                .parse::<u64>()
-                .map_err(|_| {
-                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
-                        .to_string()
-                })
-                .map(|_| ())
-        })
+    fn validate_pipe_separated_values(
+        values_with_delimiters: String,
+        closure: fn(String) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut error_collection = vec![];
+        values_with_delimiters
+            .split('|')
+            .into_iter()
+            .for_each(|segment| {
+                match closure(segment.to_string()) {
+                    Ok(_) => (),
+                    Err(msg) => error_collection.push(msg),
+                };
+            });
+        match error_collection.is_empty() {
+            true => Ok(()),
+            false => Err(error_collection.into_iter().collect::<String>()),
+        }
     }
 }
 
@@ -683,6 +731,7 @@ mod tests {
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
              https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
              https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
         assert_eq!(
@@ -757,8 +806,9 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+                  masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -926,6 +976,23 @@ mod tests {
     }
 
     #[test]
+    fn validate_exit_key_fails_on_not_valid_country_code() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR"));
+
+        assert_eq!(
+            result,
+            Err("'RR' is not a valid ISO3166 country code".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_exit_key_success() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK"));
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
     fn validate_private_key_requires_a_key_that_is_64_characters_long() {
         let result = common_validators::validate_private_key(String::from("42"));
 
@@ -1075,7 +1142,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1087,7 +1154,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1099,7 +1166,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1144,7 +1211,7 @@ mod tests {
         let mut iterator = official_chain_names().iter();
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
+        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyAmoy);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
         assert_eq!(iterator.next(), None)
