@@ -5,7 +5,9 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -35,6 +37,11 @@ impl BlockchainAgent for BlockchainAgentNull {
     fn consuming_wallet(&self) -> &Wallet {
         self.log_function_call("consuming_wallet()");
         &self.wallet
+    }
+
+    fn get_chain(&self) -> Chain {
+        self.log_function_call("get_chain()");
+        TEST_DEFAULT_CHAIN
     }
 
     #[cfg(test)]

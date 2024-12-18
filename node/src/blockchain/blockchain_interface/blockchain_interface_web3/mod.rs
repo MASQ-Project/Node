@@ -90,7 +90,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
 
     fn retrieve_transactions(
         &self,
-        start_block: BlockNumber,
+        start_block: u64,
         fallback_start_block_number: u64,
         recipient: Address,
     ) -> Box<dyn Future<Item = RetrievedBlockchainTransactions, Error = BlockchainError>> {
@@ -121,7 +121,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 );
                 let filter = FilterBuilder::default()
                     .address(vec![contract_address])
-                    .from_block(start_block)
+                    .from_block(BlockNumber::Number(U64::from(start_block)))
                     .to_block(BlockNumber::Number(U64::from(response_block_number)))
                     .topics(
                         Some(vec![TRANSACTION_LITERAL]),
@@ -162,6 +162,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let get_service_fee_balance = self
             .lower_interface()
             .get_service_fee_balance(wallet_address);
+        let chain = self.chain;
 
         Box::new(
             get_gas_price
@@ -187,6 +188,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         gas_limit_const_part,
                                         blockchain_agent_future_result,
                                         consuming_wallet,
+                                        chain,
                                     ))
                                 })
                         })
@@ -212,9 +214,11 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         None => TransactionReceiptResult::NotPresent,
                                         Some(status) => {
                                             if status == U64::from(1) {
-                                                TransactionReceiptResult::Found(receipt)
+                                                TransactionReceiptResult::Found(receipt.into())
                                             } else {
-                                                TransactionReceiptResult::TransactionFailed(receipt)
+                                                TransactionReceiptResult::TransactionFailed(
+                                                    receipt.into(),
+                                                )
                                             }
                                         }
                                     },
@@ -222,12 +226,12 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         if e.to_string().contains("invalid type: null") {
                                             TransactionReceiptResult::NotPresent
                                         } else {
-                                            TransactionReceiptResult::Error(e.to_string())
+                                            TransactionReceiptResult::LocalError(e.to_string())
                                         }
                                     }
                                 }
                             }
-                            Err(e) => TransactionReceiptResult::Error(e.to_string()),
+                            Err(e) => TransactionReceiptResult::LocalError(e.to_string()),
                         })
                         .collect::<Vec<TransactionReceiptResult>>())
                 }),
@@ -237,7 +241,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     fn submit_payables_in_batch(
         &self,
         logger: Logger,
-        chain: Chain,
         agent: Box<dyn BlockchainAgent>,
         fingerprints_recipient: Recipient<PendingPayableFingerprintSeeds>,
         affordable_accounts: Vec<PayableAccount>,
@@ -249,6 +252,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             .lower_interface()
             .get_transaction_id(consuming_wallet.address());
         let gas_price_wei = agent.agreed_fee_per_computation_unit();
+        let chain = agent.get_chain();
 
         Box::new(
             get_transaction_id
@@ -372,7 +376,7 @@ impl BlockchainInterfaceWeb3 {
             );
 
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: transaction_max_block_number,
+                new_start_block: transaction_max_block_number + 1,
                 transactions,
             })
         }
@@ -410,7 +414,8 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use web3::transports::Http;
-    use web3::types::{BlockNumber, H2048, H256, U256};
+    use web3::types::{H256, U256};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceipt;
 
     #[test]
     fn constants_are_correct() {
@@ -511,7 +516,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 end_block_nbr,
                 Wallet::from_str(&to).unwrap().address(),
             )
@@ -521,7 +526,7 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be663,
+                new_start_block: 0x4be663 + 1,
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 0x4be663,
@@ -572,7 +577,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 end_block_nbr,
                 to_wallet.address(),
             )
@@ -581,7 +586,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1543663,
+                new_start_block: 1543664,
                 transactions: vec![]
             })
         );
@@ -625,7 +630,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 555u64,
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
@@ -651,7 +656,7 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 555u64,
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
@@ -677,13 +682,13 @@ mod tests {
         )
         .unwrap();
 
-        let end_block_nbr = 1024u64;
+        let end_block_nbr = 1025u64;
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
         let result = subject
             .retrieve_transactions(
-                BlockNumber::Number(42u64.into()),
+                42u64,
                 end_block_nbr,
                 Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                     .unwrap()
@@ -713,10 +718,8 @@ mod tests {
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         let subject = make_blockchain_interface_web3(port);
-        let start_block_nbr = 42u64;
-        let start_block = BlockNumber::Number(start_block_nbr.into());
-        // let fallback_number = BlockchainBridge::calculate_fallback_start_block_number(start_block_nbr, u64::MAX);
-        let fallback_number = start_block_nbr + 1;
+        let start_block = 42u64;
+        let fallback_number = start_block;
 
         let result = subject
             .retrieve_transactions(
@@ -728,11 +731,11 @@ mod tests {
             )
             .wait();
 
-        let expected_fallback_start_block = start_block_nbr + 1u64;
+        let expected_start_block = fallback_number + 1u64;
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: expected_fallback_start_block,
+                new_start_block: expected_start_block,
                 transactions: vec![]
             })
         );
@@ -930,46 +933,56 @@ mod tests {
             .wait()
             .unwrap();
 
-        assert_eq!(result[0], TransactionReceiptResult::Error("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
+        assert_eq!(result[0], TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
         assert_eq!(result[1], TransactionReceiptResult::NotPresent);
         assert_eq!(
             result[2],
-            TransactionReceiptResult::Error(
+            TransactionReceiptResult::LocalError(
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
             )
         );
         assert_eq!(result[3], TransactionReceiptResult::NotPresent);
         assert_eq!(
             result[4],
-            TransactionReceiptResult::TransactionFailed(TransactionReceipt {
+            TransactionReceiptResult::TransactionFailed(TxReceipt {
                 transaction_hash: tx_hash_5,
-                transaction_index: Default::default(),
                 block_hash: None,
                 block_number: None,
-                cumulative_gas_used: U256::from(0),
-                gas_used: None,
-                contract_address: None,
-                logs: vec![],
-                status: Some(status_failed),
-                root: None,
-                logs_bloom: H2048::default()
+                status: Some(false),
             })
         );
         assert_eq!(
             result[5],
-            TransactionReceiptResult::Found(TransactionReceipt {
+            TransactionReceiptResult::Found(TxReceipt {
                 transaction_hash: tx_hash_6,
-                transaction_index: Default::default(),
                 block_hash: Some(block_hash),
                 block_number: Some(block_number),
-                cumulative_gas_used,
-                gas_used: Some(gas_used),
-                contract_address: None,
-                logs: vec![],
-                status: Some(status),
-                root: None,
-                logs_bloom: H2048::default()
+                status: Some(true),
             })
+        );
+    }
+
+    #[test]
+    fn process_transaction_receipts_fails_on_submit_batch() {
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port).start();
+        let subject = make_blockchain_interface_web3(port);
+        let tx_hash_1 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
+                .unwrap();
+        let tx_hash_2 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
+                .unwrap();
+        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
+
+        let result = subject
+            .process_transaction_receipts(tx_hash_vec)
+            .wait()
+            .unwrap_err();
+
+        assert_eq!(
+            result,
+            BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
         );
     }
 

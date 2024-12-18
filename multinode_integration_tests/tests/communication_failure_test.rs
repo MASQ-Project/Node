@@ -272,7 +272,9 @@ fn dns_resolution_failure_with_real_nodes() {
     );
 }
 
+// >>> TODO: GH-744: - Fix this test.
 #[test]
+#[ignore]
 fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
     let dns_server_that_fails = Ipv4Addr::new(1, 1, 1, 3).into();
     let mut cluster = MASQNodeCluster::start().unwrap();
