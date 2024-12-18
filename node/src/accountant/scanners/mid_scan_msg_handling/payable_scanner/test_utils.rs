@@ -7,22 +7,21 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
-use std::cell::RefCell;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-
+use std::cell::RefCell;
 
 pub struct BlockchainAgentMock {
     consuming_wallet_balances_results: RefCell<Vec<ConsumingWalletBalances>>,
     agreed_fee_per_computation_unit_results: RefCell<Vec<u128>>,
     consuming_wallet_result_opt: Option<Wallet>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
-    get_chain_result_opt: Option<Chain>
+    get_chain_result_opt: Option<Chain>,
 }
 
 impl Default for BlockchainAgentMock {
     fn default() -> Self {
-        BlockchainAgentMock{
+        BlockchainAgentMock {
             consuming_wallet_balances_results: RefCell::new(vec![]),
             agreed_fee_per_computation_unit_results: RefCell::new(vec![]),
             consuming_wallet_result_opt: None,

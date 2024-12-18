@@ -315,7 +315,7 @@ pub fn dynamically_create_blockchain_agent_web3(
     gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
-    chain: Chain
+    chain: Chain,
 ) -> Box<dyn BlockchainAgent> {
     Box::new(BlockchainAgentWeb3::new(
         blockchain_agent_future_result.gas_price_wei.as_u128(),
@@ -326,7 +326,7 @@ pub fn dynamically_create_blockchain_agent_web3(
                 .transaction_fee_balance,
             masq_token_balance_in_minor_units: blockchain_agent_future_result.masq_token_balance,
         },
-        chain
+        chain,
     ))
 }
 
@@ -639,6 +639,13 @@ mod tests {
     #[test]
     fn send_payables_within_batch_works() {
         let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .response("rpc_result".to_string(), 7)
+            .response("rpc_result_2".to_string(), 8)
+            .end_batch()
+            .start();
         let expected_result = Ok(vec![
             Correct(PendingPayable {
                 recipient_wallet: accounts[0].wallet.clone(),
@@ -656,13 +663,6 @@ mod tests {
             }),
         ]);
 
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .response("rpc_result_2".to_string(), 8)
-            .end_batch()
-            .start();
         execute_send_payables_test(
             "send_payables_within_batch_works",
             accounts,
@@ -676,6 +676,7 @@ mod tests {
         let accounts = vec![make_payable_account(1), make_payable_account(2)];
         let os_code = transport_error_code();
         let os_msg = transport_error_message();
+        let port = find_free_port();
         let expected_result = Err(Sending {
             msg: format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: {:?} }})", os_code, os_msg).to_string(),
             hashes: vec![
@@ -684,7 +685,6 @@ mod tests {
             ],
         });
 
-        let port = find_free_port();
         execute_send_payables_test(
             "send_payables_within_batch_fails_on_submit_batch_call",
             accounts,
@@ -696,27 +696,6 @@ mod tests {
     #[test]
     fn send_payables_within_batch_all_payments_fail() {
         let accounts = vec![make_payable_account(1), make_payable_account(2)];
-        let expected_result = Ok(vec![
-            Failed(RpcPayableFailure {
-                rpc_error: Rpc(Error {
-                    code: ServerError(429),
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                    data: None,
-                }),
-                recipient_wallet: accounts[0].wallet.clone(),
-                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
-            }),
-            Failed(RpcPayableFailure {
-                rpc_error: Rpc(Error {
-                    code: ServerError(429),
-                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
-                    data: None,
-                }),
-                recipient_wallet: accounts[1].wallet.clone(),
-                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
-            }),
-        ]);
-
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
@@ -734,6 +713,27 @@ mod tests {
             )
             .end_batch()
             .start();
+        let expected_result = Ok(vec![
+            Failed(RpcPayableFailure {
+                rpc_error: Rpc(Error {
+                    code: ServerError(429),
+                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                    data: None,
+                }),
+                recipient_wallet: accounts[0].wallet.clone(),
+                hash: H256::from_str("35f42b260f090a559e8b456718d9c91a9da0f234ed0a129b9d5c4813b6615af4").unwrap(),
+            }),
+            Failed(RpcPayableFailure {
+                rpc_error: Rpc(Error {
+                    code: ServerError(429),
+                    message: "The requests per second (RPS) of your requests are higher than your plan allows.".to_string(),
+                    data: None,
+                }),
+                recipient_wallet: accounts[1].wallet.clone(),
+                hash: H256::from_str("7f3221109e4f1de8ba1f7cd358aab340ecca872a1456cb1b4f59ca33d3e22ee3").unwrap(),
+            }),
+        ]);
+
         execute_send_payables_test(
             "send_payables_within_batch_all_payments_fail",
             accounts,
@@ -745,6 +745,18 @@ mod tests {
     #[test]
     fn send_payables_within_batch_one_payment_works_the_other_fails() {
         let accounts = vec![make_payable_account(1), make_payable_account(2)];
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port)
+            .begin_batch()
+            .response("rpc_result".to_string(), 7)
+            .err_response(
+                429,
+                "The requests per second (RPS) of your requests are higher than your plan allows."
+                    .to_string(),
+                7,
+            )
+            .end_batch()
+            .start();
         let expected_result = Ok(vec![
             Correct(PendingPayable {
                 recipient_wallet: accounts[0].wallet.clone(),
@@ -761,18 +773,6 @@ mod tests {
             }),
         ]);
 
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port)
-            .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .err_response(
-                429,
-                "The requests per second (RPS) of your requests are higher than your plan allows."
-                    .to_string(),
-                7,
-            )
-            .end_batch()
-            .start();
         execute_send_payables_test(
             "send_payables_within_batch_one_payment_works_the_other_fails",
             accounts,
@@ -828,7 +828,7 @@ mod tests {
         let web3 = Web3::new(transport.clone());
         let chain = DEFAULT_CHAIN;
         let amount = 11_222_333_444;
-        let gas_price_in_wei = 123_000_000_000_000_000_000;
+        let gas_price_in_wei = 123 * 10_u128.pow(18);
         let nonce = U256::from(5);
         let recipient_wallet = make_wallet("recipient_wallet");
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");

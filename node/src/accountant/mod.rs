@@ -3832,11 +3832,11 @@ mod tests {
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_1),
+                    TransactionReceiptResult::Found(transaction_receipt_1.into()),
                     fingerprint_1.clone(),
                 ),
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_2),
+                    TransactionReceiptResult::Found(transaction_receipt_2.into()),
                     fingerprint_2.clone(),
                 ),
             ],

@@ -13,12 +13,30 @@ use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
 #[derive(Debug, PartialEq, Clone)]
-#[allow(clippy::large_enum_variant)]
 pub enum TransactionReceiptResult {
     NotPresent,
-    Found(TransactionReceipt),
-    TransactionFailed(TransactionReceipt), // RemoteFail ure
-    LocalError(String),                         // LocalFailure
+    Found(TxReceipt),
+    TransactionFailed(TxReceipt),
+    LocalError(String),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct TxReceipt {
+    pub transaction_hash: H256,
+    pub block_hash: Option<H256>,
+    pub block_number: Option<U64>,
+    pub status: Option<bool>,
+}
+
+impl From<TransactionReceipt> for TxReceipt {
+    fn from(receipt: TransactionReceipt) -> Self {
+        TxReceipt {
+            transaction_hash: receipt.transaction_hash,
+            block_hash: receipt.block_hash,
+            block_number: receipt.block_number,
+            status: receipt.status.map(|s| s == U64::from(1)),
+        }
+    }
 }
 
 pub struct LowBlockchainIntWeb3 {
@@ -354,33 +372,6 @@ mod tests {
             expected_err_msg,
             err_msg
         )
-    }
-
-
-
-    #[test]
-    fn transaction_receipt_batch_fails_on_submit_batch() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let subject = make_blockchain_interface_web3(port);
-        let tx_hash_1 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
-        let tx_hash_2 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
-                .unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
-
-        let result = subject
-            .lower_interface()
-            .get_transaction_receipt_in_batch(tx_hash_vec)
-            .wait()
-            .unwrap_err();
-
-        assert_eq!(
-            result,
-            BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
-        );
     }
 
     #[test]

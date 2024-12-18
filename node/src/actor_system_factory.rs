@@ -635,13 +635,8 @@ where
 mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
-    use crate::accountant::{
-        PaymentsAndStartBlock, ReceivedPayments, DEFAULT_PENDING_TOO_LONG_SEC,
-    };
-    use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::bootstrapper::{Bootstrapper, RealUser};
-    use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
     };
@@ -657,7 +652,6 @@ mod tests {
     use crate::sub_lib::peer_actors::StartMessage;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::actor_system_factory::BannedCacheLoaderMock;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;
@@ -667,11 +661,9 @@ mod tests {
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from_recorder,
         make_configurator_subs_from_recorder, make_hopper_subs_from_recorder,
         make_neighborhood_subs_from_recorder, make_proxy_client_subs_from_recorder,
-        make_proxy_server_subs_from_recorder, make_ui_gateway_subs_from_recorder,
-        peer_actors_builder, Recording,
+        make_proxy_server_subs_from_recorder, make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::unshared_test_utils::{
@@ -679,30 +671,24 @@ mod tests {
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
-    use crate::{
-        hopper, match_every_type_id, proxy_client, proxy_server, stream_handler_pool, ui_gateway,
-    };
+    use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use core::any::TypeId;
-    use crossbeam_channel::{bounded, unbounded};
+    use crossbeam_channel::unbounded;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, LogObject, TEST_DEFAULT_CHAIN,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
-    use masq_lib::utils::{find_free_port, running_test};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;

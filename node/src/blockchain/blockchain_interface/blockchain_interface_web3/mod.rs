@@ -188,7 +188,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         gas_limit_const_part,
                                         blockchain_agent_future_result,
                                         consuming_wallet,
-                                        chain
+                                        chain,
                                     ))
                                 })
                         })
@@ -214,9 +214,11 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                         None => TransactionReceiptResult::NotPresent,
                                         Some(status) => {
                                             if status == U64::from(1) {
-                                                TransactionReceiptResult::Found(receipt)
+                                                TransactionReceiptResult::Found(receipt.into())
                                             } else {
-                                                TransactionReceiptResult::TransactionFailed(receipt)
+                                                TransactionReceiptResult::TransactionFailed(
+                                                    receipt.into(),
+                                                )
                                             }
                                         }
                                     },
@@ -412,7 +414,8 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
     use web3::transports::Http;
-    use web3::types::{BlockNumber, H2048, H256, U256};
+    use web3::types::{BlockNumber, H256, U256};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceipt;
 
     #[test]
     fn constants_are_correct() {
@@ -523,7 +526,7 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be663,
+                new_start_block: 0x4be663 + 1,
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 0x4be663,
@@ -583,7 +586,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1543663,
+                new_start_block: 1543664,
                 transactions: vec![]
             })
         );
@@ -679,7 +682,7 @@ mod tests {
         )
         .unwrap();
 
-        let end_block_nbr = 1024u64;
+        let end_block_nbr = 1025u64;
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
@@ -942,35 +945,45 @@ mod tests {
         assert_eq!(result[3], TransactionReceiptResult::NotPresent);
         assert_eq!(
             result[4],
-            TransactionReceiptResult::TransactionFailed(TransactionReceipt {
+            TransactionReceiptResult::TransactionFailed(TxReceipt {
                 transaction_hash: tx_hash_5,
-                transaction_index: Default::default(),
                 block_hash: None,
                 block_number: None,
-                cumulative_gas_used: U256::from(0),
-                gas_used: None,
-                contract_address: None,
-                logs: vec![],
-                status: Some(status_failed),
-                root: None,
-                logs_bloom: H2048::default()
+                status: Some(false),
             })
         );
         assert_eq!(
             result[5],
-            TransactionReceiptResult::Found(TransactionReceipt {
+            TransactionReceiptResult::Found(TxReceipt {
                 transaction_hash: tx_hash_6,
-                transaction_index: Default::default(),
                 block_hash: Some(block_hash),
                 block_number: Some(block_number),
-                cumulative_gas_used,
-                gas_used: Some(gas_used),
-                contract_address: None,
-                logs: vec![],
-                status: Some(status),
-                root: None,
-                logs_bloom: H2048::default()
+                status: Some(true),
             })
+        );
+    }
+
+    #[test]
+    fn process_transaction_receipts_fails_on_submit_batch() {
+        let port = find_free_port();
+        let _blockchain_client_server = MBCSBuilder::new(port).start();
+        let subject = make_blockchain_interface_web3(port);
+        let tx_hash_1 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
+                .unwrap();
+        let tx_hash_2 =
+            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
+                .unwrap();
+        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
+
+        let result = subject
+            .process_transaction_receipts(tx_hash_vec)
+            .wait()
+            .unwrap_err();
+
+        assert_eq!(
+            result,
+            BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
         );
     }
 

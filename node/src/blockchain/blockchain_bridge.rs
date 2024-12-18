@@ -566,7 +566,7 @@ impl BlockchainBridge {
                 start_block_number
             } else {
                 start_block_number + 1u64 // TODO: GH-744 Way are we adding +1 can we just return the same value?
-                //start_block_number
+                                          //start_block_number
             }
         } else {
             start_block_number + max_block_count
@@ -640,11 +640,13 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_time_t;
+    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::{
         make_empty_payments_and_start_block, protect_payables_in_test,
     };
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::BlockchainInterfaceWeb3;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, PayableTransactionError,
@@ -775,7 +777,7 @@ mod tests {
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x230000000".to_string(), 1)
+            .response("0x230000000".to_string(), 1) // 9395240960
             .response("0x23".to_string(), 1)
             .response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
@@ -848,19 +850,24 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .agreed_fee_per_computation_unit(),
-            9395240960
+            0x230000000
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual
                 .agent
                 .consuming_wallet_balances(),
-            ConsumingWalletBalances::new(35.into(), 65535.into())
+            ConsumingWalletBalances::new(
+                35.into(),
+                0x000000000000000000000000000000000000000000000000000000000000FFFF.into()
+            )
         );
+        let gas_limit_const_part =
+            BlockchainInterfaceWeb3::web3_gas_limit_const_part(Chain::PolyMainnet);
         assert_eq!(
             blockchain_agent_with_context_msg_actual
                 .agent
                 .estimated_transaction_fee_total(1),
-            688_934_229_114_880
+            (1 * 0x230000000 * (gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
@@ -1057,7 +1064,7 @@ mod tests {
         let agent = BlockchainAgentMock::default()
             .consuming_wallet_result(consuming_wallet)
             .agreed_fee_per_computation_unit_result(123)
-            .get_chain_result(Chain::PolyMainnet);;
+            .get_chain_result(Chain::PolyMainnet);
         send_bind_message!(subject_subs, peer_actors);
 
         let _ = addr
@@ -1293,7 +1300,7 @@ mod tests {
             &ReportTransactionReceipts {
                 fingerprints_with_receipts: vec![
                     (
-                        TransactionReceiptResult::Found(expected_receipt),
+                        TransactionReceiptResult::Found(expected_receipt.into()),
                         pending_payable_fingerprint_1
                     ),
                     (
@@ -1462,7 +1469,7 @@ mod tests {
             ReportTransactionReceipts {
                 fingerprints_with_receipts: vec![
                     (TransactionReceiptResult::NotPresent, fingerprint_1),
-                    (TransactionReceiptResult::Found(transaction_receipt), fingerprint_2),
+                    (TransactionReceiptResult::Found(transaction_receipt.into()), fingerprint_2),
                     (TransactionReceiptResult::NotPresent, fingerprint_3),
                     (TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()), fingerprint_4)
                 ],
@@ -1614,17 +1621,17 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 6040060u64,
+            new_start_block: 6040060u64 + 1,
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 6040059,
-                    from: make_wallet("first_wallet"), // Points to topics of 1
-                    wei_amount: 42,                    // Its points to the field data
+                    from: make_wallet("first_wallet"), // Relates to RPC response topics of 1
+                    wei_amount: 42,                    // Relates to RPC response field data
                 },
                 BlockchainTransaction {
                     block_number: 6040060,
-                    from: make_wallet("second_wallet"), // Points to topics of 1
-                    wei_amount: 55,                     // Its points to the field data
+                    from: make_wallet("second_wallet"), // Relates to RPC response topics of 1
+                    wei_amount: 55,                     // Relates to RPC response field data
                 },
             ],
         };
@@ -1738,7 +1745,7 @@ mod tests {
                 }),
                 payments_and_start_block: PaymentsAndStartBlock {
                     payments: expected_transactions.transactions,
-                    new_start_block: 8675309u64
+                    new_start_block: 8675309u64 + 1
                 },
             }
         );
@@ -1785,7 +1792,7 @@ mod tests {
         let earning_wallet = make_wallet("earning_wallet");
         let amount = 996000000;
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 1000000000,
+            new_start_block: (0x3B9ACA00 + 1),
             transactions: vec![BlockchainTransaction {
                 block_number: 2000,
                 from: earning_wallet.clone(),
@@ -1929,12 +1936,14 @@ mod tests {
         let accountant = accountant.system_stop_conditions(match_every_type_id!(ScanError));
         let earning_wallet = make_wallet("earning_wallet");
         let blockchain_interface = make_blockchain_interface_web3(port);
+        let set_max_block_count_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(Some(6)))
             .max_block_count_result(Err(PersistentConfigError::DatabaseError(
                 "my tummy hurts".to_string(),
             )))
-            .set_max_block_count_result(Ok(()));
+            .set_max_block_count_result(Ok(()))
+            .set_max_block_count_params(&set_max_block_count_params_arc);
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Arc::new(Mutex::new(persistent_config)),
@@ -1970,6 +1979,8 @@ mod tests {
                 msg: "Error while retrieving transactions: QueryFailed(\"RPC error: Error { code: ServerError(-32005), message: \\\"Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000\\\", data: None }\")".to_string(),
             }
         );
+        let max_block_count_params = set_max_block_count_params_arc.lock().unwrap();
+        assert_eq!(*max_block_count_params, vec![Some(1000)]);
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Updated max_block_count to 1000 in database"
         ));
