@@ -12,7 +12,7 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
     NotPresent,
     Found(TxReceipt),
@@ -20,7 +20,7 @@ pub enum TransactionReceiptResult {
     LocalError(String),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceipt {
     pub transaction_hash: H256,
     pub block_hash: Option<H256>,

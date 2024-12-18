@@ -374,7 +374,7 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct ReportTransactionReceipts {
     pub fingerprints_with_receipts: Vec<(TransactionReceiptResult, PendingPayableFingerprint)>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
