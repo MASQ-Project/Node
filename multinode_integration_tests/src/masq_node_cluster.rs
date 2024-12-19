@@ -338,6 +338,24 @@ impl MASQNodeCluster {
         }
     }
 
+    #[allow(dead_code)]
+    fn interconnect_world_network(network_one: &str, network_two: &str) -> Result<(), String> {
+        let mut command = Command::new(
+            "docker",
+            Command::strings(vec!["network", "connect", network_one, network_two]),
+        );
+        match command.wait_for_exit() {
+            0 => Ok(()),
+            _ => Err(format!(
+                "Could not connect network {} to {}: {}",
+                network_one,
+                network_two,
+                command.stderr_as_string()
+            )),
+        }
+    }
+
+    #[allow(dead_code)]
     fn create_world_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {
         let mut command = Command::new(
             "docker",
