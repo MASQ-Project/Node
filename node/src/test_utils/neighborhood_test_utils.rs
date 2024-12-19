@@ -66,13 +66,22 @@ impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord 
     }
 }
 
-pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
+pub fn make_segments(n: u16) -> (u8, u8, u8, u8) {
     let seg1 = ((n / 1000) % 10) as u8;
     let seg2 = ((n / 100) % 10) as u8;
     let seg3 = ((n / 10) % 10) as u8;
     let seg4 = (n % 10) as u8;
+    (seg1, seg2, seg3, seg4)
+}
+
+pub fn make_segmented_ip(seg1: u8, seg2: u8, seg3: u8, seg4: u8) -> IpAddr {
+    IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4))
+}
+
+pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
+    let (seg1, seg2, seg3, seg4) = make_segments(n);
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
-    let ip_addr = IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4));
+    let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
     let (_ip, country_code, free_world_bit) = pick_country_code_record(n % 6);
     let location_opt = match country_code.is_empty() {
@@ -148,12 +157,10 @@ pub fn neighborhood_from_nodes(
                 *root.rate_pack(),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
         },
         None => NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
         },
     };
     config.earning_wallet = root.earning_wallet();

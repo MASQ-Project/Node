@@ -25,7 +25,7 @@ pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
 #[derive(Clone)]
 pub struct NeighborhoodDatabase {
-    this_node: PublicKey,
+    pub this_node: PublicKey,
     by_public_key: HashMap<PublicKey, NodeRecord>,
     by_ip_addr: HashMap<IpAddr, PublicKey>,
     logger: Logger,
@@ -77,6 +77,10 @@ impl NeighborhoodDatabase {
         self.node_by_key(&self.this_node).expect("Internal error")
     }
 
+    pub fn root_key(&self) -> &PublicKey {
+        &self.this_node
+    }
+
     pub fn root_mut(&mut self) -> &mut NodeRecord {
         let root_key = &self.this_node.clone();
         self.node_by_key_mut(root_key).expect("Internal error")
@@ -92,6 +96,13 @@ impl NeighborhoodDatabase {
 
     pub fn node_by_key_mut(&mut self, public_key: &PublicKey) -> Option<&mut NodeRecord> {
         self.by_public_key.get_mut(public_key)
+    }
+
+    pub fn nodes_mut(&mut self) -> Vec<&mut NodeRecord> {
+        self.by_public_key
+            .iter_mut()
+            .map(|(_key, node_record)| node_record)
+            .collect()
     }
 
     pub fn node_by_ip(&self, ip_addr: &IpAddr) -> Option<&NodeRecord> {
@@ -288,11 +299,16 @@ impl NeighborhoodDatabase {
                         to: k.clone(),
                     })
                 });
+                let country_code = match &nr.inner.country_code_opt {
+                    Some(cc) => cc.clone(),
+                    None => "ZZ".to_string(),
+                };
                 node_renderables.push(NodeRenderable {
                     inner: Some(NodeRenderableInner {
                         version: nr.version(),
                         accepts_connections: nr.accepts_connections(),
                         routes_data: nr.routes_data(),
+                        country_code,
                     }),
                     public_key: public_key.clone(),
                     node_addr: nr.node_addr_opt(),
@@ -370,7 +386,9 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_segmented_ip, make_segments,
+    };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
@@ -559,6 +577,50 @@ mod tests {
             subject.node_by_ip(&another_node.node_addr_opt().unwrap().ip_addr()),
             None
         );
+    }
+
+    #[test]
+    fn nodes_mut_works() {
+        let root_node = make_node_record(1234, true);
+        let node_a = make_node_record(2345, false);
+        let node_b = make_node_record(3456, true);
+        let mut subject = NeighborhoodDatabase::new(
+            root_node.public_key(),
+            (&root_node).into(),
+            Wallet::from_str("0x0000000000000000000000000000000000004444").unwrap(),
+            &CryptDENull::from(root_node.public_key(), TEST_DEFAULT_CHAIN),
+        );
+        subject.add_node(node_a.clone()).unwrap();
+        subject.add_node(node_b.clone()).unwrap();
+        let mut iterator: u16 = 7890;
+        let mut keys_nums: Vec<(PublicKey, u16)> = vec![];
+
+        let mutable_nodes = subject.nodes_mut();
+        for node in mutable_nodes {
+            let (seg1, seg2, seg3, seg4) = make_segments(iterator);
+            node.metadata.node_addr_opt = Some(NodeAddr::new(
+                &make_segmented_ip(seg1, seg2, seg3, seg4),
+                &[iterator],
+            ));
+            keys_nums.push((node.inner.public_key.clone(), iterator));
+            iterator += 1;
+        }
+
+        for (pub_key, num) in keys_nums {
+            let (seg1, seg2, seg3, seg4) = make_segments(num);
+            assert_eq!(
+                &subject
+                    .node_by_key(&pub_key)
+                    .unwrap()
+                    .clone()
+                    .metadata
+                    .node_addr_opt,
+                &Some(NodeAddr::new(
+                    &make_segmented_ip(seg1, seg2, seg3, seg4),
+                    &[num]
+                ))
+            );
+        }
     }
 
     #[test]
@@ -792,19 +854,19 @@ mod tests {
         assert_eq!(result.matches("->").count(), 8);
         assert_string_contains(
             &result,
-            "\"AQIDBA\" [label=\"AR v1\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
+            "\"AQIDBA\" [label=\"AR v1 AU\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
         );
         assert_string_contains(
             &result,
-            "\"AgMEBQ\" [label=\"AR v0\\nAgMEBQ\\n2.3.4.5:2345\"];",
+            "\"AgMEBQ\" [label=\"AR v0 FR\\nAgMEBQ\\n2.3.4.5:2345\"];",
         );
         assert_string_contains(
             &result,
-            "\"AwQFBg\" [label=\"AR v0\\nAwQFBg\\n3.4.5.6:3456\"];",
+            "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\\n3.4.5.6:3456\"];",
         );
         assert_string_contains(
             &result,
-            "\"BAUGBw\" [label=\"AR v0\\nBAUGBw\\n4.5.6.7:4567\"];",
+            "\"BAUGBw\" [label=\"AR v0 US\\nBAUGBw\\n4.5.6.7:4567\"];",
         );
         assert_string_contains(&result, "\"AQIDBA\" -> \"AgMEBQ\";");
         assert_string_contains(&result, "\"AgMEBQ\" -> \"AQIDBA\";");

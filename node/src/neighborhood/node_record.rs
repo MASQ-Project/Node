@@ -347,7 +347,7 @@ pub struct NodeRecordMetadata {
     pub node_addr_opt: Option<NodeAddr>,
     pub unreachable_hosts: HashSet<String>,
     pub node_location_opt: Option<NodeLocation>,
-    pub node_distrust_score: u32,
+    pub country_undesirability: u32,
     //TODO introduce various scores for latency, reliability and so
 }
 
@@ -358,7 +358,7 @@ impl NodeRecordMetadata {
             node_addr_opt: None,
             unreachable_hosts: Default::default(),
             node_location_opt: None,
-            node_distrust_score: Default::default(),
+            country_undesirability: 0u32,
         }
     }
 }
