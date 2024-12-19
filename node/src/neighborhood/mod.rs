@@ -1395,11 +1395,7 @@ impl Neighborhood {
     ) -> (HashMap<PublicKey, ExitLocationsRoutes>, Vec<PublicKey>) {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability = 0;
-        let mut research_exits: Vec<Rc<RouteElement>> = vec![Rc::new(RouteElement {
-            previous: None,
-            public_key: source.clone(),
-            undesirability: initial_undesirability,
-        })];
+        let mut research_exits: Vec<Rc<RouteElement>> = vec![];
         let prefix = Rc::new(RouteElement {
             previous: None,
             public_key: source.clone(),
@@ -1419,17 +1415,18 @@ impl Neighborhood {
         );
         let mut result_exit: HashMap<PublicKey, ExitLocationsRoutes> = HashMap::new();
         let mut research_exit: Vec<PublicKey> = vec![];
+        println!("over_routes {:#?}", over_routes);
         for exit_node in over_routes {
             let mut segment = VecDeque::from(vec![]);
-            let key = PublicKey::new(&[]);
             let undesirability = exit_node.undesirability;
             let mut current = Some(Rc::clone(&exit_node));
+            let exit_key = exit_node.public_key.clone();
             while let Some(node) = current {
                 segment.push_front(node.public_key.clone());
                 current = node.previous.as_ref().map(Rc::clone);
             }
             result_exit
-                .entry(key)
+                .entry(exit_key)
                 .and_modify(|e| {
                     e.routes
                         .push((Vec::from(segment.clone()), undesirability))
@@ -1438,40 +1435,32 @@ impl Neighborhood {
                     routes: vec![(Vec::from(segment.clone()), undesirability)],
                 });
         }
+
+        println!("research_exits {:#?}", research_exits);
         for exit_node in &research_exits {
             let mut segment = VecDeque::from(vec![]);
             let undesirability = exit_node.undesirability;
             let mut current = Some(Rc::clone(&exit_node));
+            let mut iter = 0usize;
             while let Some(node) = current {
+                iter += 1;
                 segment.push_front(node.public_key.clone());
                 current = node.previous.as_ref().map(Rc::clone);
             }
-            research_exit.push(exit_node.public_key.clone());
-            result_exit
-                .entry(exit_node.public_key.clone())
-                .and_modify(|e| {
-                    e.routes
-                        .push((Vec::from(segment.clone()), undesirability))
-                })
-                .or_insert(ExitLocationsRoutes {
-                    routes: vec![(Vec::from(segment.clone()), undesirability)],
-                });
-        }
-        /*
-        over_routes.into_iter().for_each(|segment| {
-            if !segment.nodes.is_empty() {
-                let exit_node = segment.nodes[segment.nodes.len() - 1];
+            if iter > self.min_hops as usize {
+                research_exit.push(exit_node.public_key.clone());
                 result_exit
-                    .entry(exit_node.clone())
+                    .entry(exit_node.public_key.clone())
                     .and_modify(|e| {
                         e.routes
-                            .push((segment.nodes.clone(), segment.undesirability))
+                            .push((Vec::from(segment.clone()), undesirability))
                     })
                     .or_insert(ExitLocationsRoutes {
-                        routes: vec![(segment.nodes.clone(), segment.undesirability)],
+                        routes: vec![(Vec::from(segment.clone()), undesirability)],
                     });
             }
-        });*/
+        }
+
         (result_exit, research_exit)
     }
 
@@ -1571,8 +1560,8 @@ impl Neighborhood {
                 if prefix.undesirability < *minimum_undesirability {
                     *minimum_undesirability = prefix.undesirability;
                 }
-                vec![prefix.clone()]
-            } else if research_neighborhood && Self::research_exit_contains(&research_exits, &prefix.public_key) {
+                vec![prefix]
+            } else if self.research_exit_contains(&research_exits, &prefix.public_key) {
                 vec![]
             } else {
                 if research_neighborhood {
@@ -1622,7 +1611,7 @@ impl Neighborhood {
     }
 
     //TODO testdrive me
-    fn research_exit_contains(research_exits: &Vec<Rc<RouteElement>>, current_key: &PublicKey) -> bool {
+    fn research_exit_contains(&self, research_exits: &Vec<Rc<RouteElement>>, current_key: &PublicKey) -> bool {
         for prefix in research_exits {
             let mut current = Some(Rc::clone(&prefix));
             while let Some(node) = current {
@@ -1668,7 +1657,7 @@ impl Neighborhood {
 
         let result_iter = neighbor_nodes
             .iter()
-            .filter(|node_record| !Self::prefix_contains(&prefix, node_record.public_key())) //TODO make method to travers the elements
+            .filter(|node_record| !Self::prefix_contains(&prefix, node_record.public_key()))
             .filter(|node_record| {
                 node_record.routes_data()
                     || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
@@ -2180,6 +2169,7 @@ enum UndesirabilityType<'hostname> {
     ExitAndRouteResponse,
 }
 
+#[derive(Debug)]
 struct RouteElement {
     pub previous: Option<Rc<RouteElement>>,
     pub public_key: PublicKey,
@@ -4458,13 +4448,15 @@ mod tests {
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
 
-        let (_routes, mut exit_nodes) = subject.find_exit_location(&l, 3, 10_000);
+        let (routes, mut exit_nodes) = subject.find_exit_location(&l, 3, 10_000);
 
         let total_exit_nodes = exit_nodes.len();
         exit_nodes.sort();
         exit_nodes.dedup();
+        println!("routes {:#?}", routes);
         let dedup_len = exit_nodes.len();
         assert_eq!(total_exit_nodes, dedup_len);
+        assert_eq!(routes.len(), 20);
         assert_eq!(total_exit_nodes, 20);
     }
 
@@ -4482,21 +4474,21 @@ mod tests {
         let n2 = make_node(db);
         let n3 = make_node(db);
         let n4 = make_node(db);
-        let n5 = make_node(db);
-        let f1 = make_node(db);
-        let f2 = make_node(db);
-        let f3 = make_node(db);
-        let f4 = make_node(db);
-        let f5 = make_node(db);
+        // let n5 = make_node(db);
+        // let f1 = make_node(db);
+        // let f2 = make_node(db);
+        // let f3 = make_node(db);
+        // let f4 = make_node(db);
+        // let f5 = make_node(db);
         db.add_arbitrary_full_neighbor(&n1, &n2);
         db.add_arbitrary_full_neighbor(&n2, &n3);
         db.add_arbitrary_full_neighbor(&n3, &n4);
-        db.add_arbitrary_full_neighbor(&n4, &n5);
-        db.add_arbitrary_full_neighbor(&n5, &f1);
-        db.add_arbitrary_full_neighbor(&f1, &f2);
-        db.add_arbitrary_full_neighbor(&f2, &f3);
-        db.add_arbitrary_full_neighbor(&f3, &f4);
-        db.add_arbitrary_full_neighbor(&f4, &f5);
+        // db.add_arbitrary_full_neighbor(&n4, &n5);
+        // db.add_arbitrary_full_neighbor(&n5, &f1);
+        // db.add_arbitrary_full_neighbor(&f1, &f2);
+        // db.add_arbitrary_full_neighbor(&f2, &f3);
+        // db.add_arbitrary_full_neighbor(&f3, &f4);
+        // db.add_arbitrary_full_neighbor(&f4, &f5);
         let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
             let root_node_key = db.root_key().clone();
             db.set_root_key(key);
@@ -4504,13 +4496,15 @@ mod tests {
         };
         designate_root_node(db, &n1);
 
-        let (_routes, mut exit_nodes) = subject.find_exit_location(&n1, 3, 10_000);
+        let (routes, mut exit_nodes) = subject.find_exit_location(&n1, 3, 10_000);
 
         let total_exit_nodes = exit_nodes.len();
         exit_nodes.sort();
         exit_nodes.dedup();
         let dedup_len = exit_nodes.len();
+        println!("routes {:#?}", routes);
         assert_eq!(total_exit_nodes, dedup_len);
+        assert_eq!(routes.len(), 7);
         assert_eq!(total_exit_nodes, 7);
     }
 
@@ -7608,6 +7602,28 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+
+    #[test]
+    fn research_exits_contains_test() {
+        let root_node = make_global_cryptde_node_record(9999, true);
+        let neighbor_node = make_node_record(9998, true);
+        let subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node));
+        let prefix_one = Rc::new(RouteElement {
+            previous: None,
+            public_key: root_node.public_key().clone(),
+            undesirability: 0,
+        });
+        let prefix_two = Rc::new(RouteElement {
+            previous: Some(Rc::clone(&prefix_one)),
+            public_key: neighbor_node.public_key().clone(),
+            undesirability: 0,
+        });
+        let research_exits: &mut Vec<Rc<RouteElement>> = &mut vec![prefix_two];
+        let contains_one = subject.research_exit_contains(research_exits, root_node.public_key());
+        let contains_two = subject.research_exit_contains(research_exits, neighbor_node.public_key());
+        assert_eq!(contains_one, true);
+        assert_eq!(contains_two, true);
     }
 
     fn make_standard_subject() -> Neighborhood {
