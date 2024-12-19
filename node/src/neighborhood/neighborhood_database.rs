@@ -854,19 +854,19 @@ mod tests {
         assert_eq!(result.matches("->").count(), 8);
         assert_string_contains(
             &result,
-            "\"AQIDBA\" [label=\"AR v1\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
+            "\"AQIDBA\" [label=\"AR v1 AU\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
         );
         assert_string_contains(
             &result,
-            "\"AgMEBQ\" [label=\"AR v0\\nAgMEBQ\\n2.3.4.5:2345\"];",
+            "\"AgMEBQ\" [label=\"AR v0 FR\\nAgMEBQ\\n2.3.4.5:2345\"];",
         );
         assert_string_contains(
             &result,
-            "\"AwQFBg\" [label=\"AR v0\\nAwQFBg\\n3.4.5.6:3456\"];",
+            "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\\n3.4.5.6:3456\"];",
         );
         assert_string_contains(
             &result,
-            "\"BAUGBw\" [label=\"AR v0\\nBAUGBw\\n4.5.6.7:4567\"];",
+            "\"BAUGBw\" [label=\"AR v0 US\\nBAUGBw\\n4.5.6.7:4567\"];",
         );
         assert_string_contains(&result, "\"AQIDBA\" -> \"AgMEBQ\";");
         assert_string_contains(&result, "\"AgMEBQ\" -> \"AQIDBA\";");
