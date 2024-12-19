@@ -12,7 +12,7 @@ pub struct NodeRenderableInner {
     pub version: u32,
     pub accepts_connections: bool,
     pub routes_data: bool,
-    pub country_code: String
+    pub country_code: String,
 }
 
 pub struct NodeRenderable {

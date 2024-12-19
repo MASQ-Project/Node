@@ -387,7 +387,7 @@ impl Gossip_0v1 {
                     version: nri.version,
                     accepts_connections: nri.accepts_connections,
                     routes_data: nri.routes_data,
-                    country_code
+                    country_code,
                 }),
                 public_key: nri.public_key.clone(),
                 node_addr: addr.clone(),

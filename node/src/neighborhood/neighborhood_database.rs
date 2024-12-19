@@ -308,7 +308,7 @@ impl NeighborhoodDatabase {
                         version: nr.version(),
                         accepts_connections: nr.accepts_connections(),
                         routes_data: nr.routes_data(),
-                        country_code
+                        country_code,
                     }),
                     public_key: public_key.clone(),
                     node_addr: nr.node_addr_opt(),

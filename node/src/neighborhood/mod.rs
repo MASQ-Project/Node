@@ -1290,7 +1290,7 @@ impl Neighborhood {
                 Some(cc) => cc,
                 None => "ZZ".to_string(),
             },
-            None => "ZZ".to_string()
+            None => "ZZ".to_string(),
         };
         if self.user_exit_preferences.exit_countries.contains(&last_cc) {
             return true;
@@ -1306,7 +1306,7 @@ impl Neighborhood {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     fn validate_last_node_country_code(
@@ -1316,7 +1316,8 @@ impl Neighborhood {
         direction: RouteDirection,
     ) -> bool {
         if self.user_exit_preferences.location_preference == ExitPreference::Nothing
-            || (self.user_exit_preferences.location_preference == ExitPreference::ExitCountryWithFallback
+            || (self.user_exit_preferences.location_preference
+                == ExitPreference::ExitCountryWithFallback
                 && self.validate_fallback_country_exit_codes(first_node_key))
             || research_neighborhood
             || direction == RouteDirection::Back
@@ -1490,7 +1491,7 @@ impl Neighborhood {
         research_neighborhood: bool,
         research_exits: &mut Vec<&'a PublicKey>,
     ) -> Vec<ComputedRouteSegment<'a>> {
-        if undesirability > *minimum_undesirability && !research_neighborhood && self.user_exit_preferences.location_preference == ExitPreference::Nothing {
+        if undesirability > *minimum_undesirability && !research_neighborhood {
             return vec![];
         }
         //TODO when target node is present ignore all country_codes selection - write test for route back and ignore the country code
@@ -1508,11 +1509,13 @@ impl Neighborhood {
                 previous_node.public_key(),
             )
         {
-            if !research_neighborhood && self.validate_last_node_country_code(
-                previous_node.public_key(),
-                research_neighborhood,
-                direction
-            ) {
+            if !research_neighborhood
+                && self.validate_last_node_country_code(
+                    previous_node.public_key(),
+                    research_neighborhood,
+                    direction,
+                )
+            {
                 if undesirability < *minimum_undesirability {
                     *minimum_undesirability = undesirability;
                 }
@@ -6271,12 +6274,12 @@ mod tests {
         });
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
-            &format!("\"BAYFBw\" [label=\"AR v0\\nBAYFBw\\n4.6.5.7:4657\"];"),
+            &format!("\"BAYFBw\" [label=\"AR v0 US\\nBAYFBw\\n4.6.5.7:4657\"];"),
             5000,
         );
 
         tlh.exists_log_containing("Received Gossip: digraph db { ");
-        tlh.exists_log_containing("\"AQMCBA\" [label=\"AR v0\\nAQMCBA\"];");
+        tlh.exists_log_containing("\"AQMCBA\" [label=\"AR v0 AU\\nAQMCBA\"];");
         tlh.exists_log_containing(&format!(
             "\"{}\" [label=\"{}\"] [shape=none];",
             cryptde.public_key(),
