@@ -1230,9 +1230,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{
-        assert_string_contains, rate_pack,
-    };
+    use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::blockchains::chains::Chain::PolyAmoy;
