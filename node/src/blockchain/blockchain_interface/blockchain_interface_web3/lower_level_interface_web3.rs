@@ -12,14 +12,52 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
-#[derive(Debug, PartialEq, Clone)]
-#[allow(clippy::large_enum_variant)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
-    NotPresent,
-    Found(TransactionReceipt),
-    TransactionFailed(TransactionReceipt), // RemoteFailure
-    Error(String),                         // LocalFailure
+    RpcResponse(TxReceipt),
+    LocalError(String),
 }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum TxStatus {
+    Failed,
+    Pending,
+    Succeeded(TransactionBlock),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TxReceipt {
+    pub transaction_hash: H256,
+    pub status: TxStatus,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TransactionBlock {
+    pub block_hash: H256,
+    pub block_number: U64
+}
+
+impl From<TransactionReceipt> for TxReceipt {
+    fn from(receipt: TransactionReceipt) -> Self {
+        let status = match (receipt.status, receipt.block_hash, receipt.block_number) {
+            (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
+                TxStatus::Succeeded(TransactionBlock {
+                    block_hash,
+                    block_number,
+                })
+            }
+            (Some(status), _, _) if status == U64::from(0) => TxStatus::Failed,
+            _ => TxStatus::Pending,
+        };
+
+        TxReceipt {
+            transaction_hash: receipt.transaction_hash,
+            status,
+        }
+    }
+}
+
+
 
 pub struct LowBlockchainIntWeb3 {
     web3: Web3<Http>,
@@ -152,7 +190,7 @@ mod tests {
     fn get_transaction_fee_balance_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
         let subject = make_blockchain_interface_web3(port);
@@ -170,7 +208,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
+            .ok_response("0xFFFQ".to_string(), 0)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -195,7 +233,7 @@ mod tests {
     fn get_gas_price_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x01".to_string(), 1)
+            .ok_response("0x01".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -226,7 +264,7 @@ mod tests {
     fn get_block_number_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -239,7 +277,7 @@ mod tests {
     fn get_block_number_returns_an_error() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash".to_string(), 1)
+            .ok_response("trash".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -261,7 +299,7 @@ mod tests {
     fn get_transaction_id_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
@@ -278,7 +316,7 @@ mod tests {
     fn get_transaction_id_returns_an_error_for_unintelligible_response() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
+            .ok_response("0xFFFQ".to_string(), 0)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -303,7 +341,7 @@ mod tests {
     fn get_token_balance_can_retrieve_token_balance_of_a_wallet() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
@@ -327,7 +365,7 @@ mod tests {
     fn get_token_balance_returns_error_for_unintelligible_response_to_token_balance() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFQ".to_string(),
                 0,
             )
@@ -354,31 +392,6 @@ mod tests {
             expected_err_msg,
             err_msg
         )
-    }
-
-    #[test]
-    fn transaction_receipt_batch_fails_on_submit_batch() {
-        let port = find_free_port();
-        let _blockchain_client_server = MBCSBuilder::new(port).start();
-        let subject = make_blockchain_interface_web3(port);
-        let tx_hash_1 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
-                .unwrap();
-        let tx_hash_2 =
-            H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0f")
-                .unwrap();
-        let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
-
-        let result = subject
-            .lower_interface()
-            .get_transaction_receipt_in_batch(tx_hash_vec)
-            .wait()
-            .unwrap_err();
-
-        assert_eq!(
-            result,
-            BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
-        );
     }
 
     #[test]

@@ -115,12 +115,6 @@ pub struct ResponseSkeleton {
     pub context_id: u64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct PaymentsAndStartBlock {
-    pub payments: Vec<BlockchainTransaction>,
-    pub new_start_block: u64,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ReceivedPaymentsError {
     ExceededBlockScanLimit(u64),
@@ -137,7 +131,8 @@ pub struct ReceivedPayments {
     // detects any upcoming delinquency later than the more accurate version would. Is this
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
-    pub payments_and_start_block: PaymentsAndStartBlock,
+    pub new_start_block: u64,
+    pub transactions: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -374,7 +369,7 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct ReportTransactionReceipts {
     pub fingerprints_with_receipts: Vec<(TransactionReceiptResult, PendingPayableFingerprint)>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -1053,9 +1048,7 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::{
-        make_empty_payments_and_start_block, protect_payables_in_test,
-    };
+    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
@@ -1409,11 +1402,12 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
-            payments_and_start_block: make_empty_payments_and_start_block(),
+            new_start_block: 0,
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
             }),
+            transactions: vec![],
         };
 
         subject_addr.try_send(received_payments).unwrap();
@@ -2055,15 +2049,12 @@ mod tests {
             .build();
         let system = System::new("accountant_uses_receivables_dao_to_process_received_payments");
         let subject = accountant.start();
-        let mut payments_and_start_block = make_empty_payments_and_start_block();
-        payments_and_start_block.payments =
-            vec![expected_receivable_1.clone(), expected_receivable_2.clone()];
-        payments_and_start_block.new_start_block = 123456789;
         subject
             .try_send(ReceivedPayments {
                 timestamp: now,
-                payments_and_start_block,
+                new_start_block: 123456789,
                 response_skeleton_opt: None,
+                transactions: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
             })
             .expect("unexpected actix error");
 
@@ -3455,16 +3446,16 @@ mod tests {
                 .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // Blockchain Agent Gas Price
-            .response("0x3B9ACA00".to_string(), 0) // 1000000000
+            .ok_response("0x3B9ACA00".to_string(), 0) // 1000000000
             // Blockchain Agent transaction fee balance
-            .response("0xFFF0".to_string(), 0) // 65520
+            .ok_response("0xFFF0".to_string(), 0) // 65520
             // Blockchain Agent masq balance
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
             // Submit payments to blockchain
-            .response("0xFFF0".to_string(), 1)
+            .ok_response("0xFFF0".to_string(), 1)
             .begin_batch()
             .raw_response(
                 ReceiptResponseBuilder::default()
@@ -3519,6 +3510,8 @@ mod tests {
                 ReceiptResponseBuilder::default()
                     .transaction_hash(pending_tx_hash_2)
                     .status(U64::from(1))
+                    .block_number(U64::from(1234))
+                    .block_hash(Default::default())
                     .build(),
             )
             .end_batch()
@@ -3809,6 +3802,8 @@ mod tests {
         let mut transaction_receipt_1 = TransactionReceipt::default();
         transaction_receipt_1.transaction_hash = transaction_hash_1;
         transaction_receipt_1.status = Some(U64::from(1)); //success
+        transaction_receipt_1.block_number = Some(U64::from(100));
+        transaction_receipt_1.block_hash = Some(Default::default());
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
             timestamp: from_time_t(200_000_000),
@@ -3821,6 +3816,8 @@ mod tests {
         let mut transaction_receipt_2 = TransactionReceipt::default();
         transaction_receipt_2.transaction_hash = transaction_hash_2;
         transaction_receipt_2.status = Some(U64::from(1)); //success
+        transaction_receipt_2.block_number = Some(U64::from(200));
+        transaction_receipt_2.block_hash = Some(Default::default());
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
             timestamp: from_time_t(199_780_000),
@@ -3832,11 +3829,11 @@ mod tests {
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_1),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_1.into()),
                     fingerprint_1.clone(),
                 ),
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_2),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_2.into()),
                     fingerprint_2.clone(),
                 ),
             ],
