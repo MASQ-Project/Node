@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
-use crate::neighborhood::AccessibleGossipRecord;
+use crate::neighborhood::{AccessibleGossipRecord, UserExitPreferences};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
@@ -130,7 +130,7 @@ impl GossipHandler for DebutHandler {
         database: &mut NeighborhoodDatabase,
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        _neighborhood_metadata: NeighborhoodMetadata,
+        neighborhood_metadata: NeighborhoodMetadata,
     ) -> GossipAcceptanceResult {
         let source_agr = {
             let mut agr = agrs.remove(0); // empty Gossip shouldn't get here
@@ -165,7 +165,13 @@ impl GossipHandler for DebutHandler {
                 source_node_addr,
             );
         }
-        if let Ok(result) = self.try_accept_debut(cryptde, database, &source_agr, gossip_source) {
+        if let Ok(result) = self.try_accept_debut(
+            cryptde,
+            database,
+            &source_agr,
+            gossip_source,
+            neighborhood_metadata.user_exit_preferences_opt,
+        ) {
             return result;
         }
         debug!(self.logger, "Seeking neighbor for Pass");
@@ -266,13 +272,22 @@ impl DebutHandler {
         database: &mut NeighborhoodDatabase,
         debuting_agr: &AccessibleGossipRecord,
         gossip_source: SocketAddr,
+        user_exit_preferences_opt: Option<UserExitPreferences>,
     ) -> Result<GossipAcceptanceResult, ()> {
         if database.gossip_target_degree(database.root().public_key()) >= MAX_DEGREE {
             debug!(self.logger, "Neighbor count already at maximum");
             return Err(());
         }
         let debut_node_addr_opt = debuting_agr.node_addr_opt.clone();
-        let debuting_node = NodeRecord::from(debuting_agr);
+        let mut debuting_node = NodeRecord::from(debuting_agr);
+        match user_exit_preferences_opt {
+            Some(user_exit_preferences) => {
+                //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
+                user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node);
+            }
+            None => (),
+        }
+        // TODO 468 make debuting_node mut and add country_undesirability to its metadata
         let debut_node_key = database
             .add_node(debuting_node)
             .expect("Debuting Node suddenly appeared in database");
@@ -685,7 +700,13 @@ impl GossipHandler for IntroductionHandler {
                 .as_ref()
                 .expect("IP Address not found for the Node Addr.")
                 .ip_addr();
-            match self.update_database(database, cryptde, introducer) {
+            // TODO 468 pass the NeighborhoodMetadata into update_database
+            match self.update_database(
+                database,
+                cryptde,
+                introducer,
+                neighborhood_metadata.user_exit_preferences_opt,
+            ) {
                 Ok(_) => (),
                 Err(e) => {
                     return GossipAcceptanceResult::Ban(format!(
@@ -845,6 +866,7 @@ impl IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         cryptde: &dyn CryptDE,
         introducer: AccessibleGossipRecord,
+        user_exit_preferences_opt: Option<UserExitPreferences>,
     ) -> Result<bool, String> {
         let introducer_key = introducer.inner.public_key.clone();
         match database.node_by_key_mut(&introducer_key) {
@@ -869,7 +891,14 @@ impl IntroductionHandler {
                 }
             }
             None => {
-                let new_introducer = NodeRecord::from(introducer);
+                let mut new_introducer = NodeRecord::from(introducer);
+                //TODO 468 add country undesirability
+                match user_exit_preferences_opt {
+                    //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
+                    Some(user_exit_preferences) => user_exit_preferences
+                        .assign_nodes_country_undesirability(&mut new_introducer),
+                    None => (),
+                }
                 debug!(
                     self.logger,
                     "Adding introducer {} to database", introducer_key
@@ -984,6 +1013,7 @@ impl GossipHandler for StandardGossipHandler {
             database,
             &filtered_agrs,
             gossip_source,
+            neighborhood_metadata.user_exit_preferences_opt.as_ref(),
         );
         db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
         db_changed =
@@ -1095,6 +1125,7 @@ impl StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: &[AccessibleGossipRecord],
         gossip_source: SocketAddr,
+        user_exit_preferences_opt: Option<&UserExitPreferences>,
     ) -> bool {
         let all_keys = database
             .keys()
@@ -1112,7 +1143,15 @@ impl StandardGossipHandler {
                 }
             })
             .for_each(|agr| {
-                let node_record = NodeRecord::from(agr);
+                let mut node_record = NodeRecord::from(agr);
+                // TODO modify for country undesirability in node_record (make it mut)
+                match user_exit_preferences_opt {
+                    Some(user_exit_preferences) => {
+                        //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
+                        user_exit_preferences.assign_nodes_country_undesirability(&mut node_record)
+                    }
+                    None => (),
+                }
                 trace!(
                     self.logger,
                     "Discovered new Node {:?}: {:?}",
@@ -1369,8 +1408,14 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
+    use crate::neighborhood::{
+        ExitPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
+        UNREACHABLE_COUNTRY_PENALTY,
+    };
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
+    use crate::sub_lib::neighborhood::{
+        ConnectionProgressEvent, ConnectionProgressMessage, ExitLocation,
+    };
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
@@ -1407,6 +1452,7 @@ mod tests {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
             db_patch_size: DB_PATCH_SIZE_FOR_TEST,
+            user_exit_preferences_opt: None,
         }
     }
 
@@ -1677,6 +1723,7 @@ mod tests {
         dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_debuted_node.public_key());
         let logger = Logger::new("Debut test");
         let subject = DebutHandler::new(logger);
+        let neighborhood_metadata = make_default_neighborhood_metadata();
 
         let counter_debut = subject
             .try_accept_debut(
@@ -1684,6 +1731,7 @@ mod tests {
                 &mut dest_db,
                 &AccessibleGossipRecord::from(&new_debutant),
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(4, 5, 6, 7)), 4567),
+                neighborhood_metadata.user_exit_preferences_opt,
             )
             .unwrap();
 
@@ -2020,6 +2068,16 @@ mod tests {
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let subject = IntroductionHandler::new(Logger::new("test"));
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
+            exit_countries: vec!["FR".to_string()],
+            location_preference: ExitPreference::ExitCountryNoFallback,
+            locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["FR".to_string()],
+                priority: 2,
+            }]),
+            db_countries: vec!["FR".to_string()],
+        });
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(
@@ -2027,7 +2085,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata(),
+            neighborhood_metadata,
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2047,6 +2105,7 @@ mod tests {
             dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
+        expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
         expected_introducer.resign();
         assert_eq!(result_introducer, &expected_introducer);
         assert_eq!(
@@ -2407,6 +2466,15 @@ mod tests {
         let gossip_source: SocketAddr = src_root.node_addr_opt().unwrap().into();
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
+            exit_countries: vec!["FR".to_string()],
+            location_preference: ExitPreference::ExitCountryWithFallback,
+            locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["FR".to_string()],
+                priority: 1,
+            }]),
+            db_countries: vec!["FR".to_string()],
+        });
         neighborhood_metadata.cpm_recipient = cpm_recipient;
         let system = System::new("test");
 
@@ -2419,6 +2487,22 @@ mod tests {
             neighborhood_metadata,
         );
 
+        assert_eq!(
+            dest_db
+                .node_by_key(node_a.public_key())
+                .unwrap()
+                .metadata
+                .country_undesirability,
+            0u32
+        );
+        assert_eq!(
+            dest_db
+                .node_by_key(node_b.public_key())
+                .unwrap()
+                .metadata
+                .country_undesirability,
+            UNREACHABLE_COUNTRY_PENALTY
+        );
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(GossipAcceptanceResult::Accepted, handle_result);
         assert_eq!(
@@ -2979,12 +3063,22 @@ mod tests {
         let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
+        let mut neighborhood_metadata = make_default_neighborhood_metadata();
+        neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
+            exit_countries: vec!["CZ".to_string()],
+            location_preference: ExitPreference::ExitCountryWithFallback,
+            locations_opt: Some(vec![ExitLocation {
+                country_codes: vec!["CZ".to_string()],
+                priority: 1,
+            }]),
+            db_countries: vec!["CZ".to_string()],
+        });
 
         let result = subject.handle(
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata(),
+            neighborhood_metadata,
         );
 
         let after = time_t_timestamp();
@@ -3034,6 +3128,11 @@ Length: 24 (0x18) bytes
         let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
+        assert_eq!(
+            reference_node.metadata.country_undesirability,
+            UNREACHABLE_COUNTRY_PENALTY
+        );
+        reference_node.metadata.country_undesirability = 0u32;
         assert_node_records_eq(reference_node, &debut_node, before, after);
     }
 

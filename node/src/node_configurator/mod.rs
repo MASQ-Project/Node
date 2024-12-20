@@ -119,15 +119,16 @@ fn get_data_directory_from_mc(
     }
 }
 
-fn replace_tilde(config_path: PathBuf) -> PathBuf {
+fn replace_tilde(config_path: PathBuf, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
     match config_path.starts_with("~") {
         true => PathBuf::from(
             config_path.display().to_string().replacen(
                 '~',
-                home_dir()
-                    .expect("expected users home_dir")
+                dirs_wrapper
+                    .home_dir()
+                    .expect("expected users home dir")
                     .to_str()
-                    .expect("expected str home_dir"),
+                    .expect("expected home dir"),
                 1,
             ),
         ),
@@ -166,12 +167,13 @@ fn get_config_file_from_mc(
     multi_config: &MultiConfig,
     data_directory: &Path,
     data_directory_def: bool,
+    dirs_wrapper: &dyn DirsWrapper,
 ) -> FieldPair<PathBuf> {
     let mut panic: bool = false;
     let config_file = value_m!(multi_config, "config-file", PathBuf);
     match config_file {
         Some(config_path) => {
-            let config_path = replace_tilde(config_path);
+            let config_path = replace_tilde(config_path, dirs_wrapper);
             let config_path = replace_dots(config_path);
             let config_path =
                 replace_relative_path(config_path, data_directory_def, data_directory, &mut panic);
@@ -216,6 +218,7 @@ fn config_file_data_dir_real_user_chain_from_mc(
         &multi_config,
         &initialization_data.data_directory.item,
         initialization_data.data_directory.user_specified,
+        dirs_wrapper,
     );
     initialization_data
 }
@@ -305,7 +308,7 @@ pub trait DirsWrapper: Send {
     fn dup(&self) -> Box<dyn DirsWrapper>; // because implementing Clone for traits is problematic.
 }
 
-pub struct DirsWrapperReal;
+pub struct DirsWrapperReal {}
 
 impl DirsWrapper for DirsWrapperReal {
     fn data_dir(&self) -> Option<PathBuf> {
@@ -315,7 +318,19 @@ impl DirsWrapper for DirsWrapperReal {
         home_dir()
     }
     fn dup(&self) -> Box<dyn DirsWrapper> {
-        Box::new(DirsWrapperReal)
+        Box::new(DirsWrapperReal::default())
+    }
+}
+
+impl DirsWrapperReal {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for DirsWrapperReal {
+    fn default() -> Self {
+        DirsWrapperReal::new()
     }
 }
 
@@ -348,7 +363,7 @@ mod tests {
                 "/nonexistent_home/nonexistent_alice".to_string(),
             )),
         );
-        let chain_name = "polygon-mumbai";
+        let chain_name = "polygon-amoy";
 
         let result =
             data_directory_from_context(&dirs_wrapper, &real_user, Chain::from(chain_name));
@@ -356,7 +371,7 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-mumbai".to_string()
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-amoy".to_string()
             )
         )
     }
@@ -377,7 +392,8 @@ mod tests {
         let args_vec: Vec<String> = args.into();
         let app = determine_config_file_path_app();
         let user_specific_data =
-            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap();
 
         assert_eq!(
             &format!(
@@ -418,7 +434,8 @@ mod tests {
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
         let app = determine_config_file_path_app();
         let user_specific_data =
-            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap();
         assert_eq!(
             format!(
                 "{}",
@@ -454,7 +471,8 @@ mod tests {
 
         let app = determine_config_file_path_app();
         let user_specific_data =
-            determine_user_specific_data(&DirsWrapperReal {}, &app, args_vec.as_slice()).unwrap();
+            determine_user_specific_data(&DirsWrapperReal::default(), &app, args_vec.as_slice())
+                .unwrap();
 
         assert_eq!(
             "/tmp/booga.toml",
@@ -474,7 +492,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -498,7 +516,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -521,7 +539,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
@@ -545,7 +563,7 @@ mod tests {
         let args_vec: Vec<String> = args.into();
 
         let user_specific_data = determine_user_specific_data(
-            &DirsWrapperReal {},
+            &DirsWrapperReal::default(),
             &determine_config_file_path_app(),
             args_vec.as_slice(),
         )
