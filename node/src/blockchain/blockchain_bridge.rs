@@ -668,9 +668,9 @@ mod tests {
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x230000000".to_string(), 1) // 9395240960
-            .response("0x23".to_string(), 1)
-            .response(
+            .ok_response("0x230000000".to_string(), 1) // 9395240960
+            .ok_response("0x23".to_string(), 1)
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
@@ -777,8 +777,8 @@ mod tests {
         let port = find_free_port();
         // build blockchain agent fails by not providing the third response.
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_recipient = accountant.start().recipient();
@@ -833,9 +833,9 @@ mod tests {
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x20".to_string(), 1)
+            .ok_response("0x20".to_string(), 1)
             .begin_batch()
-            .response("rpc result".to_string(), 1)
+            .ok_response("rpc result".to_string(), 1)
             .end_batch()
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -927,7 +927,7 @@ mod tests {
         let port = find_free_port();
         // To make submit_batch failed we didn't provide any responses for batch calls
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x20".to_string(), 1)
+            .ok_response("0x20".to_string(), 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
@@ -1013,10 +1013,10 @@ mod tests {
         let test_name = "process_payments_works";
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x01".to_string(), 1)
+            .ok_response("0x01".to_string(), 1)
             .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .response("rpc_result_2".to_string(), 7)
+            .ok_response("rpc_result".to_string(), 7)
+            .ok_response("rpc_result_2".to_string(), 7)
             .end_batch()
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(port);
@@ -1077,7 +1077,7 @@ mod tests {
         let test_name = "process_payments_fails_on_get_transaction_count";
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash transaction id".to_string(), 1)
+            .ok_response("trash transaction id".to_string(), 1)
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(port);
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
@@ -1213,7 +1213,7 @@ mod tests {
         let port = find_free_port();
         // We have intentionally left out responses to cause this error
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
+            .ok_response("0x3B9ACA00".to_string(), 0)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
@@ -1447,7 +1447,7 @@ mod tests {
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xC8".to_string(), 0)
+            .ok_response("0xC8".to_string(), 0)
             .raw_response(r#"{
               "jsonrpc": "2.0",
               "id": 1,
@@ -1516,13 +1516,17 @@ mod tests {
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 6040059,
-                    from: make_wallet("first_wallet"), // Relates to RPC response topics of 1
-                    wei_amount: 42,                    // Relates to RPC response field data
+                    // Wallet represented in the RPC response by the first 'topic' as: 0x241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80
+                    from: make_wallet("first_wallet"),
+                    // Paid amount read out from the field 'data' in the RPC
+                    wei_amount: 42,
                 },
                 BlockchainTransaction {
                     block_number: 6040060,
-                    from: make_wallet("second_wallet"), // Relates to RPC response topics of 1
-                    wei_amount: 55,                     // Relates to RPC response field data
+                    // Wallet represented in the RPC response by the first 'topic' as: 0x241ea03ca20251805084d27d4440371c34a0b85ff108f6bb5611248f73818b80
+                    from: make_wallet("second_wallet"),
+                    // Paid amount read out from the field 'data' in the RPC
+                    wei_amount: 55,
                 },
             ],
         };
@@ -1552,8 +1556,8 @@ mod tests {
         );
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x845FED".to_string(), 0)
-            .response(
+            .ok_response("0x845FED".to_string(), 0)
+            .ok_response(
                 vec![LogObject {
                     removed: false,
                     log_index: Some("0x20".to_string()),
@@ -1644,8 +1648,8 @@ mod tests {
             System::new("handle_retrieve_transactions_sends_received_payments_back_to_accountant");
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
-            .response(
+            .ok_response("0x3B9ACA00".to_string(), 0)
+            .ok_response(
                 vec![LogObject {
                     removed: false,
                     log_index: Some("0x20".to_string()),
@@ -1755,8 +1759,8 @@ mod tests {
             ],
         }];
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
-            .response(expected_response_logs, 1)
+            .ok_response("0x3B9ACA00".to_string(), 0)
+            .ok_response(expected_response_logs, 1)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant.system_stop_conditions(match_every_type_id!(ScanError));
@@ -1814,7 +1818,7 @@ mod tests {
         let system = System::new(test_name);
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
+            .ok_response("0x3B9ACA00".to_string(), 0)
             .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000", 0)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1879,7 +1883,7 @@ mod tests {
         let system = System::new("test");
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
+            .ok_response("0x3B9ACA00".to_string(), 0)
             .err_response(-32005, "Blockheight too far in the past. Check params passed to eth_getLogs or eth_call requests.Range of blocks allowed for your plan: 1000", 0)
             .start();
         let (accountant, _, _) = make_recorder();
@@ -1940,7 +1944,7 @@ mod tests {
     fn handle_scan_future_handles_success() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xC8".to_string(), 0)
+            .ok_response("0xC8".to_string(), 0)
             .raw_response(r#"{
               "jsonrpc": "2.0",
               "id": 1,
@@ -2032,7 +2036,7 @@ mod tests {
         init_test_logging();
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xC8".to_string(), 0)
+            .ok_response("0xC8".to_string(), 0)
             .err_response(-32005, "My tummy hurts", 0)
             .start();
         let (accountant, _, accountant_recording_arc) = make_recorder();

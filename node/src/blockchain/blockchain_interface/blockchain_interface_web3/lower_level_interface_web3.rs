@@ -170,7 +170,7 @@ mod tests {
     fn get_transaction_fee_balance_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
         let subject = make_blockchain_interface_web3(port);
@@ -188,7 +188,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
+            .ok_response("0xFFFQ".to_string(), 0)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -213,7 +213,7 @@ mod tests {
     fn get_gas_price_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x01".to_string(), 1)
+            .ok_response("0x01".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -244,7 +244,7 @@ mod tests {
     fn get_block_number_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -257,7 +257,7 @@ mod tests {
     fn get_block_number_returns_an_error() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash".to_string(), 1)
+            .ok_response("trash".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -279,7 +279,7 @@ mod tests {
     fn get_transaction_id_works() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x23".to_string(), 1)
+            .ok_response("0x23".to_string(), 1)
             .start();
         let subject = make_blockchain_interface_web3(port);
         let wallet = &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
@@ -296,7 +296,7 @@ mod tests {
     fn get_transaction_id_returns_an_error_for_unintelligible_response() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0xFFFQ".to_string(), 0)
+            .ok_response("0xFFFQ".to_string(), 0)
             .start();
         let subject = make_blockchain_interface_web3(port);
 
@@ -321,7 +321,7 @@ mod tests {
     fn get_token_balance_can_retrieve_token_balance_of_a_wallet() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
@@ -345,7 +345,7 @@ mod tests {
     fn get_token_balance_returns_error_for_unintelligible_response_to_token_balance() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFQ".to_string(),
                 0,
             )

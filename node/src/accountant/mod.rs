@@ -3446,16 +3446,16 @@ mod tests {
                 .unwrap();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // Blockchain Agent Gas Price
-            .response("0x3B9ACA00".to_string(), 0) // 1000000000
+            .ok_response("0x3B9ACA00".to_string(), 0) // 1000000000
             // Blockchain Agent transaction fee balance
-            .response("0xFFF0".to_string(), 0) // 65520
+            .ok_response("0xFFF0".to_string(), 0) // 65520
             // Blockchain Agent masq balance
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(),
                 0,
             )
             // Submit payments to blockchain
-            .response("0xFFF0".to_string(), 1)
+            .ok_response("0xFFF0".to_string(), 1)
             .begin_batch()
             .raw_response(
                 ReceiptResponseBuilder::default()

@@ -471,7 +471,7 @@ mod tests {
         let port = find_free_port();
         #[rustfmt::skip]
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x178def", 1)
+            .ok_response("0x178def", 1)
             .raw_response(
                 r#"{
                 "jsonrpc":"2.0",
@@ -569,8 +569,8 @@ mod tests {
         let port = find_free_port();
         let empty_transactions_result: Vec<String> = vec![];
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x178def".to_string(), 2)
-            .response(empty_transactions_result, 2)
+            .ok_response("0x178def".to_string(), 2)
+            .ok_response(empty_transactions_result, 2)
             .start();
         let subject = make_blockchain_interface_web3(port);
         let end_block_nbr = 1024u64;
@@ -623,7 +623,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x178def", 1)
+            .ok_response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         let subject = make_blockchain_interface_web3(port);
@@ -649,7 +649,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x178def", 1)
+            .ok_response("0x178def", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         let subject = make_blockchain_interface_web3(port);
@@ -672,7 +672,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x400", 1)
+            .ok_response("0x400", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         init_test_logging();
@@ -714,7 +714,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("trash", 1)
+            .ok_response("trash", 1)
             .raw_response(r#"{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_string())
             .start();
         let subject = make_blockchain_interface_web3(port);
@@ -746,11 +746,11 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             // gas_price
-            .response("0x3B9ACA00".to_string(), 0) // 1000000000
+            .ok_response("0x3B9ACA00".to_string(), 0) // 1000000000
             // transaction_fee_balance
-            .response("0xFFF0".to_string(), 0) // 65520
+            .ok_response("0xFFF0".to_string(), 0) // 65520
             // masq_balance
-            .response(
+            .ok_response(
                 "0x000000000000000000000000000000000000000000000000000000000000FFFF".to_string(), // 65535
                 0,
             )
@@ -825,7 +825,7 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_transaction_fee_balance() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
+            .ok_response("0x3B9ACA00".to_string(), 0)
             .start();
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::TransactionFeeBalance(
@@ -846,8 +846,8 @@ mod tests {
     fn build_of_the_blockchain_agent_fails_on_masq_balance() {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .response("0x3B9ACA00".to_string(), 0)
-            .response("0xFFF0".to_string(), 0)
+            .ok_response("0x3B9ACA00".to_string(), 0)
+            .ok_response("0xFFF0".to_string(), 0)
             .start();
         let expected_err_factory = |wallet: &Wallet| {
             BlockchainAgentBuildError::ServiceFeeBalance(
@@ -920,7 +920,7 @@ mod tests {
                 7,
             )
             .raw_response(r#"{ "jsonrpc": "2.0", "id": 1, "result": null }"#.to_string())
-            .response("trash".to_string(), 0)
+            .ok_response("trash".to_string(), 0)
             .raw_response(tx_receipt_response_not_present)
             .raw_response(tx_receipt_response_failed)
             .raw_response(tx_receipt_response_success)
@@ -975,14 +975,14 @@ mod tests {
                 .unwrap();
         let tx_hash_vec = vec![tx_hash_1, tx_hash_2];
 
-        let result = subject
+        let error = subject
             .process_transaction_receipts(tx_hash_vec)
             .wait()
             .unwrap_err();
 
         assert_eq!(
-            result,
-            BlockchainError::QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
+            error,
+            QueryFailed("Transport error: Error(IncompleteMessage)".to_string())
         );
     }
 

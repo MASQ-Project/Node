@@ -377,7 +377,7 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
-            .response(
+            .ok_response(
                 "0x94881436a9c89f48b01651ff491c69e97089daf71ab8cfb240243d7ecf9b38b2".to_string(),
                 7,
             )
@@ -642,8 +642,9 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
-            .response("rpc_result".to_string(), 7)
-            .response("rpc_result_2".to_string(), 8)
+            // TODO: GH-547: This rpc_result should be validated in production code.
+            .ok_response("irrelevant_ok_rpc_response".to_string(), 7)
+            .ok_response("irrelevant_ok_rpc_response_2".to_string(), 8)
             .end_batch()
             .start();
         let expected_result = Ok(vec![
@@ -748,7 +749,7 @@ mod tests {
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .begin_batch()
-            .response("rpc_result".to_string(), 7)
+            .ok_response("rpc_result".to_string(), 7)
             .err_response(
                 429,
                 "The requests per second (RPS) of your requests are higher than your plan allows."
