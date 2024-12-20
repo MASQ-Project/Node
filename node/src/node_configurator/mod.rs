@@ -119,15 +119,16 @@ fn get_data_directory_from_mc(
     }
 }
 
-fn replace_tilde(config_path: PathBuf) -> PathBuf {
+fn replace_tilde(config_path: PathBuf, dirs_wrapper: &dyn DirsWrapper) -> PathBuf {
     match config_path.starts_with("~") {
         true => PathBuf::from(
             config_path.display().to_string().replacen(
                 '~',
-                home_dir()
-                    .expect("expected users home_dir")
+                dirs_wrapper
+                    .home_dir()
+                    .expect("expected users home dir")
                     .to_str()
-                    .expect("expected str home_dir"),
+                    .expect("expected home dir"),
                 1,
             ),
         ),
@@ -166,12 +167,13 @@ fn get_config_file_from_mc(
     multi_config: &MultiConfig,
     data_directory: &Path,
     data_directory_def: bool,
+    dirs_wrapper: &dyn DirsWrapper,
 ) -> FieldPair<PathBuf> {
     let mut panic: bool = false;
     let config_file = value_m!(multi_config, "config-file", PathBuf);
     match config_file {
         Some(config_path) => {
-            let config_path = replace_tilde(config_path);
+            let config_path = replace_tilde(config_path, dirs_wrapper);
             let config_path = replace_dots(config_path);
             let config_path =
                 replace_relative_path(config_path, data_directory_def, data_directory, &mut panic);
@@ -216,6 +218,7 @@ fn config_file_data_dir_real_user_chain_from_mc(
         &multi_config,
         &initialization_data.data_directory.item,
         initialization_data.data_directory.user_specified,
+        dirs_wrapper,
     );
     initialization_data
 }
