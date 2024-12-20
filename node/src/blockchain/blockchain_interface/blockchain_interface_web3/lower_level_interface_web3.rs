@@ -21,23 +21,45 @@ pub enum TransactionReceiptResult {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub enum TxStatus {
+    Failed,
+    Pending,
+    Succeeded(TransactionBlock),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TxReceipt {
     pub transaction_hash: H256,
-    pub block_hash: Option<H256>,
-    pub block_number: Option<U64>,
-    pub status: Option<bool>,
+    pub status: TxStatus,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TransactionBlock {
+    pub block_hash: H256,
+    pub block_number: U64
 }
 
 impl From<TransactionReceipt> for TxReceipt {
     fn from(receipt: TransactionReceipt) -> Self {
+        let status = match (receipt.status, receipt.block_hash, receipt.block_number) {
+            (Some(status), Some(block_hash), Some(block_number)) if status == U64::from(1) => {
+                TxStatus::Succeeded(TransactionBlock {
+                    block_hash,
+                    block_number,
+                })
+            }
+            (Some(status), _, _) if status == U64::from(0) => TxStatus::Failed,
+            _ => TxStatus::Pending,
+        };
+
         TxReceipt {
             transaction_hash: receipt.transaction_hash,
-            block_hash: receipt.block_hash,
-            block_number: receipt.block_number,
-            status: receipt.status.map(|s| s == U64::from(1)),
+            status,
         }
     }
 }
+
+
 
 pub struct LowBlockchainIntWeb3 {
     web3: Web3<Http>,

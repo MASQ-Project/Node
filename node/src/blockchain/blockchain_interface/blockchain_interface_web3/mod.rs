@@ -415,7 +415,7 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceipt;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
 
     #[test]
     fn constants_are_correct() {
@@ -946,18 +946,17 @@ mod tests {
             result[4],
             TransactionReceiptResult::TransactionFailed(TxReceipt {
                 transaction_hash: tx_hash_5,
-                block_hash: None,
-                block_number: None,
-                status: Some(false),
+                status: TxStatus::Failed,
             })
         );
         assert_eq!(
             result[5],
             TransactionReceiptResult::Found(TxReceipt {
                 transaction_hash: tx_hash_6,
-                block_hash: Some(block_hash),
-                block_number: Some(block_number),
-                status: Some(true),
+                status: TxStatus::Succeeded(TransactionBlock {
+                    block_hash,
+                    block_number,
+                }),
             })
         );
     }
