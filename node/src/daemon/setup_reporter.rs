@@ -1231,8 +1231,7 @@ mod tests {
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
     use crate::test_utils::{
-        assert_string_contains,
-        make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir, rate_pack,
+        assert_string_contains, rate_pack,
     };
     use core::option::Option;
     use masq_lib::blockchains::chains::Chain as Blockchain;
@@ -1247,6 +1246,7 @@ mod tests {
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
+    use std::env::current_dir;
     use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::net::IpAddr;
@@ -2054,18 +2054,16 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_setup_tilde_in_config_file_path() {
+    fn get_modified_setup_handles_tilde_in_config_file_and_data_directory_path() {
         let _guard = EnvironmentGuard::new();
-        let (node_base_dir, node_base_dir_relative_to_os_home_dir) =
-            make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
-                "setup_reporter",
-                "get_modified_setup_tilde_in_config_file_path",
-            );
-        let existing_data_dir = node_base_dir.join("obsolete_data_dir");
-        let new_dir_levels = PathBuf::new().join("whatever_dir").join("new_data_dir");
-        let new_data_dir = node_base_dir.join(new_dir_levels.as_path());
-        create_dir_all(new_data_dir.as_path()).unwrap();
-        let mut config_file = File::create(new_data_dir.join("config.toml")).unwrap();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_handles_tilde_in_config_file_and_data_directory_path",
+        );
+        let data_dir = base_dir.join("data_dir");
+        std::fs::create_dir_all(base_dir.join("masqhome")).unwrap();
+        let config_file_path = base_dir.join("masqhome").join("config.toml");
+        let mut config_file = File::create(&config_file_path).unwrap();
         config_file
             .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
             .unwrap();
@@ -2074,38 +2072,31 @@ mod tests {
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
-                &existing_data_dir.to_string_lossy().to_string(),
+                &data_dir.to_string_lossy().to_string(),
                 Default,
             ),
         ]);
-        let data_dir_referenced_from_the_home_dir = node_base_dir_relative_to_os_home_dir
-            .join(new_dir_levels)
-            .as_os_str()
-            .to_str()
-            .unwrap()
-            .to_string();
         let incoming_setup = vec![
-            (
-                "data-directory",
-                &format!("~/{}", data_dir_referenced_from_the_home_dir),
-            ),
-            (
-                "config-file",
-                &format!("~/{}/config.toml", data_dir_referenced_from_the_home_dir),
-            ),
+            ("data-directory", "~/masqhome"),
+            ("config-file", "~/masqhome/config.toml"),
         ]
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
         .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal::default());
-        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let expected_config_file_data = "https://www.mainnet.com";
+        let dirs_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&base_dir))),
+        };
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
 
         let result = subject
             .get_modified_setup(existing_setup, incoming_setup)
             .unwrap();
 
         let actual_config_file_data = result.get("blockchain-service-url").unwrap().value.as_str();
-        assert_eq!(actual_config_file_data, "https://www.mainnet.com");
+        assert_eq!(actual_config_file_data, expected_config_file_data);
     }
 
     #[test]

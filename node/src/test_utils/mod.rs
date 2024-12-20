@@ -534,20 +534,6 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
-pub fn make_node_base_dir_and_return_its_absolute_and_relative_path_to_os_home_dir(
-    module: &str,
-    name: &str,
-) -> (PathBuf, PathBuf) {
-    let node_base_dir_relative = ensure_node_home_directory_exists(module, name);
-    let home_dir_path = home_dir().unwrap();
-    let current_dir = current_dir().unwrap();
-    let current_dir_tilde_like_path = current_dir.strip_prefix(home_dir_path).unwrap();
-    let node_base_dir_tilde_path =
-        current_dir_tilde_like_path.join(node_home_directory(module, name));
-    let node_base_dir_absolute = current_dir.join(node_base_dir_relative);
-    (node_base_dir_absolute, node_base_dir_tilde_path)
-}
-
 #[macro_export]
 macro_rules! arbitrary_id_stamp_in_trait {
     () => {
