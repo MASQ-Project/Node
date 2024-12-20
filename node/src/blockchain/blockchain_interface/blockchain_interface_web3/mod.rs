@@ -20,7 +20,7 @@ use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder, TransactionReceipt};
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
 use crate::blockchain::blockchain_interface_utils::{dynamically_create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
@@ -202,29 +202,22 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         Box::new(
             self.lower_interface()
-                .get_transaction_receipt_in_batch(transaction_hashes)
+                .get_transaction_receipt_in_batch(transaction_hashes.clone())
                 .map_err(|e| e)
                 .and_then(move |batch_response| {
                     Ok(batch_response
                         .into_iter()
-                        .map(|response| match response {
+                        .zip(transaction_hashes)
+                        .map(|(response, hash)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => match receipt.status {
-                                        None => TransactionReceiptResult::NotPresent,
-                                        Some(status) => {
-                                            if status == U64::from(1) {
-                                                TransactionReceiptResult::Found(receipt.into())
-                                            } else {
-                                                TransactionReceiptResult::TransactionFailed(
-                                                    receipt.into(),
-                                                )
-                                            }
-                                        }
-                                    },
+                                    Ok(receipt) => TransactionReceiptResult::RpcResponse(receipt.into()),
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TransactionReceiptResult::NotPresent
+                                            TransactionReceiptResult::RpcResponse(TxReceipt{
+                                                transaction_hash: hash,
+                                                status: TxStatus::Pending
+                                            })
                                         } else {
                                             TransactionReceiptResult::LocalError(e.to_string())
                                         }
@@ -934,24 +927,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(result[0], TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
-        assert_eq!(result[1], TransactionReceiptResult::NotPresent);
+        assert_eq!(result[1], TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: tx_hash_2, status: TxStatus::Pending }));
         assert_eq!(
             result[2],
             TransactionReceiptResult::LocalError(
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
             )
         );
-        assert_eq!(result[3], TransactionReceiptResult::NotPresent);
+        assert_eq!(result[3], TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: tx_hash_4, status: TxStatus::Pending }));
         assert_eq!(
             result[4],
-            TransactionReceiptResult::TransactionFailed(TxReceipt {
+            TransactionReceiptResult::RpcResponse(TxReceipt {
                 transaction_hash: tx_hash_5,
                 status: TxStatus::Failed,
             })
         );
         assert_eq!(
             result[5],
-            TransactionReceiptResult::Found(TxReceipt {
+            TransactionReceiptResult::RpcResponse(TxReceipt {
                 transaction_hash: tx_hash_6,
                 status: TxStatus::Succeeded(TransactionBlock {
                     block_hash,

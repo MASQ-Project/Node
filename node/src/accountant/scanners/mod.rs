@@ -55,7 +55,7 @@ use web3::types::H256;
 use masq_lib::type_obfuscation::Obfuscated;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::{PreparedAdjustment, MultistagePayableScanner, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
@@ -675,18 +675,24 @@ impl PendingPayableScanner {
         msg.fingerprints_with_receipts.into_iter().fold(
             scan_report,
             |scan_report_so_far, (receipt_result, fingerprint)| match receipt_result {
-                TransactionReceiptResult::Found(_receipt) => {
-                    handle_status_with_success(scan_report_so_far, fingerprint, logger)
+                TransactionReceiptResult::RpcResponse(tx_receipt) => {
+                    match tx_receipt.status {
+                        TxStatus::Pending => {
+                            handle_none_receipt(
+                                scan_report_so_far,
+                                fingerprint,
+                                "none was given".to_string(),
+                                logger,
+                            )
+                        }
+                        TxStatus::Failed => {
+                            handle_status_with_failure(scan_report_so_far, fingerprint, logger)
+                        }
+                        TxStatus::Succeeded(_) => {
+                            handle_status_with_success(scan_report_so_far, fingerprint, logger)
+                        }
+                    }
                 }
-                TransactionReceiptResult::TransactionFailed(_receipt) => {
-                    handle_status_with_failure(scan_report_so_far, fingerprint, logger)
-                }
-                TransactionReceiptResult::NotPresent => handle_none_receipt(
-                    scan_report_so_far,
-                    fingerprint,
-                    "none was given".to_string(),
-                    logger,
-                ),
                 TransactionReceiptResult::LocalError(e) => handle_none_receipt(
                     scan_report_so_far,
                     fingerprint,
@@ -1133,7 +1139,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxReceipt, TxStatus};
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -2498,7 +2504,10 @@ mod tests {
         };
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![(
-                TransactionReceiptResult::NotPresent,
+                TransactionReceiptResult::RpcResponse(TxReceipt{
+                    transaction_hash: hash,
+                    status: TxStatus::Pending
+                }),
                 fingerprint.clone(),
             )],
             response_skeleton_opt: None,
@@ -2821,6 +2830,8 @@ mod tests {
         let mut transaction_receipt_1 = TransactionReceipt::default();
         transaction_receipt_1.transaction_hash = transaction_hash_1;
         transaction_receipt_1.status = Some(U64::from(1)); //success
+        transaction_receipt_1.block_number = Some(U64::from(1234));
+        transaction_receipt_1.block_hash = Some(Default::default());
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
             timestamp: from_time_t(200_000_000),
@@ -2833,6 +2844,8 @@ mod tests {
         let mut transaction_receipt_2 = TransactionReceipt::default();
         transaction_receipt_2.transaction_hash = transaction_hash_2;
         transaction_receipt_2.status = Some(U64::from(1)); //success
+        transaction_receipt_2.block_number = Some(U64::from(2345));
+        transaction_receipt_2.block_hash = Some(Default::default());
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
             timestamp: from_time_t(199_780_000),
@@ -2844,11 +2857,11 @@ mod tests {
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_1.into()),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_1.into()),
                     fingerprint_1.clone(),
                 ),
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_2.into()),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_2.into()),
                     fingerprint_2.clone(),
                 ),
             ],

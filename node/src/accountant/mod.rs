@@ -3510,6 +3510,8 @@ mod tests {
                 ReceiptResponseBuilder::default()
                     .transaction_hash(pending_tx_hash_2)
                     .status(U64::from(1))
+                    .block_number(U64::from(1234))
+                    .block_hash(Default::default())
                     .build(),
             )
             .end_batch()
@@ -3800,6 +3802,8 @@ mod tests {
         let mut transaction_receipt_1 = TransactionReceipt::default();
         transaction_receipt_1.transaction_hash = transaction_hash_1;
         transaction_receipt_1.status = Some(U64::from(1)); //success
+        transaction_receipt_1.block_number = Some(U64::from(100));
+        transaction_receipt_1.block_hash = Some(Default::default());
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
             timestamp: from_time_t(200_000_000),
@@ -3812,6 +3816,8 @@ mod tests {
         let mut transaction_receipt_2 = TransactionReceipt::default();
         transaction_receipt_2.transaction_hash = transaction_hash_2;
         transaction_receipt_2.status = Some(U64::from(1)); //success
+        transaction_receipt_2.block_number = Some(U64::from(200));
+        transaction_receipt_2.block_hash = Some(Default::default());
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
             timestamp: from_time_t(199_780_000),
@@ -3823,11 +3829,11 @@ mod tests {
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_1.into()),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_1.into()),
                     fingerprint_1.clone(),
                 ),
                 (
-                    TransactionReceiptResult::Found(transaction_receipt_2.into()),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_2.into()),
                     fingerprint_2.clone(),
                 ),
             ],

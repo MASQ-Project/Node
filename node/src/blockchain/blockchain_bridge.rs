@@ -47,7 +47,7 @@ use ethabi::Hash;
 use web3::types::H256;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 pub const DEFAULT_BLOCKCHAIN_SERVICE_URL: &str = "https://0.0.0.0";
@@ -403,8 +403,10 @@ impl BlockchainBridge {
                     let length = transaction_receipts_results.len();
                     let mut transactions_found = 0;
                     for transaction_receipt in &transaction_receipts_results {
-                        if let TransactionReceiptResult::Found(_) = transaction_receipt {
-                            transactions_found += 1;
+                        if let TransactionReceiptResult::RpcResponse(tx_receipt) = transaction_receipt {
+                            if let TxStatus::Succeeded(_) = tx_receipt.status {
+                                transactions_found += 1;
+                            }
                         }
                     }
                     let pairs = transaction_receipts_results
@@ -581,6 +583,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceipt;
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -1191,11 +1194,13 @@ mod tests {
             &ReportTransactionReceipts {
                 fingerprints_with_receipts: vec![
                     (
-                        TransactionReceiptResult::Found(expected_receipt.into()),
+                        TransactionReceiptResult::RpcResponse(expected_receipt.into()),
                         pending_payable_fingerprint_1
                     ),
                     (
-                        TransactionReceiptResult::NotPresent,
+                        TransactionReceiptResult::RpcResponse(TxReceipt{
+                            transaction_hash: hash_2,
+                            status: TxStatus::Pending }),
                         pending_payable_fingerprint_2
                     ),
                 ],
@@ -1267,6 +1272,7 @@ mod tests {
         let contract_address = H160::from_low_u64_be(887766);
         let tx_receipt_response = ReceiptResponseBuilder::default()
             .block_number(block_number)
+            .block_hash(Default::default())
             .status(U64::from(1))
             .contract_address(contract_address)
             .build();
@@ -1322,6 +1328,7 @@ mod tests {
         };
         let mut transaction_receipt = TransactionReceipt::default();
         transaction_receipt.block_number = Some(block_number);
+        transaction_receipt.block_hash = Some(Default::default());
         transaction_receipt.contract_address = Some(contract_address);
         transaction_receipt.status = Some(U64::from(1));
         let blockchain_interface = make_blockchain_interface_web3(port);
@@ -1359,9 +1366,9 @@ mod tests {
             *report_receipts_msg,
             ReportTransactionReceipts {
                 fingerprints_with_receipts: vec![
-                    (TransactionReceiptResult::NotPresent, fingerprint_1),
-                    (TransactionReceiptResult::Found(transaction_receipt.into()), fingerprint_2),
-                    (TransactionReceiptResult::NotPresent, fingerprint_3),
+                    (TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: hash_1, status: TxStatus::Pending }), fingerprint_1),
+                    (TransactionReceiptResult::RpcResponse(transaction_receipt.into()), fingerprint_2),
+                    (TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: hash_3, status: TxStatus::Pending }), fingerprint_3),
                     (TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()), fingerprint_4)
                 ],
                 response_skeleton_opt: Some(ResponseSkeleton {

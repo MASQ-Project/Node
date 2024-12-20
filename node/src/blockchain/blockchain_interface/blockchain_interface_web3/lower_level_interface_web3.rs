@@ -14,9 +14,7 @@ use web3::{Error, Web3};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
-    NotPresent,
-    Found(TxReceipt),
-    TransactionFailed(TxReceipt),
+    RpcResponse(TxReceipt),
     LocalError(String),
 }
 
