@@ -612,8 +612,8 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TX_FEE_MARGIN_IN_PERCENT,
-        TRANSACTION_LITERAL,
+        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
+        TX_FEE_MARGIN_IN_PERCENT,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,

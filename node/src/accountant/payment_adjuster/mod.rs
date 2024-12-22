@@ -12,7 +12,6 @@ mod preparatory_analyser;
 mod service_fee_adjuster;
 #[cfg(test)]
 mod test_utils;
-
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::criterion_calculators::balance_calculator::BalanceCriterionCalculator;
 use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
@@ -22,7 +21,7 @@ use crate::accountant::payment_adjuster::disqualification_arbiter::{
     DisqualificationArbiter,
 };
 use crate::accountant::payment_adjuster::inner::{
-    PaymentAdjusterInner, PaymentAdjusterInnerNull, PaymentAdjusterInnerReal,
+    PaymentAdjusterInner,
 };
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::{
     accounts_before_and_after_debug,
@@ -77,7 +76,7 @@ pub trait PaymentAdjuster {
     ) -> AdjustmentAnalysisResult;
 
     fn adjust_payments(
-        &mut self,
+        &self,
         setup: PreparedAdjustment,
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError>;
@@ -88,7 +87,7 @@ pub struct PaymentAdjusterReal {
     disqualification_arbiter: DisqualificationArbiter,
     service_fee_adjuster: Box<dyn ServiceFeeAdjuster>,
     calculators: Vec<Box<dyn CriterionCalculator>>,
-    inner: Box<dyn PaymentAdjusterInner>,
+    inner: PaymentAdjusterInner,
     logger: Logger,
 }
 
@@ -106,7 +105,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
     }
 
     fn adjust_payments(
-        &mut self,
+        &self,
         setup: PreparedAdjustment,
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {
@@ -115,13 +114,13 @@ impl PaymentAdjuster for PaymentAdjusterReal {
         let agent = setup.agent;
         let initial_service_fee_balance_minor = agent.service_fee_balance_minor();
         let required_adjustment = setup.adjustment_analysis.adjustment;
-        let max_debt_above_threshold_in_qualified_payables =
+        let max_debt_above_threshold_in_qualified_payables_minor =
             find_largest_exceeding_balance(&analyzed_payables);
 
         self.initialize_inner(
-            initial_service_fee_balance_minor,
             required_adjustment,
-            max_debt_above_threshold_in_qualified_payables,
+            initial_service_fee_balance_minor,
+            max_debt_above_threshold_in_qualified_payables_minor,
             now,
         );
 
@@ -131,7 +130,7 @@ impl PaymentAdjuster for PaymentAdjusterReal {
 
         self.complete_debug_log_if_enabled(sketched_debug_log_opt, &affordable_accounts);
 
-        self.reset_inner();
+        self.inner.invalidate_guts();
 
         Ok(OutboundPaymentsInstructions::new(
             Either::Right(affordable_accounts),
@@ -154,16 +153,17 @@ impl PaymentAdjusterReal {
             disqualification_arbiter: DisqualificationArbiter::default(),
             service_fee_adjuster: Box::new(ServiceFeeAdjusterReal::default()),
             calculators: vec![Box::new(BalanceCriterionCalculator::default())],
-            inner: Box::new(PaymentAdjusterInnerNull::default()),
+            inner: PaymentAdjusterInner::default(),
             logger: Logger::new("PaymentAdjuster"),
         }
     }
 
     fn initialize_inner(
-        &mut self,
-        cw_service_fee_balance: u128,
+        &self,
         required_adjustment: Adjustment,
-        max_debt_above_threshold_in_qualified_payables: u128,
+        initial_service_fee_balance_minor: u128,
+        //TODO use 'of qualified payables' instead of 'in'
+        max_debt_above_threshold_in_qualified_payables_minor_minor: u128,
         now: SystemTime,
     ) {
         let transaction_fee_limitation_opt = match required_adjustment {
@@ -173,22 +173,16 @@ impl PaymentAdjusterReal {
             Adjustment::ByServiceFee => None,
         };
 
-        let inner = PaymentAdjusterInnerReal::new(
-            now,
+        self.inner.initialize_guts(
             transaction_fee_limitation_opt,
-            cw_service_fee_balance,
-            max_debt_above_threshold_in_qualified_payables,
-        );
-
-        self.inner = Box::new(inner);
-    }
-
-    fn reset_inner(&mut self) {
-        self.inner = Box::new(PaymentAdjusterInnerNull::default())
+            initial_service_fee_balance_minor,
+            max_debt_above_threshold_in_qualified_payables_minor_minor,
+            now,
+        )
     }
 
     fn run_adjustment(
-        &mut self,
+        &self,
         analyzed_accounts: Vec<AnalyzedPayableAccount>,
     ) -> Result<Vec<PayableAccount>, PaymentAdjusterError> {
         let weighed_accounts = self.calculate_weights(analyzed_accounts);
@@ -213,13 +207,13 @@ impl PaymentAdjusterReal {
     }
 
     fn resolve_initial_adjustment_dispatch(
-        &mut self,
+        &self,
         weighed_payables: Vec<WeighedPayable>,
     ) -> Result<
         Either<Vec<AdjustedAccountBeforeFinalization>, Vec<PayableAccount>>,
         PaymentAdjusterError,
     > {
-        if let Some(limit) = self.inner.transaction_fee_count_limit_opt() {
+        if let Some(limit) = self.inner.transaction_count_limit_opt() {
             return self.begin_with_adjustment_by_transaction_fee(weighed_payables, limit);
         }
 
@@ -229,7 +223,7 @@ impl PaymentAdjusterReal {
     }
 
     fn begin_with_adjustment_by_transaction_fee(
-        &mut self,
+        &self,
         weighed_accounts: Vec<WeighedPayable>,
         transaction_count_limit: u16,
     ) -> Result<
@@ -269,7 +263,7 @@ impl PaymentAdjusterReal {
     }
 
     fn propose_possible_adjustment_recursively(
-        &mut self,
+        &self,
         weighed_accounts: Vec<WeighedPayable>,
     ) -> Vec<AdjustedAccountBeforeFinalization> {
         diagnostics!(
@@ -357,8 +351,8 @@ impl PaymentAdjusterReal {
                     criteria_calculators
                         .iter()
                         .fold(0_u128, |weight, criterion_calculator| {
-                            let new_criterion = criterion_calculator
-                                .calculate(&payable.qualified_as, self.inner.as_ref());
+                            let new_criterion =
+                                criterion_calculator.calculate(&payable.qualified_as, &self.inner);
 
                             let summed_up = weight + new_criterion;
 
@@ -378,7 +372,7 @@ impl PaymentAdjusterReal {
     }
 
     fn adjust_remaining_unallocated_cw_balance_down(
-        &mut self,
+        &self,
         decided_accounts: &[AdjustedAccountBeforeFinalization],
     ) {
         let subtrahend_total: u128 = sum_as(decided_accounts, |account| {
@@ -561,7 +555,7 @@ impl Display for PaymentAdjusterError {
 #[cfg(test)]
 mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
+    use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
     use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::LATER_DETECTED_SERVICE_FEE_SEVERE_SCARCITY;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustmentIterationResult, WeighedPayable,
@@ -618,54 +612,6 @@ mod tests {
         let _ = subject.inner.unallocated_cw_service_fee_balance_minor();
     }
 
-    fn test_initialize_inner_works(
-        required_adjustment: Adjustment,
-        expected_tx_fee_limit_opt_result: Option<u16>,
-    ) {
-        let mut subject = PaymentAdjusterReal::default();
-        let cw_service_fee_balance = 111_222_333_444;
-        let max_debt_above_threshold_in_qualified_payables = 3_555_666;
-        let now = SystemTime::now();
-
-        subject.initialize_inner(
-            cw_service_fee_balance,
-            required_adjustment,
-            max_debt_above_threshold_in_qualified_payables,
-            now,
-        );
-
-        assert_eq!(subject.inner.now(), now);
-        assert_eq!(
-            subject.inner.transaction_fee_count_limit_opt(),
-            expected_tx_fee_limit_opt_result
-        );
-        assert_eq!(
-            subject.inner.original_cw_service_fee_balance_minor(),
-            cw_service_fee_balance
-        );
-        assert_eq!(
-            subject.inner.unallocated_cw_service_fee_balance_minor(),
-            cw_service_fee_balance
-        );
-        assert_eq!(
-            subject
-                .inner
-                .max_debt_above_threshold_in_qualified_payables(),
-            max_debt_above_threshold_in_qualified_payables
-        )
-    }
-
-    #[test]
-    fn initialize_inner_works() {
-        test_initialize_inner_works(Adjustment::ByServiceFee, None);
-        test_initialize_inner_works(
-            Adjustment::BeginByTransactionFee {
-                transaction_count_limit: 5,
-            },
-            Some(5),
-        );
-    }
-
     #[test]
     fn consider_adjustment_happy_path() {
         init_test_logging();
@@ -686,7 +632,10 @@ mod tests {
         // Service fee balance == payments
         let input_2 = make_input_for_initial_check_tests(
             Some(TestConfigForServiceFeeBalances {
-                payable_account_balances_minor: vec![multiply_by_billion(85), multiply_by_billion(15)],
+                payable_account_balances_minor: vec![
+                    multiply_by_billion(85),
+                    multiply_by_billion(15),
+                ],
                 cw_balance_minor: multiply_by_billion(100),
             }),
             None,
@@ -1102,9 +1051,9 @@ mod tests {
         let largest_exceeding_balance = (balance_1
             - account_1.qualified_as.payment_threshold_intercept_minor)
             .max(balance_2 - account_2.qualified_as.payment_threshold_intercept_minor);
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .cw_service_fee_balance_minor(cw_service_fee_balance_minor)
-            .max_debt_above_threshold_in_qualified_payables(largest_exceeding_balance)
+            .max_debt_above_threshold_in_qualified_payables_minor(largest_exceeding_balance)
             .build();
         let weighed_payables = vec![
             WeighedPayable::new(account_1, weight_account_1),
@@ -1307,7 +1256,7 @@ mod tests {
         let sum_of_disqualification_limits = sum_as(&analyzed_accounts, |account| {
             account.disqualification_limit_minor
         });
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .start_with_inner_null()
             .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
@@ -1425,10 +1374,10 @@ mod tests {
         untaken_cw_service_fee_balance_minor: u128,
         expected_result: bool,
     ) {
-        let mut subject = PaymentAdjusterReal::new();
+        let subject = PaymentAdjusterReal::new();
         subject.initialize_inner(
-            untaken_cw_service_fee_balance_minor,
             Adjustment::ByServiceFee,
+            untaken_cw_service_fee_balance_minor,
             1234567,
             SystemTime::now(),
         );
@@ -1533,7 +1482,7 @@ mod tests {
             .calculate_result(total_weight_account_1)
             .calculate_result(total_weight_account_2)
             .calculate_result(total_weight_account_3);
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .start_with_inner_null()
             .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
@@ -1645,7 +1594,7 @@ mod tests {
             .calculate_result(total_weight_account_1)
             .calculate_result(total_weight_account_2)
             .calculate_result(total_weight_account_3);
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .start_with_inner_null()
             .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
@@ -1738,7 +1687,7 @@ mod tests {
             .calculate_result(total_weight_account_1)
             .calculate_result(total_weight_account_2)
             .calculate_result(total_weight_account_3);
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .start_with_inner_null()
             .replace_calculators_with_mock(calculator_mock)
             .build();
@@ -1827,7 +1776,7 @@ mod tests {
             .calculate_result(total_weight_account_1)
             .calculate_result(total_weight_account_2)
             .calculate_result(total_weight_account_3);
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .start_with_inner_null()
             .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
@@ -1929,7 +1878,7 @@ mod tests {
             .calculate_result(total_weight_account_1)
             .calculate_result(total_weight_account_2)
             .calculate_result(total_weight_account_3);
-        let mut subject = PaymentAdjusterBuilder::default()
+        let subject = PaymentAdjusterBuilder::default()
             .start_with_inner_null()
             .replace_calculators_with_mock(calculator_mock)
             .logger(Logger::new(test_name))
@@ -2303,8 +2252,8 @@ mod tests {
         let panic_msg = err.downcast_ref::<String>().unwrap();
         assert_eq!(
             panic_msg,
-            "The PaymentAdjuster Inner is uninitialised. It was detected while executing \
-            original_cw_service_fee_balance_minor()"
+            "PaymentAdjusterInner is uninitialized. It was detected while calling method
+            'original_cw_service_fee_balance_minor'"
         )
     }
 
@@ -2328,12 +2277,8 @@ mod tests {
         let cw_service_fee_balance_minor = multiply_by_billion(3_000);
         let exceeding_balance = qualified_payable.bare_account.balance_wei
             - qualified_payable.payment_threshold_intercept_minor;
-        let context = PaymentAdjusterInnerReal::new(
-            now,
-            None,
-            cw_service_fee_balance_minor,
-            exceeding_balance,
-        );
+        let context = PaymentAdjusterInner::default();
+        context.initialize_guts(None, cw_service_fee_balance_minor, exceeding_balance, now);
 
         payment_adjuster
             .calculators
@@ -2506,13 +2451,13 @@ mod tests {
         cw_service_fee_balance_minor: u128,
     ) -> Vec<WeighedPayable> {
         let analyzed_payables = convert_collection(qualified_payables);
-        let max_debt_above_threshold_in_qualified_payables =
+        let max_debt_above_threshold_in_qualified_payables_minor =
             find_largest_exceeding_balance(&analyzed_payables);
         let mut subject = PaymentAdjusterBuilder::default()
             .now(now)
             .cw_service_fee_balance_minor(cw_service_fee_balance_minor)
-            .max_debt_above_threshold_in_qualified_payables(
-                max_debt_above_threshold_in_qualified_payables,
+            .max_debt_above_threshold_in_qualified_payables_minor(
+                max_debt_above_threshold_in_qualified_payables_minor,
             )
             .build();
         let perform_adjustment_by_service_fee_params_arc = Arc::new(Mutex::new(Vec::new()));
