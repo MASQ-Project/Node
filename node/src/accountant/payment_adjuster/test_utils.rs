@@ -7,7 +7,7 @@ use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalcula
 use crate::accountant::payment_adjuster::disqualification_arbiter::{
     DisqualificationArbiter, DisqualificationGauge,
 };
-use crate::accountant::payment_adjuster::inner::{PaymentAdjusterInner, PaymentAdjusterInnerReal};
+use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
     AdjustmentIterationResult, UnconfirmedAdjustment, WeighedPayable,
 };
@@ -39,7 +39,7 @@ pub struct PaymentAdjusterBuilder {
     now_opt: Option<SystemTime>,
     cw_service_fee_balance_minor_opt: Option<u128>,
     mock_replacing_calculators_opt: Option<CriterionCalculatorMock>,
-    max_debt_above_threshold_in_qualified_payables_opt: Option<u128>,
+    max_debt_above_threshold_in_qualified_payables_minor_opt: Option<u128>,
     transaction_limit_count_opt: Option<u16>,
     logger_opt: Option<Logger>,
 }
@@ -50,14 +50,13 @@ impl PaymentAdjusterBuilder {
         let logger = self.logger_opt.unwrap_or(Logger::new("test"));
         payment_adjuster.logger = logger;
         if !self.start_with_inner_null {
-            let inner = Box::new(PaymentAdjusterInnerReal::new(
-                self.now_opt.unwrap_or(SystemTime::now()),
+            payment_adjuster.inner.initialize_guts(
                 self.transaction_limit_count_opt,
                 self.cw_service_fee_balance_minor_opt.unwrap_or(0),
-                self.max_debt_above_threshold_in_qualified_payables_opt
+                self.max_debt_above_threshold_in_qualified_payables_minor_opt
                     .unwrap_or(0),
-            ));
-            payment_adjuster.inner = inner;
+                self.now_opt.unwrap_or(SystemTime::now()),
+            );
         }
         if let Some(calculator) = self.mock_replacing_calculators_opt {
             payment_adjuster.calculators = vec![Box::new(calculator)]
@@ -83,11 +82,12 @@ impl PaymentAdjusterBuilder {
         self
     }
 
-    pub fn max_debt_above_threshold_in_qualified_payables(
+    pub fn max_debt_above_threshold_in_qualified_payables_minor(
         mut self,
         max_exceeding_part_of_debt: u128,
     ) -> Self {
-        self.max_debt_above_threshold_in_qualified_payables_opt = Some(max_exceeding_part_of_debt);
+        self.max_debt_above_threshold_in_qualified_payables_minor_opt =
+            Some(max_exceeding_part_of_debt);
         self
     }
 
@@ -170,7 +170,7 @@ impl CriterionCalculator for CriterionCalculatorMock {
     fn calculate(
         &self,
         account: &QualifiedPayableAccount,
-        _context: &dyn PaymentAdjusterInner,
+        _context: &PaymentAdjusterInner,
     ) -> u128 {
         self.calculate_params.lock().unwrap().push(account.clone());
         self.calculate_results.borrow_mut().remove(0)

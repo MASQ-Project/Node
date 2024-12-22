@@ -8,12 +8,8 @@ use crate::accountant::QualifiedPayableAccount;
 pub struct BalanceCriterionCalculator {}
 
 impl CriterionCalculator for BalanceCriterionCalculator {
-    fn calculate(
-        &self,
-        account: &QualifiedPayableAccount,
-        context: &dyn PaymentAdjusterInner,
-    ) -> u128 {
-        let largest = context.max_debt_above_threshold_in_qualified_payables();
+    fn calculate(&self, account: &QualifiedPayableAccount, context: &PaymentAdjusterInner) -> u128 {
+        let largest = context.max_debt_above_threshold_in_qualified_payables_minor();
 
         let this_account =
             account.bare_account.balance_wei - account.payment_threshold_intercept_minor;
@@ -32,7 +28,7 @@ impl CriterionCalculator for BalanceCriterionCalculator {
 mod tests {
     use crate::accountant::payment_adjuster::criterion_calculators::balance_calculator::BalanceCriterionCalculator;
     use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
-    use crate::accountant::payment_adjuster::inner::PaymentAdjusterInnerReal;
+    use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::test_utils::multiply_by_billion;
     use crate::accountant::test_utils::make_meaningless_analyzed_account;
@@ -64,8 +60,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
-        let payment_adjuster_inner =
-            PaymentAdjusterInnerReal::new(now, None, 123456789, largest_exceeding_balance);
+        let payment_adjuster_inner = PaymentAdjusterInner::default();
+        payment_adjuster_inner.initialize_guts(None, 123456789, largest_exceeding_balance, now);
         let subject = BalanceCriterionCalculator::default();
 
         let computed_criteria = analyzed_accounts

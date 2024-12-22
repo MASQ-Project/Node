@@ -1488,7 +1488,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
     }
 
     fn adjust_payments(
-        &mut self,
+        &self,
         setup: PreparedAdjustment,
         now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {

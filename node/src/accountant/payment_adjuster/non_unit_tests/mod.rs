@@ -113,7 +113,7 @@ fn loading_test_with_randomized_params() {
 
     let now = SystemTime::now();
     let mut gn = thread_rng();
-    let mut subject = PaymentAdjusterReal::new();
+    let subject = PaymentAdjusterReal::new();
     let number_of_requested_scenarios = 2000;
     let scenarios = generate_scenarios(&mut gn, now, number_of_requested_scenarios);
     let invalidly_generated_scenarios = number_of_requested_scenarios - scenarios.len();
