@@ -191,7 +191,7 @@ mod tests {
         exhaust_cw_balance_entirely, find_largest_exceeding_balance, no_affordable_accounts_found,
         ConsumingWalletExhaustingStatus,
     };
-    use crate::accountant::payment_adjuster::test_utils::make_weighed_account;
+    use crate::accountant::payment_adjuster::test_utils::make_meaningless_weighed_account;
     use crate::accountant::test_utils::{make_meaningless_analyzed_account, make_payable_account};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
@@ -251,13 +251,13 @@ mod tests {
 
     #[test]
     fn eliminate_accounts_by_tx_fee_limit_works() {
-        let mut account_1 = make_weighed_account(123);
+        let mut account_1 = make_meaningless_weighed_account(123);
         account_1.weight = 1_000_000_000;
-        let mut account_2 = make_weighed_account(456);
+        let mut account_2 = make_meaningless_weighed_account(456);
         account_2.weight = 999_999_999;
-        let mut account_3 = make_weighed_account(789);
+        let mut account_3 = make_meaningless_weighed_account(789);
         account_3.weight = 999_999_999;
-        let mut account_4 = make_weighed_account(1011);
+        let mut account_4 = make_meaningless_weighed_account(1011);
         account_4.weight = 1_000_000_001;
         let affordable_transaction_count = 2;
 

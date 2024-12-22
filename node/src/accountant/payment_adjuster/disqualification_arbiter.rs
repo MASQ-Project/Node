@@ -213,7 +213,7 @@ mod tests {
     };
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
     use crate::accountant::payment_adjuster::test_utils::{
-        make_non_guaranteed_unconfirmed_adjustment, make_weighed_account,
+        make_meaningless_weighed_account, make_non_guaranteed_unconfirmed_adjustment,
     };
     use itertools::Itertools;
     use masq_lib::logger::Logger;
@@ -415,13 +415,13 @@ mod tests {
 
     #[test]
     fn only_account_with_the_smallest_weight_will_be_disqualified_in_single_iteration() {
-        let mut account_1 = make_weighed_account(123);
+        let mut account_1 = make_meaningless_weighed_account(123);
         account_1.analyzed_account.disqualification_limit_minor = 1_000_000;
         account_1.weight = 1000;
-        let mut account_2 = make_weighed_account(456);
+        let mut account_2 = make_meaningless_weighed_account(456);
         account_2.analyzed_account.disqualification_limit_minor = 1_000_000;
         account_2.weight = 1002;
-        let mut account_3 = make_weighed_account(789);
+        let mut account_3 = make_meaningless_weighed_account(789);
         account_3.analyzed_account.disqualification_limit_minor = 1_000_000;
         account_3.weight = 999;
         let wallet_3 = account_3
@@ -430,7 +430,7 @@ mod tests {
             .bare_account
             .wallet
             .clone();
-        let mut account_4 = make_weighed_account(012);
+        let mut account_4 = make_meaningless_weighed_account(012);
         account_4.analyzed_account.disqualification_limit_minor = 1_000_000;
         account_4.weight = 1001;
         // Notice that each proposed adjustment is below 1_000_000 which makes it clear all these

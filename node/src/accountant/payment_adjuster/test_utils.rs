@@ -312,7 +312,7 @@ pub fn make_meaningless_analyzed_account_by_wallet(
     account
 }
 
-pub fn make_weighed_account(n: u64) -> WeighedPayable {
+pub fn make_meaningless_weighed_account(n: u64) -> WeighedPayable {
     WeighedPayable::new(make_meaningless_analyzed_account(n), 123456 * n as u128)
 }
 
