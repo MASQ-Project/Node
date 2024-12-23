@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod lower_level_interface_web3;
+mod utils;
+
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::data_structures::errors::{BlockchainError, PayableTransactionError};
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible};
@@ -21,7 +23,7 @@ use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder, Transact
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
-use crate::blockchain::blockchain_interface_utils::{dynamically_create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{dynamically_create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{

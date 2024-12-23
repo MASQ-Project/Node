@@ -1,8 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-// TODO: GH-744: At the end of the review rename this file to: web3_blockchain_interface_utils.rs
-//       Or we should move this file into blockchain_interface_web3
-
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::agent_web3::BlockchainAgentWeb3;
