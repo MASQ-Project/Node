@@ -9,8 +9,8 @@ use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::net::SocketAddr;
-use std::fmt;
-use workflow_websocket::client::{Message, WebSocket};
+use std::{fmt, io};
+use workflow_websocket::client::{Error, Message, WebSocket};
 use std::fmt::{Debug, Formatter};
 
 pub struct UiConnection {
@@ -167,6 +167,11 @@ impl UiConnection {
     ) -> Result<R, (u64, String)> {
         self.send_with_context_id(payload, context_id).await;
         Self::standard_result_resolution(self.receive_main::<R>(Some(context_id)).await)
+    }
+
+    pub async fn shutdown(&self) -> workflow_websocket::client::Result<()> {
+        todo!("Drive this in");
+        self.websocket.disconnect().await
     }
 
     fn standard_result_resolution<T>(

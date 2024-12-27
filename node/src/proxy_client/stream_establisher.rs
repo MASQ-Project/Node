@@ -159,15 +159,11 @@ mod tests {
 
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let (stream_killer_tx, _) = unbounded();
-            let mut read_stream = Box::new(ReadHalfWrapperMock::new());
             let bytes = b"I'm a stream establisher test not a framer test";
-            read_stream.poll_read_results = vec![
-                (bytes.to_vec(), Poll::Ready(Ok(()))),
-                (
-                    vec![],
-                    Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe))),
-                ),
-            ];
+            let read_stream = Box::new(ReadHalfWrapperMock::new()
+                .read_result(Ok(bytes.to_vec()))
+                .read_result(Err(io::Error::from(ErrorKind::BrokenPipe)))
+            );
 
             let subject = StreamEstablisher {
                 cryptde: main_cryptde(),

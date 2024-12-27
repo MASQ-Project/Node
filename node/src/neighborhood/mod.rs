@@ -1237,6 +1237,11 @@ impl Neighborhood {
         direction: RouteDirection,
         hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
+        // TODO: Change this to u64, and put a comment somewhere to the effect that we must never,
+        // ever A) have a negative undesirability or B) allow undesirability to decrease during
+        // the computation of a route, because that would mean that we couldn't use minimum_undesirability
+        // to abort the search early, which has been shown to save over three orders of magnitude in
+        // route-computation time. Undesirability must must must be monotonically increasing.
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);

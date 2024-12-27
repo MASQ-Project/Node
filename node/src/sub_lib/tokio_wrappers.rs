@@ -1,31 +1,33 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use std::io;
-use std::io::Error;
 use std::marker::Send;
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 
 #[async_trait]
 pub trait TokioListenerWrapper: Send {
-    fn bind(&mut self, addr: SocketAddr) -> io::Result<()>;
+    async fn bind(&mut self, addr: SocketAddr) -> io::Result<()>;
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
+
+    // TODO: See if we can get rid of this
     fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>>;
 }
 
-pub trait ReadHalfWrapper: Send + AsyncRead + Unpin {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<()>>;
+#[async_trait]
+pub trait ReadHalfWrapper: Send {
+    async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
 }
 
-pub trait WriteHalfWrapper: Send + AsyncWrite + Unpin {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<()>>;
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
+#[async_trait]
+pub trait WriteHalfWrapper: Send {
+    async fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
+    async fn flush(&mut self) -> io::Result<()>;
+    async fn shutdown(&mut self) -> io::Result<()>;
 }
 
 pub trait TokioListenerWrapperFactory {
@@ -49,9 +51,10 @@ pub struct WriteHalfWrapperReal {
 
 pub struct TokioListenerWrapperFactoryReal {}
 
+#[async_trait]
 impl TokioListenerWrapper for TokioListenerWrapperReal {
-    fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
-        match TcpListener::bind(&addr) {
+    async fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
+        match TcpListener::bind(&addr).await {
             Ok(tcp_listener) => {
                 self.delegate = Some(tcp_listener);
                 Ok(())
@@ -65,21 +68,17 @@ impl TokioListenerWrapper for TokioListenerWrapperReal {
     }
 
     fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
+        todo!("See if we can get rid of this");
         self.delegate().poll_accept(cx)
     }
 }
 
-impl AsyncRead for ReadHalfWrapperReal {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        self.delegate.poll_read(cx, buf)
+#[async_trait]
+impl ReadHalfWrapper for ReadHalfWrapperReal {
+    async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.delegate.read(buf).await
     }
 }
-
-impl ReadHalfWrapper for ReadHalfWrapperReal {}
 
 impl ReadHalfWrapperReal {
     pub fn new(reader: OwnedReadHalf) -> ReadHalfWrapperReal {
@@ -87,35 +86,21 @@ impl ReadHalfWrapperReal {
     }
 }
 
-impl AsyncWrite for WriteHalfWrapperReal {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
-        WriteHalfWrapper::poll_write(self, cx, buf)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        todo!()
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        todo!()
-    }
-}
-
+#[async_trait]
 impl WriteHalfWrapper for WriteHalfWrapperReal {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+    async fn write(
+        self: &mut Self,
         buf: &[u8],
-    ) -> Poll<io::Result<()>> {
-        self.delegate.poll_write(cx, buf)
+    ) -> io::Result<usize> {
+        self.delegate.write(&buf).await
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.delegate.poll_flush(cx)
+    async fn flush(self: &mut Self) -> io::Result<()> {
+        self.delegate.flush().await
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.delegate.poll_shutdown(cx)
+    async fn shutdown(self: &mut Self) -> io::Result<()> {
+        self.delegate.shutdown().await
     }
 }
 

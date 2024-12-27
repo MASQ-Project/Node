@@ -339,8 +339,8 @@ impl RecordAwaiter {
 pub fn make_recorder() -> (Recorder, RecordAwaiter, Arc<Mutex<Recording>>) {
     let recorder = Recorder::new();
     let awaiter = recorder.get_awaiter();
-    let recording = recorder.get_recording();
-    (recorder, awaiter, recording)
+    let recording_arc = recorder.get_recording();
+    (recorder, awaiter, recording_arc)
 }
 
 pub fn make_proxy_server_subs_from(addr: &Addr<Recorder>) -> ProxyServerSubs {

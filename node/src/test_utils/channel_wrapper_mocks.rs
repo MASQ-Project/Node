@@ -33,26 +33,36 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
 
 #[derive(Default)]
 pub struct ReceiverWrapperMock<T> {
-    pub recv_results: Vec<Option<T>>,
-    pub try_recv_results: Vec<Result<T, TryRecvError>>,
+    recv_results: RefCell<Vec<Option<T>>>,
+    try_recv_results: RefCell<Vec<Result<T, TryRecvError>>>,
 }
 
 #[async_trait]
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
     async fn recv(&mut self) -> Option<T> {
-        self.recv_results.remove(0)
+        self.recv_results.borrow_mut().remove(0)
     }
     fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        self.try_recv_results.remove(0)
+        self.try_recv_results.borrow_mut().remove(0)
     }
 }
 
 impl<T> ReceiverWrapperMock<T> {
     pub fn new() -> Self {
         Self {
-            recv_results: vec![],
-            try_recv_results: vec![],
+            recv_results: RefCell::new(vec![]),
+            try_recv_results: RefCell::new(vec![]),
         }
+    }
+
+    pub fn recv_result(mut self, result: Option<T>) -> Self {
+        self.recv_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn try_recv_result(mut self, result: Result<T, TryRecvError>) -> Self {
+        self.try_recv_results.borrow_mut().push(result);
+        self
     }
 }
 

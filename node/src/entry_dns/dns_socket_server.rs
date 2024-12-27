@@ -20,14 +20,16 @@ pub struct DnsSocketServer {
     buf: [u8; 65536],
 }
 
+#[async_trait]
 impl ConfiguredByPrivilege for DnsSocketServer {
-    fn initialize_as_privileged(
+    async fn initialize_as_privileged(
         &mut self,
         _multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
         let socket_addr = SocketAddr::new(localhost(), DNS_PORT);
         self.socket_wrapper
             .bind(socket_addr)
+            .await
             .unwrap_or_else(|e| panic!("Cannot bind socket to {:?}: {:?}", socket_addr, e));
         Ok(())
     }
@@ -308,7 +310,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     fn poll_handles_error_sending_to_udp_socket_wrapper() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();

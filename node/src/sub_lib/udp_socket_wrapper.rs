@@ -34,17 +34,16 @@ impl UdpSocketWrapperTrait for UdpSocketWrapperReal {
         Ok(true)
     }
 
-    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        match self.delegate {
-            Some(ref mut socket) => socket.recv_from(buf).await,
+    async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        match self.delegate.as_ref() {
+            Some(socket) => socket.recv_from(buf).await,
             None => panic!("call bind before recv_from"),
         }
     }
 
-    // pub async fn send_to<A: ToSocketAddrs>(&self, buf: &[u8], target: A) -> io::Result<usize> {
-    async fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
-        match self.delegate {
-            Some(ref mut socket) => socket.send_to(buf, addr).await,
+    async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize> {
+        match self.delegate.as_ref() {
+            Some(socket) => socket.send_to(buf, addr).await,
             None => panic!("call bind before send_to"),
         }
     }

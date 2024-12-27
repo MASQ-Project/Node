@@ -23,9 +23,8 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use std::mem::replace;
+use std::sync::{Arc, Mutex};
 use std::thread::panicking;
-use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
@@ -109,7 +108,8 @@ impl UiGateway {
             Ok(wss) => Either::Right(wss),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
         };
-        let _ = replace(&mut self.websocket_supervisor_or_factory, ws);
+        self.websocket_supervisor_or_factory = ws;
+        // let _ = replace(&mut self.websocket_supervisor_arc_or_factory, ws); Delete this if the line above works
     }
 }
 
@@ -358,7 +358,7 @@ mod tests {
         let websocket_supervisor =
             WebSocketSupervisorMock::new().send_msg_params(&send_msg_params_arc);
         let websocket_supervisor_factory = WebsocketSupervisorFactoryMock::default()
-            .make_result(Ok(Box::new(websocket_supervisor)));
+            .make_result(Ok(websocket_supervisor));
         let port = find_free_port();
         let mut subject = UiGateway::new(&UiGatewayConfig { ui_port: port }, false);
         subject.websocket_supervisor_or_factory = Either::Left(

@@ -51,8 +51,8 @@ impl StreamConnector for StreamConnectorMock {
     }
 }
 
-type StreamConnectorMockRead = (Vec<u8>, Poll<Result<(), io::Error>>);
-type StreamConnectorMockWrite = Poll<Result<usize, io::Error>>;
+type StreamConnectorMockRead = (Vec<u8>, io::Result<()>);
+type StreamConnectorMockWrite = io::Result<usize>;
 
 impl StreamConnectorMock {
     pub fn new() -> StreamConnectorMock {
@@ -73,12 +73,15 @@ impl StreamConnectorMock {
         let read_half = reads
             .into_iter()
             .fold(ReadHalfWrapperMock::new(), |so_far, elem| {
-                so_far.poll_read_result(elem.0, elem.1)
+                match elem {
+                    (data, Ok(())) => so_far.read_ok(&data),
+                    (_, Err(e)) => so_far.read_result(Err(e)),
+                }
             });
         let write_half = writes
             .into_iter()
             .fold(WriteHalfWrapperMock::new(), |so_far, elem| {
-                so_far.poll_write_result(elem)
+                so_far.write_result(elem)
             });
         let connection_info = ConnectionInfo {
             reader: Box::new(read_half),

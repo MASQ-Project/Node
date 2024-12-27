@@ -27,7 +27,7 @@ impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperReal<T> {
 }
 
 impl<T: Send> ReceiverWrapperReal<T> {
-    pub fn new(delegate: UnboundedReceiver<T>) -> Self<T> {
+    pub fn new(delegate: UnboundedReceiver<T>) -> ReceiverWrapperReal<T> {
         Self { delegate }
     }
 }

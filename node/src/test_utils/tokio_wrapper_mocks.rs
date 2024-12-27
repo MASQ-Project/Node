@@ -1,49 +1,34 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::cell::RefCell;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use std::io;
-use std::io::Read;
 use std::io::Write;
-use std::pin::{pin, Pin};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-
-// TODO: This would probably be more profitable as an enum with three values.
-type PollReadResult = (Vec<u8>, Poll<io::Result<()>>);
+use std::task::{Poll};
+use async_trait::async_trait;
 
 #[derive(Default)]
 pub struct ReadHalfWrapperMock {
-    pub poll_read_results: Vec<PollReadResult>,
+    pub read_results: Vec<io::Result<Vec<u8>>>,
 }
 
+#[async_trait]
 impl ReadHalfWrapper for ReadHalfWrapperMock {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<()>> {
-        AsyncRead::poll_read(self, cx, &mut ReadBuf::new(buf))
-    }
-}
-
-impl Read for ReadHalfWrapperMock {
-    fn read(&mut self, _buf: &mut [u8]) -> Result<usize, io::Error> {
-        unimplemented!()
-    }
-}
-
-impl AsyncRead for ReadHalfWrapperMock {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let (data, read_result) = self.get_mut().poll_read_results.remove(0);
-        match read_result {
-            Poll::Ready(Ok(())) => {
-                buf.put_slice(&data);
-            },
-            _ => {},
+    async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.read_results.is_empty() {
+            panic!("ReadHalfWrapperMock: read_results is empty")
         }
-        read_result
+        let result = self.read_results.remove(0);
+        match result {
+            Ok(data) => {
+                let len = data.len();
+                buf[..len].copy_from_slice(&data);
+                Ok(len)
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -52,23 +37,22 @@ impl ReadHalfWrapperMock {
         Default::default()
     }
 
-    pub fn poll_read_result(
+    pub fn read_result(
         mut self,
-        data: Vec<u8>,
-        result: Poll<io::Result<()>>,
+        result: io::Result<Vec<u8>>,
     ) -> ReadHalfWrapperMock {
-        self.poll_read_results.push((data, result));
+        self.read_results.push(result);
         self
     }
 
-    pub fn poll_read_ok(self, data: Vec<u8>) -> ReadHalfWrapperMock {
-        self.poll_read_result(data.clone(), Poll::Ready(Ok(())))
+    pub fn read_ok(self, data: &[u8]) -> ReadHalfWrapperMock {
+        self.read_result(Ok(data.to_vec()))
     }
 
-    pub fn poll_read_final(self, data: Vec<u8>) -> ReadHalfWrapperMock {
+    pub fn read_final(self, data: &[u8]) -> ReadHalfWrapperMock {
         self
-            .poll_read_result(data.clone(), Poll::Ready(Ok(())))
-            .poll_read_result(vec![], Poll::Ready(Ok(())))
+            .read_ok(data)
+            .read_ok(&[])
     }
 }
 
@@ -76,12 +60,32 @@ type ShutdownResults = Vec<Poll<io::Result<()>>>;
 
 #[derive(Default)]
 pub struct WriteHalfWrapperMock {
-    pub poll_write_params: Arc<Mutex<Vec<Vec<u8>>>>,
-    pub poll_write_results: Vec<Poll<io::Result<usize>>>,
-    pub poll_close_results: Arc<Mutex<ShutdownResults>>,
+    write_params: Arc<Mutex<Vec<Vec<u8>>>>,
+    write_results: RefCell<Vec<io::Result<usize>>>,
+    close_results: RefCell<Vec<io::Result<()>>>,
 }
 
-impl WriteHalfWrapper for WriteHalfWrapperMock {}
+#[async_trait]
+impl WriteHalfWrapper for WriteHalfWrapperMock {
+    async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.write_params.lock().unwrap().push(buf.to_vec());
+        if self.write_results.borrow().is_empty() {
+            panic!("WriteHalfWrapperMock: write_results is empty")
+        }
+        self.write_results.borrow_mut().remove(0)
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        unimplemented!("Not needed")
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        if self.close_results.borrow().is_empty() {
+            panic!("WriteHalfWrapperMock: poll_close_results is empty")
+        }
+        self.close_results.borrow_mut().remove(0)
+    }
+}
 
 impl Write for WriteHalfWrapperMock {
     fn write(&mut self, _buf: &[u8]) -> Result<usize, io::Error> {
@@ -93,63 +97,38 @@ impl Write for WriteHalfWrapperMock {
     }
 }
 
-impl AsyncWrite for WriteHalfWrapperMock {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        self.poll_write_params.lock().unwrap().push(buf.to_vec());
-        if self.poll_write_results.is_empty() {
-            panic!("WriteHalfWrapperMock: poll_write_results is empty")
-        }
-        pin!(self).poll_write_results.remove(0)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        unimplemented!("Not needed")
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.poll_close_results.lock().unwrap().is_empty() {
-            panic!("WriteHalfWrapperMock: poll_close_results is empty")
-        }
-        self.poll_close_results.lock().unwrap().remove(0)
-    }
-}
-
 impl WriteHalfWrapperMock {
     pub fn new() -> WriteHalfWrapperMock {
         WriteHalfWrapperMock {
-            poll_write_params: Arc::new(Mutex::new(vec![])),
-            poll_write_results: vec![],
-            poll_close_results: Arc::new(Mutex::new(vec![])),
+            write_params: Arc::new(Mutex::new(vec![])),
+            write_results: RefCell::new(vec![]),
+            close_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn poll_write_params(
+    pub fn write_params(
         mut self,
         params_arc: &Arc<Mutex<Vec<Vec<u8>>>>,
     ) -> WriteHalfWrapperMock {
-        self.poll_write_params = params_arc.clone();
+        self.write_params = params_arc.clone();
         self
     }
 
-    pub fn poll_write_result(mut self, result: Poll<io::Result<usize>>) -> WriteHalfWrapperMock {
-        self.poll_write_results.push(result);
+    pub fn write_result(mut self, result: io::Result<usize>) -> WriteHalfWrapperMock {
+        self.write_results.borrow_mut().push(result);
         self
     }
 
-    pub fn poll_write_ok(self, len: usize) -> WriteHalfWrapperMock {
-        self.poll_write_result(Poll::Ready(Ok(len)))
+    pub fn write_ok(self, len: usize) -> WriteHalfWrapperMock {
+        self.write_result(Ok(len))
     }
 
-    pub fn poll_close_result(self, result: Poll<io::Result<()>>) -> WriteHalfWrapperMock {
-        self.poll_close_results.lock().unwrap().push(result);
+    pub fn close_result(self, result: io::Result<()>) -> WriteHalfWrapperMock {
+        self.close_results.borrow_mut().push(result);
         self
     }
 
-    pub fn poll_close_ok(self) -> WriteHalfWrapperMock {
-        self.poll_close_result(Poll::Ready(Ok(())))
+    pub fn close_ok(self) -> WriteHalfWrapperMock {
+        self.close_result(Ok(()))
     }
 }

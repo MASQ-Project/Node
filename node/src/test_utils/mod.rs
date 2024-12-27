@@ -372,7 +372,6 @@ pub fn await_messages<T>(expected_message_count: usize, messages_arc_mutex: &Arc
     }
 }
 
-//must stay without cfg(test) -- used in another crate
 pub fn wait_for<F>(interval_ms: Option<u64>, limit_ms: Option<u64>, mut f: F)
 where
     F: FnMut() -> bool,
