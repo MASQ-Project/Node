@@ -131,7 +131,7 @@ pub struct ScannerCommon {
     initiated_at_opt: Option<SystemTime>,
     // TODO The thresholds probably shouldn't be in ScannerCommon because the PendingPayableScanner
     // does not need it
-    pub payment_thresholds: Rc<PaymentThresholds>,
+    payment_thresholds: Rc<PaymentThresholds>,
 }
 
 impl ScannerCommon {

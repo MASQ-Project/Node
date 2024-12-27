@@ -136,7 +136,10 @@ impl PaymentAdjusterInner {
     }
 
     fn uninitialized_panic(method: &str) -> ! {
-        panic!("PaymentAdjusterInner is uninitialized. It was detected on the call of '{method}()'")
+        panic!(
+            "PaymentAdjusterInner is uninitialized. It was identified during the execution of \
+        '{method}()'"
+        )
     }
 }
 
@@ -287,7 +290,10 @@ mod tests {
         let caught_panic =
             catch_unwind(AssertUnwindSafe(|| call_panicking_method(subject))).unwrap_err();
         let actual_panic_msg = caught_panic.downcast_ref::<String>().unwrap().to_owned();
-        let expected_msg = format!("PaymentAdjusterInner is uninitialized. It was detected on the call of '{method_name}()'");
+        let expected_msg = format!(
+            "PaymentAdjusterInner is uninitialized. It was \
+        identified during the execution of '{method_name}()'"
+        );
         assert_eq!(
             actual_panic_msg, expected_msg,
             "We expected this panic message: {}, but the panic looked different: {}",

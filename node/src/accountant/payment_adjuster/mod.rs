@@ -603,8 +603,8 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "The PaymentAdjuster Inner is uninitialised. It was detected while \
-    executing unallocated_cw_service_fee_balance_minor()"
+        expected = "PaymentAdjusterInner is uninitialized. It was identified during \
+        the execution of 'unallocated_cw_service_fee_balance_minor()'"
     )]
     fn payment_adjuster_new_is_created_with_inner_null() {
         let subject = PaymentAdjusterReal::new();
@@ -2252,8 +2252,8 @@ mod tests {
         let panic_msg = err.downcast_ref::<String>().unwrap();
         assert_eq!(
             panic_msg,
-            "PaymentAdjusterInner is uninitialized. It was detected while calling method
-            'original_cw_service_fee_balance_minor'"
+            "PaymentAdjusterInner is uninitialized. It was identified during the execution of \
+            'original_cw_service_fee_balance_minor()'"
         )
     }
 
