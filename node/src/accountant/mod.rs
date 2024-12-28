@@ -1085,6 +1085,9 @@ mod tests {
         TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+        PayableInspector, PayableThresholdsGaugeReal,
+    };
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
@@ -1180,23 +1183,23 @@ mod tests {
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_factory = PayableDaoFactoryMock::new()
+        let payable_dao_factory = PayableDaoFactoryMock::default()
             .make_params(&payable_dao_factory_params_arc)
             .make_result(PayableDaoMock::new()) // For Accountant
             .make_result(PayableDaoMock::new()) // For Payable Scanner
             .make_result(PayableDaoMock::new()); // For PendingPayable Scanner
-        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::default()
             .make_params(&pending_payable_dao_factory_params_arc)
             .make_result(PendingPayableDaoMock::new()) // For Accountant
             .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
             .make_result(PendingPayableDaoMock::new()); // For PendingPayable Scanner
-        let receivable_dao_factory = ReceivableDaoFactoryMock::new()
+        let receivable_dao_factory = ReceivableDaoFactoryMock::default()
             .make_params(&receivable_dao_factory_params_arc)
             .make_result(ReceivableDaoMock::new()) // For Accountant
             .make_result(ReceivableDaoMock::new()); // For Receivable Scanner
         let banned_dao_factory = BannedDaoFactoryMock::new()
             .make_params(&banned_dao_factory_params_arc)
-            .make_result(BannedDaoMock::new()); // For Receivable Scanner
+            .make_result(BannedDaoMock::default()); // For Receivable Scanner
         let config_dao_factory = ConfigDaoFactoryMock::new()
             .make_params(&config_dao_factory_params_arc)
             .make_result(ConfigDaoMock::new()); // For receivable scanner
@@ -3633,6 +3636,9 @@ mod tests {
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)
+                    .payable_inspector(PayableInspector::new(Box::new(
+                        PayableThresholdsGaugeReal::default(),
+                    )))
                     .payment_adjuster(payment_adjuster)
                     .build();
                 subject.scanners.payable = Box::new(payable_scanner);

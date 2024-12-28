@@ -103,25 +103,25 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
 }
 
 pub struct AccountantBuilder {
-    config: Option<BootstrapperConfig>,
-    logger: Option<Logger>,
-    payable_dao_factory: Option<PayableDaoFactoryMock>,
-    receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
-    pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
-    banned_dao_factory: Option<BannedDaoFactoryMock>,
-    config_dao_factory: Option<ConfigDaoFactoryMock>,
+    config_opt: Option<BootstrapperConfig>,
+    logger_opt: Option<Logger>,
+    payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
+    receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
+    pending_payable_dao_factory_opt: Option<PendingPayableDaoFactoryMock>,
+    banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
+    config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
 }
 
 impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
-            config: None,
-            logger: None,
-            payable_dao_factory: None,
-            receivable_dao_factory: None,
-            pending_payable_dao_factory: None,
-            banned_dao_factory: None,
-            config_dao_factory: None,
+            config_opt: None,
+            logger_opt: None,
+            payable_dao_factory_opt: None,
+            receivable_dao_factory_opt: None,
+            pending_payable_dao_factory_opt: None,
+            banned_dao_factory_opt: None,
+            config_dao_factory_opt: None,
         }
     }
 }
@@ -239,12 +239,12 @@ const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = 
 
 impl AccountantBuilder {
     pub fn bootstrapper_config(mut self, config: BootstrapperConfig) -> Self {
-        self.config = Some(config);
+        self.config_opt = Some(config);
         self
     }
 
     pub fn logger(mut self, logger: Logger) -> Self {
-        self.logger = Some(logger);
+        self.logger_opt = Some(logger);
         self
     }
 
@@ -255,8 +255,7 @@ impl AccountantBuilder {
         Self::create_or_update_factory(
             specially_configured_daos,
             PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            &mut self.pending_payable_dao_factory,
-            PendingPayableDaoFactoryMock::new(),
+            &mut self.pending_payable_dao_factory_opt,
         );
         self
     }
@@ -268,8 +267,7 @@ impl AccountantBuilder {
         Self::create_or_update_factory(
             specially_configured_daos,
             PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            &mut self.payable_dao_factory,
-            PayableDaoFactoryMock::new(),
+            &mut self.payable_dao_factory_opt,
         );
         self
     }
@@ -281,8 +279,7 @@ impl AccountantBuilder {
         Self::create_or_update_factory(
             specially_configured_daos,
             RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            &mut self.receivable_dao_factory,
-            ReceivableDaoFactoryMock::new(),
+            &mut self.receivable_dao_factory_opt,
         );
         self
     }
@@ -290,65 +287,59 @@ impl AccountantBuilder {
     fn create_or_update_factory<const N: usize, DAOFactory, DAO>(
         dao_set: Vec<DaoWithDestination<DAO>>,
         dao_initialization_order_in_regard_to_accountant: [DestinationMarker; N],
-        factory_field_in_builder: &mut Option<DAOFactory>,
-        dao_factory_mock: DAOFactory,
+        existing_dao_factory_mock_opt: &mut Option<DAOFactory>,
     ) where
         DAO: Default,
-        DAOFactory: DaoFactoryWithMakeReplace<DAO>,
+        DAOFactory: DaoFactoryWithMakeReplace<DAO> + Default,
     {
-        let make_queue_uncast = fill_vacancies_with_given_or_default_daos(
+        let finished_make_queue: Vec<Box<DAO>> = fill_vacancies_with_given_or_default_daos(
             dao_initialization_order_in_regard_to_accountant,
             dao_set,
         );
 
-        let finished_make_queue: Vec<Box<DAO>> = make_queue_uncast
-            .into_iter()
-            .map(|elem| elem as Box<DAO>)
-            .collect();
-
-        let ready_factory = match factory_field_in_builder.take() {
+        let ready_factory = match existing_dao_factory_mock_opt.take() {
             Some(existing_factory) => {
                 existing_factory.replace_make_results(finished_make_queue);
                 existing_factory
             }
             None => {
-                let new_factory = dao_factory_mock;
+                let new_factory = DAOFactory::default();
                 new_factory.replace_make_results(finished_make_queue);
                 new_factory
             }
         };
-        factory_field_in_builder.replace(ready_factory);
+        existing_dao_factory_mock_opt.replace(ready_factory);
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
+        self.config_dao_factory_opt = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
         self
     }
 
     pub fn build(self) -> Accountant {
-        let config = self.config.unwrap_or(make_bc_with_defaults());
-        let payable_dao_factory = self.payable_dao_factory.unwrap_or(
+        let config = self.config_opt.unwrap_or(make_bc_with_defaults());
+        let payable_dao_factory = self.payable_dao_factory_opt.unwrap_or(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new()),
         );
-        let receivable_dao_factory = self.receivable_dao_factory.unwrap_or(
+        let receivable_dao_factory = self.receivable_dao_factory_opt.unwrap_or(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new())
                 .make_result(ReceivableDaoMock::new()),
         );
-        let pending_payable_dao_factory = self.pending_payable_dao_factory.unwrap_or(
+        let pending_payable_dao_factory = self.pending_payable_dao_factory_opt.unwrap_or(
             PendingPayableDaoFactoryMock::new()
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
         let banned_dao_factory = self
-            .banned_dao_factory
+            .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
         let config_dao_factory = self
-            .config_dao_factory
+            .config_dao_factory_opt
             .unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
@@ -360,7 +351,7 @@ impl AccountantBuilder {
                 config_dao_factory: Box::new(config_dao_factory),
             },
         );
-        if let Some(logger) = self.logger {
+        if let Some(logger) = self.logger_opt {
             accountant.logger = logger;
         }
 
@@ -371,6 +362,12 @@ impl AccountantBuilder {
 pub struct PayableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<Box<PayableDaoMock>>>,
+}
+
+impl Default for PayableDaoFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PayableDaoFactory for PayableDaoFactoryMock {
@@ -415,6 +412,12 @@ pub struct PendingPayableDaoFactoryMock {
     make_results: RefCell<Vec<Box<PendingPayableDaoMock>>>,
 }
 
+impl Default for PendingPayableDaoFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PendingPayableDao> {
         if self.make_results.borrow().len() == 0 {
@@ -455,6 +458,12 @@ impl PendingPayableDaoFactoryMock {
 pub struct ReceivableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<Box<ReceivableDaoMock>>>,
+}
+
+impl Default for ReceivableDaoFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
@@ -1100,7 +1109,7 @@ impl PayableScannerBuilder {
             pending_payable_dao: PendingPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             payable_inspector: PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
+                PayableThresholdsGaugeMock::default(),
             )),
             payment_adjuster: PaymentAdjusterMock::default(),
         }
