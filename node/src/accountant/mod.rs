@@ -1080,6 +1080,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
         TransactionFeeImmoderateInsufficiency,
@@ -1148,7 +1149,6 @@ mod tests {
     use masq_lib::ui_gateway::{
         MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
     };
-    use masq_lib::utils::convert_collection;
     use std::any::TypeId;
     use std::ops::{Add, Sub};
     use std::sync::Arc;
@@ -1622,7 +1622,8 @@ mod tests {
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
-        let analyzed_accounts = convert_collection(unadjusted_qualified_accounts.clone());
+        let analyzed_accounts =
+            convert_qualified_into_analyzed_payables_in_test(unadjusted_qualified_accounts.clone());
         let adjustment_analysis =
             AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
         let payment_adjuster = PaymentAdjusterMock::default()

@@ -6,7 +6,8 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::BalanceProvidingAccount;
-use crate::accountant::payment_adjuster::test_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
+use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+use crate::accountant::payment_adjuster::test_utils::local_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
     Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
     PaymentAdjusterReal,
@@ -27,7 +28,6 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use itertools::{Either, Itertools};
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-use masq_lib::utils::convert_collection;
 use rand;
 use rand::distributions::uniform::SampleUniform;
 use rand::rngs::ThreadRng;
@@ -42,7 +42,7 @@ use web3::types::U256;
 
 #[test]
 // TODO If an option for "occasional tests" is added, this is a good adept
-//#[ignore]
+#[ignore]
 fn loading_test_with_randomized_params() {
     // This is a fuzz test. It generates possibly an overwhelming amount of scenarios that
     // the PaymentAdjuster could be given sort them out, as realistic as it can get, while its
@@ -219,7 +219,7 @@ fn try_making_single_valid_scenario(
     let (cw_service_fee_balance, qualified_payables, applied_thresholds) =
         try_generating_qualified_payables_and_cw_balance(gn, accounts_count, now)?;
 
-    let analyzed_accounts: Vec<AnalyzedPayableAccount> = convert_collection(qualified_payables);
+    let analyzed_accounts = convert_qualified_into_analyzed_payables_in_test(qualified_payables);
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, analyzed_accounts.len());
     let prepared_adjustment = PreparedAdjustment::new(

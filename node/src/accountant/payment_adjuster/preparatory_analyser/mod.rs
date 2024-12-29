@@ -370,7 +370,7 @@ mod tests {
         EarlyServiceFeeSingleTXErrorFactory, LateServiceFeeSingleTxErrorFactory,
         PreparatoryAnalyzer, ServiceFeeSingleTXErrorFactory,
     };
-    use crate::accountant::payment_adjuster::test_utils::{
+    use crate::accountant::payment_adjuster::test_utils::local_utils::{
         make_meaningless_weighed_account, multiply_by_billion, multiply_by_billion_concise,
         DisqualificationGaugeMock,
     };

@@ -30,7 +30,7 @@ mod tests {
     use crate::accountant::payment_adjuster::criterion_calculators::CriterionCalculator;
     use crate::accountant::payment_adjuster::inner::PaymentAdjusterInner;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
-    use crate::accountant::payment_adjuster::test_utils::multiply_by_billion;
+    use crate::accountant::payment_adjuster::test_utils::local_utils::multiply_by_billion;
     use crate::accountant::test_utils::make_meaningless_analyzed_account;
     use std::time::SystemTime;
 

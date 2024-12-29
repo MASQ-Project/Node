@@ -13,8 +13,9 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
 use crate::accountant::payment_adjuster::{
-    AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
+    AdjustmentAnalysisResult, PaymentAdjuster, PaymentAdjusterError,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
@@ -56,7 +57,6 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
-use masq_lib::utils::convert_collection;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
@@ -1469,14 +1469,7 @@ pub fn trick_rusqlite_with_read_only_conn(
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
     consider_adjustment_params: Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
-    consider_adjustment_results: RefCell<
-        Vec<
-            Result<
-                Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>,
-                PaymentAdjusterError,
-            >,
-        >,
-    >,
+    consider_adjustment_results: RefCell<Vec<AdjustmentAnalysisResult>>,
     adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
     adjust_payments_results:
         RefCell<Vec<Result<OutboundPaymentsInstructions, PaymentAdjusterError>>>,
@@ -1487,8 +1480,7 @@ impl PaymentAdjuster for PaymentAdjusterMock {
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>, PaymentAdjusterError>
-    {
+    ) -> AdjustmentAnalysisResult {
         self.consider_adjustment_params
             .lock()
             .unwrap()
@@ -1518,13 +1510,7 @@ impl PaymentAdjusterMock {
         self
     }
 
-    pub fn consider_adjustment_result(
-        self,
-        result: Result<
-            Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>,
-            PaymentAdjusterError,
-        >,
-    ) -> Self {
+    pub fn consider_adjustment_result(self, result: AdjustmentAnalysisResult) -> Self {
         self.consider_adjustment_results.borrow_mut().push(result);
         self
     }
@@ -1746,16 +1732,21 @@ impl ScanSchedulers {
 }
 
 pub fn make_meaningless_qualified_payable(n: u64) -> QualifiedPayableAccount {
-    // Without guarantee that the generated payable would cross the given thresholds
+    // It's not guaranteed that the payables would cross the given thresholds.
+    let coefficient = (n as f64).sqrt().floor() as u64;
+    let permanent_deb_allowed_minor = gwei_to_wei(coefficient);
+    let payment_threshold_intercept = 7_u128 * gwei_to_wei::<u128, _>(n) / 10_u128;
     QualifiedPayableAccount::new(
         make_payable_account(n),
-        n as u128 * 12345,
-        CreditorThresholds::new(111_111_111),
+        payment_threshold_intercept,
+        CreditorThresholds::new(permanent_deb_allowed_minor),
     )
 }
 
 pub fn make_meaningless_analyzed_account(n: u64) -> AnalyzedPayableAccount {
-    AnalyzedPayableAccount::new(make_meaningless_qualified_payable(n), 123456789)
+    let qualified_account = make_meaningless_qualified_payable(n);
+    let disqualification_limit = 85 * qualified_account.payment_threshold_intercept_minor / 100;
+    AnalyzedPayableAccount::new(qualified_account, disqualification_limit)
 }
 
 pub fn make_qualified_payables(
@@ -1771,7 +1762,11 @@ pub fn make_analyzed_payables(
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<AnalyzedPayableAccount> {
-    convert_collection(make_qualified_payables(payables, payment_thresholds, now))
+    convert_qualified_into_analyzed_payables_in_test(make_qualified_payables(
+        payables,
+        payment_thresholds,
+        now,
+    ))
 }
 
 pub fn try_to_make_guaranteed_qualified_payables(

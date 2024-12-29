@@ -191,7 +191,7 @@ mod tests {
         exhaust_cw_balance_entirely, find_largest_exceeding_balance, no_affordable_accounts_found,
         ConsumingWalletExhaustingStatus,
     };
-    use crate::accountant::payment_adjuster::test_utils::make_meaningless_weighed_account;
+    use crate::accountant::payment_adjuster::test_utils::local_utils::make_meaningless_weighed_account;
     use crate::accountant::test_utils::{make_meaningless_analyzed_account, make_payable_account};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
