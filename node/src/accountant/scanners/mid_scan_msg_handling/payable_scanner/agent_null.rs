@@ -85,8 +85,8 @@ mod tests {
 
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use web3::types::U256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use web3::types::U256;
 
     fn blockchain_agent_null_constructor_works<C>(constructor: C)
     where
@@ -192,5 +192,4 @@ mod tests {
         assert_eq!(result, TEST_DEFAULT_CHAIN);
         assert_error_log(test_name, "get_chain")
     }
-
 }

@@ -213,12 +213,14 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         .map(|(response, hash)| match response {
                             Ok(result) => {
                                 match serde_json::from_value::<TransactionReceipt>(result) {
-                                    Ok(receipt) => TransactionReceiptResult::RpcResponse(receipt.into()),
+                                    Ok(receipt) => {
+                                        TransactionReceiptResult::RpcResponse(receipt.into())
+                                    }
                                     Err(e) => {
                                         if e.to_string().contains("invalid type: null") {
-                                            TransactionReceiptResult::RpcResponse(TxReceipt{
+                                            TransactionReceiptResult::RpcResponse(TxReceipt {
                                                 transaction_hash: hash,
-                                                status: TxStatus::Pending
+                                                status: TxStatus::Pending,
                                             })
                                         } else {
                                             TransactionReceiptResult::LocalError(e.to_string())
@@ -571,11 +573,7 @@ mod tests {
         let end_block_nbr = 1024u64;
 
         let result = subject
-            .retrieve_transactions(
-                42u64,
-                end_block_nbr,
-                to_wallet.address(),
-            )
+            .retrieve_transactions(42u64, end_block_nbr, to_wallet.address())
             .wait();
 
         assert_eq!(
@@ -929,14 +927,26 @@ mod tests {
             .unwrap();
 
         assert_eq!(result[0], TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()));
-        assert_eq!(result[1], TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: tx_hash_2, status: TxStatus::Pending }));
+        assert_eq!(
+            result[1],
+            TransactionReceiptResult::RpcResponse(TxReceipt {
+                transaction_hash: tx_hash_2,
+                status: TxStatus::Pending
+            })
+        );
         assert_eq!(
             result[2],
             TransactionReceiptResult::LocalError(
                 "invalid type: string \"trash\", expected struct Receipt".to_string()
             )
         );
-        assert_eq!(result[3], TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: tx_hash_4, status: TxStatus::Pending }));
+        assert_eq!(
+            result[3],
+            TransactionReceiptResult::RpcResponse(TxReceipt {
+                transaction_hash: tx_hash_4,
+                status: TxStatus::Pending
+            })
+        );
         assert_eq!(
             result[4],
             TransactionReceiptResult::RpcResponse(TxReceipt {

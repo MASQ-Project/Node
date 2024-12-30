@@ -366,7 +366,8 @@ impl BlockchainBridge {
                     format!("Error while retrieving transactions: {:?}", e)
                 })
                 .and_then(move |retrieved_blockchain_transactions| {
-                              received_payments_subs.try_send(ReceivedPayments {
+                    received_payments_subs
+                        .try_send(ReceivedPayments {
                             timestamp: SystemTime::now(),
                             new_start_block: retrieved_blockchain_transactions.new_start_block,
                             response_skeleton_opt: msg.response_skeleton_opt,
@@ -400,33 +401,32 @@ impl BlockchainBridge {
                 .process_transaction_receipts(transaction_hashes)
                 .map_err(move |e| e.to_string())
                 .and_then(move |transaction_receipts_results| {
-                    let length = transaction_receipts_results.len();
-                    let mut transactions_found = 0;
-                    for transaction_receipt in &transaction_receipts_results {
-                        if let TransactionReceiptResult::RpcResponse(tx_receipt) = transaction_receipt {
-                            if let TxStatus::Succeeded(_) = tx_receipt.status {
-                                transactions_found += 1;
+                    let (successful_count, failed_count, pending_count) = transaction_receipts_results
+                        .iter()
+                        .fold((0, 0, 0), |(success, fail, pending), transaction_receipt| {
+                            match transaction_receipt {
+                                TransactionReceiptResult::RpcResponse(tx_receipt) => match tx_receipt.status {
+                                    TxStatus::Failed => (success, fail + 1, pending),
+                                    TxStatus::Pending => (success, fail, pending + 1),
+                                    TxStatus::Succeeded(_) => (success + 1, fail, pending),
+                                },
+                                TransactionReceiptResult::LocalError(_)=> (success, fail, pending + 1),
                             }
-                        }
-                    }
+                        });
+                    debug!(logger, "Scan results: Successful: {successful_count}, Pending: {pending_count}, Failed: {failed_count}");
+
                     let pairs = transaction_receipts_results
                         .into_iter()
                         .zip(msg.pending_payable.into_iter())
                         .collect_vec();
+
                     accountant_recipient
                         .try_send(ReportTransactionReceipts {
                             fingerprints_with_receipts: pairs,
                             response_skeleton_opt: msg.response_skeleton_opt,
                         })
                         .expect("Accountant is dead");
-                    if length != transactions_found {
-                        debug!(
-                            logger,
-                            "Aborting scanning; {} transactions succeed and {} transactions failed",
-                            transactions_found,
-                            length - transactions_found
-                        );
-                    };
+
                     Ok(())
                 }),
         )
@@ -583,7 +583,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxReceipt;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -1198,9 +1198,10 @@ mod tests {
                         pending_payable_fingerprint_1
                     ),
                     (
-                        TransactionReceiptResult::RpcResponse(TxReceipt{
+                        TransactionReceiptResult::RpcResponse(TxReceipt {
                             transaction_hash: hash_2,
-                            status: TxStatus::Pending }),
+                            status: TxStatus::Pending
+                        }),
                         pending_payable_fingerprint_2
                     ),
                 ],
@@ -1326,11 +1327,13 @@ mod tests {
             amount: 7879,
             process_error: None,
         };
-        let mut transaction_receipt = TransactionReceipt::default();
-        transaction_receipt.block_number = Some(block_number);
-        transaction_receipt.block_hash = Some(Default::default());
-        transaction_receipt.contract_address = Some(contract_address);
-        transaction_receipt.status = Some(U64::from(1));
+        let transaction_receipt = TxReceipt {
+            transaction_hash: Default::default(),
+            status: TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number,
+            }),
+        };
         let blockchain_interface = make_blockchain_interface_web3(port);
         let system = System::new("test_transaction_receipts");
         let mut subject = BlockchainBridge::new(
@@ -1367,7 +1370,7 @@ mod tests {
             ReportTransactionReceipts {
                 fingerprints_with_receipts: vec![
                     (TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: hash_1, status: TxStatus::Pending }), fingerprint_1),
-                    (TransactionReceiptResult::RpcResponse(transaction_receipt.into()), fingerprint_2),
+                    (TransactionReceiptResult::RpcResponse(transaction_receipt), fingerprint_2),
                     (TransactionReceiptResult::RpcResponse(TxReceipt{ transaction_hash: hash_3, status: TxStatus::Pending }), fingerprint_3),
                     (TransactionReceiptResult::LocalError("RPC error: Error { code: ServerError(429), message: \"The requests per second (RPS) of your requests are higher than your plan allows.\", data: None }".to_string()), fingerprint_4)
                 ],
@@ -1377,7 +1380,9 @@ mod tests {
                 }),
             }
         );
-        TestLogHandler::new().exists_log_containing("DEBUG: BlockchainBridge: Aborting scanning; 1 transactions succeed and 3 transactions failed");
+        TestLogHandler::new().exists_log_containing(
+            "DEBUG: BlockchainBridge: Scan results: Successful: 1, Pending: 3, Failed: 0",
+        );
     }
 
     #[test]

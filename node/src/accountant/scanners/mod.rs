@@ -17,10 +17,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
     separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
     PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableMetadata,
 };
-use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{
-    elapsed_in_ms, handle_status_with_failure, handle_status_with_success,
-    PendingPayableScanReport,
-};
+use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::PendingPayableId;
 use crate::accountant::{
@@ -654,49 +651,28 @@ impl PendingPayableScanner {
         msg: ReportTransactionReceipts,
         logger: &Logger,
     ) -> PendingPayableScanReport {
-        fn handle_none_receipt(
-            mut scan_report: PendingPayableScanReport,
-            payable: PendingPayableFingerprint,
-            error_msg: String,
-            logger: &Logger,
-        ) -> PendingPayableScanReport {
-            debug!(logger,
-                "Interpreting a receipt for transaction {:?} but {}; attempt {}, {}ms since sending",
-                payable.hash, error_msg, payable.attempt,elapsed_in_ms(payable.timestamp)
-            );
-
-            scan_report
-                .still_pending
-                .push(PendingPayableId::new(payable.rowid, payable.hash));
-            scan_report
-        }
-
         let scan_report = PendingPayableScanReport::default();
         msg.fingerprints_with_receipts.into_iter().fold(
             scan_report,
             |scan_report_so_far, (receipt_result, fingerprint)| match receipt_result {
-                TransactionReceiptResult::RpcResponse(tx_receipt) => {
-                    match tx_receipt.status {
-                        TxStatus::Pending => {
-                            handle_none_receipt(
-                                scan_report_so_far,
-                                fingerprint,
-                                "none was given".to_string(),
-                                logger,
-                            )
-                        }
-                        TxStatus::Failed => {
-                            handle_status_with_failure(scan_report_so_far, fingerprint, logger)
-                        }
-                        TxStatus::Succeeded(_) => {
-                            handle_status_with_success(scan_report_so_far, fingerprint, logger)
-                        }
+                TransactionReceiptResult::RpcResponse(tx_receipt) => match tx_receipt.status {
+                    TxStatus::Pending => handle_none_receipt(
+                        scan_report_so_far,
+                        fingerprint,
+                        "none was given",
+                        logger,
+                    ),
+                    TxStatus::Failed => {
+                        handle_status_with_failure(scan_report_so_far, fingerprint, logger)
                     }
-                }
+                    TxStatus::Succeeded(_) => {
+                        handle_status_with_success(scan_report_so_far, fingerprint, logger)
+                    }
+                },
                 TransactionReceiptResult::LocalError(e) => handle_none_receipt(
                     scan_report_so_far,
                     fingerprint,
-                    format!("failed due to {}", e),
+                    &format!("failed due to {}", e),
                     logger,
                 ),
             },
@@ -891,10 +867,10 @@ impl ReceivableScanner {
                 ),
             }
         } else {
-            let mut txn = self
-                .receivable_dao
-                .as_mut()
-                .more_money_received(received_payments_msg.timestamp, &received_payments_msg.transactions);
+            let mut txn = self.receivable_dao.as_mut().more_money_received(
+                received_payments_msg.timestamp,
+                &received_payments_msg.transactions,
+            );
             let new_start_block = received_payments_msg.new_start_block;
             match self
                 .persistent_configuration
@@ -1139,7 +1115,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxReceipt, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -2504,9 +2480,9 @@ mod tests {
         };
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![(
-                TransactionReceiptResult::RpcResponse(TxReceipt{
+                TransactionReceiptResult::RpcResponse(TxReceipt {
                     transaction_hash: hash,
-                    status: TxStatus::Pending
+                    status: TxStatus::Pending,
                 }),
                 fingerprint.clone(),
             )],
@@ -2827,11 +2803,13 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let transaction_hash_1 = make_tx_hash(4545);
-        let mut transaction_receipt_1 = TransactionReceipt::default();
-        transaction_receipt_1.transaction_hash = transaction_hash_1;
-        transaction_receipt_1.status = Some(U64::from(1)); //success
-        transaction_receipt_1.block_number = Some(U64::from(1234));
-        transaction_receipt_1.block_hash = Some(Default::default());
+        let transaction_receipt_1 = TxReceipt {
+            transaction_hash: transaction_hash_1,
+            status: TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: U64::from(1234),
+            }),
+        };
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 5,
             timestamp: from_time_t(200_000_000),
@@ -2841,11 +2819,13 @@ mod tests {
             process_error: None,
         };
         let transaction_hash_2 = make_tx_hash(1234);
-        let mut transaction_receipt_2 = TransactionReceipt::default();
-        transaction_receipt_2.transaction_hash = transaction_hash_2;
-        transaction_receipt_2.status = Some(U64::from(1)); //success
-        transaction_receipt_2.block_number = Some(U64::from(2345));
-        transaction_receipt_2.block_hash = Some(Default::default());
+        let transaction_receipt_2 = TxReceipt {
+            transaction_hash: transaction_hash_2,
+            status: TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: U64::from(2345),
+            }),
+        };
         let fingerprint_2 = PendingPayableFingerprint {
             rowid: 10,
             timestamp: from_time_t(199_780_000),
@@ -2857,11 +2837,11 @@ mod tests {
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![
                 (
-                    TransactionReceiptResult::RpcResponse(transaction_receipt_1.into()),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_1),
                     fingerprint_1.clone(),
                 ),
                 (
-                    TransactionReceiptResult::RpcResponse(transaction_receipt_2.into()),
+                    TransactionReceiptResult::RpcResponse(transaction_receipt_2),
                     fingerprint_2.clone(),
                 ),
             ],
