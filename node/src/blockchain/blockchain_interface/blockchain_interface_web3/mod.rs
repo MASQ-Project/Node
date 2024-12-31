@@ -119,12 +119,12 @@ where
             .build();
 
         let fallback_start_block_number = match end_block {
-            BlockNumber::Number(eb) => eb.as_u64(),
+            BlockNumber::Number(eb) => Some(eb.as_u64()),
             _ => {
                 if let BlockNumber::Number(start_block_number) = start_block {
-                    start_block_number.as_u64() + 1u64
+                    Some(start_block_number.as_u64() + 1u64)
                 } else {
-                    panic!("start_block of Latest, Earliest, and Pending are not supported");
+                    None
                 }
             }
         };
@@ -134,15 +134,15 @@ where
         let logger = self.logger.clone();
         match self.web3_batch.transport().submit_batch().wait() {
             Ok(_) => {
-                let response_block_number = match block_request.wait() {
+                let response_block_number_opt = match block_request.wait() {
                     Ok(block_nbr) => {
                         debug!(logger, "Latest block number: {}", block_nbr.as_u64());
-                        block_nbr.as_u64()
+                        Some(block_nbr.as_u64())
                     }
                     Err(_) => {
                         debug!(
                             logger,
-                            "Using fallback block number: {}", fallback_start_block_number
+                            "Using fallback block number: {:?}", fallback_start_block_number
                         );
                         fallback_start_block_number
                     }
@@ -178,16 +178,18 @@ where
                             // was not successful.
                             let transaction_max_block_number = self
                                 .find_largest_transaction_block_number(
-                                    response_block_number,
+                                    response_block_number_opt,
                                     &transactions,
                                 );
                             debug!(
                                 logger,
-                                "Discovered transaction max block nbr: {}",
+                                "Discovered transaction max block nbr: {:?}",
                                 transaction_max_block_number
                             );
                             Ok(RetrievedBlockchainTransactions {
-                                new_start_block: 1u64 + transaction_max_block_number,
+                                new_start_block: transaction_max_block_number
+                                    .map(|nsb| BlockNumber::Number((1u64 + nsb).into()))
+                                    .unwrap_or(BlockNumber::Latest),
                                 transactions,
                             })
                         }
@@ -579,7 +581,9 @@ where
     fn web3_gas_limit_const_part(chain: Chain) -> u64 {
         match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 55_000,
-            Chain::PolyMainnet | Chain::PolyAmoy => 70_000,
+            Chain::PolyMainnet | Chain::PolyAmoy | Chain::BaseMainnet | Chain::BaseSepolia => {
+                70_000
+            }
         }
     }
 
@@ -601,15 +605,18 @@ where
 
     fn find_largest_transaction_block_number(
         &self,
-        response_block_number: u64,
+        response_block_number: Option<u64>,
         transactions: &[BlockchainTransaction],
-    ) -> u64 {
+    ) -> Option<u64> {
         if transactions.is_empty() {
             response_block_number
         } else {
             transactions
                 .iter()
-                .fold(response_block_number, |a, b| a.max(b.block_number))
+                .fold(response_block_number.unwrap_or(0u64), |a, b| {
+                    a.max(b.block_number)
+                })
+                .into()
         }
     }
 }
@@ -676,6 +683,7 @@ mod tests {
         BlockchainTransaction, RpcPayablesFailure,
     };
     use indoc::indoc;
+    use sodiumoxide::hex;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -830,7 +838,7 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be664,
+                new_start_block: BlockNumber::Number(0x4be664.into()),
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 0x4be663,
@@ -892,7 +900,7 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 1 + end_block_nbr,
+                new_start_block: BlockNumber::Number((1 + end_block_nbr).into()),
                 transactions: vec![]
             }
         );
@@ -1001,7 +1009,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1 + end_block_nbr,
+                new_start_block: BlockNumber::Number((1 + end_block_nbr).into()),
                 transactions: vec![]
             })
         );
@@ -1043,7 +1051,39 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1 + expected_fallback_start_block,
+                new_start_block: BlockNumber::Number((1 + expected_fallback_start_block).into()),
+                transactions: vec![]
+            })
+        );
+    }
+
+    #[test]
+    fn blockchain_interface_retrieve_transactions_start_and_end_blocks_can_be_latest() {
+        let port = find_free_port();
+        let contains_error_causing_to_pick_fallback_value = br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#;
+        let _test_server = TestServer::start(
+            port,
+            vec![contains_error_causing_to_pick_fallback_value.to_vec()],
+        );
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+
+        let result = subject.retrieve_transactions(
+            BlockNumber::Latest,
+            BlockNumber::Latest,
+            &make_wallet("earning-wallet"),
+        );
+
+        let expected_new_start_block = BlockNumber::Latest;
+        assert_eq!(
+            result,
+            Ok(RetrievedBlockchainTransactions {
+                new_start_block: expected_new_start_block,
                 transactions: vec![]
             })
         );
@@ -1218,7 +1258,7 @@ mod tests {
         //exercising also the layer of web3 functions, but the transport layer is mocked
         init_test_logging();
         let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
-        //we compute the hashes ourselves during the batch preparation and so we don't care about
+        //we compute the hashes ourselves during the batch preparation, and so we don't care about
         //the same ones coming back with the response; we use the returned OKs as indicators of success only.
         //Any eventual rpc errors brought back are processed as well...
         let expected_batch_responses = vec![
@@ -1281,9 +1321,14 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a906851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa060b9f375c06f56\
-        41951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c031172ac6873037d90dcca36a1fbf2e67960ff".to_string())]),
+                        params: Params::Array(vec![Value::String(
+                            "0xf8a906851bf08eb00082db6894384de\
+        c25e03f94931767ce4c3556168468ba24c380b844a9059cbb000000000000000000000000000000000000000000\
+        00000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa06\
+        0b9f375c06f5641951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c\
+        031172ac6873037d90dcca36a1fbf2e67960ff"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1292,9 +1337,14 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dae894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        000000000000000000000000000000000000000000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00e61352bb2ac9b\
-        32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915ecfbaa58268010e00d32c18a49a9fc3b9bd20a".to_string())]),
+                        params: Params::Array(vec![Value::String(
+                            "0xf8a907851bf08eb00082dae894384de\
+        c25e03f94931767ce4c3556168468ba24c380b844a9059cbb000000000000000000000000000000000000000000\
+        000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00\
+        e61352bb2ac9b32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915\
+        ecfbaa58268010e00d32c18a49a9fc3b9bd20a"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1303,9 +1353,14 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02d300cc8ba7b63\
-        b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23fbe8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9".to_string())]),
+                        params: Params::Array(vec![Value::String(
+                            "0xf8a908851bf08eb00082db6894384de\
+        c25e03f94931767ce4c3556168468ba24c380b844a9059cbb000000000000000000000000000000000000000000\
+        0000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02\
+        d300cc8ba7b63b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23f\
+        be8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9"
+                                .to_string()
+                        )]),
                         id: Id::Num(1)
                     })
                 )
@@ -1614,6 +1669,10 @@ mod tests {
             70_000
         );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::PolyAmoy), 70_000);
+        assert_eq!(
+            Subject::web3_gas_limit_const_part(Chain::BaseSepolia),
+            70_000
+        );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
     }
 
@@ -1827,8 +1886,11 @@ mod tests {
         let gas_price = match chain {
             Chain::EthMainnet | Chain::EthRopsten | Chain::Dev => 110,
             Chain::PolyMainnet | Chain::PolyAmoy => 55,
+            // It performs on even cheaper fees, but we're
+            // limited by the units here
+            Chain::BaseMainnet | Chain::BaseSepolia => 1,
         };
-        let payment_size_wei = 1_000_000_000_000;
+        let payment_size_wei = gwei_to_wei(1_000_u64);
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
             payment_size_wei,
@@ -1846,7 +1908,13 @@ mod tests {
             .unwrap();
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;
-        assert_eq!(byte_set_to_compare.as_slice(), template)
+        assert_eq!(
+            byte_set_to_compare,
+            template,
+            "Actual signed transaction {} does not match {} as expected",
+            hex::encode(byte_set_to_compare.clone()),
+            hex::encode(template.to_vec())
+        )
     }
 
     // Transaction with this input was verified on the test network
@@ -1859,6 +1927,20 @@ mod tests {
         0000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000\
         000000000000000000e8d4a5100083027127a0ddd78a41c42b7a409c281292f7c6aedefab8b461d87371fe402b4\
         b0804a092f2a04b1b599ac2c1ff07bb3d40d3698c454691c3b70d99f1e5d840c852e968c96a10";
+        let in_bytes = decode_hex(signed_transaction_data).unwrap();
+
+        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
+    }
+
+    #[test]
+    fn web3_interface_signing_a_transaction_works_for_base_sepolia() {
+        let chain = Chain::BaseSepolia;
+        let nonce = 2;
+        let signed_transaction_data = "\
+        f8ac02843b9aca008301198094898e1ce720084a902bc37dd822ed6d6a5f027e1080b844a9059cbb00000000000\
+        00000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b00000000000000000000000000000000000000\
+        0000000000000000e8d4a510008302948ca07b57223b566ade08ec817770c8b9ae94373edbefc13372c3463cf7b\
+        6ce542231a020991f2ff180a12cbc2745465a4e710da294b890901a3887519b191c3a69cd4f";
         let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
@@ -1884,20 +1966,14 @@ mod tests {
     fn web3_interface_signing_a_transaction_for_polygon_mainnet() {
         let chain = Chain::PolyMainnet;
         let nonce = 10;
-        // Generated locally
-        let signed_transaction_data = [
-            248, 172, 10, 133, 12, 206, 65, 102, 0, 131, 1, 25, 128, 148, 238, 154, 53, 47, 106,
-            172, 74, 241, 165, 185, 244, 103, 246, 169, 62, 15, 251, 233, 221, 53, 128, 184, 68,
-            169, 5, 156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 119, 136, 223, 118, 187, 217,
-            160, 199, 195, 229, 191, 15, 119, 187, 40, 198, 10, 22, 122, 123, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 232, 212, 165, 16, 0, 130,
-            1, 53, 160, 200, 159, 77, 202, 128, 195, 67, 122, 35, 204, 26, 65, 171, 89, 253, 82, 6,
-            176, 192, 225, 41, 61, 151, 82, 66, 232, 72, 44, 68, 131, 140, 117, 160, 117, 66, 154,
-            132, 183, 97, 219, 131, 214, 72, 220, 66, 152, 72, 15, 107, 44, 237, 193, 16, 193, 52,
-            6, 94, 216, 149, 94, 102, 199, 80, 68, 105,
-        ];
+        let signed_transaction_data = "f8ac0a850cce4166008301198094ee9a352f6aac4af1a5b9f467f6a\
+        93e0ffbe9dd3580b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b\
+        000000000000000000000000000000000000000000000000000000e8d4a51000820135a0c89f4dca80c3437a23c\
+        c1a41ab59fd5206b0c0e1293d975242e8482c44838c75a075429a84b761db83d648dc4298480f6b2cedc110c134\
+        065ed8955e66c7504469";
+        let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
-        assert_that_signed_transactions_agrees_with_template(chain, nonce, &signed_transaction_data)
+        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
     // Unconfirmed on the real network
@@ -1905,20 +1981,29 @@ mod tests {
     fn web3_interface_signing_a_transaction_for_eth_mainnet() {
         let chain = Chain::EthMainnet;
         let nonce = 10;
-        // Generated locally
-        let signed_transaction_data = [
-            248, 169, 10, 133, 25, 156, 130, 204, 0, 130, 222, 232, 148, 6, 243, 195, 35, 240, 35,
-            140, 114, 191, 53, 1, 16, 113, 242, 181, 183, 244, 58, 5, 76, 128, 184, 68, 169, 5,
-            156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 119, 136, 223, 118, 187, 217, 160, 199,
-            195, 229, 191, 15, 119, 187, 40, 198, 10, 22, 122, 123, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 232, 212, 165, 16, 0, 38, 160, 199,
-            155, 76, 106, 39, 227, 3, 151, 90, 117, 245, 211, 86, 98, 187, 117, 120, 103, 165, 131,
-            99, 72, 36, 211, 10, 224, 252, 104, 51, 200, 230, 158, 160, 84, 18, 140, 248, 119, 22,
-            193, 14, 148, 253, 48, 59, 185, 11, 38, 152, 103, 150, 120, 60, 74, 56, 159, 206, 22,
-            15, 73, 173, 153, 11, 76, 74,
-        ];
+        let signed_transaction_data = "f8a90a85199c82cc0082dee89406f3c323f0238c72bf35011071f2b\
+        5b7f43a054c80b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b00\
+        0000000000000000000000000000000000000000000000000000e8d4a5100026a0c79b4c6a27e303975a75f5d35\
+        662bb757867a583634824d30ae0fc6833c8e69ea054128cf87716c10e94fd303bb90b26986796783c4a389fce16\
+        0f49ad990b4c4a";
+        let in_bytes = decode_hex(signed_transaction_data).unwrap();
 
-        assert_that_signed_transactions_agrees_with_template(chain, nonce, &signed_transaction_data)
+        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
+    }
+
+    // Unconfirmed on the real network
+    #[test]
+    fn web3_interface_signing_a_transaction_for_base_mainnet() {
+        let chain = Chain::BaseMainnet;
+        let nonce = 124;
+        let signed_transaction_data = "f8ab7c843b9aca00830119809445d9c101a3870ca5024582fd788f4\
+        e1e8f7971c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b00\
+        0000000000000000000000000000000000000000000000000000e8d4a5100082422da0587b5f8401225d5cf6267\
+        6f51f376f085805851e2e59c5253eb2834612295bdba05b6963872bac7eeafb38191079e8c8df919c193839022b\
+        d57b91ace5a8638034";
+        let in_bytes = decode_hex(signed_transaction_data).unwrap();
+
+        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
     // Adapted test from old times when we had our own signing method.

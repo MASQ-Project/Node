@@ -44,15 +44,14 @@ use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
 };
 use crate::stream_messages::RemovedStreamType;
-use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
-use crate::sub_lib::neighborhood::{ConfigurationChange, RemoveNeighborMessage};
-use crate::sub_lib::neighborhood::{ConfigurationChangeMessage, RouteQueryMessage};
+use crate::sub_lib::neighborhood::{ConfigChange, RemoveNeighborMessage};
+use crate::sub_lib::neighborhood::{ConfigChangeMsg, RouteQueryMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
@@ -209,35 +208,11 @@ impl Handler<NewPublicIp> for Neighborhood {
     }
 }
 
-impl Handler<ConfigurationChangeMessage> for Neighborhood {
+impl Handler<ConfigChangeMsg> for Neighborhood {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: ConfigurationChangeMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        match msg.change {
-            ConfigurationChange::UpdateConsumingWallet(new_wallet) => {
-                self.consuming_wallet_opt = Some(new_wallet)
-            }
-            ConfigurationChange::UpdateMinHops(new_min_hops) => {
-                self.set_min_hops_and_patch_size(new_min_hops);
-                if self.overall_connection_status.can_make_routes() {
-                    let node_to_ui_recipient = self
-                        .node_to_ui_recipient_opt
-                        .as_ref()
-                        .expect("UI gateway is dead");
-                    self.overall_connection_status
-                        .update_ocs_stage_and_send_message_to_ui(
-                            OverallConnectionStage::ConnectedToNeighbor,
-                            node_to_ui_recipient,
-                            &self.logger,
-                        );
-                }
-                self.search_for_a_new_route();
-            }
-        }
+    fn handle(&mut self, msg: ConfigChangeMsg, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_config_change_msg(msg);
     }
 }
 
@@ -435,15 +410,6 @@ impl Handler<UpdateNodeRecordMetadataMessage> for Neighborhood {
     }
 }
 
-// GH-728
-impl Handler<NewPasswordMessage> for Neighborhood {
-    type Result = ();
-
-    fn handle(&mut self, msg: NewPasswordMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_new_password(msg.new_password);
-    }
-}
-
 impl Handler<StreamShutdownMsg> for Neighborhood {
     type Result = ();
 
@@ -585,10 +551,9 @@ impl Neighborhood {
                 .recipient::<ExpiredCoresPackage<GossipFailure_0v1>>(),
             dispatcher_node_query: addr.clone().recipient::<DispatcherNodeQueryMessage>(),
             remove_neighbor: addr.clone().recipient::<RemoveNeighborMessage>(),
-            configuration_change_msg_sub: addr.clone().recipient::<ConfigurationChangeMessage>(),
+            config_change_msg_sub: addr.clone().recipient::<ConfigChangeMsg>(),
             stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
             from_ui_message_sub: addr.clone().recipient::<NodeFromUiMessage>(),
-            new_password_sub: addr.clone().recipient::<NewPasswordMessage>(), // GH-728
             connection_progress_sub: addr.clone().recipient::<ConnectionProgressMessage>(),
         }
     }
@@ -660,6 +625,40 @@ impl Neighborhood {
                 )
                 .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
+        }
+    }
+
+    fn handle_config_change_msg(&mut self, msg: ConfigChangeMsg) {
+        match msg.change {
+            ConfigChange::UpdateWallets(wallet_pair) => {
+                if self.consuming_wallet_opt != Some(wallet_pair.consuming_wallet.clone()) {
+                    info!(
+                        self.logger,
+                        "Consuming Wallet has been updated: {}", wallet_pair.consuming_wallet
+                    );
+                    self.consuming_wallet_opt = Some(wallet_pair.consuming_wallet);
+                }
+            }
+            ConfigChange::UpdateMinHops(new_min_hops) => {
+                self.set_min_hops_and_patch_size(new_min_hops);
+                if self.overall_connection_status.can_make_routes() {
+                    let node_to_ui_recipient = self
+                        .node_to_ui_recipient_opt
+                        .as_ref()
+                        .expect("UI gateway is dead");
+                    self.overall_connection_status
+                        .update_ocs_stage_and_send_message_to_ui(
+                            OverallConnectionStage::ConnectedToNeighbor,
+                            node_to_ui_recipient,
+                            &self.logger,
+                        );
+                }
+                self.search_for_a_new_route();
+            }
+            ConfigChange::UpdatePassword(new_password) => {
+                info!(self.logger, "DB Password has been updated.");
+                self.db_password_opt = Some(new_password);
+            }
         }
     }
 
@@ -1368,6 +1367,7 @@ impl Neighborhood {
                 rate_undesirability += UNREACHABLE_HOST_PENALTY;
             }
         }
+
         rate_undesirability
     }
 
@@ -1771,7 +1771,7 @@ impl Neighborhood {
                 }
                 false => {
                     format!(
-                                "Exit Countries: {:?}\nExit Location: following desired countries are missing in Neighborhood {:?}", 
+                                "Exit Countries: {:?}\nExit Location: following desired countries are missing in Neighborhood {:?}",
                                 self.user_exit_preferences.db_countries,
                                 missing_locations
                             )
@@ -2065,11 +2065,6 @@ impl Neighborhood {
         self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
         self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
     }
-
-    // GH-728
-    fn handle_new_password(&mut self, new_password: String) {
-        self.db_password_opt = Some(new_password);
-    }
 }
 
 pub fn regenerate_signed_gossip(
@@ -2116,7 +2111,7 @@ mod tests {
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::net::SocketAddr;
+    use std::net::{IpAddr, SocketAddr};
     use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -2146,8 +2141,8 @@ mod tests {
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{
-        AskAboutDebutGossipMessage, ConfigurationChange, ConfigurationChangeMessage,
-        ExpectedServices, NeighborhoodMode,
+        AskAboutDebutGossipMessage, ConfigChange, ConfigChangeMsg, ExpectedServices,
+        NeighborhoodMode, WalletPair,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
@@ -3502,54 +3497,60 @@ mod tests {
     }
 
     #[test]
-    fn can_update_consuming_wallet_with_configuration_change_msg() {
-        let cryptde = main_cryptde();
-        let system = System::new("can_update_consuming_wallet");
-        let (o, r, e, mut subject) = make_o_r_e_subject();
-        subject.min_hops = Hops::TwoHops;
-        let addr: Addr<Neighborhood> = subject.start();
-        let configuration_change_msg_sub = addr.clone().recipient::<ConfigurationChangeMessage>();
-        let route_sub = addr.recipient::<RouteQueryMessage>();
-        let expected_new_wallet = make_paying_wallet(b"new consuming wallet");
-        let expected_before_route = Route::round_trip(
-            segment(&[&o, &r, &e], &Component::ProxyClient),
-            segment(&[&e, &r, &o], &Component::ProxyServer),
-            cryptde,
-            Some(make_paying_wallet(b"consuming")),
-            0,
-            Some(TEST_DEFAULT_CHAIN.rec().contract),
+    fn neighborhood_handles_config_change_msg() {
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateWallets(WalletPair {
+                    consuming_wallet: make_paying_wallet(b"new_consuming_wallet"),
+                    earning_wallet: make_wallet("new_earning_wallet"),
+                }),
+            },
+            |subject: &Neighborhood| {
+                assert_eq!(
+                    subject.consuming_wallet_opt,
+                    Some(make_paying_wallet(b"new_consuming_wallet"))
+                );
+                let _ = TestLogHandler::new().exists_log_containing("INFO: ConfigChange: Consuming Wallet has been updated: 0xfa133bbf90bce093fa2e7caa6da68054af66793e");
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdatePassword("new password".to_string()),
+            },
+            |subject: &Neighborhood| {
+                assert_eq!(subject.db_password_opt, Some("new password".to_string()));
+
+                let _ = TestLogHandler::new()
+                    .exists_log_containing("INFO: ConfigChange: DB Password has been updated.");
+            },
+        );
+        assert_handling_of_config_change_msg(
+            ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(Hops::FourHops),
+            },
+            |subject: &Neighborhood| {
+                let expected_db_patch_size = Neighborhood::calculate_db_patch_size(Hops::FourHops);
+                assert_eq!(subject.min_hops, Hops::FourHops);
+                assert_eq!(subject.db_patch_size, expected_db_patch_size);
+                assert_eq!(
+                    subject.overall_connection_status.stage,
+                    OverallConnectionStage::NotConnected
+                );
+            },
         )
-        .unwrap();
-        let expected_after_route = Route::round_trip(
-            segment(&[&o, &r, &e], &Component::ProxyClient),
-            segment(&[&e, &r, &o], &Component::ProxyServer),
-            cryptde,
-            Some(expected_new_wallet.clone()),
-            1,
-            Some(TEST_DEFAULT_CHAIN.rec().contract),
-        )
-        .unwrap();
+    }
 
-        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 1000,
-        ));
-        configuration_change_msg_sub
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateConsumingWallet(expected_new_wallet),
-            })
-            .unwrap();
-        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 2000,
-        ));
+    fn assert_handling_of_config_change_msg<A>(msg: ConfigChangeMsg, assertions: A)
+    where
+        A: FnOnce(&Neighborhood),
+    {
+        init_test_logging();
+        let mut subject = make_standard_subject();
+        subject.logger = Logger::new("ConfigChange");
 
-        System::current().stop();
-        system.run();
+        subject.handle_config_change_msg(msg);
 
-        let route_1 = route_request_1.wait().unwrap().unwrap().route;
-        let route_2 = route_request_2.wait().unwrap().unwrap().route;
-
-        assert_eq!(route_1, expected_before_route);
-        assert_eq!(route_2, expected_after_route);
+        assertions(&subject);
     }
 
     #[test]
@@ -4161,9 +4162,9 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_can_be_changed_during_runtime_using_configuration_change_msg() {
+    fn min_hops_change_triggers_node_to_ui_broadcast_message() {
         init_test_logging();
-        let test_name = "min_hops_can_be_changed_during_runtime_using_configuration_change_msg";
+        let test_name = "min_hops_change_triggers_node_to_ui_broadcast_message";
         let new_min_hops = Hops::FourHops;
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording) = make_recorder();
@@ -4176,8 +4177,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateMinHops(new_min_hops),
+            .try_send(ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(new_min_hops),
             })
             .unwrap();
 
@@ -4235,8 +4236,8 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
-            .try_send(ConfigurationChangeMessage {
-                change: ConfigurationChange::UpdateMinHops(new_min_hops),
+            .try_send(ConfigChangeMsg {
+                change: ConfigChange::UpdateMinHops(new_min_hops),
             })
             .unwrap();
 
@@ -7422,54 +7423,6 @@ mod tests {
                 .tmb(context_id),
             })
         )
-    }
-
-    #[test]
-    fn new_password_message_works() {
-        let system = System::new("test");
-        let mut subject = make_standard_subject();
-        let root_node_record = subject.neighborhood_database.root().clone();
-        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
-        let persistent_config = PersistentConfigurationMock::new()
-            .set_past_neighbors_params(&set_past_neighbors_params_arc)
-            .set_past_neighbors_result(Ok(()));
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        // GH-728
-        subject_addr
-            .try_send(NewPasswordMessage {
-                new_password: "borkety-bork".to_string(),
-            })
-            .unwrap();
-
-        let mut db = db_from_node(&root_node_record);
-        let new_neighbor = make_node_record(1324, true);
-        db.add_node(new_neighbor.clone()).unwrap();
-        db.add_arbitrary_half_neighbor(new_neighbor.public_key(), root_node_record.public_key());
-        db.node_by_key_mut(root_node_record.public_key())
-            .unwrap()
-            .resign();
-        db.node_by_key_mut(new_neighbor.public_key())
-            .unwrap()
-            .resign();
-        let gossip = GossipBuilder::new(&db)
-            .node(new_neighbor.public_key(), true)
-            .build();
-        let cores_package = ExpiredCoresPackage {
-            immediate_neighbor: new_neighbor.node_addr_opt().unwrap().into(),
-            paying_wallet: None,
-            remaining_route: make_meaningless_route(),
-            payload: gossip,
-            payload_len: 0,
-        };
-        subject_addr.try_send(cores_package).unwrap();
-        System::current().stop();
-        system.run();
-        let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
-        assert_eq!(set_past_neighbors_params[0].1, "borkety-bork");
     }
 
     #[test]

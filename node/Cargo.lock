@@ -182,7 +182,7 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "automap"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "crossbeam-channel 0.5.1",
  "flexi_logger 0.17.1",
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "masq"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "atty",
  "clap",
@@ -1863,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "masq_lib"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "actix",
  "clap",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "multinode_integration_tests"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "base64 0.13.0",
  "crossbeam-channel 0.5.1",
@@ -2136,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "actix",
  "automap",
