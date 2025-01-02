@@ -399,7 +399,6 @@ impl BlockchainBridge {
         Box::new(
             self.blockchain_interface
                 .process_transaction_receipts(transaction_hashes)
-                .map_err(|e| e.to_string())
                 .and_then(move |transaction_receipts_results| {
                     logger.debug(|| {
                         let (successful_count, failed_count, pending_count) =
