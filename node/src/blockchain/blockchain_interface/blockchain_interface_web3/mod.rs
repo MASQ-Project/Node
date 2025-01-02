@@ -205,7 +205,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(transaction_hashes.clone())
-                .map_err(|e| e)
                 .and_then(move |batch_response| {
                     Ok(batch_response
                         .into_iter()

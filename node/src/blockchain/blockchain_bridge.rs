@@ -379,6 +379,32 @@ impl BlockchainBridge {
         )
     }
 
+    fn log_status_of_tx_receipts(
+        logger: &Logger,
+        transaction_receipts_results: &[TransactionReceiptResult],
+    ) {
+        logger.debug(|| {
+            let (successful_count, failed_count, pending_count) =
+                transaction_receipts_results.iter().fold(
+                    (0, 0, 0),
+                    |(success, fail, pending), transaction_receipt| match transaction_receipt {
+                        TransactionReceiptResult::RpcResponse(tx_receipt) => {
+                            match tx_receipt.status {
+                                TxStatus::Failed => (success, fail + 1, pending),
+                                TxStatus::Pending => (success, fail, pending + 1),
+                                TxStatus::Succeeded(_) => (success + 1, fail, pending),
+                            }
+                        }
+                        TransactionReceiptResult::LocalError(_) => (success, fail, pending + 1),
+                    },
+                );
+            format!(
+                "Scan results: Successful: {}, Pending: {}, Failed: {}",
+                successful_count, pending_count, failed_count
+            )
+        });
+    }
+
     fn handle_request_transaction_receipts(
         &mut self,
         msg: RequestTransactionReceipts,
@@ -399,33 +425,9 @@ impl BlockchainBridge {
         Box::new(
             self.blockchain_interface
                 .process_transaction_receipts(transaction_hashes)
+                .map_err(move |e| e.to_string())
                 .and_then(move |transaction_receipts_results| {
-                    logger.debug(|| {
-                        let (successful_count, failed_count, pending_count) =
-                            transaction_receipts_results.iter().fold(
-                                (0, 0, 0),
-                                |(success, fail, pending), transaction_receipt| {
-                                    match transaction_receipt {
-                                        TransactionReceiptResult::RpcResponse(tx_receipt) => {
-                                            match tx_receipt.status {
-                                                TxStatus::Failed => (success, fail + 1, pending),
-                                                TxStatus::Pending => (success, fail, pending + 1),
-                                                TxStatus::Succeeded(_) => {
-                                                    (success + 1, fail, pending)
-                                                }
-                                            }
-                                        }
-                                        TransactionReceiptResult::LocalError(_) => {
-                                            (success, fail, pending + 1)
-                                        }
-                                    }
-                                },
-                            );
-                        format!(
-                            "Scan results: Successful: {}, Pending: {}, Failed: {}",
-                            successful_count, pending_count, failed_count
-                        )
-                    });
+                    Self::log_status_of_tx_receipts(&logger, &transaction_receipts_results);
 
                     let pairs = transaction_receipts_results
                         .into_iter()
