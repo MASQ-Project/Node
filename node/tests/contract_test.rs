@@ -105,14 +105,13 @@ where
 }
 
 #[test]
-fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
+fn masq_erc20_contract_exists_on_polygon_amoy_integration() {
     let blockchain_urls = vec![
-        "https://rpc-mumbai.polygon.technology",
-        "https://matic-mumbai.chainstacklabs.com",
-        "https://rpc-mumbai.maticvigil.com",
-        "https://matic-testnet-archive-rpc.bwarelabs.com",
+        "https://rpc-amoy.polygon.technology",
+        "https://rpc.ankr.com/polygon_amoy",
+        "https://80002.rpc.thirdweb.com",
     ];
-    let chain = Chain::PolyMumbai;
+    let chain = Chain::PolyAmoy;
 
     let assertion_body = |url, chain| assert_contract_existence(url, chain, "tMASQ", 18);
     assert_contract(blockchain_urls, &chain, assertion_body)
@@ -138,6 +137,32 @@ fn masq_erc20_contract_exists_on_ethereum_mainnet_integration() {
     let chain = Chain::EthMainnet;
 
     let assertion_body = |url, chain| assert_contract_existence(url, chain, "MASQ", 18);
+    assert_contract(blockchain_urls, &chain, assertion_body)
+}
+
+#[test]
+fn masq_erc20_contract_exists_on_base_mainnet_integration() {
+    let blockchain_urls = vec![
+        "https://base-rpc.publicnode.com",
+        "https://base.drpc.org",
+        "https://base-pokt.nodies.app",
+    ];
+    let chain = Chain::BaseMainnet;
+
+    let assertion_body = |url, chain| assert_contract_existence(url, chain, "MASQ", 18);
+    assert_contract(blockchain_urls, &chain, assertion_body)
+}
+
+#[test]
+fn masq_erc20_contract_exists_on_base_sepolia_integration() {
+    let blockchain_urls = vec![
+        "https://rpc.ankr.com/base_sepolia",
+        "https://base-sepolia-rpc.publicnode.com",
+        "https://base-sepolia.public.blastapi.io",
+    ];
+    let chain = Chain::BaseSepolia;
+
+    let assertion_body = |url, chain| assert_contract_existence(url, chain, "tMASQ", 18);
     assert_contract(blockchain_urls, &chain, assertion_body)
 }
 

@@ -8,7 +8,7 @@ ci/format.sh
 export RUST_BACKTRACE=1
 
 # Remove these two lines to slow down the build
-which sccache || cargo install sccache || echo "Skipping sccache installation"  # Should do significant work only once
+which sccache || cargo install --version 0.4.1 sccache || echo "Skipping sccache installation"  # Should do significant work only once
 #export CARGO_TARGET_DIR="$CI_DIR/../cargo-cache"
 export SCCACHE_DIR="$HOME/.cargo/sccache"
 #export RUSTC_WRAPPER="$HOME/.cargo/bin/sccache"

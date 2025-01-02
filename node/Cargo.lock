@@ -182,7 +182,7 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "automap"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "crossbeam-channel 0.5.1",
  "flexi_logger 0.17.1",
@@ -1565,7 +1565,7 @@ dependencies = [
  "csv",
  "itertools 0.13.0",
  "lazy_static",
- "masq_lib",
+ "test_utilities",
 ]
 
 [[package]]
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "masq"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "atty",
  "clap",
@@ -1855,6 +1855,7 @@ dependencies = [
  "nix 0.23.1",
  "num",
  "regex",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "websocket",
@@ -1862,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "masq_lib"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "actix",
  "clap",
@@ -1870,6 +1871,7 @@ dependencies = [
  "crossbeam-channel 0.5.1",
  "dirs 4.0.0",
  "ethereum-types",
+ "ip_country",
  "itertools 0.10.3",
  "lazy_static",
  "log 0.4.18",
@@ -1878,6 +1880,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "test_utilities",
  "time 0.3.11",
  "tiny-hderive",
  "toml",
@@ -2039,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "multinode_integration_tests"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "base64 0.13.0",
  "crossbeam-channel 0.5.1",
@@ -2133,7 +2136,7 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "actix",
  "automap",
@@ -2188,6 +2191,7 @@ dependencies = [
  "sodiumoxide",
  "sysinfo",
  "system-configuration",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "tiny-bip39",
@@ -3653,6 +3657,10 @@ dependencies = [
  "phf",
  "phf_codegen",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"

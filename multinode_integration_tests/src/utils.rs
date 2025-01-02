@@ -3,7 +3,6 @@
 use crate::command::Command;
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
@@ -147,7 +146,7 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
             signature: CryptData::new(b""),
         };
         let ip_addr = masq_node.node_addr().ip_addr();
-        let country_code = get_node_location(Some(ip_addr), &COUNTRY_CODE_FINDER);
+        let country_code = get_node_location(Some(ip_addr));
         if let Some(cc) = country_code {
             agr.inner.country_code_opt = Some(cc.country_code)
         };

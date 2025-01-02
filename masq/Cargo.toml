@@ -1,6 +1,6 @@
 [package]
 name = "masq"
-version = "0.8.0"
+version = "0.8.2"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = "Reference implementation of user interface for MASQ Node"
@@ -28,6 +28,7 @@ nix = "0.23.0"
 
 [dev-dependencies]
 atty = "0.2.14"
+test_utilities = { path = "../test_utilities" }
 
 [lib]
 name = "masq_cli_lib"

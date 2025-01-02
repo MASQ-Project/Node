@@ -54,9 +54,7 @@ impl CountryCodeFinder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::country_block_serde::{
-        CountryBlockDeserializer, Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer,
-    };
+    use crate::country_block_serde::{Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer};
     use crate::dbip_country;
     use std::str::FromStr;
     use std::time::SystemTime;

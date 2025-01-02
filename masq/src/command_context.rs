@@ -156,12 +156,12 @@ mod tests {
     use crate::test_utils::mocks::TRANSACT_TIMEOUT_MILLIS_FOR_TESTS;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
+    use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
 
     #[test]
     fn constant_has_correct_values() {

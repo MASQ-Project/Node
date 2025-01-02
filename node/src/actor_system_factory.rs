@@ -506,7 +506,6 @@ impl ActorFactory for ActorFactoryReal {
             .blockchain_service_url_opt
             .clone();
         let crashable = is_crashable(config);
-        let wallet_opt = config.consuming_wallet_opt.clone();
         let data_directory = config.data_directory.clone();
         let chain = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
@@ -517,12 +516,7 @@ impl ActorFactory for ActorFactoryReal {
             );
             let persistent_config =
                 BlockchainBridge::initialize_persistent_configuration(&data_directory);
-            BlockchainBridge::new(
-                blockchain_interface,
-                persistent_config,
-                crashable,
-                wallet_opt,
-            )
+            BlockchainBridge::new(blockchain_interface, persistent_config, crashable)
         });
         subs_factory.make(&addr)
     }
@@ -1179,7 +1173,6 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1255,7 +1248,7 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1401,7 +1394,6 @@ mod tests {
                 rate_pack(100),
             ),
             min_hops: MIN_HOPS_FOR_TEST,
-            country: "ZZ".to_string(),
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1556,7 +1548,7 @@ mod tests {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
+
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1746,7 +1738,6 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-                country: "ZZ".to_string(),
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),

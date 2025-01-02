@@ -492,7 +492,7 @@ pub struct UiConfigurationResponse {
     #[serde(rename = "portMappingProtocol")]
     pub port_mapping_protocol_opt: Option<String>,
     #[serde(rename = "startBlock")]
-    pub start_block: u64,
+    pub start_block_opt: Option<u64>,
     #[serde(rename = "consumingWalletPrivateKeyOpt")]
     pub consuming_wallet_private_key_opt: Option<String>,
     // This item is calculated from the private key, not stored in the database, so that
@@ -845,6 +845,44 @@ pub struct UiWalletAddressesResponse {
     pub earning_wallet_address: String,
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CountryCodes {
+    #[serde(rename = "countryCodes")]
+    pub country_codes: Vec<String>,
+    #[serde(rename = "priority")]
+    pub priority: usize,
+}
+
+impl From<(String, usize)> for CountryCodes {
+    fn from((item, priority): (String, usize)) -> Self {
+        CountryCodes {
+            country_codes: item
+                .split(',')
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>(),
+            priority: priority + 1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationRequest {
+    #[serde(rename = "fallbackRouting")]
+    pub fallback_routing: bool,
+    #[serde(rename = "exitLocations")]
+    pub exit_locations: Vec<CountryCodes>,
+    #[serde(rename = "showCountries")]
+    pub show_countries: bool,
+}
+
+conversation_message!(UiSetExitLocationRequest, "exitLocation");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationResponse {}
+
+conversation_message!(UiSetExitLocationResponse, "exitLocation");
 
 #[cfg(test)]
 mod tests {

@@ -2,8 +2,9 @@
 
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
-    DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_CHAIN,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use serde_derive::{Deserialize, Serialize};
 
@@ -12,7 +13,9 @@ pub enum Chain {
     EthMainnet,
     EthRopsten,
     PolyMainnet,
-    PolyMumbai,
+    PolyAmoy,
+    BaseMainnet,
+    BaseSepolia,
     Dev,
 }
 
@@ -28,8 +31,12 @@ impl From<&str> for Chain {
             Chain::PolyMainnet
         } else if str == ETH_MAINNET_FULL_IDENTIFIER {
             Chain::EthMainnet
-        } else if str == POLYGON_MUMBAI_FULL_IDENTIFIER {
-            Chain::PolyMumbai
+        } else if str == BASE_MAINNET_FULL_IDENTIFIER {
+            Chain::BaseMainnet
+        } else if str == BASE_SEPOLIA_FULL_IDENTIFIER {
+            Chain::BaseSepolia
+        } else if str == POLYGON_AMOY_FULL_IDENTIFIER {
+            Chain::PolyAmoy
         } else if str == ETH_ROPSTEN_FULL_IDENTIFIER {
             Chain::EthRopsten
         } else if str == DEV_CHAIN_FULL_IDENTIFIER {
@@ -56,7 +63,7 @@ impl Chain {
     }
 
     fn mainnets() -> &'static [Chain] {
-        &[Chain::PolyMainnet, Chain::EthMainnet]
+        &[Chain::PolyMainnet, Chain::BaseMainnet, Chain::EthMainnet]
     }
 }
 
