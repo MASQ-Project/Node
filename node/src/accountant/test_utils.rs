@@ -1553,7 +1553,7 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
                 intentionally_blank!()
             }
 
-            fn scan_canceled_by_payment_instructor(&mut self, _logger: &Logger) {
+            fn cancel_scan(&mut self, _logger: &Logger) {
                 intentionally_blank!()
             }
         }

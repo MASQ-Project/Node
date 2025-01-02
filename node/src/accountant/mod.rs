@@ -720,7 +720,7 @@ impl Accountant {
         &mut self,
         msg: BlockchainAgentWithContextMessage,
     ) -> Option<OutboundPaymentsInstructions> {
-        let analysed_without_an_error = match self
+        let successfully_processed = match self
             .scanners
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
@@ -729,7 +729,7 @@ impl Accountant {
             None => return None,
         };
 
-        match analysed_without_an_error {
+        match successfully_processed {
             Either::Left(prepared_msg_with_unadjusted_payables) => {
                 Some(prepared_msg_with_unadjusted_payables)
             }
@@ -745,9 +745,7 @@ impl Accountant {
     }
 
     fn handle_obstruction(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
-        self.scanners
-            .payable
-            .scan_canceled_by_payment_instructor(&self.logger);
+        self.scanners.payable.cancel_scan(&self.logger);
 
         if let Some(response_skeleton) = response_skeleton_opt {
             self.ui_message_sub_opt

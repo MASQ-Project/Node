@@ -328,7 +328,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
         }
     }
 
-    fn scan_canceled_by_payment_instructor(&mut self, logger: &Logger) {
+    fn cancel_scan(&mut self, logger: &Logger) {
         error!(
             logger,
             "Payable scanner is blocked from preparing instructions for payments. The cause appears \
