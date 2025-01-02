@@ -330,7 +330,8 @@ fn multiple_stream_zero_hop_test() {
     assert_eq!(
         index_of(
             &another_response,
-            &b"This is an index url which gives an overview of the different test urls available."[..],
+            &b"This is an index url which gives an overview of the different test urls available."
+                [..],
         )
         .is_some(),
         true,
