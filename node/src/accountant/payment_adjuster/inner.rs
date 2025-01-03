@@ -1,7 +1,6 @@
 // Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::cell::RefCell;
-use std::time::SystemTime;
 
 pub struct PaymentAdjusterInner {
     initialized_guts_opt: RefCell<Option<GutsOfPaymentAdjusterInner>>,
@@ -15,46 +14,37 @@ impl Default for PaymentAdjusterInner {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GutsOfPaymentAdjusterInner {
-    now: SystemTime,
     transaction_count_limit_opt: Option<u16>,
     max_debt_above_threshold_in_qualified_payables_minor: u128,
     original_cw_service_fee_balance_minor: u128,
-    unallocated_cw_service_fee_balance_minor: u128,
+    remaining_cw_service_fee_balance_minor: u128,
 }
 
 impl GutsOfPaymentAdjusterInner {
     pub fn new(
-        now: SystemTime,
         transaction_count_limit_opt: Option<u16>,
         cw_service_fee_balance_minor: u128,
         max_debt_above_threshold_in_qualified_payables_minor: u128,
     ) -> Self {
         Self {
-            now,
             transaction_count_limit_opt,
             max_debt_above_threshold_in_qualified_payables_minor,
             original_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
-            unallocated_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
+            remaining_cw_service_fee_balance_minor: cw_service_fee_balance_minor,
         }
     }
 }
 
 impl PaymentAdjusterInner {
-    pub fn now(&self) -> SystemTime {
-        self.get_value("now", |guts_ref| guts_ref.now)
-    }
-
     pub fn initialize_guts(
         &self,
         tx_count_limit_opt: Option<u16>,
         cw_service_fee_balance: u128,
         max_debt_above_threshold_in_qualified_payables_minor: u128,
-        now: SystemTime,
     ) {
         let initialized_guts = GutsOfPaymentAdjusterInner::new(
-            now,
             tx_count_limit_opt,
             cw_service_fee_balance,
             max_debt_above_threshold_in_qualified_payables_minor,
@@ -82,26 +72,24 @@ impl PaymentAdjusterInner {
             guts_ref.original_cw_service_fee_balance_minor
         })
     }
-    pub fn unallocated_cw_service_fee_balance_minor(&self) -> u128 {
-        self.get_value("unallocated_cw_service_fee_balance_minor", |guts_ref| {
-            guts_ref.unallocated_cw_service_fee_balance_minor
+    pub fn remaining_cw_service_fee_balance_minor(&self) -> u128 {
+        self.get_value("remaining_cw_service_fee_balance_minor", |guts_ref| {
+            guts_ref.remaining_cw_service_fee_balance_minor
         })
     }
-    pub fn subtract_from_unallocated_cw_service_fee_balance_minor(&self, subtrahend: u128) {
+    pub fn subtract_from_remaining_cw_service_fee_balance_minor(&self, subtrahend: u128) {
         let updated_thought_cw_balance = self.get_value(
-            "subtract_from_unallocated_cw_service_fee_balance_minor",
+            "subtract_from_remaining_cw_service_fee_balance_minor",
             |guts_ref| {
                 guts_ref
-                    .unallocated_cw_service_fee_balance_minor
+                    .remaining_cw_service_fee_balance_minor
                     .checked_sub(subtrahend)
                     .expect("should never go beyond zero")
             },
         );
         self.set_value(
-            "subtract_from_unallocated_cw_service_fee_balance_minor",
-            |guts_mut| {
-                guts_mut.unallocated_cw_service_fee_balance_minor = updated_thought_cw_balance
-            },
+            "subtract_from_remaining_cw_service_fee_balance_minor",
+            |guts_mut| guts_mut.remaining_cw_service_fee_balance_minor = updated_thought_cw_balance,
         )
     }
 
@@ -149,7 +137,6 @@ mod tests {
         GutsOfPaymentAdjusterInner, PaymentAdjusterInner,
     };
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::time::SystemTime;
 
     #[test]
     fn defaulted_payment_adjuster_inner() {
@@ -162,7 +149,6 @@ mod tests {
     #[test]
     fn initialization_and_getters_of_payment_adjuster_inner_work() {
         let subject = PaymentAdjusterInner::default();
-        let now = SystemTime::now();
         let tx_count_limit_opt = Some(3);
         let cw_service_fee_balance = 123_456_789;
         let max_debt_above_threshold_in_qualified_payables_minor = 44_555_666;
@@ -171,18 +157,15 @@ mod tests {
             tx_count_limit_opt,
             cw_service_fee_balance,
             max_debt_above_threshold_in_qualified_payables_minor,
-            now,
         );
-        let read_now = subject.now();
         let read_max_debt_above_threshold_in_qualified_payables_minor =
             subject.max_debt_above_threshold_in_qualified_payables_minor();
         let read_tx_count_limit_opt = subject.transaction_count_limit_opt();
         let read_original_cw_service_fee_balance_minor =
             subject.original_cw_service_fee_balance_minor();
-        let read_unallocated_cw_service_fee_balance_minor =
-            subject.unallocated_cw_service_fee_balance_minor();
+        let read_remaining_cw_service_fee_balance_minor =
+            subject.remaining_cw_service_fee_balance_minor();
 
-        assert_eq!(read_now, now);
         assert_eq!(
             read_max_debt_above_threshold_in_qualified_payables_minor,
             max_debt_above_threshold_in_qualified_payables_minor
@@ -193,29 +176,24 @@ mod tests {
             cw_service_fee_balance
         );
         assert_eq!(
-            read_unallocated_cw_service_fee_balance_minor,
+            read_remaining_cw_service_fee_balance_minor,
             cw_service_fee_balance
         );
     }
 
     #[test]
-    fn reducing_unallocated_cw_service_fee_balance_works() {
+    fn reducing_remaining_cw_service_fee_balance_works() {
         let initial_cw_service_fee_balance_minor = 123_123_678_678;
         let subject = PaymentAdjusterInner::default();
-        subject.initialize_guts(
-            None,
-            initial_cw_service_fee_balance_minor,
-            12345,
-            SystemTime::now(),
-        );
+        subject.initialize_guts(None, initial_cw_service_fee_balance_minor, 12345);
         let amount_to_subtract = 555_666_777;
 
-        subject.subtract_from_unallocated_cw_service_fee_balance_minor(amount_to_subtract);
+        subject.subtract_from_remaining_cw_service_fee_balance_minor(amount_to_subtract);
 
-        let unallocated_cw_service_fee_balance_minor =
-            subject.unallocated_cw_service_fee_balance_minor();
+        let remaining_cw_service_fee_balance_minor =
+            subject.remaining_cw_service_fee_balance_minor();
         assert_eq!(
-            unallocated_cw_service_fee_balance_minor,
+            remaining_cw_service_fee_balance_minor,
             initial_cw_service_fee_balance_minor - amount_to_subtract
         )
     }
@@ -226,11 +204,10 @@ mod tests {
         subject
             .initialized_guts_opt
             .replace(Some(GutsOfPaymentAdjusterInner {
-                now: SystemTime::now(),
                 transaction_count_limit_opt: None,
                 max_debt_above_threshold_in_qualified_payables_minor: 0,
                 original_cw_service_fee_balance_minor: 0,
-                unallocated_cw_service_fee_balance_minor: 0,
+                remaining_cw_service_fee_balance_minor: 0,
             }));
 
         subject.invalidate_guts();
@@ -242,9 +219,6 @@ mod tests {
     #[test]
     fn reasonable_panics_about_lacking_initialization_for_respective_methods() {
         let uninitialized_subject = PaymentAdjusterInner::default();
-        test_properly_implemented_panic(&uninitialized_subject, "now", |subject| {
-            subject.now();
-        });
         test_properly_implemented_panic(
             &uninitialized_subject,
             "max_debt_above_threshold_in_qualified_payables_minor",
@@ -268,16 +242,16 @@ mod tests {
         );
         test_properly_implemented_panic(
             &uninitialized_subject,
-            "unallocated_cw_service_fee_balance_minor",
+            "remaining_cw_service_fee_balance_minor",
             |subject| {
-                subject.unallocated_cw_service_fee_balance_minor();
+                subject.remaining_cw_service_fee_balance_minor();
             },
         );
         test_properly_implemented_panic(
             &uninitialized_subject,
-            "subtract_from_unallocated_cw_service_fee_balance_minor",
+            "subtract_from_remaining_cw_service_fee_balance_minor",
             |subject| {
-                subject.subtract_from_unallocated_cw_service_fee_balance_minor(123456);
+                subject.subtract_from_remaining_cw_service_fee_balance_minor(123456);
             },
         )
     }

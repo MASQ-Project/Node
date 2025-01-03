@@ -181,7 +181,7 @@ fn loading_test_with_randomized_params() {
             let cw_service_fee_balance_minor =
                 prepared_adjustment.agent.service_fee_balance_minor();
 
-            let payment_adjuster_result = subject.adjust_payments(prepared_adjustment, now);
+            let payment_adjuster_result = subject.adjust_payments(prepared_adjustment);
 
             administrate_single_scenario_result(
                 payment_adjuster_result,

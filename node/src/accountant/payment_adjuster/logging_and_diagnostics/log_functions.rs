@@ -108,7 +108,7 @@ fn preprocess_excluded_accounts(
     original_account_balances_mapped
         .iter()
         .fold(vec![], |mut acc, (wallet, original_balance)| {
-            if !adjusted_accounts_wallets.contains(&wallet) {
+            if !adjusted_accounts_wallets.contains(wallet) {
                 acc.push((*wallet, *original_balance));
             }
             acc
@@ -150,8 +150,8 @@ pub fn info_log_for_disqualified_account(
 ) {
     info!(
         logger,
-        "Ready payment to {} was eliminated to spare MASQ for those higher prioritized. {} wei owed \
-        at the moment.",
+        "Ready payment to {:?} was eliminated to spare MASQ for those higher prioritized. {} wei \
+        owed at the moment.",
         account.wallet,
         account.initial_account_balance_minor.separate_with_commas(),
     )

@@ -38,7 +38,6 @@ pub(super) mod local_utils {
     #[derive(Default)]
     pub struct PaymentAdjusterBuilder {
         start_with_inner_null: bool,
-        now_opt: Option<SystemTime>,
         cw_service_fee_balance_minor_opt: Option<u128>,
         mock_replacing_calculators_opt: Option<CriterionCalculatorMock>,
         max_debt_above_threshold_in_qualified_payables_minor_opt: Option<u128>,
@@ -57,7 +56,6 @@ pub(super) mod local_utils {
                     self.cw_service_fee_balance_minor_opt.unwrap_or(0),
                     self.max_debt_above_threshold_in_qualified_payables_minor_opt
                         .unwrap_or(0),
-                    self.now_opt.unwrap_or(SystemTime::now()),
                 );
             }
             if let Some(calculator) = self.mock_replacing_calculators_opt {
@@ -90,11 +88,6 @@ pub(super) mod local_utils {
         ) -> Self {
             self.max_debt_above_threshold_in_qualified_payables_minor_opt =
                 Some(max_exceeding_part_of_debt);
-            self
-        }
-
-        pub fn now(mut self, now: SystemTime) -> Self {
-            self.now_opt = Some(now);
             self
         }
 
@@ -247,13 +240,13 @@ pub(super) mod local_utils {
             &self,
             weighed_accounts: Vec<WeighedPayable>,
             _disqualification_arbiter: &DisqualificationArbiter,
-            unallocated_cw_service_fee_balance_minor: u128,
+            remaining_cw_service_fee_balance_minor: u128,
             _logger: &Logger,
         ) -> AdjustmentIterationResult {
             self.perform_adjustment_by_service_fee_params
                 .lock()
                 .unwrap()
-                .push((weighed_accounts, unallocated_cw_service_fee_balance_minor));
+                .push((weighed_accounts, remaining_cw_service_fee_balance_minor));
             self.perform_adjustment_by_service_fee_results
                 .borrow_mut()
                 .remove(0)

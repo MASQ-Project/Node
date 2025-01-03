@@ -313,8 +313,7 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
         setup: PreparedAdjustment,
         logger: &Logger,
     ) -> Option<OutboundPaymentsInstructions> {
-        let now = SystemTime::now();
-        match self.payment_adjuster.adjust_payments(setup, now) {
+        match self.payment_adjuster.adjust_payments(setup) {
             Ok(instructions) => Some(instructions),
             Err(e) => {
                 warning!(

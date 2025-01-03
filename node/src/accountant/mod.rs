@@ -1639,11 +1639,9 @@ mod tests {
 
         subject_addr.try_send(payable_payments_setup_msg).unwrap();
 
-        let before = SystemTime::now();
         assert_eq!(system.run(), 0);
-        let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (actual_prepared_adjustment, captured_now) = adjust_payments_params.remove(0);
+        let actual_prepared_adjustment = adjust_payments_params.remove(0);
         assert_eq!(
             actual_prepared_adjustment.adjustment_analysis.adjustment,
             Adjustment::ByServiceFee
@@ -1655,13 +1653,6 @@ mod tests {
         assert_eq!(
             actual_prepared_adjustment.agent.arbitrary_id_stamp(),
             agent_id_stamp_first_phase
-        );
-        assert!(
-            before <= captured_now && captured_now <= after,
-            "captured timestamp should have been between {:?} and {:?} but was {:?}",
-            before,
-            after,
-            captured_now
         );
         assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
@@ -1748,7 +1739,7 @@ mod tests {
         let test_name =
             "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
         let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
-            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+            PaymentAdjusterError::AbsolutelyInsufficientBalance {
                 number_of_accounts: 1,
                 transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
                     per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
@@ -1813,7 +1804,7 @@ mod tests {
             "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
         let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
-            PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+            PaymentAdjusterError::AbsolutelyInsufficientBalance {
                 number_of_accounts: 20,
                 transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
                     per_transaction_requirement_minor: 40_000_000_000,

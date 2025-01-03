@@ -32,7 +32,6 @@ mod tests {
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::find_largest_exceeding_balance;
     use crate::accountant::payment_adjuster::test_utils::local_utils::multiply_by_billion;
     use crate::accountant::test_utils::make_meaningless_analyzed_account;
-    use std::time::SystemTime;
 
     #[test]
     fn calculator_knows_its_name() {
@@ -45,7 +44,6 @@ mod tests {
 
     #[test]
     fn balance_criterion_calculator_works() {
-        let now = SystemTime::now();
         let analyzed_accounts = [50, 100, 2_222]
             .into_iter()
             .enumerate()
@@ -61,7 +59,7 @@ mod tests {
             .collect::<Vec<_>>();
         let largest_exceeding_balance = find_largest_exceeding_balance(&analyzed_accounts);
         let payment_adjuster_inner = PaymentAdjusterInner::default();
-        payment_adjuster_inner.initialize_guts(None, 123456789, largest_exceeding_balance, now);
+        payment_adjuster_inner.initialize_guts(None, 123456789, largest_exceeding_balance);
         let subject = BalanceCriterionCalculator::default();
 
         let computed_criteria = analyzed_accounts

@@ -19,7 +19,7 @@ pub trait ServiceFeeAdjuster {
         &self,
         weighed_accounts: Vec<WeighedPayable>,
         disqualification_arbiter: &DisqualificationArbiter,
-        unallocated_cw_service_fee_balance_minor: u128,
+        remaining_cw_service_fee_balance_minor: u128,
         logger: &Logger,
     ) -> AdjustmentIterationResult;
 }
@@ -148,16 +148,16 @@ impl ServiceFeeAdjusterReal {
 
 fn compute_unconfirmed_adjustments(
     weighed_accounts: Vec<WeighedPayable>,
-    unallocated_cw_service_fee_balance_minor: u128,
+    remaining_cw_service_fee_balance_minor: u128,
 ) -> Vec<UnconfirmedAdjustment> {
     let weights_total = sum_as(&weighed_accounts, |weighed_account| weighed_account.weight);
 
     let multiplication_coefficient = compute_mul_coefficient_preventing_fractional_numbers(
-        unallocated_cw_service_fee_balance_minor,
+        remaining_cw_service_fee_balance_minor,
     );
 
     let proportional_cw_fragment = compute_proportional_cw_fragment(
-        unallocated_cw_service_fee_balance_minor,
+        remaining_cw_service_fee_balance_minor,
         weights_total,
         multiplication_coefficient,
     );

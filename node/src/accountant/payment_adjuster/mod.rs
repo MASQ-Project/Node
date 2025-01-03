@@ -47,7 +47,6 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::time::SystemTime;
 use thousands::Separable;
 use variant_count::VariantCount;
 use web3::types::{Address, U256};
@@ -80,7 +79,6 @@ pub trait PaymentAdjuster {
     fn adjust_payments(
         &self,
         setup: PreparedAdjustment,
-        now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError>;
 }
 
@@ -109,7 +107,6 @@ impl PaymentAdjuster for PaymentAdjusterReal {
     fn adjust_payments(
         &self,
         setup: PreparedAdjustment,
-        now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {
         let analyzed_payables = setup.adjustment_analysis.accounts;
         let response_skeleton_opt = setup.response_skeleton_opt;
@@ -123,7 +120,6 @@ impl PaymentAdjuster for PaymentAdjusterReal {
             required_adjustment,
             initial_service_fee_balance_minor,
             max_debt_above_threshold_in_qualified_payables_minor,
-            now,
         );
 
         let sketched_debug_log_opt = self.sketch_debug_log_opt(&analyzed_payables);
@@ -165,7 +161,6 @@ impl PaymentAdjusterReal {
         required_adjustment: Adjustment,
         initial_service_fee_balance_minor: u128,
         max_debt_above_threshold_in_qualified_payables_minor: u128,
-        now: SystemTime,
     ) {
         let transaction_fee_limitation_opt = match required_adjustment {
             Adjustment::BeginByTransactionFee {
@@ -178,7 +173,6 @@ impl PaymentAdjusterReal {
             transaction_fee_limitation_opt,
             initial_service_fee_balance_minor,
             max_debt_above_threshold_in_qualified_payables_minor,
-            now,
         )
     }
 
@@ -273,14 +267,13 @@ impl PaymentAdjusterReal {
         );
 
         let disqualification_arbiter = &self.disqualification_arbiter;
-        let unallocated_cw_service_fee_balance =
-            self.inner.unallocated_cw_service_fee_balance_minor();
+        let remaining_cw_service_fee_balance = self.inner.remaining_cw_service_fee_balance_minor();
         let logger = &self.logger;
 
         let current_iteration_result = self.service_fee_adjuster.perform_adjustment_by_service_fee(
             weighed_accounts,
             disqualification_arbiter,
-            unallocated_cw_service_fee_balance,
+            remaining_cw_service_fee_balance,
             logger,
         );
 
@@ -292,7 +285,7 @@ impl PaymentAdjusterReal {
         }
 
         if !decided_accounts.is_empty() {
-            self.adjust_remaining_unallocated_cw_balance_down(&decided_accounts)
+            self.adjust_remaining_remaining_cw_balance_down(&decided_accounts)
         }
 
         let merged =
@@ -320,12 +313,11 @@ impl PaymentAdjusterReal {
         &self,
         remaining_undecided_accounts: &[WeighedPayable],
     ) -> bool {
-        let unallocated_cw_service_fee_balance =
-            self.inner.unallocated_cw_service_fee_balance_minor();
+        let remaining_cw_service_fee_balance = self.inner.remaining_cw_service_fee_balance_minor();
         let minimum_sum_required: u128 = sum_as(remaining_undecided_accounts, |weighed_account| {
             weighed_account.disqualification_limit()
         });
-        minimum_sum_required <= unallocated_cw_service_fee_balance
+        minimum_sum_required <= remaining_cw_service_fee_balance
     }
 
     fn merge_accounts(
@@ -372,7 +364,7 @@ impl PaymentAdjusterReal {
             .collect()
     }
 
-    fn adjust_remaining_unallocated_cw_balance_down(
+    fn adjust_remaining_remaining_cw_balance_down(
         &self,
         decided_accounts: &[AdjustedAccountBeforeFinalization],
     ) {
@@ -380,14 +372,14 @@ impl PaymentAdjusterReal {
             account.proposed_adjusted_balance_minor
         });
         self.inner
-            .subtract_from_unallocated_cw_service_fee_balance_minor(subtrahend_total);
+            .subtract_from_remaining_cw_service_fee_balance_minor(subtrahend_total);
 
         diagnostics!(
             "LOWERED CW BALANCE",
             "Unallocated balance lowered by {} to {}",
             subtrahend_total.separate_with_commas(),
             self.inner
-                .unallocated_cw_service_fee_balance_minor()
+                .remaining_cw_service_fee_balance_minor()
                 .separate_with_commas()
         )
     }
@@ -606,12 +598,12 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "PaymentAdjusterInner is uninitialized. It was identified during \
-        the execution of 'unallocated_cw_service_fee_balance_minor()'"
+        the execution of 'remaining_cw_service_fee_balance_minor()'"
     )]
     fn payment_adjuster_new_is_created_with_inner_null() {
         let subject = PaymentAdjusterReal::new();
 
-        let _ = subject.inner.unallocated_cw_service_fee_balance_minor();
+        let _ = subject.inner.remaining_cw_service_fee_balance_minor();
     }
 
     #[test]
@@ -1189,7 +1181,7 @@ mod tests {
             adjustment_analysis,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup);
 
         let err = match result {
             Err(e) => e,
@@ -1276,7 +1268,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup).unwrap();
 
         let expected_affordable_accounts = { vec![account_3, account_2] };
         assert_eq!(result.affordable_accounts, expected_affordable_accounts);
@@ -1327,7 +1319,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup);
 
         // The error isn't important. Received just because we set an almost empty wallet
         let err = match result {
@@ -1369,15 +1361,14 @@ mod tests {
 
     fn test_is_cw_balance_enough_to_remaining_accounts(
         initial_disqualification_limit_for_each_account: u128,
-        untaken_cw_service_fee_balance_minor: u128,
+        remaining_cw_service_fee_balance_minor: u128,
         expected_result: bool,
     ) {
         let subject = PaymentAdjusterReal::new();
         subject.initialize_inner(
             Adjustment::ByServiceFee,
-            untaken_cw_service_fee_balance_minor,
+            remaining_cw_service_fee_balance_minor,
             1234567,
-            SystemTime::now(),
         );
         let mut payable_1 =
             make_weighed_payable(111, 2 * initial_disqualification_limit_for_each_account);
@@ -1395,40 +1386,40 @@ mod tests {
     }
 
     #[test]
-    fn untaken_balance_is_equal_to_sum_of_disqualification_limits_in_remaining_accounts() {
+    fn remaining_balance_is_equal_to_sum_of_disqualification_limits_in_remaining_accounts() {
         let disqualification_limit_for_each_account = multiply_by_billion(5);
-        let untaken_cw_service_fee_balance_minor =
+        let remaining_cw_service_fee_balance_minor =
             disqualification_limit_for_each_account + disqualification_limit_for_each_account;
 
         test_is_cw_balance_enough_to_remaining_accounts(
             disqualification_limit_for_each_account,
-            untaken_cw_service_fee_balance_minor,
+            remaining_cw_service_fee_balance_minor,
             true,
         )
     }
 
     #[test]
-    fn untaken_balance_is_more_than_sum_of_disqualification_limits_in_remaining_accounts() {
+    fn remaining_balance_is_more_than_sum_of_disqualification_limits_in_remaining_accounts() {
         let disqualification_limit_for_each_account = multiply_by_billion(5);
-        let untaken_cw_service_fee_balance_minor =
+        let remaining_cw_service_fee_balance_minor =
             disqualification_limit_for_each_account + disqualification_limit_for_each_account + 1;
 
         test_is_cw_balance_enough_to_remaining_accounts(
             disqualification_limit_for_each_account,
-            untaken_cw_service_fee_balance_minor,
+            remaining_cw_service_fee_balance_minor,
             true,
         )
     }
 
     #[test]
-    fn untaken_balance_is_less_than_sum_of_disqualification_limits_in_remaining_accounts() {
+    fn remaining_balance_is_less_than_sum_of_disqualification_limits_in_remaining_accounts() {
         let disqualification_limit_for_each_account = multiply_by_billion(5);
-        let untaken_cw_service_fee_balance_minor =
+        let remaining_cw_service_fee_balance_minor =
             disqualification_limit_for_each_account + disqualification_limit_for_each_account - 1;
 
         test_is_cw_balance_enough_to_remaining_accounts(
             disqualification_limit_for_each_account,
-            untaken_cw_service_fee_balance_minor,
+            remaining_cw_service_fee_balance_minor,
             false,
         )
     }
@@ -1442,7 +1433,6 @@ mod tests {
         init_test_logging();
         let calculate_params_arc = Arc::new(Mutex::new(vec![]));
         let test_name = "accounts_count_does_not_change_during_adjustment";
-        let now = SystemTime::now();
         let balance_account_1 = 5_100_100_100_200_200_200;
         let sketched_account_1 = SketchedPayableAccount {
             wallet_addr_seed: "abc",
@@ -1500,7 +1490,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup).unwrap();
 
         actual_disqualification_limits.validate_against_expected(
             4_100_100_100_200_200_200,
@@ -1560,7 +1550,6 @@ mod tests {
         init_test_logging();
         let test_name =
             "only_transaction_fee_causes_limitations_and_the_service_fee_balance_suffices";
-        let now = SystemTime::now();
         let sketched_account_1 = SketchedPayableAccount {
             wallet_addr_seed: "abc",
             balance_minor: multiply_by_quintillion_concise(0.111),
@@ -1613,7 +1602,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup).unwrap();
 
         // The account 1 takes the first place for its weight being the biggest
         let expected_affordable_accounts = {
@@ -1653,7 +1642,6 @@ mod tests {
         // 1) adjustment by transaction fee (always means accounts elimination),
         // 2) adjustment by service fee (can but not have to cause an account drop-off)
         init_test_logging();
-        let now = SystemTime::now();
         let balance_account_1 = multiply_by_quintillion_concise(0.111);
         let sketched_account_1 = SketchedPayableAccount {
             wallet_addr_seed: "abc",
@@ -1712,7 +1700,7 @@ mod tests {
             response_skeleton_opt,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup).unwrap();
 
         actual_disqualification_limits.validate_against_expected(
             multiply_by_quintillion_concise(0.071),
@@ -1739,7 +1727,6 @@ mod tests {
     fn only_service_fee_balance_limits_the_payments_count() {
         init_test_logging();
         let test_name = "only_service_fee_balance_limits_the_payments_count";
-        let now = SystemTime::now();
         // Account to be adjusted to keep as much as it is left in the cw balance
         let balance_account_1 = multiply_by_billion(333_000_000);
         let sketched_account_1 = SketchedPayableAccount {
@@ -1799,7 +1786,7 @@ mod tests {
             response_skeleton_opt,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup).unwrap();
 
         actual_disqualification_limits.validate_against_expected(
             multiply_by_billion(183_000_000),
@@ -1839,7 +1826,6 @@ mod tests {
     fn service_fee_as_well_as_transaction_fee_limits_the_payments_count() {
         init_test_logging();
         let test_name = "service_fee_as_well_as_transaction_fee_limits_the_payments_count";
-        let now = SystemTime::now();
         let balance_account_1 = multiply_by_quintillion(100);
         let sketched_account_1 = SketchedPayableAccount {
             wallet_addr_seed: "abc",
@@ -1898,7 +1884,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now).unwrap();
+        let result = subject.adjust_payments(adjustment_setup).unwrap();
 
         actual_disqualification_limits.validate_against_expected(
             multiply_by_quintillion(50),
@@ -2031,7 +2017,6 @@ mod tests {
         init_test_logging();
         let test_name =
             "late_error_after_tx_fee_adjusted_but_rechecked_service_fee_found_fatally_insufficient";
-        let now = SystemTime::now();
         let balance_account_1 = multiply_by_quintillion(500);
         let sketched_account_1 = SketchedPayableAccount {
             wallet_addr_seed: "abc",
@@ -2075,7 +2060,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.adjust_payments(adjustment_setup, now);
+        let result = subject.adjust_payments(adjustment_setup);
 
         actual_disqualification_limits.validate_against_expected(
             multiply_by_quintillion(300),
@@ -2277,7 +2262,7 @@ mod tests {
         let exceeding_balance = qualified_payable.bare_account.balance_wei
             - qualified_payable.payment_threshold_intercept_minor;
         let context = PaymentAdjusterInner::default();
-        context.initialize_guts(None, cw_service_fee_balance_minor, exceeding_balance, now);
+        context.initialize_guts(None, cw_service_fee_balance_minor, exceeding_balance);
 
         payment_adjuster
             .calculators
@@ -2380,7 +2365,6 @@ mod tests {
             to modify only those parameters that are processed within your new calculator "
         );
         test_accounts_from_input_matrix(
-            now,
             input_matrix,
             cw_service_fee_balance_minor,
             template_computed_weight,
@@ -2394,7 +2378,6 @@ mod tests {
         let template_accounts = initialize_template_accounts(now);
         let template_weight = compute_common_weight_for_templates(
             template_accounts.clone(),
-            now,
             cw_service_fee_balance_minor,
         );
         (template_accounts, template_weight)
@@ -2420,12 +2403,10 @@ mod tests {
 
     fn compute_common_weight_for_templates(
         template_accounts: [QualifiedPayableAccount; 2],
-        now: SystemTime,
         cw_service_fee_balance_minor: u128,
     ) -> TemplateComputedWeight {
         let template_results = exercise_production_code_to_get_weighed_accounts(
             template_accounts.to_vec(),
-            now,
             cw_service_fee_balance_minor,
         );
         let templates_common_weight = template_results
@@ -2446,7 +2427,6 @@ mod tests {
 
     fn exercise_production_code_to_get_weighed_accounts(
         qualified_payables: Vec<QualifiedPayableAccount>,
-        now: SystemTime,
         cw_service_fee_balance_minor: u128,
     ) -> Vec<WeighedPayable> {
         let analyzed_payables =
@@ -2454,7 +2434,6 @@ mod tests {
         let max_debt_above_threshold_in_qualified_payables_minor =
             find_largest_exceeding_balance(&analyzed_payables);
         let mut subject = PaymentAdjusterBuilder::default()
-            .now(now)
             .cw_service_fee_balance_minor(cw_service_fee_balance_minor)
             .max_debt_above_threshold_in_qualified_payables_minor(
                 max_debt_above_threshold_in_qualified_payables_minor,
@@ -2505,7 +2484,6 @@ mod tests {
     }
 
     fn test_accounts_from_input_matrix(
-        now: SystemTime,
         input_matrix: Vec<[CalculatorTestScenario; 2]>,
         cw_service_fee_balance_minor: u128,
         template_computed_weight: TemplateComputedWeight,
@@ -2539,7 +2517,6 @@ mod tests {
 
                 let actual_weighed_accounts = exercise_production_code_to_get_weighed_accounts(
                     qualified_payments,
-                    now,
                     cw_service_fee_balance_minor,
                 );
 

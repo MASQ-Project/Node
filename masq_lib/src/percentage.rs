@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn loose_percentage_multiple_of_percent_hits_limit() {
-        let percents = ((u8::MAX as u32 + 1) * 100);
+        let percents = (u8::MAX as u32 + 1) * 100;
         let subject = LoosePercentage::new(percents);
 
         let result: Result<u8, BaseTypeOverflow> = subject.of(1);
