@@ -70,7 +70,7 @@ where
             model_db.root().public_key().to_string().as_str(),
         ))
         .rate_pack(model_db.root().inner.rate_pack)
-        .chain(cluster.chain);
+        .chain(cluster.chain());
     let config = modify_config(config_builder);
     let real_node = cluster.start_real_node(config);
     let (mock_node_map, adjacent_mock_node_keys) =
@@ -203,7 +203,7 @@ fn form_mock_node_skeleton(
             let standard_gossip = StandardBuilder::new()
                 .add_masq_node(&node, 1)
                 .half_neighbors(node.main_public_key(), real_node.main_public_key())
-                .chain_id(cluster.chain)
+                .chain_id(cluster.chain())
                 .build();
             node.transmit_multinode_gossip(real_node, &standard_gossip)
                 .unwrap();

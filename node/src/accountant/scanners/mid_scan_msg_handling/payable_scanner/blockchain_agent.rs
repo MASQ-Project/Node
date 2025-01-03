@@ -2,7 +2,7 @@
 
 use crate::arbitrary_id_stamp_in_trait;
 use crate::sub_lib::wallet::Wallet;
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 use web3::types::U256;
 
 // Table of chains by
@@ -25,8 +25,8 @@ pub trait BlockchainAgent: Send {
     fn estimated_transaction_fee_per_transaction_minor(&self) -> u128;
     fn transaction_fee_balance_minor(&self) -> U256;
     fn service_fee_balance_minor(&self) -> u128;
-    fn agreed_fee_per_computation_unit(&self) -> u64;
-    fn agreed_transaction_fee_margin(&self) -> Percentage;
+    fn gas_price(&self) -> u64;
+    fn gas_price_margin(&self) -> PurePercentage;
     fn consuming_wallet(&self) -> &Wallet;
     fn pending_transaction_id(&self) -> U256;
 

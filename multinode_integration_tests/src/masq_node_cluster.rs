@@ -5,8 +5,9 @@ use crate::masq_mock_node::{
     MutableMASQMockNodeStarter,
 };
 use crate::masq_node::{MASQNode, MASQNodeUtils};
-use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
+use crate::masq_real_node::{MASQRealNode, PreparedNodeInfo};
+use crate::utils::{node_chain_specific_data_directory, open_all_file_permissions};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -14,6 +15,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use std::path::PathBuf;
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -21,7 +23,7 @@ pub struct MASQNodeCluster {
     mock_nodes: HashMap<String, MASQMockNode>,
     host_node_parent_dir: Option<String>,
     next_index: usize,
-    pub chain: Chain,
+    chain: Chain,
 }
 
 impl MASQNodeCluster {
@@ -50,15 +52,21 @@ impl MASQNodeCluster {
         self.next_index
     }
 
-    pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> (String, usize) {
+    pub fn prepare_real_node(&mut self, config: &NodeStartupConfig) -> PreparedNodeInfo {
         let index = self.startup_configs.len() + 1;
         let name = MASQRealNode::make_name(index);
         self.next_index = index + 1;
         self.startup_configs
             .insert((name.clone(), index), config.clone());
-        MASQRealNode::prepare(&name);
+        MASQRealNode::prepare_node_directories_for_docker(&name);
+        let db_path: PathBuf = node_chain_specific_data_directory(&name).into();
+        open_all_file_permissions(&db_path);
 
-        (name, index)
+        PreparedNodeInfo {
+            node_docker_name: name,
+            index,
+            db_path,
+        }
     }
 
     pub fn start_real_node(&mut self, config: NodeStartupConfig) -> MASQRealNode {
@@ -189,6 +197,10 @@ impl MASQNodeCluster {
                 .unwrap_or_else(MASQNodeUtils::find_project_root),
             &name,
         )
+    }
+
+    pub fn chain(&self) -> Chain {
+        self.chain
     }
 
     pub fn is_in_jenkins() -> bool {

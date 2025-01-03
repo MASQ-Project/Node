@@ -3,7 +3,7 @@
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use std::fmt::Debug;
 
-const PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS: bool = false;
+const RUN_DIAGNOSTICS_FOR_DEVS: bool = false;
 
 pub const DIAGNOSTICS_MIDDLE_COLUMN_WIDTH: usize = 58;
 
@@ -30,9 +30,9 @@ macro_rules! diagnostics {
         )
     };
     // Displays an account by wallet address, brief description and formatted literal with arguments
-    ($wallet_ref: expr, $description: expr,  $($formatted_values: tt)*) => {
+    ($wallet: expr, $description: expr,  $($formatted_values: tt)*) => {
         diagnostics(
-            Some(||$wallet_ref.to_string()),
+            Some(||format!("{:?}", $wallet)),
             $description,
             Some(|| format!($($formatted_values)*))
         )
@@ -49,7 +49,7 @@ pub fn diagnostics<F1, F2>(
     F1: FnOnce() -> String,
     F2: FnOnce() -> String,
 {
-    if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
+    if RUN_DIAGNOSTICS_FOR_DEVS {
         let subject_column_length = if subject_renderer_opt.is_some() {
             WALLET_ADDRESS_LENGTH + 2
         } else {
@@ -82,7 +82,7 @@ pub fn collection_diagnostics<DebuggableAccount: Debug>(
     label: &str,
     accounts: &[DebuggableAccount],
 ) {
-    if PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS {
+    if RUN_DIAGNOSTICS_FOR_DEVS {
         eprintln!("{}", label);
         accounts
             .iter()
@@ -95,10 +95,10 @@ pub mod ordinary_diagnostic_functions {
     use crate::accountant::payment_adjuster::diagnostics;
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeightedPayable,
+        AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeighedPayable,
     };
-    use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
+    use web3::types::Address;
 
     pub fn thriving_competitor_found_diagnostics(
         account_info: &UnconfirmedAdjustment,
@@ -130,11 +130,11 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn minimal_acceptable_balance_assigned_diagnostics(
-        weighted_account: &WeightedPayable,
+        weighed_account: &WeighedPayable,
         disqualification_limit: u128,
     ) {
         diagnostics!(
-            weighted_account.wallet(),
+            weighed_account.wallet(),
             "MINIMAL ACCEPTABLE BALANCE ASSIGNED",
             "Used disqualification limit for given account {}",
             disqualification_limit.separate_with_commas()
@@ -167,7 +167,7 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn proposed_adjusted_balance_diagnostics(
-        account: &WeightedPayable,
+        account: &WeighedPayable,
         proposed_adjusted_balance: u128,
     ) {
         diagnostics!(
@@ -180,7 +180,7 @@ pub mod ordinary_diagnostic_functions {
 
     pub fn try_finding_an_account_to_disqualify_diagnostics(
         disqualification_suspected_accounts: &[DisqualificationSuspectedAccount],
-        wallet: &Wallet,
+        wallet: Address,
     ) {
         diagnostics!(
             "PICKED DISQUALIFIED ACCOUNT",
@@ -191,7 +191,7 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn calculated_criterion_and_weight_diagnostics(
-        wallet_ref: &Wallet,
+        wallet: Address,
         calculator: &dyn CriterionCalculator,
         criterion: u128,
         added_in_the_sum: u128,
@@ -199,7 +199,7 @@ pub mod ordinary_diagnostic_functions {
         const FIRST_COLUMN_WIDTH: usize = 30;
 
         diagnostics!(
-            wallet_ref,
+            wallet,
             "PARTIAL CRITERION CALCULATED",
             "For {:<width$} {} and summed up to {}",
             calculator.parameter_name(),
@@ -212,10 +212,10 @@ pub mod ordinary_diagnostic_functions {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS;
+    use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::RUN_DIAGNOSTICS_FOR_DEVS;
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(PRINT_RESULTS_OF_PARTIAL_COMPUTATIONS, false);
+        assert_eq!(RUN_DIAGNOSTICS_FOR_DEVS, false);
     }
 }

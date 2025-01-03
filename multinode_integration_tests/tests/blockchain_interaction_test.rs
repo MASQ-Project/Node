@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::ops::Add;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use log::Level;
@@ -18,10 +17,7 @@ use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
-use multinode_integration_tests_lib::utils::{
-    config_dao, node_chain_specific_data_directory, open_all_file_permissions, receivable_dao,
-    UrlHolder,
-};
+use multinode_integration_tests_lib::utils::{config_dao, receivable_dao, UrlHolder};
 use node_lib::accountant::db_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
 
@@ -68,20 +64,18 @@ fn debtors_are_credited_once_but_not_twice() {
     let node_config = NodeStartupConfigBuilder::standard()
         .log_level(Level::Debug)
         .scans(false)
-        .blockchain_service_url(blockchain_client_server.url())
+        .blockchain_service_url(&blockchain_client_server.url())
         .ui_port(ui_port)
         .build();
-    let (node_name, node_index) = cluster.prepare_real_node(&node_config);
-    let chain_specific_dir = node_chain_specific_data_directory(&node_name);
-    open_all_file_permissions(PathBuf::from(chain_specific_dir));
+    let (docker_id, _) = cluster.prepare_real_node(&node_config);
     {
-        let config_dao = config_dao(&node_name);
+        let config_dao = config_dao(&docker_id.node_docker_name);
         config_dao
             .set("start_block", Some("1000".to_string()))
             .unwrap();
     }
     {
-        let receivable_dao = receivable_dao(&node_name);
+        let receivable_dao = receivable_dao(&docker_id.node_docker_name);
         receivable_dao
             .more_money_receivable(
                 SystemTime::UNIX_EPOCH.add(Duration::from_secs(15_000_000)),
@@ -92,7 +86,7 @@ fn debtors_are_credited_once_but_not_twice() {
     }
     // Use the receivable DAO to verify that the receivable's balance has been initialized
     {
-        let receivable_dao = receivable_dao(&node_name);
+        let receivable_dao = receivable_dao(&docker_id.node_docker_name);
         let receivable_accounts = receivable_dao
             .custom_query(CustomQuery::RangeQuery {
                 min_age_s: 0,
@@ -107,13 +101,14 @@ fn debtors_are_credited_once_but_not_twice() {
     }
     // Use the config DAO to verify that the start block has been set to 1000
     {
-        let config_dao = config_dao(&node_name);
+        let config_dao = config_dao(&docker_id.node_docker_name);
         assert_eq!(
             config_dao.get("start_block").unwrap().value_opt.unwrap(),
             "1000"
         );
     }
-    let node = cluster.start_named_real_node(&node_name, node_index, node_config);
+    let node =
+        cluster.start_named_real_node(&docker_id.node_docker_name, docker_id.index, node_config);
     let ui_client = node.make_ui(ui_port);
     // Command a scan log
     ui_client.send_request(
@@ -129,7 +124,7 @@ fn debtors_are_credited_once_but_not_twice() {
     node.kill_node();
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
     {
-        let receivable_dao = receivable_dao(&node_name);
+        let receivable_dao = receivable_dao(&docker_id.node_docker_name);
         let receivable_accounts = receivable_dao
             .custom_query(CustomQuery::RangeQuery {
                 min_age_s: 0,
@@ -144,7 +139,7 @@ fn debtors_are_credited_once_but_not_twice() {
     }
     // Use the config DAO to verify that the start block has been advanced to 2001
     {
-        let config_dao = config_dao(&node_name);
+        let config_dao = config_dao(&docker_id.node_docker_name);
         assert_eq!(
             config_dao.get("start_block").unwrap().value_opt.unwrap(),
             "2001"

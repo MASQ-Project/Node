@@ -6,26 +6,31 @@ use crate::utils::UrlHolder;
 use node_lib::test_utils;
 use std::net::{IpAddr, Ipv4Addr};
 
-pub struct BlockchainServer<'a> {
-    pub name: &'a str,
+pub struct BlockchainServer {
+    pub name: String,
 }
 
-impl<'a> UrlHolder for BlockchainServer<'a> {
+impl UrlHolder for BlockchainServer {
     fn url(&self) -> String {
         format!("http://{}:18545", self.ip().unwrap().trim())
     }
 }
 
-impl<'a> BlockchainServer<'a> {
+impl BlockchainServer {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+        }
+    }
     pub fn start(&self) {
-        MASQNodeUtils::clean_up_existing_container(self.name);
+        MASQNodeUtils::clean_up_existing_container(&self.name);
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, 250));
         let ip_addr_string = ip_addr.to_string();
         let args = vec![
             "run",
             "--detach",
             "--name",
-            self.name,
+            &self.name,
             "--ip",
             ip_addr_string.as_str(),
             "-p",
@@ -43,7 +48,7 @@ impl<'a> BlockchainServer<'a> {
             "inspect",
             "-f",
             "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            self.name,
+            &self.name,
         ];
         let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()
@@ -58,8 +63,8 @@ impl<'a> BlockchainServer<'a> {
     }
 }
 
-impl<'a> Drop for BlockchainServer<'a> {
+impl Drop for BlockchainServer {
     fn drop(&mut self) {
-        MASQNodeUtils::stop(self.name);
+        MASQNodeUtils::stop(&self.name);
     }
 }

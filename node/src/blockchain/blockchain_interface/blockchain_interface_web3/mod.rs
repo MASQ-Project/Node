@@ -37,7 +37,7 @@ use web3::types::{
     H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Web3};
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
 use crate::blockchain::blockchain_interface::data_structures::{BlockchainTransaction, ProcessedPayableFallible, RpcPayablesFailure};
 use crate::sub_lib::blockchain_interface_web3::{compute_gas_limit, transaction_data_web3, web3_gas_limit_const_part};
@@ -71,7 +71,7 @@ pub const REQUESTS_IN_PARALLEL: usize = 1;
 
 lazy_static! {
     // TODO In the future, we'll replace this by a dynamical value of the user's choice.
-    pub static ref TRANSACTION_FEE_MARGIN: Percentage = Percentage::new(15);
+    pub static ref TX_FEE_MARGIN_IN_PERCENT: PurePercentage = PurePercentage::try_from(15).expect("Value below 100 should cause no issue");
 }
 
 pub struct BlockchainInterfaceWeb3<T>
@@ -278,7 +278,7 @@ where
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let consuming_wallet = agent.consuming_wallet();
-        let gas_price = agent.agreed_fee_per_computation_unit();
+        let gas_price = agent.gas_price();
         let pending_nonce = agent.pending_transaction_id();
 
         debug!(
@@ -612,8 +612,8 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::{
-        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_FEE_MARGIN,
-        TRANSACTION_LITERAL,
+        BlockchainInterfaceWeb3, CONTRACT_ABI, REQUESTS_IN_PARALLEL, TRANSACTION_LITERAL,
+        TX_FEE_MARGIN_IN_PERCENT,
     };
     use crate::blockchain::blockchain_interface::test_utils::{
         test_blockchain_interface_is_connected_and_functioning, LowBlockchainIntMock,
@@ -659,7 +659,7 @@ mod tests {
     };
     use crate::sub_lib::blockchain_interface_web3::web3_gas_limit_const_part;
     use indoc::indoc;
-    use masq_lib::percentage::Percentage;
+    use masq_lib::percentage::PurePercentage;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -701,7 +701,10 @@ mod tests {
         assert_eq!(CONTRACT_ABI, contract_abi_expected);
         assert_eq!(TRANSACTION_LITERAL, transaction_literal_expected);
         assert_eq!(REQUESTS_IN_PARALLEL, 1);
-        assert_eq!(*TRANSACTION_FEE_MARGIN, Percentage::new(15));
+        assert_eq!(
+            *TX_FEE_MARGIN_IN_PERCENT,
+            PurePercentage::try_from(15).unwrap()
+        );
     }
 
     #[test]
@@ -1058,8 +1061,11 @@ mod tests {
             transaction_fee_balance
         );
         assert_eq!(result.service_fee_balance_minor(), masq_balance.as_u128());
-        assert_eq!(result.agreed_transaction_fee_margin(), Percentage::new(15));
-        assert_eq!(result.agreed_fee_per_computation_unit(), 50);
+        assert_eq!(
+            result.gas_price_margin(),
+            PurePercentage::try_from(15).unwrap()
+        );
+        assert_eq!(result.gas_price(), 50);
         assert_eq!(
             result.estimated_transaction_fee_per_transaction_minor(),
             3666400000000000
@@ -2167,7 +2173,7 @@ mod tests {
         Box::new(
             BlockchainAgentMock::default()
                 .consuming_wallet_result(consuming_wallet)
-                .agreed_fee_per_computation_unit_result(gas_price_gwei)
+                .gas_price_result(gas_price_gwei)
                 .pending_transaction_id_result(nonce),
         )
     }

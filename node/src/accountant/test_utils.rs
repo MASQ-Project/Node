@@ -13,8 +13,9 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
 use crate::accountant::payment_adjuster::{
-    AdjustmentAnalysis, PaymentAdjuster, PaymentAdjusterError,
+    AdjustmentAnalysisResult, PaymentAdjuster, PaymentAdjusterError,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
@@ -56,7 +57,6 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeToUiMessage;
-use masq_lib::utils::convert_collection;
 use rusqlite::{Connection, OpenFlags, Row};
 use std::any::type_name;
 use std::cell::RefCell;
@@ -103,25 +103,25 @@ pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
 }
 
 pub struct AccountantBuilder {
-    config: Option<BootstrapperConfig>,
-    logger: Option<Logger>,
-    payable_dao_factory: Option<PayableDaoFactoryMock>,
-    receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
-    pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
-    banned_dao_factory: Option<BannedDaoFactoryMock>,
-    config_dao_factory: Option<ConfigDaoFactoryMock>,
+    config_opt: Option<BootstrapperConfig>,
+    logger_opt: Option<Logger>,
+    payable_dao_factory_opt: Option<PayableDaoFactoryMock>,
+    receivable_dao_factory_opt: Option<ReceivableDaoFactoryMock>,
+    pending_payable_dao_factory_opt: Option<PendingPayableDaoFactoryMock>,
+    banned_dao_factory_opt: Option<BannedDaoFactoryMock>,
+    config_dao_factory_opt: Option<ConfigDaoFactoryMock>,
 }
 
 impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
-            config: None,
-            logger: None,
-            payable_dao_factory: None,
-            receivable_dao_factory: None,
-            pending_payable_dao_factory: None,
-            banned_dao_factory: None,
-            config_dao_factory: None,
+            config_opt: None,
+            logger_opt: None,
+            payable_dao_factory_opt: None,
+            receivable_dao_factory_opt: None,
+            pending_payable_dao_factory_opt: None,
+            banned_dao_factory_opt: None,
+            config_dao_factory_opt: None,
         }
     }
 }
@@ -239,12 +239,12 @@ const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = 
 
 impl AccountantBuilder {
     pub fn bootstrapper_config(mut self, config: BootstrapperConfig) -> Self {
-        self.config = Some(config);
+        self.config_opt = Some(config);
         self
     }
 
     pub fn logger(mut self, logger: Logger) -> Self {
-        self.logger = Some(logger);
+        self.logger_opt = Some(logger);
         self
     }
 
@@ -255,8 +255,7 @@ impl AccountantBuilder {
         Self::create_or_update_factory(
             specially_configured_daos,
             PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            &mut self.pending_payable_dao_factory,
-            PendingPayableDaoFactoryMock::new(),
+            &mut self.pending_payable_dao_factory_opt,
         );
         self
     }
@@ -268,8 +267,7 @@ impl AccountantBuilder {
         Self::create_or_update_factory(
             specially_configured_daos,
             PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            &mut self.payable_dao_factory,
-            PayableDaoFactoryMock::new(),
+            &mut self.payable_dao_factory_opt,
         );
         self
     }
@@ -281,8 +279,7 @@ impl AccountantBuilder {
         Self::create_or_update_factory(
             specially_configured_daos,
             RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
-            &mut self.receivable_dao_factory,
-            ReceivableDaoFactoryMock::new(),
+            &mut self.receivable_dao_factory_opt,
         );
         self
     }
@@ -290,65 +287,59 @@ impl AccountantBuilder {
     fn create_or_update_factory<const N: usize, DAOFactory, DAO>(
         dao_set: Vec<DaoWithDestination<DAO>>,
         dao_initialization_order_in_regard_to_accountant: [DestinationMarker; N],
-        factory_field_in_builder: &mut Option<DAOFactory>,
-        dao_factory_mock: DAOFactory,
+        existing_dao_factory_mock_opt: &mut Option<DAOFactory>,
     ) where
         DAO: Default,
-        DAOFactory: DaoFactoryWithMakeReplace<DAO>,
+        DAOFactory: DaoFactoryWithMakeReplace<DAO> + Default,
     {
-        let make_queue_uncast = fill_vacancies_with_given_or_default_daos(
+        let finished_make_queue: Vec<Box<DAO>> = fill_vacancies_with_given_or_default_daos(
             dao_initialization_order_in_regard_to_accountant,
             dao_set,
         );
 
-        let finished_make_queue: Vec<Box<DAO>> = make_queue_uncast
-            .into_iter()
-            .map(|elem| elem as Box<DAO>)
-            .collect();
-
-        let ready_factory = match factory_field_in_builder.take() {
+        let ready_factory = match existing_dao_factory_mock_opt.take() {
             Some(existing_factory) => {
                 existing_factory.replace_make_results(finished_make_queue);
                 existing_factory
             }
             None => {
-                let new_factory = dao_factory_mock;
+                let new_factory = DAOFactory::default();
                 new_factory.replace_make_results(finished_make_queue);
                 new_factory
             }
         };
-        factory_field_in_builder.replace(ready_factory);
+        existing_dao_factory_mock_opt.replace(ready_factory);
     }
 
     pub fn config_dao(mut self, config_dao: ConfigDaoMock) -> Self {
-        self.config_dao_factory = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
+        self.config_dao_factory_opt = Some(ConfigDaoFactoryMock::new().make_result(config_dao));
         self
     }
 
     pub fn build(self) -> Accountant {
-        let config = self.config.unwrap_or(make_bc_with_defaults());
-        let payable_dao_factory = self.payable_dao_factory.unwrap_or(
+        let config = self.config_opt.unwrap_or(make_bc_with_defaults());
+        let payable_dao_factory = self.payable_dao_factory_opt.unwrap_or(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new()),
         );
-        let receivable_dao_factory = self.receivable_dao_factory.unwrap_or(
+        let receivable_dao_factory = self.receivable_dao_factory_opt.unwrap_or(
             ReceivableDaoFactoryMock::new()
                 .make_result(ReceivableDaoMock::new())
                 .make_result(ReceivableDaoMock::new()),
         );
-        let pending_payable_dao_factory = self.pending_payable_dao_factory.unwrap_or(
+        let pending_payable_dao_factory = self.pending_payable_dao_factory_opt.unwrap_or(
             PendingPayableDaoFactoryMock::new()
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
         let banned_dao_factory = self
-            .banned_dao_factory
+            .banned_dao_factory_opt
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
         let config_dao_factory = self
-            .config_dao_factory
+            .config_dao_factory_opt
             .unwrap_or(ConfigDaoFactoryMock::new().make_result(ConfigDaoMock::new()));
         let mut accountant = Accountant::new(
             config,
@@ -360,7 +351,7 @@ impl AccountantBuilder {
                 config_dao_factory: Box::new(config_dao_factory),
             },
         );
-        if let Some(logger) = self.logger {
+        if let Some(logger) = self.logger_opt {
             accountant.logger = logger;
         }
 
@@ -371,6 +362,12 @@ impl AccountantBuilder {
 pub struct PayableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<Box<PayableDaoMock>>>,
+}
+
+impl Default for PayableDaoFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PayableDaoFactory for PayableDaoFactoryMock {
@@ -415,6 +412,12 @@ pub struct PendingPayableDaoFactoryMock {
     make_results: RefCell<Vec<Box<PendingPayableDaoMock>>>,
 }
 
+impl Default for PendingPayableDaoFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PendingPayableDao> {
         if self.make_results.borrow().len() == 0 {
@@ -455,6 +458,12 @@ impl PendingPayableDaoFactoryMock {
 pub struct ReceivableDaoFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<Box<ReceivableDaoMock>>>,
+}
+
+impl Default for ReceivableDaoFactoryMock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
@@ -1100,7 +1109,7 @@ impl PayableScannerBuilder {
             pending_payable_dao: PendingPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
             payable_inspector: PayableInspector::new(Box::new(
-                PayableThresholdsGaugeReal::default(),
+                PayableThresholdsGaugeMock::default(),
             )),
             payment_adjuster: PaymentAdjusterMock::default(),
         }
@@ -1276,7 +1285,7 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
-pub fn make_unqualified_and_qualified_payables(
+pub fn make_qualified_and_unqualified_payables(
     now: SystemTime,
     payment_thresholds: &PaymentThresholds,
 ) -> (
@@ -1314,11 +1323,8 @@ pub fn make_unqualified_and_qualified_payables(
             pending_payable_opt: None,
         },
     ];
-    let qualified_payable_accounts = make_guaranteed_qualified_payables(
-        payable_accounts_to_qualify.clone(),
-        payment_thresholds,
-        now,
-    );
+    let qualified_payable_accounts =
+        make_qualified_payables(payable_accounts_to_qualify.clone(), payment_thresholds, now);
 
     let mut all_non_pending_payables = Vec::new();
     all_non_pending_payables.extend(payable_accounts_to_qualify);
@@ -1462,71 +1468,50 @@ pub fn trick_rusqlite_with_read_only_conn(
 
 #[derive(Default)]
 pub struct PaymentAdjusterMock {
-    search_for_indispensable_adjustment_params:
-        Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
-    search_for_indispensable_adjustment_results: RefCell<
-        Vec<Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>>,
-    >,
-    adjust_payments_params: Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
+    consider_adjustment_params: Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
+    consider_adjustment_results: RefCell<Vec<AdjustmentAnalysisResult>>,
+    adjust_payments_params: Arc<Mutex<Vec<PreparedAdjustment>>>,
     adjust_payments_results:
         RefCell<Vec<Result<OutboundPaymentsInstructions, PaymentAdjusterError>>>,
 }
 
 impl PaymentAdjuster for PaymentAdjusterMock {
-    fn search_for_indispensable_adjustment(
+    fn consider_adjustment(
         &self,
         qualified_payables: Vec<QualifiedPayableAccount>,
         agent: &dyn BlockchainAgent,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>
-    {
-        self.search_for_indispensable_adjustment_params
+    ) -> AdjustmentAnalysisResult {
+        self.consider_adjustment_params
             .lock()
             .unwrap()
             .push((qualified_payables, agent.arbitrary_id_stamp()));
-        self.search_for_indispensable_adjustment_results
-            .borrow_mut()
-            .remove(0)
+        self.consider_adjustment_results.borrow_mut().remove(0)
     }
 
     fn adjust_payments(
-        &mut self,
+        &self,
         setup: PreparedAdjustment,
-        now: SystemTime,
     ) -> Result<OutboundPaymentsInstructions, PaymentAdjusterError> {
-        self.adjust_payments_params
-            .lock()
-            .unwrap()
-            .push((setup, now));
+        self.adjust_payments_params.lock().unwrap().push(setup);
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
 
 impl PaymentAdjusterMock {
-    pub fn search_for_indispensable_adjustment_params(
+    pub fn consider_adjustment_params(
         mut self,
         params: &Arc<Mutex<Vec<(Vec<QualifiedPayableAccount>, ArbitraryIdStamp)>>>,
     ) -> Self {
-        self.search_for_indispensable_adjustment_params = params.clone();
+        self.consider_adjustment_params = params.clone();
         self
     }
 
-    pub fn search_for_indispensable_adjustment_result(
-        self,
-        result: Result<
-            Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>,
-            PaymentAdjusterError,
-        >,
-    ) -> Self {
-        self.search_for_indispensable_adjustment_results
-            .borrow_mut()
-            .push(result);
+    pub fn consider_adjustment_result(self, result: AdjustmentAnalysisResult) -> Self {
+        self.consider_adjustment_results.borrow_mut().push(result);
         self
     }
 
-    pub fn adjust_payments_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(PreparedAdjustment, SystemTime)>>>,
-    ) -> Self {
+    pub fn adjust_payments_params(mut self, params: &Arc<Mutex<Vec<PreparedAdjustment>>>) -> Self {
         self.adjust_payments_params = params.clone();
         self
     }
@@ -1558,6 +1543,10 @@ macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
                 _setup: PreparedAdjustment,
                 _logger: &Logger,
             ) -> Option<OutboundPaymentsInstructions> {
+                intentionally_blank!()
+            }
+
+            fn cancel_scan(&mut self, _logger: &Logger) {
                 intentionally_blank!()
             }
         }
@@ -1735,40 +1724,45 @@ impl ScanSchedulers {
     }
 }
 
-pub fn make_non_guaranteed_qualified_payable(n: u64) -> QualifiedPayableAccount {
-    // Without guarantee that the generated payable would cross the given thresholds
+pub fn make_meaningless_qualified_payable(n: u64) -> QualifiedPayableAccount {
+    // It's not guaranteed that the payables would cross the given thresholds.
+    let coefficient = (n as f64).sqrt().floor() as u64;
+    let permanent_deb_allowed_minor = gwei_to_wei(coefficient);
+    let payment_threshold_intercept = 7_u128 * gwei_to_wei::<u128, _>(n) / 10_u128;
     QualifiedPayableAccount::new(
         make_payable_account(n),
-        n as u128 * 12345,
-        CreditorThresholds::new(111_111_111),
+        payment_threshold_intercept,
+        CreditorThresholds::new(permanent_deb_allowed_minor),
     )
 }
 
-pub fn make_analyzed_account(n: u64) -> AnalyzedPayableAccount {
-    AnalyzedPayableAccount::new(make_non_guaranteed_qualified_payable(n), 123456789)
+pub fn make_meaningless_analyzed_account(n: u64) -> AnalyzedPayableAccount {
+    let qualified_account = make_meaningless_qualified_payable(n);
+    let disqualification_limit = 85 * qualified_account.payment_threshold_intercept_minor / 100;
+    AnalyzedPayableAccount::new(qualified_account, disqualification_limit)
 }
 
-pub fn make_guaranteed_qualified_payables(
+pub fn make_qualified_payables(
     payables: Vec<PayableAccount>,
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<QualifiedPayableAccount> {
-    try_making_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
+    try_to_make_guaranteed_qualified_payables(payables, payment_thresholds, now, true)
 }
 
-pub fn make_guaranteed_analyzed_payables(
+pub fn make_analyzed_payables(
     payables: Vec<PayableAccount>,
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<AnalyzedPayableAccount> {
-    convert_collection(make_guaranteed_qualified_payables(
+    convert_qualified_into_analyzed_payables_in_test(make_qualified_payables(
         payables,
         payment_thresholds,
         now,
     ))
 }
 
-pub fn try_making_guaranteed_qualified_payables(
+pub fn try_to_make_guaranteed_qualified_payables(
     payables: Vec<PayableAccount>,
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,

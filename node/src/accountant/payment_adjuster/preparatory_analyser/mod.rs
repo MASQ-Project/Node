@@ -8,16 +8,14 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions:
     log_transaction_fee_adjustment_ok_but_by_service_fee_undoable,
 };
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
-    TransactionCountsBy16bits, WeightedPayable,
+    AffordableAndRequiredTxCounts, WeighedPayable,
 };
-use crate::accountant::payment_adjuster::miscellaneous::helper_functions::{
-    find_smallest_u128, sum_as,
-};
+use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::{
     BalanceProvidingAccount, DisqualificationLimitProvidingAccount,
 };
 use crate::accountant::payment_adjuster::{
-    Adjustment, AdjustmentAnalysis, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
+    Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
     TransactionFeeImmoderateInsufficiency,
 };
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
@@ -25,7 +23,7 @@ use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 use ethereum_types::U256;
 use itertools::Either;
 use masq_lib::logger::Logger;
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 
 pub struct PreparatoryAnalyzer {}
 
@@ -40,19 +38,19 @@ impl PreparatoryAnalyzer {
         disqualification_arbiter: &DisqualificationArbiter,
         qualified_payables: Vec<QualifiedPayableAccount>,
         logger: &Logger,
-    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysis>, PaymentAdjusterError>
+    ) -> Result<Either<Vec<QualifiedPayableAccount>, AdjustmentAnalysisReport>, PaymentAdjusterError>
     {
         let number_of_accounts = qualified_payables.len();
         let cw_transaction_fee_balance_minor = agent.transaction_fee_balance_minor();
-        let per_transaction_requirement_minor =
+        let required_tx_fee_per_transaction_minor =
             agent.estimated_transaction_fee_per_transaction_minor();
-        let agreed_transaction_fee_margin = agent.agreed_transaction_fee_margin();
+        let gas_price_margin = agent.gas_price_margin();
 
         let transaction_fee_check_result = self
             .determine_transaction_count_limit_by_transaction_fee(
                 cw_transaction_fee_balance_minor,
-                agreed_transaction_fee_margin,
-                per_transaction_requirement_minor,
+                gas_price_margin,
+                required_tx_fee_per_transaction_minor,
                 number_of_accounts,
                 logger,
             );
@@ -93,12 +91,12 @@ impl PreparatoryAnalyzer {
 
         let adjustment = match transaction_fee_limitation_opt {
             None => Adjustment::ByServiceFee,
-            Some(affordable_transaction_count) => Adjustment::TransactionFeeInPriority {
-                affordable_transaction_count,
+            Some(transaction_count_limit) => Adjustment::BeginByTransactionFee {
+                transaction_count_limit,
             },
         };
 
-        Ok(Either::Right(AdjustmentAnalysis::new(
+        Ok(Either::Right(AdjustmentAnalysisReport::new(
             adjustment,
             prepared_accounts,
         )))
@@ -109,48 +107,47 @@ impl PreparatoryAnalyzer {
         transaction_fee_check_result: Result<Option<u16>, TransactionFeeImmoderateInsufficiency>,
         service_fee_check_result: Result<(), ServiceFeeImmoderateInsufficiency>,
     ) -> Result<Option<u16>, PaymentAdjusterError> {
+        let construct_error =
+            |tx_fee_check_err_opt: Option<TransactionFeeImmoderateInsufficiency>,
+             service_fee_check_err_opt: Option<ServiceFeeImmoderateInsufficiency>| {
+                PaymentAdjusterError::AbsolutelyInsufficientBalance {
+                    number_of_accounts,
+                    transaction_fee_opt: tx_fee_check_err_opt,
+                    service_fee_opt: service_fee_check_err_opt,
+                }
+            };
+
         match (transaction_fee_check_result, service_fee_check_result) {
-            (Err(transaction_fee_check_error), Ok(_)) => Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts,
-                    transaction_fee_opt: Some(transaction_fee_check_error),
-                    service_fee_opt: None,
-                },
-            ),
-            (Err(transaction_fee_check_error), Err(service_fee_check_error)) => Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts,
-                    transaction_fee_opt: Some(transaction_fee_check_error),
-                    service_fee_opt: Some(service_fee_check_error),
-                },
-            ),
-            (Ok(_), Err(service_fee_check_error)) => Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts,
-                    transaction_fee_opt: None,
-                    service_fee_opt: Some(service_fee_check_error),
-                },
-            ),
-            (Ok(transaction_fee_limiting_count_opt), Ok(())) => {
-                Ok(transaction_fee_limiting_count_opt)
+            (Err(transaction_fee_check_error), Ok(_)) => {
+                Err(construct_error(Some(transaction_fee_check_error), None))
             }
+            (Err(transaction_fee_check_error), Err(service_fee_check_error)) => {
+                Err(construct_error(
+                    Some(transaction_fee_check_error),
+                    Some(service_fee_check_error),
+                ))
+            }
+            (Ok(_), Err(service_fee_check_error)) => {
+                Err(construct_error(None, Some(service_fee_check_error)))
+            }
+            (Ok(tx_count_limit_opt), Ok(())) => Ok(tx_count_limit_opt),
         }
     }
 
     pub fn recheck_if_service_fee_adjustment_is_needed(
         &self,
-        weighted_accounts: &[WeightedPayable],
+        weighed_accounts: &[WeighedPayable],
         cw_service_fee_balance_minor: u128,
         error_factory: LateServiceFeeSingleTxErrorFactory,
         logger: &Logger,
     ) -> Result<bool, PaymentAdjusterError> {
         if Self::is_service_fee_adjustment_needed(
-            weighted_accounts,
+            weighed_accounts,
             cw_service_fee_balance_minor,
             logger,
         ) {
             if let Err(e) = Self::check_adjustment_possibility(
-                weighted_accounts,
+                weighed_accounts,
                 cw_service_fee_balance_minor,
                 error_factory,
             ) {
@@ -167,13 +164,13 @@ impl PreparatoryAnalyzer {
     fn determine_transaction_count_limit_by_transaction_fee(
         &self,
         cw_transaction_fee_balance_minor: U256,
-        agreed_transaction_fee_margin: Percentage,
+        gas_price_margin: PurePercentage,
         per_transaction_requirement_minor: u128,
         number_of_qualified_accounts: usize,
         logger: &Logger,
     ) -> Result<Option<u16>, TransactionFeeImmoderateInsufficiency> {
         let per_txn_requirement_minor_with_margin =
-            agreed_transaction_fee_margin.add_percent_to(per_transaction_requirement_minor);
+            gas_price_margin.add_percent_to(per_transaction_requirement_minor);
 
         let verified_tx_counts = Self::transaction_counts_verification(
             cw_transaction_fee_balance_minor,
@@ -208,11 +205,11 @@ impl PreparatoryAnalyzer {
         cw_transaction_fee_balance_minor: U256,
         txn_fee_required_per_txn_minor: u128,
         number_of_qualified_accounts: usize,
-    ) -> TransactionCountsBy16bits {
+    ) -> AffordableAndRequiredTxCounts {
         let max_possible_tx_count_u256 =
             cw_transaction_fee_balance_minor / U256::from(txn_fee_required_per_txn_minor);
 
-        TransactionCountsBy16bits::new(max_possible_tx_count_u256, number_of_qualified_accounts)
+        AffordableAndRequiredTxCounts::new(max_possible_tx_count_u256, number_of_qualified_accounts)
     }
 
     fn check_adjustment_possibility<AnalyzableAccounts, ErrorFactory, Error>(
@@ -222,7 +219,7 @@ impl PreparatoryAnalyzer {
     ) -> Result<(), Error>
     where
         AnalyzableAccounts: DisqualificationLimitProvidingAccount + BalanceProvidingAccount,
-        ErrorFactory: ServiceFeeSingleTXErrorFactory<Error>,
+        ErrorFactory: ServiceFeeSingleTXErrorFactory<Error, AnalyzableAccounts>,
     {
         let lowest_disqualification_limit =
             Self::find_lowest_disqualification_limit(prepared_accounts);
@@ -234,14 +231,8 @@ impl PreparatoryAnalyzer {
         if lowest_disqualification_limit <= cw_service_fee_balance_minor {
             Ok(())
         } else {
-            let analyzed_accounts_count = prepared_accounts.len();
-            let required_service_fee_total =
-                Self::compute_total_of_service_fee_required(prepared_accounts);
-            let err = service_fee_error_factory.make(
-                analyzed_accounts_count,
-                required_service_fee_total,
-                cw_service_fee_balance_minor,
-            );
+            let err =
+                service_fee_error_factory.make(prepared_accounts, cw_service_fee_balance_minor);
             Err(err)
         }
     }
@@ -260,11 +251,11 @@ impl PreparatoryAnalyzer {
             .collect()
     }
 
-    fn compute_total_of_service_fee_required<Account>(payables: &[Account]) -> u128
+    fn compute_total_service_fee_required<Account>(payables: &[Account]) -> u128
     where
         Account: BalanceProvidingAccount,
     {
-        sum_as(payables, |account| account.balance_minor())
+        sum_as(payables, |account| account.initial_balance_minor())
     }
 
     fn is_service_fee_adjustment_needed<Account>(
@@ -276,7 +267,7 @@ impl PreparatoryAnalyzer {
         Account: BalanceProvidingAccount,
     {
         let service_fee_totally_required_minor =
-            Self::compute_total_of_service_fee_required(qualified_payables);
+            Self::compute_total_service_fee_required(qualified_payables);
         (service_fee_totally_required_minor > cw_service_fee_balance_minor)
             .then(|| {
                 log_adjustment_by_service_fee_is_required(
@@ -292,36 +283,34 @@ impl PreparatoryAnalyzer {
     where
         Account: DisqualificationLimitProvidingAccount,
     {
-        find_smallest_u128(
-            &accounts
-                .iter()
-                .map(|account| account.disqualification_limit())
-                .collect::<Vec<u128>>(),
-        )
+        accounts
+            .iter()
+            .map(|account| account.disqualification_limit())
+            .min()
+            .expect("No account to consider")
     }
 }
 
-pub trait ServiceFeeSingleTXErrorFactory<E> {
-    fn make(
-        &self,
-        number_of_accounts: usize,
-        required_service_fee_total: u128,
-        cw_service_fee_balance_minor: u128,
-    ) -> E;
+pub trait ServiceFeeSingleTXErrorFactory<Error, AnalyzableAccount>
+where
+    AnalyzableAccount: BalanceProvidingAccount,
+{
+    fn make(&self, accounts: &[AnalyzableAccount], cw_service_fee_balance_minor: u128) -> Error;
 }
 
 #[derive(Default)]
 pub struct EarlyServiceFeeSingleTXErrorFactory {}
 
-impl ServiceFeeSingleTXErrorFactory<ServiceFeeImmoderateInsufficiency>
+impl ServiceFeeSingleTXErrorFactory<ServiceFeeImmoderateInsufficiency, AnalyzedPayableAccount>
     for EarlyServiceFeeSingleTXErrorFactory
 {
     fn make(
         &self,
-        _number_of_accounts: usize,
-        total_service_fee_required_minor: u128,
+        accounts: &[AnalyzedPayableAccount],
         cw_service_fee_balance_minor: u128,
     ) -> ServiceFeeImmoderateInsufficiency {
+        let total_service_fee_required_minor =
+            PreparatoryAnalyzer::compute_total_service_fee_required(accounts);
         ServiceFeeImmoderateInsufficiency {
             total_service_fee_required_minor,
             cw_service_fee_balance_minor,
@@ -332,33 +321,36 @@ impl ServiceFeeSingleTXErrorFactory<ServiceFeeImmoderateInsufficiency>
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LateServiceFeeSingleTxErrorFactory {
     original_number_of_accounts: usize,
-    original_service_fee_required_total_minor: u128,
+    original_total_service_fee_required_minor: u128,
 }
 
 impl LateServiceFeeSingleTxErrorFactory {
-    pub fn new(unadjusted_accounts: &[WeightedPayable]) -> Self {
+    pub fn new(unadjusted_accounts: &[WeighedPayable]) -> Self {
         let original_number_of_accounts = unadjusted_accounts.len();
-        let original_service_fee_required_total_minor =
-            sum_as(unadjusted_accounts, |account| account.balance_minor());
+        let original_total_service_fee_required_minor = sum_as(unadjusted_accounts, |account| {
+            account.initial_balance_minor()
+        });
         Self {
             original_number_of_accounts,
-            original_service_fee_required_total_minor,
+            original_total_service_fee_required_minor,
         }
     }
 }
 
-impl ServiceFeeSingleTXErrorFactory<PaymentAdjusterError> for LateServiceFeeSingleTxErrorFactory {
+impl ServiceFeeSingleTXErrorFactory<PaymentAdjusterError, WeighedPayable>
+    for LateServiceFeeSingleTxErrorFactory
+{
     fn make(
         &self,
-        number_of_accounts: usize,
-        _required_service_fee_total: u128,
+        current_set_of_accounts: &[WeighedPayable],
         cw_service_fee_balance_minor: u128,
     ) -> PaymentAdjusterError {
-        PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+        let number_of_accounts = current_set_of_accounts.len();
+        PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
             original_number_of_accounts: self.original_number_of_accounts,
             number_of_accounts,
-            original_service_fee_required_total_minor: self
-                .original_service_fee_required_total_minor,
+            original_total_service_fee_required_minor: self
+                .original_total_service_fee_required_minor,
             cw_service_fee_balance_minor,
         }
     }
@@ -369,23 +361,27 @@ mod tests {
     use crate::accountant::payment_adjuster::disqualification_arbiter::{
         DisqualificationArbiter, DisqualificationGauge,
     };
+    use crate::accountant::payment_adjuster::miscellaneous::data_structures::WeighedPayable;
     use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
+    use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::{
+        BalanceProvidingAccount, DisqualificationLimitProvidingAccount,
+    };
     use crate::accountant::payment_adjuster::preparatory_analyser::{
         EarlyServiceFeeSingleTXErrorFactory, LateServiceFeeSingleTxErrorFactory,
         PreparatoryAnalyzer, ServiceFeeSingleTXErrorFactory,
     };
-    use crate::accountant::payment_adjuster::test_utils::{
-        make_weighed_account, multiple_by_billion, DisqualificationGaugeMock,
+    use crate::accountant::payment_adjuster::test_utils::local_utils::{
+        make_meaningless_weighed_account, multiply_by_billion, multiply_by_billion_concise,
+        DisqualificationGaugeMock,
     };
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysis, PaymentAdjusterError, ServiceFeeImmoderateInsufficiency,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        ServiceFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::test_utils::{
-        make_analyzed_account, make_non_guaranteed_qualified_payable,
-    };
+    use crate::accountant::test_utils::make_meaningless_qualified_payable;
     use crate::accountant::QualifiedPayableAccount;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
     use itertools::Either;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -398,23 +394,20 @@ mod tests {
         test_name: &str,
         disqualification_gauge: DisqualificationGaugeMock,
         original_accounts: [QualifiedPayableAccount; 2],
-        cw_service_fee_balance: u128,
+        cw_service_fee_balance_minor: u128,
     ) {
         init_test_logging();
         let determine_limit_params_arc = Arc::new(Mutex::new(vec![]));
-        let disqualification_gauge = double_mock_results_queue(disqualification_gauge)
-            .determine_limit_params(&determine_limit_params_arc);
+        let disqualification_gauge =
+            make_mock_with_two_results_doubled_into_four(disqualification_gauge)
+                .determine_limit_params(&determine_limit_params_arc);
         let total_amount_required: u128 = sum_as(original_accounts.as_slice(), |account| {
             account.bare_account.balance_wei
         });
         let disqualification_arbiter =
             DisqualificationArbiter::new(Box::new(disqualification_gauge));
         let subject = PreparatoryAnalyzer {};
-        let blockchain_agent = BlockchainAgentMock::default()
-            .agreed_transaction_fee_margin_result(*TRANSACTION_FEE_MARGIN)
-            .transaction_fee_balance_minor_result(U256::MAX)
-            .estimated_transaction_fee_per_transaction_minor_result(123456)
-            .service_fee_balance_minor_result(cw_service_fee_balance);
+        let blockchain_agent = make_populated_blockchain_agent(cw_service_fee_balance_minor);
 
         let result = subject.analyze_accounts(
             &blockchain_agent,
@@ -423,13 +416,12 @@ mod tests {
             &Logger::new(test_name),
         );
 
-        let expected_adjustment_analysis = {
-            let analyzed_accounts = PreparatoryAnalyzer::pre_process_accounts_for_adjustments(
-                original_accounts.to_vec(),
-                &disqualification_arbiter,
-            );
-            AdjustmentAnalysis::new(Adjustment::ByServiceFee, analyzed_accounts)
-        };
+        let analyzed_accounts = PreparatoryAnalyzer::pre_process_accounts_for_adjustments(
+            original_accounts.to_vec(),
+            &disqualification_arbiter,
+        );
+        let expected_adjustment_analysis =
+            AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts);
         assert_eq!(result, Ok(Either::Right(expected_adjustment_analysis)));
         let determine_limit_params = determine_limit_params_arc.lock().unwrap();
         let account_1 = &original_accounts[0];
@@ -448,23 +440,31 @@ mod tests {
         ];
         assert_eq!(&determine_limit_params[0..2], expected_params);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet \
-            held only {} wei of MASQ token. Adjustment of their count or balances is required.",
+            "WARN: {test_name}: Mature payables amount to {} MASQ wei while the consuming wallet \
+            holds only {} wei. Adjustment in their count or balances is necessary.",
             total_amount_required.separate_with_commas(),
-            cw_service_fee_balance.separate_with_commas()
+            cw_service_fee_balance_minor.separate_with_commas()
         ));
+    }
+
+    fn make_populated_blockchain_agent(cw_service_fee_balance_minor: u128) -> BlockchainAgentMock {
+        BlockchainAgentMock::default()
+            .gas_price_margin_result(*TX_FEE_MARGIN_IN_PERCENT)
+            .transaction_fee_balance_minor_result(U256::MAX)
+            .estimated_transaction_fee_per_transaction_minor_result(123456)
+            .service_fee_balance_minor_result(cw_service_fee_balance_minor)
     }
 
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_slightly_bigger() {
-        let mut account_1 = make_non_guaranteed_qualified_payable(111);
-        account_1.bare_account.balance_wei = 1_000_000_000;
-        let mut account_2 = make_non_guaranteed_qualified_payable(333);
-        account_2.bare_account.balance_wei = 2_000_000_000;
-        let cw_service_fee_balance = 750_000_001;
+        let mut account_1 = make_meaningless_qualified_payable(111);
+        account_1.bare_account.balance_wei = multiply_by_billion_concise(1.0);
+        let mut account_2 = make_meaningless_qualified_payable(333);
+        account_2.bare_account.balance_wei = multiply_by_billion_concise(2.0);
+        let cw_service_fee_balance = multiply_by_billion_concise(0.75) + 1;
         let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(750_000_000)
-            .determine_limit_result(1_500_000_000);
+            .determine_limit_result(multiply_by_billion_concise(0.75))
+            .determine_limit_result(multiply_by_billion_concise(1.5));
         let original_accounts = [account_1, account_2];
 
         test_adjustment_possibility_nearly_rejected(
@@ -477,14 +477,14 @@ mod tests {
 
     #[test]
     fn adjustment_possibility_nearly_rejected_when_cw_balance_equal() {
-        let mut account_1 = make_non_guaranteed_qualified_payable(111);
-        account_1.bare_account.balance_wei = 2_000_000_000;
-        let mut account_2 = make_non_guaranteed_qualified_payable(333);
-        account_2.bare_account.balance_wei = 1_000_000_000;
-        let cw_service_fee_balance = 750_000_000;
+        let mut account_1 = make_meaningless_qualified_payable(111);
+        account_1.bare_account.balance_wei = multiply_by_billion_concise(2.0);
+        let mut account_2 = make_meaningless_qualified_payable(333);
+        account_2.bare_account.balance_wei = multiply_by_billion_concise(1.0);
+        let cw_service_fee_balance = multiply_by_billion_concise(0.75);
         let disqualification_gauge = DisqualificationGaugeMock::default()
-            .determine_limit_result(1_500_000_000)
-            .determine_limit_result(750_000_000);
+            .determine_limit_result(multiply_by_billion_concise(1.5))
+            .determine_limit_result(multiply_by_billion_concise(0.75));
         let original_accounts = [account_1, account_2];
 
         test_adjustment_possibility_nearly_rejected(
@@ -495,47 +495,76 @@ mod tests {
         )
     }
 
-    fn test_not_enough_for_even_the_least_demanding_account_causes_error<F, ErrorFactory, Error>(
+    fn test_not_enough_even_for_the_smallest_account_error<
+        ErrorFactory,
+        Error,
+        EnsureAccountsRightType,
+        PrepareExpectedError,
+        AnalyzableAccount,
+    >(
         error_factory: ErrorFactory,
-        expected_error_preparer: F,
+        ensure_account_right_type: EnsureAccountsRightType,
+        prepare_expected_error: PrepareExpectedError,
     ) where
-        F: FnOnce(usize, u128, u128) -> Error,
-        ErrorFactory: ServiceFeeSingleTXErrorFactory<Error>,
+        EnsureAccountsRightType: FnOnce(Vec<WeighedPayable>) -> Vec<AnalyzableAccount>,
+        PrepareExpectedError: FnOnce(usize, u128, u128) -> Error,
+        ErrorFactory: ServiceFeeSingleTXErrorFactory<Error, AnalyzableAccount>,
         Error: Debug + PartialEq,
+        AnalyzableAccount: DisqualificationLimitProvidingAccount + BalanceProvidingAccount,
     {
-        let mut account_1 = make_analyzed_account(111);
-        account_1.qualified_as.bare_account.balance_wei = 2_000_000_000;
-        account_1.disqualification_limit_minor = 1_500_000_000;
-        let mut account_2 = make_analyzed_account(222);
-        account_2.qualified_as.bare_account.balance_wei = 1_000_050_000;
-        account_2.disqualification_limit_minor = 1_000_000_101;
-        let mut account_3 = make_analyzed_account(333);
-        account_3.qualified_as.bare_account.balance_wei = 1_000_111_111;
-        account_3.disqualification_limit_minor = 1_000_000_222;
-        let cw_service_fee_balance = 1_000_000_100;
+        let mut account_1 = make_meaningless_weighed_account(111);
+        account_1
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .balance_wei = 2_000_000_000;
+        account_1.analyzed_account.disqualification_limit_minor = 1_500_000_000;
+        let mut account_2 = make_meaningless_weighed_account(222);
+        account_2
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .balance_wei = 1_000_050_000;
+        account_2.analyzed_account.disqualification_limit_minor = 1_000_000_101;
+        let mut account_3 = make_meaningless_weighed_account(333);
+        account_3
+            .analyzed_account
+            .qualified_as
+            .bare_account
+            .balance_wei = 1_000_111_111;
+        account_3.analyzed_account.disqualification_limit_minor = 1_000_000_222;
+        let cw_service_fee_balance_minor = 1_000_000_100;
+        let service_fee_total_of_the_known_set = account_1.initial_balance_minor()
+            + account_2.initial_balance_minor()
+            + account_3.initial_balance_minor();
         let supplied_accounts = vec![account_1, account_2, account_3];
         let supplied_accounts_count = supplied_accounts.len();
-        let service_fee_total_of_the_known_set = 2_000_000_000 + 1_000_050_000 + 1_000_111_111;
+        let rightly_typed_accounts = ensure_account_right_type(supplied_accounts);
 
         let result = PreparatoryAnalyzer::check_adjustment_possibility(
-            &supplied_accounts,
-            cw_service_fee_balance,
+            &rightly_typed_accounts,
+            cw_service_fee_balance_minor,
             error_factory,
         );
 
-        let expected_error = expected_error_preparer(
+        let expected_error = prepare_expected_error(
             supplied_accounts_count,
             service_fee_total_of_the_known_set,
-            cw_service_fee_balance,
+            cw_service_fee_balance_minor,
         );
         assert_eq!(result, Err(expected_error))
     }
 
     #[test]
-    fn not_enough_for_even_the_least_demanding_account_error_right_after_positive_tx_fee_check() {
+    fn not_enough_for_even_the_smallest_account_error_right_after_alarmed_tx_fee_check() {
         let error_factory = EarlyServiceFeeSingleTXErrorFactory::default();
-
-        let expected_error_preparer =
+        let ensure_accounts_right_type = |weighed_payables: Vec<WeighedPayable>| {
+            weighed_payables
+                .into_iter()
+                .map(|weighed_account| weighed_account.analyzed_account)
+                .collect()
+        };
+        let prepare_expected_error =
             |_, total_amount_demanded_in_accounts_in_place, cw_service_fee_balance_minor| {
                 ServiceFeeImmoderateInsufficiency {
                     total_service_fee_required_minor: total_amount_demanded_in_accounts_in_place,
@@ -543,67 +572,75 @@ mod tests {
                 }
             };
 
-        test_not_enough_for_even_the_least_demanding_account_causes_error(
+        test_not_enough_even_for_the_smallest_account_error(
             error_factory,
-            expected_error_preparer,
+            ensure_accounts_right_type,
+            prepare_expected_error,
         )
     }
 
     #[test]
-    fn not_enough_for_even_the_least_demanding_account_error_right_after_tx_fee_accounts_dump() {
+    fn not_enough_for_even_the_smallest_account_error_right_after_accounts_dumped_for_tx_fee() {
         let original_accounts = vec![
-            make_weighed_account(123),
-            make_weighed_account(456),
-            make_weighed_account(789),
-            make_weighed_account(1011),
+            make_meaningless_weighed_account(123),
+            make_meaningless_weighed_account(456),
+            make_meaningless_weighed_account(789),
+            make_meaningless_weighed_account(1011),
         ];
         let original_number_of_accounts = original_accounts.len();
-        let initial_sum = sum_as(&original_accounts, |account| account.balance_minor());
+        let initial_sum = sum_as(&original_accounts, |account| {
+            account.initial_balance_minor()
+        });
         let error_factory = LateServiceFeeSingleTxErrorFactory::new(&original_accounts);
-        let expected_error_preparer = |number_of_accounts, _, cw_service_fee_balance_minor| {
-            PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+        let ensure_accounts_right_type = |accounts| accounts;
+        let prepare_expected_error = |number_of_accounts, _, cw_service_fee_balance_minor| {
+            PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
                 original_number_of_accounts,
                 number_of_accounts,
-                original_service_fee_required_total_minor: initial_sum,
+                original_total_service_fee_required_minor: initial_sum,
                 cw_service_fee_balance_minor,
             }
         };
 
-        test_not_enough_for_even_the_least_demanding_account_causes_error(
+        test_not_enough_even_for_the_smallest_account_error(
             error_factory,
-            expected_error_preparer,
+            ensure_accounts_right_type,
+            prepare_expected_error,
         )
     }
 
     #[test]
-    fn accounts_analyzing_works_even_for_weighted_payable() {
+    fn recheck_if_service_fee_adjustment_is_needed_works_nicely_for_weighted_payables() {
         init_test_logging();
-        let test_name = "accounts_analyzing_works_even_for_weighted_payable";
-        let balance_1 = multiple_by_billion(2_000_000);
-        let mut weighted_account_1 = make_weighed_account(123);
-        weighted_account_1
+        let test_name =
+            "recheck_if_service_fee_adjustment_is_needed_works_nicely_for_weighted_payables";
+        let balance_1 = multiply_by_billion(2_000_000);
+        let mut weighed_account_1 = make_meaningless_weighed_account(123);
+        weighed_account_1
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_1;
-        let balance_2 = multiple_by_billion(3_456_000);
-        let mut weighted_account_2 = make_weighed_account(456);
-        weighted_account_2
+        let balance_2 = multiply_by_billion(3_456_000);
+        let mut weighed_account_2 = make_meaningless_weighed_account(456);
+        weighed_account_2
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_2;
-        let accounts = vec![weighted_account_1, weighted_account_2];
+        let accounts = vec![weighed_account_1, weighed_account_2];
         let service_fee_totally_required_minor = balance_1 + balance_2;
+        // We start at a value being one bigger than required, and in the act, we subtract from it
+        // so that we also get the exact edge and finally also not enough by one.
         let cw_service_fee_balance_minor = service_fee_totally_required_minor + 1;
         let error_factory = LateServiceFeeSingleTxErrorFactory::new(&accounts);
         let logger = Logger::new(test_name);
         let subject = PreparatoryAnalyzer::new();
 
         [(0, false), (1, false), (2, true)].iter().for_each(
-            |(subtrahend_from_cw_balance, expected_result)| {
+            |(subtrahend_from_cw_balance, adjustment_is_needed_expected)| {
                 let service_fee_balance = cw_service_fee_balance_minor - subtrahend_from_cw_balance;
-                let result = subject
+                let adjustment_is_needed_actual = subject
                     .recheck_if_service_fee_adjustment_is_needed(
                         &accounts,
                         service_fee_balance,
@@ -611,12 +648,14 @@ mod tests {
                         &logger,
                     )
                     .unwrap();
-                assert_eq!(result, *expected_result);
+                assert_eq!(adjustment_is_needed_actual, *adjustment_is_needed_expected);
             },
         );
+
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Total of {} wei in MASQ was ordered while the consuming wallet held \
-            only {}", service_fee_totally_required_minor.separate_with_commas(),
+            "WARN: {test_name}: Mature payables amount to {} MASQ wei while the consuming wallet \
+            holds only {}",
+            service_fee_totally_required_minor.separate_with_commas(),
             (cw_service_fee_balance_minor - 2).separate_with_commas()
         ));
     }
@@ -624,42 +663,44 @@ mod tests {
     #[test]
     fn construction_of_error_context_with_accounts_dumped_works() {
         let balance_1 = 1234567;
-        let mut account_1 = make_weighed_account(123);
+        let mut account_1 = make_meaningless_weighed_account(123);
         account_1
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_1;
         let balance_2 = 999888777;
-        let mut account_2 = make_weighed_account(345);
+        let mut account_2 = make_meaningless_weighed_account(345);
         account_2
             .analyzed_account
             .qualified_as
             .bare_account
             .balance_wei = balance_2;
-        let weighted_accounts = vec![account_1, account_2];
+        let weighed_accounts = vec![account_1, account_2];
 
-        let result = LateServiceFeeSingleTxErrorFactory::new(&weighted_accounts);
+        let result = LateServiceFeeSingleTxErrorFactory::new(&weighed_accounts);
 
         assert_eq!(
             result,
             LateServiceFeeSingleTxErrorFactory {
                 original_number_of_accounts: 2,
-                original_service_fee_required_total_minor: balance_1 + balance_2
+                original_total_service_fee_required_minor: balance_1 + balance_2
             }
         )
     }
 
-    fn double_mock_results_queue(mock: DisqualificationGaugeMock) -> DisqualificationGaugeMock {
-        let originally_prepared_results = (0..2)
+    fn make_mock_with_two_results_doubled_into_four(
+        mock: DisqualificationGaugeMock,
+    ) -> DisqualificationGaugeMock {
+        let popped_results = (0..2)
             .map(|_| mock.determine_limit(0, 0, 0))
             .collect::<Vec<_>>();
-        originally_prepared_results
+        popped_results
             .into_iter()
             .cycle()
             .take(4)
-            .fold(mock, |mock, result_to_be_added| {
-                mock.determine_limit_result(result_to_be_added)
+            .fold(mock, |mock, single_result| {
+                mock.determine_limit_result(single_result)
             })
     }
 }

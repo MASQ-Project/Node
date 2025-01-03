@@ -1,1 +1,6 @@
 generated/
+
+## File-based project format:
+*.iws
+*.iml
+*.ipr

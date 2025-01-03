@@ -139,12 +139,12 @@ pub struct QualifiedPayableAccount {
 
 impl QualifiedPayableAccount {
     pub fn new(
-        qualified_as: PayableAccount,
+        bare_account: PayableAccount,
         payment_threshold_intercept_minor: u128,
         creditor_thresholds: CreditorThresholds,
     ) -> QualifiedPayableAccount {
         Self {
-            bare_account: qualified_as,
+            bare_account,
             payment_threshold_intercept_minor,
             creditor_thresholds,
         }
@@ -172,9 +172,9 @@ pub struct CreditorThresholds {
 }
 
 impl CreditorThresholds {
-    pub fn new(permanent_debt_allowed_wei: u128) -> Self {
+    pub fn new(permanent_debt_allowed_minor: u128) -> Self {
         Self {
-            permanent_debt_allowed_minor: permanent_debt_allowed_wei,
+            permanent_debt_allowed_minor,
         }
     }
 }
@@ -265,7 +265,7 @@ impl Handler<BlockchainAgentWithContextMessage> for Accountant {
         msg: BlockchainAgentWithContextMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_payable_payment_setup(msg)
+        self.send_outbound_payments_instructions(msg)
     }
 }
 
@@ -703,48 +703,59 @@ impl Accountant {
         })
     }
 
-    fn handle_payable_payment_setup(&mut self, msg: BlockchainAgentWithContextMessage) {
+    fn send_outbound_payments_instructions(&mut self, msg: BlockchainAgentWithContextMessage) {
         let response_skeleton_opt = msg.response_skeleton_opt;
-        let blockchain_bridge_instructions_opt = match self
+        if let Some(blockchain_bridge_instructions) = self.try_composing_instructions(msg) {
+            self.outbound_payments_instructions_sub_opt
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(blockchain_bridge_instructions)
+                .expect("BlockchainBridge is dead")
+        } else {
+            self.handle_obstruction(response_skeleton_opt)
+        }
+    }
+
+    fn try_composing_instructions(
+        &mut self,
+        msg: BlockchainAgentWithContextMessage,
+    ) -> Option<OutboundPaymentsInstructions> {
+        let successfully_processed = match self
             .scanners
             .payable
             .try_skipping_payment_adjustment(msg, &self.logger)
         {
-            Some(Either::Left(complete_msg)) => Some(complete_msg),
-            Some(Either::Right(unaccepted_msg)) => {
-                //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
-                self.scanners
-                    .payable
-                    .perform_payment_adjustment(unaccepted_msg, &self.logger)
-            }
-            None => None,
+            Some(analysed) => analysed,
+            None => return None,
         };
 
-        match blockchain_bridge_instructions_opt {
-            Some(blockchain_bridge_instructions) => self
-                .outbound_payments_instructions_sub_opt
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .try_send(blockchain_bridge_instructions)
-                .expect("BlockchainBridge is dead"),
-            None => {
-                error!(
-                    self.logger,
-                    "Payable scanner could not finish. If matured payables stay untreated long, your \
-                    creditors may impose a ban on you"
-                );
-                self.scanners.payable.mark_as_ended(&self.logger);
-                if let Some(response_skeleton) = response_skeleton_opt {
-                    self.ui_message_sub_opt
-                        .as_ref()
-                        .expect("UI gateway unbound")
-                        .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(response_skeleton.client_id),
-                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                        })
-                        .expect("UI gateway is dead")
-                }
+        match successfully_processed {
+            Either::Left(prepared_msg_with_unadjusted_payables) => {
+                Some(prepared_msg_with_unadjusted_payables)
             }
+            Either::Right(adjustment_order) => {
+                //TODO we will eventually query info from Neighborhood before the adjustment,
+                // according to GH-699, but probably with asynchronous messages that will be
+                // more in favour after GH-676
+                self.scanners
+                    .payable
+                    .perform_payment_adjustment(adjustment_order, &self.logger)
+            }
+        }
+    }
+
+    fn handle_obstruction(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
+        self.scanners.payable.cancel_scan(&self.logger);
+
+        if let Some(response_skeleton) = response_skeleton_opt {
+            self.ui_message_sub_opt
+                .as_ref()
+                .expect("UI gateway unbound")
+                .try_send(NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                })
+                .expect("UI gateway is dead")
         }
     }
 
@@ -1067,19 +1078,24 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
     use crate::accountant::payment_adjuster::{
-        Adjustment, AdjustmentAnalysis, PaymentAdjusterError, TransactionFeeImmoderateInsufficiency,
+        Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
+        TransactionFeeImmoderateInsufficiency,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
+        PayableInspector, PayableThresholdsGaugeReal,
+    };
     use crate::accountant::scanners::test_utils::protect_qualified_payables_in_test;
     use crate::accountant::scanners::BeginScanError;
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_analyzed_account,
-        make_guaranteed_qualified_payables, make_non_guaranteed_qualified_payable,
-        make_payable_account, make_unqualified_and_qualified_payables, BannedDaoFactoryMock,
+        bc_from_earning_wallet, bc_from_wallets, make_meaningless_analyzed_account,
+        make_meaningless_qualified_payable, make_payable_account,
+        make_qualified_and_unqualified_payables, make_qualified_payables, BannedDaoFactoryMock,
         ConfigDaoFactoryMock, MessageIdGeneratorMock, NullScanner, PayableDaoFactoryMock,
         PayableDaoMock, PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
         PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, ScannerMock,
@@ -1131,7 +1147,6 @@ mod tests {
     use masq_lib::ui_gateway::{
         MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
     };
-    use masq_lib::utils::convert_collection;
     use std::any::TypeId;
     use std::ops::{Add, Sub};
     use std::sync::Arc;
@@ -1166,23 +1181,23 @@ mod tests {
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_factory = PayableDaoFactoryMock::new()
+        let payable_dao_factory = PayableDaoFactoryMock::default()
             .make_params(&payable_dao_factory_params_arc)
             .make_result(PayableDaoMock::new()) // For Accountant
             .make_result(PayableDaoMock::new()) // For Payable Scanner
             .make_result(PayableDaoMock::new()); // For PendingPayable Scanner
-        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::default()
             .make_params(&pending_payable_dao_factory_params_arc)
             .make_result(PendingPayableDaoMock::new()) // For Accountant
             .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
             .make_result(PendingPayableDaoMock::new()); // For PendingPayable Scanner
-        let receivable_dao_factory = ReceivableDaoFactoryMock::new()
+        let receivable_dao_factory = ReceivableDaoFactoryMock::default()
             .make_params(&receivable_dao_factory_params_arc)
             .make_result(ReceivableDaoMock::new()) // For Accountant
             .make_result(ReceivableDaoMock::new()); // For Receivable Scanner
         let banned_dao_factory = BannedDaoFactoryMock::new()
             .make_params(&banned_dao_factory_params_arc)
-            .make_result(BannedDaoMock::new()); // For Receivable Scanner
+            .make_result(BannedDaoMock::default()); // For Receivable Scanner
         let config_dao_factory = ConfigDaoFactoryMock::new()
             .make_params(&config_dao_factory_params_arc)
             .make_result(ConfigDaoMock::new()); // For receivable scanner
@@ -1415,7 +1430,7 @@ mod tests {
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let expected_qualified_payables =
-            make_guaranteed_qualified_payables(vec![payable], &DEFAULT_PAYMENT_THRESHOLDS, now);
+            make_qualified_payables(vec![payable], &DEFAULT_PAYMENT_THRESHOLDS, now);
         assert_eq!(
             blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(0),
             &QualifiedPayablesMessage {
@@ -1477,12 +1492,9 @@ mod tests {
     #[test]
     fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not match either the condition for
-        // the payment adjustment or the actual values that come from the payable size reducing
-        // algorithm: all that is mocked in this test
         init_test_logging();
         let test_name = "received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge";
-        let search_for_indispensable_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
+        let consider_adjustment_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let instructions_recipient = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(OutboundPaymentsInstructions))
@@ -1492,16 +1504,20 @@ mod tests {
         let account_1 = make_payable_account(44_444);
         let account_2 = make_payable_account(333_333);
         let qualified_payables = vec![
-            QualifiedPayableAccount::new(account_1.clone(), 2345, CreditorThresholds::new(1111)),
-            QualifiedPayableAccount::new(account_2.clone(), 6789, CreditorThresholds::new(2222)),
+            {
+                let mut qp = make_meaningless_qualified_payable(1234);
+                qp.bare_account = account_1.clone();
+                qp
+            },
+            {
+                let mut qp = make_meaningless_qualified_payable(6789);
+                qp.bare_account = account_2.clone();
+                qp
+            },
         ];
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_params(
-                &search_for_indispensable_adjustment_params_arc,
-            )
-            .search_for_indispensable_adjustment_result(Ok(Either::Left(
-                qualified_payables.clone(),
-            )));
+            .consider_adjustment_params(&consider_adjustment_params_arc)
+            .consider_adjustment_result(Ok(Either::Left(qualified_payables.clone())));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
@@ -1512,11 +1528,10 @@ mod tests {
         let system = System::new("test");
         let expected_agent_id_stamp = ArbitraryIdStamp::new();
         let agent = BlockchainAgentMock::default().set_arbitrary_id_stamp(expected_agent_id_stamp);
-
+        let protected_qualified_payables =
+            protect_qualified_payables_in_test(qualified_payables.clone());
         let msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_qualified_payables_in_test(
-                qualified_payables.clone(),
-            ),
+            protected_qualified_payables,
             agent: Box::new(agent),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1527,15 +1542,12 @@ mod tests {
         subject_addr.try_send(msg).unwrap();
 
         system.run();
-        let mut search_for_indispensable_adjustment_params =
-            search_for_indispensable_adjustment_params_arc
-                .lock()
-                .unwrap();
+        let mut consider_adjustment_params = consider_adjustment_params_arc.lock().unwrap();
         let (actual_qualified_payables, actual_agent_id_stamp) =
-            search_for_indispensable_adjustment_params.remove(0);
+            consider_adjustment_params.remove(0);
         assert_eq!(actual_qualified_payables, qualified_payables);
         assert_eq!(actual_agent_id_stamp, expected_agent_id_stamp);
-        assert!(search_for_indispensable_adjustment_params.is_empty());
+        assert!(consider_adjustment_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         let payments_instructions =
             blockchain_bridge_recording.get_record::<OutboundPaymentsInstructions>(0);
@@ -1560,9 +1572,7 @@ mod tests {
     #[test]
     fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
     ) {
-        // the numbers for balances don't do real math, they need not match either the condition for
-        // the payment adjustment or the actual values that come from the payable size reducing algorithm;
-        // all that is mocked in this test
+        // The numbers in balances, etc. don't do real math, the payment adjuster is mocked
         init_test_logging();
         let test_name = "received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge";
         let adjust_payments_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1572,24 +1582,18 @@ mod tests {
             .start()
             .recipient();
         let mut subject = AccountantBuilder::default().build();
-        let unadjusted_account_1 = QualifiedPayableAccount::new(
-            make_payable_account(111_111),
-            1234567,
-            CreditorThresholds::new(1111111),
-        );
-        let unadjusted_account_2 = QualifiedPayableAccount::new(
-            make_payable_account(999_999),
-            444555666,
-            CreditorThresholds::new(111111111),
-        );
-        let adjusted_account_1 = PayableAccount {
-            balance_wei: gwei_to_wei(55_550_u64),
-            ..unadjusted_account_1.bare_account.clone()
+        let prepare_unadjusted_and_adjusted_payable = |n: u64| {
+            let unadjusted_account = make_meaningless_qualified_payable(n);
+            let adjusted_account = PayableAccount {
+                balance_wei: gwei_to_wei(n / 3),
+                ..unadjusted_account.bare_account.clone()
+            };
+            (unadjusted_account, adjusted_account)
         };
-        let adjusted_account_2 = PayableAccount {
-            balance_wei: gwei_to_wei(100_000_u64),
-            ..unadjusted_account_2.bare_account.clone()
-        };
+        let (unadjusted_account_1, adjusted_account_1) =
+            prepare_unadjusted_and_adjusted_payable(12345678);
+        let (unadjusted_account_2, adjusted_account_2) =
+            prepare_unadjusted_and_adjusted_payable(33445566);
         let response_skeleton = ResponseSkeleton {
             client_id: 12,
             context_id: 55,
@@ -1616,11 +1620,12 @@ mod tests {
             agent: Box::new(agent),
             response_skeleton_opt: Some(response_skeleton),
         };
-        let analyzed_accounts = convert_collection(unadjusted_qualified_accounts.clone());
+        let analyzed_accounts =
+            convert_qualified_into_analyzed_payables_in_test(unadjusted_qualified_accounts.clone());
         let adjustment_analysis =
-            AdjustmentAnalysis::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
+            AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Either::Right(adjustment_analysis)))
+            .consider_adjustment_result(Ok(Either::Right(adjustment_analysis)))
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(Ok(payments_instructions));
         let payable_scanner = PayableScannerBuilder::new()
@@ -1634,11 +1639,9 @@ mod tests {
 
         subject_addr.try_send(payable_payments_setup_msg).unwrap();
 
-        let before = SystemTime::now();
         assert_eq!(system.run(), 0);
-        let after = SystemTime::now();
         let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
-        let (actual_prepared_adjustment, captured_now) = adjust_payments_params.remove(0);
+        let actual_prepared_adjustment = adjust_payments_params.remove(0);
         assert_eq!(
             actual_prepared_adjustment.adjustment_analysis.adjustment,
             Adjustment::ByServiceFee
@@ -1650,13 +1653,6 @@ mod tests {
         assert_eq!(
             actual_prepared_adjustment.agent.arbitrary_id_stamp(),
             agent_id_stamp_first_phase
-        );
-        assert!(
-            before <= captured_now && captured_now <= after,
-            "captured timestamp should have been between {:?} and {:?} but was {:?}",
-            before,
-            after,
-            captured_now
         );
         assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
@@ -1677,7 +1673,7 @@ mod tests {
         assert_eq!(blockchain_bridge_recording.len(), 1);
     }
 
-    fn test_handling_payment_adjuster_error(
+    fn test_payment_adjuster_error_during_different_stages(
         test_name: &str,
         payment_adjuster: PaymentAdjusterMock,
     ) {
@@ -1700,8 +1696,7 @@ mod tests {
         subject.ui_message_sub_opt = Some(ui_gateway_recipient);
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
-        let scan_started_at = SystemTime::now();
-        subject.scanners.payable.mark_as_started(scan_started_at);
+        subject.scanners.payable.mark_as_started(SystemTime::now());
         let subject_addr = subject.start();
         let account = make_payable_account(111_111);
         let qualified_payable =
@@ -1739,68 +1734,66 @@ mod tests {
     }
 
     #[test]
-    fn payment_adjuster_throws_out_an_error_from_the_insolvency_check() {
+    fn payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check() {
         init_test_logging();
-        let test_name = "payment_adjuster_throws_out_an_error_from_the_insolvency_check";
-        let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts: 1,
-                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                        per_transaction_requirement_minor: 60 * 55_000,
-                        cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
-                    }),
-                    service_fee_opt: None,
-                },
-            ));
+        let test_name =
+            "payment_adjuster_throws_out_an_error_during_stage_one_the_insolvency_check";
+        let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
+            PaymentAdjusterError::AbsolutelyInsufficientBalance {
+                number_of_accounts: 1,
+                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                    per_transaction_requirement_minor: gwei_to_wei(60_u64 * 55_000),
+                    cw_transaction_fee_balance_minor: gwei_to_wei(123_u64),
+                }),
+                service_fee_opt: None,
+            },
+        ));
 
-        test_handling_payment_adjuster_error(test_name, payment_adjuster);
+        test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Insolvency detected led to an analysis of feasibility for making \
-            payments adjustment, however, giving no satisfactory solution. Please be advised that \
-            your balances can cover neither reasonable portion of any of those payables recently \
-            qualified for an imminent payment. You must add more funds into your consuming wallet \
-            in order to stay off delinquency bans that your creditors may apply against you \
-            otherwise. Details: Current transaction fee balance is not enough to pay a single \
-            payment. Number of canceled payments: 1. Transaction fee per payment: 3,300,000 wei, \
+            "WARN: {test_name}: Add more funds into your consuming wallet in order to become able \
+            to repay already expired liabilities as the creditors would respond by delinquency bans \
+            otherwise. Details: Current transaction fee balance is not enough to pay a single payment. \
+            Number of canceled payments: 1. Transaction fee per payment: 3,300,000,000,000,000 wei, \
             while the wallet contains: 123,000,000,000 wei."
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay \
-            untreated long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
+            The cause appears to be in competence of the user."
         ));
     }
 
     #[test]
-    fn payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong() {
+    fn payment_adjuster_throws_out_an_error_during_stage_two_adjustment_went_wrong() {
         init_test_logging();
         let test_name =
-            "payment_adjuster_throws_out_an_error_meaning_entry_check_passed_but_adjustment_went_wrong";
+            "payment_adjuster_throws_out_an_error_during_stage_two_adjustment_went_wrong";
         let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Ok(Either::Right(AdjustmentAnalysis::new(
+            .consider_adjustment_result(Ok(Either::Right(AdjustmentAnalysisReport::new(
                 Adjustment::ByServiceFee,
-                vec![make_analyzed_account(123)],
+                vec![make_meaningless_analyzed_account(123)],
             ))))
-            .adjust_payments_result(Err(PaymentAdjusterError::AllAccountsEliminated));
+            .adjust_payments_result(Err(PaymentAdjusterError::RecursionDrainedAllAccounts));
 
-        test_handling_payment_adjuster_error(test_name, payment_adjuster);
+        test_payment_adjuster_error_during_different_stages(test_name, payment_adjuster);
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Please \
-        add funds into your consuming wallet in order to avoid bans from your creditors. Details: \
-        The adjustment algorithm had to eliminate each payable from the recently urged payment due \
-        to lack of resources"
+            "WARN: {test_name}: Payment adjustment has not produced any executable payments. Add \
+            more funds into your consuming wallet in order to become able to repay already expired \
+            liabilities as the creditors would respond by delinquency bans otherwise. Details: The \
+            payments adjusting process failed to find any combination of payables that can be paid \
+            immediately with the finances provided"
         ));
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated \
-            long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for \
+            payments. The cause appears to be in competence of the user"
         ));
     }
 
@@ -1810,23 +1803,22 @@ mod tests {
         let test_name =
             "payment_adjuster_error_is_not_reported_to_ui_if_scan_not_manually_requested";
         let mut subject = AccountantBuilder::default().build();
-        let payment_adjuster = PaymentAdjusterMock::default()
-            .search_for_indispensable_adjustment_result(Err(
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
-                    number_of_accounts: 20,
-                    transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
-                        per_transaction_requirement_minor: 40_000_000_000,
-                        cw_transaction_fee_balance_minor: U256::from(123),
-                    }),
-                    service_fee_opt: None,
-                },
-            ));
+        let payment_adjuster = PaymentAdjusterMock::default().consider_adjustment_result(Err(
+            PaymentAdjusterError::AbsolutelyInsufficientBalance {
+                number_of_accounts: 20,
+                transaction_fee_opt: Some(TransactionFeeImmoderateInsufficiency {
+                    per_transaction_requirement_minor: 40_000_000_000,
+                    cw_transaction_fee_balance_minor: U256::from(123),
+                }),
+                service_fee_opt: None,
+            },
+        ));
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
         subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
-        let qualified_payable = make_non_guaranteed_qualified_payable(111_111);
+        let qualified_payable = make_meaningless_qualified_payable(111_111);
         let protected_payables = protect_qualified_payables_in_test(vec![qualified_payable]);
         let blockchain_agent = BlockchainAgentMock::default();
         let msg = BlockchainAgentWithContextMessage::new(
@@ -1835,13 +1827,13 @@ mod tests {
             None,
         );
 
-        subject.handle_payable_payment_setup(msg);
+        subject.send_outbound_payments_instructions(msg);
 
-        // Test didn't blow up while the subject was unbound to other actors
-        // therefore we didn't attempt to send the NodeUiMessage
+        // No NodeUiMessage was sent because there is no `response_skeleton`. It is evident by
+        // the fact that the test didn't blow up even though UIGateway is unbound
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner could not finish. If matured payables stay untreated \
-            long, your creditors may impose a ban on you"
+            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
+            The cause appears to be in competence of the user"
         ));
     }
 
@@ -2044,7 +2036,7 @@ mod tests {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let (qualified_payables, _, all_non_pending_payables) =
-            make_unqualified_and_qualified_payables(now, &payment_thresholds);
+            make_qualified_and_unqualified_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let system = System::new(
@@ -2409,7 +2401,7 @@ mod tests {
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
             .begin_scan_result(Ok(QualifiedPayablesMessage {
                 protected_qualified_payables: protect_qualified_payables_in_test(vec![
-                    make_non_guaranteed_qualified_payable(123),
+                    make_meaningless_qualified_payable(123),
                 ]),
                 response_skeleton_opt: None,
             }))
@@ -2618,7 +2610,7 @@ mod tests {
             },
         ];
         let qualified_payables =
-            make_guaranteed_qualified_payables(payables.clone(), &DEFAULT_PAYMENT_THRESHOLDS, now);
+            make_qualified_payables(payables.clone(), &DEFAULT_PAYMENT_THRESHOLDS, now);
         let payable_dao = PayableDaoMock::default().non_pending_payables_result(payables);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge = blockchain_bridge
@@ -3430,15 +3422,15 @@ mod tests {
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
+        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let build_blockchain_agent_params = Arc::new(Mutex::new(vec![]));
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
-        let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let return_all_errorless_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
-        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
+        let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let update_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
+        let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_arc_cloned =
             notify_later_scan_for_pending_payable_params_arc.clone(); // because it moves into a closure
@@ -3517,7 +3509,7 @@ mod tests {
             last_paid_timestamp: past_payable_timestamp_2,
             pending_payable_opt: None,
         };
-        let qualified_payables = make_guaranteed_qualified_payables(
+        let qualified_payables = make_qualified_payables(
             vec![account_1.clone(), account_2.clone()],
             &DEFAULT_PAYMENT_THRESHOLDS,
             now,
@@ -3630,12 +3622,13 @@ mod tests {
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
                 let payment_adjuster = PaymentAdjusterMock::default()
-                    .search_for_indispensable_adjustment_result(Ok(Either::Left(
-                        qualified_payables,
-                    )));
+                    .consider_adjustment_result(Ok(Either::Left(qualified_payables)));
                 let payable_scanner = PayableScannerBuilder::new()
                     .payable_dao(payable_dao_for_payable_scanner)
                     .pending_payable_dao(pending_payable_dao_for_payable_scanner)
+                    .payable_inspector(PayableInspector::new(Box::new(
+                        PayableThresholdsGaugeReal::default(),
+                    )))
                     .payment_adjuster(payment_adjuster)
                     .build();
                 subject.scanners.payable = Box::new(payable_scanner);

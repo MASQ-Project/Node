@@ -4,7 +4,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockch
 use crate::sub_lib::wallet::Wallet;
 use ethereum_types::U256;
 use masq_lib::logger::Logger;
-use masq_lib::percentage::Percentage;
+use masq_lib::percentage::PurePercentage;
 
 #[derive(Clone)]
 pub struct BlockchainAgentNull {
@@ -28,14 +28,14 @@ impl BlockchainAgent for BlockchainAgentNull {
         0
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
-        self.log_function_call("agreed_fee_per_computation_unit()");
+    fn gas_price(&self) -> u64 {
+        self.log_function_call("gas_price()");
         0
     }
 
-    fn agreed_transaction_fee_margin(&self) -> Percentage {
-        self.log_function_call("agreed_transaction_fee_margin()");
-        Percentage::new(0)
+    fn gas_price_margin(&self) -> PurePercentage {
+        self.log_function_call("gas_price_margin()");
+        PurePercentage::try_from(0).expect("0 should cause no issue")
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -85,7 +85,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
     use crate::sub_lib::wallet::Wallet;
     use masq_lib::logger::Logger;
-    use masq_lib::percentage::Percentage;
+    use masq_lib::percentage::PurePercentage;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use web3::types::U256;
 
@@ -163,29 +163,29 @@ mod tests {
     }
 
     #[test]
-    fn null_agent_agreed_fee_per_computation_unit() {
+    fn null_agent_gas_price() {
         init_test_logging();
-        let test_name = "null_agent_agreed_fee_per_computation_unit";
+        let test_name = "null_agent_gas_price";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.agreed_fee_per_computation_unit();
+        let result = subject.gas_price();
 
         assert_eq!(result, 0);
-        assert_error_log(test_name, "agreed_fee_per_computation_unit")
+        assert_error_log(test_name, "gas_price")
     }
 
     #[test]
-    fn null_agent_agreed_transaction_fee_margin() {
+    fn null_agent_gas_price_margin() {
         init_test_logging();
-        let test_name = "null_agent_agreed_transaction_fee_margin";
+        let test_name = "null_agent_gas_price_margin";
         let mut subject = BlockchainAgentNull::new();
         subject.logger = Logger::new(test_name);
 
-        let result = subject.agreed_transaction_fee_margin();
+        let result = subject.gas_price_margin();
 
-        assert_eq!(result, Percentage::new(0));
-        assert_error_log(test_name, "agreed_transaction_fee_margin")
+        assert_eq!(result, PurePercentage::try_from(0).unwrap());
+        assert_error_log(test_name, "gas_price_margin")
     }
 
     #[test]

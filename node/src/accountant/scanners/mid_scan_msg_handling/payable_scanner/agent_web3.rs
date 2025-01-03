@@ -6,15 +6,15 @@ use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::wallet::Wallet;
 
 use crate::accountant::gwei_to_wei;
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::TRANSACTION_FEE_MARGIN;
-use masq_lib::percentage::Percentage;
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::TX_FEE_MARGIN_IN_PERCENT;
+use masq_lib::percentage::PurePercentage;
 use web3::types::U256;
 
 #[derive(Debug, Clone)]
 pub struct BlockchainAgentWeb3 {
     gas_price_gwei: u64,
     gas_limit_const_part: u64,
-    agreed_transaction_fee_margin: Percentage,
+    gas_price_margin: PurePercentage,
     maximum_added_gas_margin: u64,
     consuming_wallet: Wallet,
     consuming_wallet_balances: ConsumingWalletBalances,
@@ -38,12 +38,12 @@ impl BlockchainAgent for BlockchainAgentWeb3 {
             .service_fee_balance_in_minor_units
     }
 
-    fn agreed_fee_per_computation_unit(&self) -> u64 {
+    fn gas_price(&self) -> u64 {
         self.gas_price_gwei
     }
 
-    fn agreed_transaction_fee_margin(&self) -> Percentage {
-        self.agreed_transaction_fee_margin
+    fn gas_price_margin(&self) -> PurePercentage {
+        self.gas_price_margin
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -67,12 +67,12 @@ impl BlockchainAgentWeb3 {
         consuming_wallet_balances: ConsumingWalletBalances,
         pending_transaction_id: U256,
     ) -> Self {
-        let agreed_transaction_fee_margin = *TRANSACTION_FEE_MARGIN;
+        let gas_price_margin = *TX_FEE_MARGIN_IN_PERCENT;
         let maximum_added_gas_margin = WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
         Self {
             gas_price_gwei,
             gas_limit_const_part,
-            agreed_transaction_fee_margin,
+            gas_price_margin,
             consuming_wallet,
             maximum_added_gas_margin,
             consuming_wallet_balances,
@@ -87,11 +87,8 @@ mod tests {
         BlockchainAgentWeb3, WEB3_MAXIMAL_GAS_LIMIT_MARGIN,
     };
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
-
     use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::make_wallet;
-
-    use crate::accountant::gwei_to_wei;
     use web3::types::U256;
 
     #[test]
@@ -118,7 +115,7 @@ mod tests {
             pending_transaction_id,
         );
 
-        assert_eq!(subject.agreed_fee_per_computation_unit(), gas_price_gwei);
+        assert_eq!(subject.gas_price(), gas_price_gwei);
         assert_eq!(subject.consuming_wallet(), &consuming_wallet);
         assert_eq!(
             subject.transaction_fee_balance_minor(),
@@ -154,10 +151,6 @@ mod tests {
             agent.maximum_added_gas_margin,
             WEB3_MAXIMAL_GAS_LIMIT_MARGIN
         );
-        let expected_result: u128 = {
-            let gwei_amount = ((77_777 + WEB3_MAXIMAL_GAS_LIMIT_MARGIN) as u128) * 244;
-            gwei_to_wei(gwei_amount)
-        };
-        assert_eq!(result, expected_result);
+        assert_eq!(result, 19789620000000000);
     }
 }
