@@ -3,14 +3,13 @@
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationSuspectedAccount;
 use crate::masq_lib::utils::ExpectValue;
-use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::constants::WALLET_ADDRESS_LENGTH;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
 use std::ops::Not;
 use thousands::Separable;
-use web3::types::U256;
+use web3::types::{Address, U256};
 
 const REFILL_RECOMMENDATION: &str = "\
 Please be aware that abandoning your debts is going to result in delinquency bans. In order to \
@@ -23,7 +22,7 @@ transaction. Operation is aborting.";
 const EMPTY_STR: &str = "";
 
 pub fn accounts_before_and_after_debug(
-    original_account_balances_mapped: HashMap<Wallet, u128>,
+    original_account_balances_mapped: HashMap<Address, u128>,
     adjusted_accounts: &[PayableAccount],
 ) -> String {
     let excluded_wallets_and_balances =
@@ -58,7 +57,7 @@ fn included_accounts_title() -> String {
 }
 
 fn format_summary_for_included_accounts(
-    original_account_balances_mapped: &HashMap<Wallet, u128>,
+    original_account_balances_mapped: &HashMap<Address, u128>,
     adjusted_accounts: &[PayableAccount],
 ) -> String {
     adjusted_accounts
@@ -69,7 +68,7 @@ fn format_summary_for_included_accounts(
         })
         .map(|account| {
             let original_balance = original_account_balances_mapped
-                .get(&account.wallet)
+                .get(&account.wallet.address())
                 .expectv("");
             (account, *original_balance)
         })
@@ -98,32 +97,32 @@ fn excluded_accounts_title() -> String {
     )
 }
 
-fn preprocess_excluded_accounts<'a>(
-    original_account_balances_mapped: &'a HashMap<Wallet, u128>,
-    adjusted_accounts: &'a [PayableAccount],
-) -> Vec<(&'a Wallet, u128)> {
-    let adjusted_accounts_wallets: Vec<&Wallet> = adjusted_accounts
+fn preprocess_excluded_accounts(
+    original_account_balances_mapped: &HashMap<Address, u128>,
+    adjusted_accounts: &[PayableAccount],
+) -> Vec<(Address, u128)> {
+    let adjusted_accounts_wallets: Vec<Address> = adjusted_accounts
         .iter()
-        .map(|account| &account.wallet)
+        .map(|account| account.wallet.address())
         .collect();
     original_account_balances_mapped
         .iter()
         .fold(vec![], |mut acc, (wallet, original_balance)| {
             if !adjusted_accounts_wallets.contains(&wallet) {
-                acc.push((wallet, *original_balance));
+                acc.push((*wallet, *original_balance));
             }
             acc
         })
 }
 
-fn format_summary_for_excluded_accounts(excluded: &[(&Wallet, u128)]) -> String {
+fn format_summary_for_excluded_accounts(excluded: &[(Address, u128)]) -> String {
     excluded
         .iter()
         .sorted_by(|(_, balance_account_a), (_, balance_account_b)| {
             Ord::cmp(&balance_account_b, &balance_account_a)
         })
         .map(|(wallet, original_balance)| {
-            format!("{} {}", wallet, original_balance.separate_with_commas())
+            format!("{:?} {}", wallet, original_balance.separate_with_commas())
         })
         .join("\n")
 }

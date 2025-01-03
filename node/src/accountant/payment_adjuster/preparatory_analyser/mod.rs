@@ -110,7 +110,7 @@ impl PreparatoryAnalyzer {
         let construct_error =
             |tx_fee_check_err_opt: Option<TransactionFeeImmoderateInsufficiency>,
              service_fee_check_err_opt: Option<ServiceFeeImmoderateInsufficiency>| {
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction {
+                PaymentAdjusterError::AbsolutelyInsufficientBalance {
                     number_of_accounts,
                     transaction_fee_opt: tx_fee_check_err_opt,
                     service_fee_opt: service_fee_check_err_opt,
@@ -321,18 +321,18 @@ impl ServiceFeeSingleTXErrorFactory<ServiceFeeImmoderateInsufficiency, AnalyzedP
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct LateServiceFeeSingleTxErrorFactory {
     original_number_of_accounts: usize,
-    original_service_fee_required_total_minor: u128,
+    original_total_service_fee_required_minor: u128,
 }
 
 impl LateServiceFeeSingleTxErrorFactory {
     pub fn new(unadjusted_accounts: &[WeighedPayable]) -> Self {
         let original_number_of_accounts = unadjusted_accounts.len();
-        let original_service_fee_required_total_minor = sum_as(unadjusted_accounts, |account| {
+        let original_total_service_fee_required_minor = sum_as(unadjusted_accounts, |account| {
             account.initial_balance_minor()
         });
         Self {
             original_number_of_accounts,
-            original_service_fee_required_total_minor,
+            original_total_service_fee_required_minor,
         }
     }
 }
@@ -346,11 +346,11 @@ impl ServiceFeeSingleTXErrorFactory<PaymentAdjusterError, WeighedPayable>
         cw_service_fee_balance_minor: u128,
     ) -> PaymentAdjusterError {
         let number_of_accounts = current_set_of_accounts.len();
-        PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+        PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
             original_number_of_accounts: self.original_number_of_accounts,
             number_of_accounts,
-            original_service_fee_required_total_minor: self
-                .original_service_fee_required_total_minor,
+            original_total_service_fee_required_minor: self
+                .original_total_service_fee_required_minor,
             cw_service_fee_balance_minor,
         }
     }
@@ -594,10 +594,10 @@ mod tests {
         let error_factory = LateServiceFeeSingleTxErrorFactory::new(&original_accounts);
         let ensure_accounts_right_type = |accounts| accounts;
         let prepare_expected_error = |number_of_accounts, _, cw_service_fee_balance_minor| {
-            PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction {
+            PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment {
                 original_number_of_accounts,
                 number_of_accounts,
-                original_service_fee_required_total_minor: initial_sum,
+                original_total_service_fee_required_minor: initial_sum,
                 cw_service_fee_balance_minor,
             }
         };
@@ -684,7 +684,7 @@ mod tests {
             result,
             LateServiceFeeSingleTxErrorFactory {
                 original_number_of_accounts: 2,
-                original_service_fee_required_total_minor: balance_1 + balance_2
+                original_total_service_fee_required_minor: balance_1 + balance_2
             }
         )
     }

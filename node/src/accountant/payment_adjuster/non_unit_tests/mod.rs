@@ -38,7 +38,7 @@ use std::fs::File;
 use std::io::Write;
 use std::time::SystemTime;
 use thousands::Separable;
-use web3::types::U256;
+use web3::types::{Address, U256};
 
 #[test]
 // TODO If an option for "occasional tests" is added, this is a good adept
@@ -409,7 +409,7 @@ fn make_payables_according_to_thresholds_setup(
         }
         AppliedThresholds::RandomizedForEachAccount {
             individual_thresholds,
-        } => make_payables_with_individual_thresholds(gn, &individual_thresholds, now),
+        } => make_payables_with_individual_thresholds(gn, wallets, individual_thresholds, now),
     };
 
     (payables, nominated_thresholds)
@@ -434,8 +434,8 @@ fn choose_thresholds(gn: &mut ThreadRng, prepared_wallets: &[Wallet]) -> Applied
         } else {
             let individual_thresholds = prepared_wallets
                 .iter()
-                .map(|wallet| (wallet.clone(), return_single_randomized_thresholds(gn)))
-                .collect::<HashMap<Wallet, PaymentThresholds>>();
+                .map(|wallet| (wallet.address(), return_single_randomized_thresholds(gn)))
+                .collect::<HashMap<Address, PaymentThresholds>>();
             AppliedThresholds::RandomizedForEachAccount {
                 individual_thresholds,
             }
@@ -457,12 +457,20 @@ fn make_payables_with_common_thresholds(
 
 fn make_payables_with_individual_thresholds(
     gn: &mut ThreadRng,
-    wallets_and_thresholds: &HashMap<Wallet, PaymentThresholds>,
+    wallets: Vec<Wallet>,
+    wallet_addresses_and_thresholds: &HashMap<Address, PaymentThresholds>,
     now: SystemTime,
 ) -> Vec<PayableAccount> {
-    wallets_and_thresholds
+    let mut wallets_by_address = wallets
+        .into_iter()
+        .map(|wallet| (wallet.address(), wallet))
+        .collect::<HashMap<Address, Wallet>>();
+    wallet_addresses_and_thresholds
         .iter()
-        .map(|(wallet, thresholds)| make_payable_account(wallet.clone(), thresholds, now, gn))
+        .map(|(wallet, thresholds)| {
+            let wallet = wallets_by_address.remove(wallet).expect("missing wallet");
+            make_payable_account(wallet, thresholds, now, gn)
+        })
         .collect()
 }
 
@@ -556,8 +564,8 @@ fn merge_information_about_particular_account(
 ) -> Vec<(AccountInfo, Option<PayableAccount>)> {
     let mut accounts_hashmap = accounts_after_adjustment
         .into_iter()
-        .map(|account| (account.wallet.clone(), account))
-        .collect::<HashMap<Wallet, PayableAccount>>();
+        .map(|account| (account.wallet.address(), account))
+        .collect::<HashMap<Address, PayableAccount>>();
 
     accounts_infos
         .into_iter()
@@ -631,7 +639,7 @@ fn preserve_account_infos(
     accounts
         .iter()
         .map(|account| AccountInfo {
-            wallet: account.qualified_as.bare_account.wallet.clone(),
+            wallet: account.qualified_as.bare_account.wallet.address(),
             initially_requested_service_fee_minor: account.qualified_as.bare_account.balance_wei,
             debt_age_s: now
                 .duration_since(account.qualified_as.bare_account.last_paid_timestamp)
@@ -807,10 +815,10 @@ fn do_final_processing_of_single_scenario(
         }
         Err(negative) => {
             match negative.adjuster_error {
-                PaymentAdjusterError::EarlyNotEnoughFeeForSingleTransaction { .. } => {
+                PaymentAdjusterError::AbsolutelyInsufficientBalance { .. } => {
                     panic!("Such errors should be already filtered out")
                 }
-                PaymentAdjusterError::LateNotEnoughFeeForSingleTransaction { .. } => {
+                PaymentAdjusterError::AbsolutelyInsufficientServiceFeeBalancePostTxFeeAdjustment { .. } => {
                     output_collector.late_immoderately_insufficient_service_fee_balance += 1
                 }
                 PaymentAdjusterError::RecursionDrainedAllAccounts => {
@@ -887,7 +895,7 @@ fn render_negative_scenario(file: &mut File, negative_result: FailedAdjustment) 
 }
 
 trait AccountWithWallet {
-    fn wallet(&self) -> &Wallet;
+    fn wallet(&self) -> Address;
 }
 
 fn render_accounts<Account, F>(
@@ -913,10 +921,7 @@ fn render_accounts<Account, F>(
         .map(|account| {
             (
                 account,
-                fetch_individual_thresholds_for_account_if_appropriate(
-                    individual_thresholds_opt,
-                    account,
-                ),
+                fetch_individual_thresholds_for_account_opt(individual_thresholds_opt, account),
             )
         })
         .for_each(|(account, individual_thresholds_opt)| {
@@ -926,8 +931,8 @@ fn render_accounts<Account, F>(
     file.write(b"\n").unwrap();
 }
 
-fn fetch_individual_thresholds_for_account_if_appropriate<'a, Account>(
-    individual_thresholds_opt: Option<&'a HashMap<Wallet, PaymentThresholds>>,
+fn fetch_individual_thresholds_for_account_opt<'a, Account>(
+    individual_thresholds_opt: Option<&'a HashMap<Address, PaymentThresholds>>,
     account: &'a Account,
 ) -> Option<&'a PaymentThresholds>
 where
@@ -1226,8 +1231,8 @@ struct InterpretableAccountAdjustmentResult {
 }
 
 impl AccountWithWallet for InterpretableAccountAdjustmentResult {
-    fn wallet(&self) -> &Wallet {
-        &self.info.wallet
+    fn wallet(&self) -> Address {
+        self.info.wallet
     }
 }
 
@@ -1257,14 +1262,14 @@ impl InterpretableAccountAdjustmentResult {
 }
 
 struct AccountInfo {
-    wallet: Wallet,
+    wallet: Address,
     initially_requested_service_fee_minor: u128,
     debt_age_s: u64,
 }
 
 impl AccountWithWallet for AccountInfo {
-    fn wallet(&self) -> &Wallet {
-        &self.wallet
+    fn wallet(&self) -> Address {
+        self.wallet
     }
 }
 
@@ -1274,6 +1279,6 @@ enum AppliedThresholds {
         common_thresholds: PaymentThresholds,
     },
     RandomizedForEachAccount {
-        individual_thresholds: HashMap<Wallet, PaymentThresholds>,
+        individual_thresholds: HashMap<Address, PaymentThresholds>,
     },
 }

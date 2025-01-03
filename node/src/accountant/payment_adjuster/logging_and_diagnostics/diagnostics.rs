@@ -30,9 +30,9 @@ macro_rules! diagnostics {
         )
     };
     // Displays an account by wallet address, brief description and formatted literal with arguments
-    ($wallet_ref: expr, $description: expr,  $($formatted_values: tt)*) => {
+    ($wallet: expr, $description: expr,  $($formatted_values: tt)*) => {
         diagnostics(
-            Some(||$wallet_ref.to_string()),
+            Some(||format!("{:?}", $wallet)),
             $description,
             Some(|| format!($($formatted_values)*))
         )
@@ -97,8 +97,8 @@ pub mod ordinary_diagnostic_functions {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::{
         AdjustedAccountBeforeFinalization, UnconfirmedAdjustment, WeighedPayable,
     };
-    use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
+    use web3::types::Address;
 
     pub fn thriving_competitor_found_diagnostics(
         account_info: &UnconfirmedAdjustment,
@@ -180,7 +180,7 @@ pub mod ordinary_diagnostic_functions {
 
     pub fn try_finding_an_account_to_disqualify_diagnostics(
         disqualification_suspected_accounts: &[DisqualificationSuspectedAccount],
-        wallet: &Wallet,
+        wallet: Address,
     ) {
         diagnostics!(
             "PICKED DISQUALIFIED ACCOUNT",
@@ -191,7 +191,7 @@ pub mod ordinary_diagnostic_functions {
     }
 
     pub fn calculated_criterion_and_weight_diagnostics(
-        wallet_ref: &Wallet,
+        wallet: Address,
         calculator: &dyn CriterionCalculator,
         criterion: u128,
         added_in_the_sum: u128,
@@ -199,7 +199,7 @@ pub mod ordinary_diagnostic_functions {
         const FIRST_COLUMN_WIDTH: usize = 30;
 
         diagnostics!(
-            wallet_ref,
+            wallet,
             "PARTIAL CRITERION CALCULATED",
             "For {:<width$} {} and summed up to {}",
             calculator.parameter_name(),

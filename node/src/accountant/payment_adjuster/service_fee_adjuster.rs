@@ -101,7 +101,7 @@ impl ServiceFeeAdjusterReal {
 
         let remaining = unconfirmed_adjustments
             .into_iter()
-            .filter(|account_info| account_info.wallet() != &disqualified_account_wallet)
+            .filter(|account_info| account_info.wallet() != disqualified_account_wallet)
             .collect();
 
         let remaining_reverted = convert_collection(remaining);
@@ -316,16 +316,16 @@ mod tests {
 }
 
 #[cfg(test)]
-pub mod test_helpers {
+pub mod illustrative_util {
     use crate::accountant::payment_adjuster::miscellaneous::data_structures::WeighedPayable;
     use crate::accountant::payment_adjuster::service_fee_adjuster::compute_unconfirmed_adjustments;
-    use crate::sub_lib::wallet::Wallet;
     use thousands::Separable;
+    use web3::types::Address;
 
     pub fn illustrate_why_we_need_to_prevent_exceeding_the_original_value(
         cw_service_fee_balance_minor: u128,
         weighed_accounts: Vec<WeighedPayable>,
-        wallet_of_expected_outweighed: Wallet,
+        wallet_of_expected_outweighed: Address,
         original_balance_of_outweighed_account: u128,
     ) {
         let unconfirmed_adjustments =
@@ -333,14 +333,15 @@ pub mod test_helpers {
         // The results are sorted from the biggest weights down
         assert_eq!(
             unconfirmed_adjustments[1].wallet(),
-            &wallet_of_expected_outweighed
+            wallet_of_expected_outweighed
         );
         // To prevent unjust reallocation we used to secure a rule an account could never demand
         // more than 100% of its size.
 
-        // Later it was changed to a different policy, so called "outweighed" account gains
-        // automatically a balance equal to its disqualification limit. Still, later on it's very
-        // likely to be given a bit more from the remains languishing in the consuming wallet.
+        // Later it was changed to a different policy, the so called "outweighed" account is given
+        // automatically a balance equal to its disqualification limit. Still, later on, it's quite
+        // likely to acquire slightly more by a distribution of the last bits of funds away from
+        // within the consuming wallet.
         let proposed_adjusted_balance = unconfirmed_adjustments[1].proposed_adjusted_balance_minor;
         assert!(
             proposed_adjusted_balance > (original_balance_of_outweighed_account * 11 / 10),

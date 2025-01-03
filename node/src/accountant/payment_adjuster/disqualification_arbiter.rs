@@ -1,5 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use web3::types::Address;
 use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::{
     account_nominated_for_disqualification_diagnostics,
     try_finding_an_account_to_disqualify_diagnostics,
@@ -7,7 +8,6 @@ use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::o
 use crate::accountant::payment_adjuster::logging_and_diagnostics::log_functions::info_log_for_disqualified_account;
 use crate::accountant::payment_adjuster::miscellaneous::data_structures::UnconfirmedAdjustment;
 use crate::accountant::QualifiedPayableAccount;
-use crate::sub_lib::wallet::Wallet;
 use masq_lib::logger::Logger;
 
 pub struct DisqualificationArbiter {
@@ -45,18 +45,18 @@ impl DisqualificationArbiter {
         &self,
         unconfirmed_adjustments: &[UnconfirmedAdjustment],
         logger: &Logger,
-    ) -> Wallet {
+    ) -> Address {
         let disqualification_suspected_accounts =
             Self::list_accounts_nominated_for_disqualification(unconfirmed_adjustments);
 
         let account_to_disqualify =
             Self::find_account_with_smallest_weight(&disqualification_suspected_accounts);
 
-        let wallet = account_to_disqualify.wallet.clone();
+        let wallet = account_to_disqualify.wallet;
 
         try_finding_an_account_to_disqualify_diagnostics(
             &disqualification_suspected_accounts,
-            &wallet,
+            wallet,
         );
 
         debug!(
@@ -97,9 +97,9 @@ impl DisqualificationArbiter {
             .collect()
     }
 
-    fn find_account_with_smallest_weight<'accounts>(
-        accounts: &'accounts [DisqualificationSuspectedAccount],
-    ) -> &'accounts DisqualificationSuspectedAccount<'accounts> {
+    fn find_account_with_smallest_weight(
+        accounts: &[DisqualificationSuspectedAccount],
+    ) -> &DisqualificationSuspectedAccount {
         accounts
             .iter()
             .min_by_key(|account| account.weight)
@@ -108,8 +108,8 @@ impl DisqualificationArbiter {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct DisqualificationSuspectedAccount<'account> {
-    pub wallet: &'account Wallet,
+pub struct DisqualificationSuspectedAccount {
+    pub wallet: Address,
     pub weight: u128,
     // The rest serves diagnostics and logging
     pub proposed_adjusted_balance_minor: u128,
@@ -118,7 +118,7 @@ pub struct DisqualificationSuspectedAccount<'account> {
 }
 
 impl<'unconfirmed_accounts> From<&'unconfirmed_accounts UnconfirmedAdjustment>
-    for DisqualificationSuspectedAccount<'unconfirmed_accounts>
+    for DisqualificationSuspectedAccount
 {
     fn from(unconfirmed_account: &'unconfirmed_accounts UnconfirmedAdjustment) -> Self {
         DisqualificationSuspectedAccount {
@@ -150,8 +150,8 @@ impl DisqualificationGauge for DisqualificationGaugeReal {
         threshold_intercept_minor: u128,
         permanent_debt_allowed_minor: u128,
     ) -> u128 {
-        // This signs that the debt lies in the horizontal area of the payment thresholds.
-        // Such are mandatory to be paid in their whole size.
+        // This signs that the debt lies in the horizontal area of the payment thresholds, and thus
+        // should be paid in the whole size.
         if threshold_intercept_minor == permanent_debt_allowed_minor {
             return account_balance_minor;
         }
@@ -203,6 +203,73 @@ impl DisqualificationGaugeReal {
             debt_part_over_the_threshold + permanent_debt_allowed_minor
         }
     }
+
+    //       This schema shows the conditions used to determine the disqualification limit
+    //                          (or minimal acceptable payment)
+    //
+    //  |         A +
+    //  |           |     P   -----------+
+    //  |           |     P              |
+    //  |           |     P              |
+    //  |           |     P              |
+    //  |         B |  P  P   -----+     |
+    //  |           +  P  P        |     |
+    //  |           |\ P  P        X     Y
+    //  |           | \P  P        |     |
+    //  |           |  P  P   -----+     |
+    //  |         B'+  P\ P              |
+    //  |           |\ P \P              |
+    //  |           | \P  P   -----+-----+
+    //  |           |  U  P\
+    //  |         B"+  U\ P \
+    //  |            \ U \P  +C
+    //  |             \U  P  |\
+    //  |              U  P\ | \
+    //  |              U\ P \|  \  P                 P
+    //  |              U \P  +C' \ P                 P
+    //  |              U  U  |\   \P                 P
+    //  |              U  U\ | \   P                 P
+    //  |              U  U \|  \  P\                P
+    //  |              U  U  +C" \ P \               P
+    //  |              U  U   \   \P  \              P
+    //  |              U  U    \   U   \ D           P       E
+    //  |              U  U     \  U\   +------------P--------+
+    //  |              U  U      \ U \  |            P
+    //  |              U  U       \U  \ |            P
+    //  |              U  U        U   \|D'          P       E'
+    //  +---------------------------+---+---------------------+
+    //                 3  4        2                 1
+    //
+    //  This diagram presents computation of the disqualification limit which differs by four cases.
+    //  The debt portion illustrated with the use of the letter 'P' stands for the actual limit.
+    //  That is the minimum amount we consider effective to keep us away from a ban for delinquent
+    //  debtors. Beyond that mark, if the debt is bigger, it completes the column with 'U's. This
+    //  part can be forgiven for the time being, until more funds is supplied for the consuming
+    //  wallet.
+    //
+    //  Points A, B, D, E make up a simple outline of possible payment thresholds. These are
+    //  fundamental statements: The x-axis distance between B and D is "threshold_interval_sec".
+    //  From B vertically down to the x-axis, it amounts to "debt_threshold_gwei". D is as far
+    //  from D' as the size of the "permanent_debt_allowed_gwei" parameter. A few other line
+    //  segments in the diagram are also derived from this last mentioned measurement, like B - B'
+    //  and B' - B".
+    //
+    //  1. This debt is ordered entire strictly as well as any other one situated between D and E.
+    //     (Note that the E isn't a real point, the axis goes endless this direction).
+    //  2. Since we are earlier in the time with debt, a different rule is applied. The limit is
+    //     formed as the part above the threshold, plus an equivalent of the D - D' distance.
+    //     It's notable that we are evaluating a debt older than the timestamp which would appear
+    //     on the x-axis if we prolonged the C - C" line towards it.
+    //  3. Now we are before that timestamp, however the surplussing debt portion X isn't
+    //     significant enough yet. Therefore the same rule as at No. 2 is applied also here.
+    //  4. This time we hold the condition for the age not reaching the decisive timestamp and
+    //     the debt becomes sizable, measured as Y, which indicates that it might be linked to
+    //     a Node that we've used extensively (or even that we're using right now). We then prefer
+    //     to increase the margin added to the above-threshold amount, and so we double it.
+    //     If true to the reality, the diagram would have to run much further upwards. That's
+    //     because the condition to consider a debt's size significant says that the part under
+    //     the threshold must be twice (or more) smaller than that above it (Y).
+    //
 }
 
 #[cfg(test)]
@@ -429,7 +496,7 @@ mod tests {
             .qualified_as
             .bare_account
             .wallet
-            .clone();
+            .address();
         let mut account_4 = make_meaningless_weighed_account(012);
         account_4.analyzed_account.disqualification_limit_minor = 1_000_000;
         account_4.weight = 1001;
@@ -471,11 +538,11 @@ mod tests {
             })
             .collect_vec();
         assert_eq!(all_wallets.len(), 4);
-        let wallets_as_wallet_3 = all_wallets
+        let wallets_same_as_wallet_3 = all_wallets
             .iter()
-            .filter(|wallet| wallet == &&&wallet_3)
+            .filter(|wallet| wallet.address() == wallet_3)
             .collect_vec();
-        assert_eq!(wallets_as_wallet_3.len(), 1);
+        assert_eq!(wallets_same_as_wallet_3.len(), 1);
     }
 
     fn make_unconfirmed_adjustments(weights: Vec<u128>) -> Vec<UnconfirmedAdjustment> {

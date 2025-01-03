@@ -2,8 +2,7 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::AnalyzedPayableAccount;
-use crate::sub_lib::wallet::Wallet;
-use web3::types::U256;
+use web3::types::{Address, U256};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WeighedPayable {
@@ -19,8 +18,12 @@ impl WeighedPayable {
         }
     }
 
-    pub fn wallet(&self) -> &Wallet {
-        &self.analyzed_account.qualified_as.bare_account.wallet
+    pub fn wallet(&self) -> Address {
+        self.analyzed_account
+            .qualified_as
+            .bare_account
+            .wallet
+            .address()
     }
 
     pub fn initial_balance_minor(&self) -> u128 {
@@ -69,7 +72,7 @@ impl UnconfirmedAdjustment {
         }
     }
 
-    pub fn wallet(&self) -> &Wallet {
+    pub fn wallet(&self) -> Address {
         self.weighed_account.wallet()
     }
 
