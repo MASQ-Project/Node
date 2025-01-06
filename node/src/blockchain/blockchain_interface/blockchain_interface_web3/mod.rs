@@ -23,7 +23,7 @@ use web3::types::{Address, BlockNumber, Log, H256, U256, FilterBuilder, Transact
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{LowBlockchainIntWeb3, TransactionReceiptResult, TxReceipt, TxStatus};
-use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{dynamically_create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::utils::{create_blockchain_agent_web3, send_payables_within_batch, BlockchainAgentFutureResult};
 
 const CONTRACT_ABI: &str = indoc!(
     r#"[{
@@ -186,7 +186,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                             transaction_fee_balance,
                                             masq_token_balance,
                                         };
-                                    Ok(dynamically_create_blockchain_agent_web3(
+                                    Ok(create_blockchain_agent_web3(
                                         gas_limit_const_part,
                                         blockchain_agent_future_result,
                                         consuming_wallet,
@@ -539,24 +539,6 @@ mod tests {
                 ]
             }
         )
-
-        // TODO: GH-543: Improve MBCS so we can confirm the calls we make are the correct ones.
-        //       Example of older code
-        //       let requests = test_server.requests_so_far();
-        //         let bodies: Vec<String> = requests
-        //             .into_iter()
-        //             .map(|request| serde_json::from_slice(&request.body()).unwrap())
-        //             .map(|b: Value| serde_json::to_string(&b).unwrap())
-        //             .collect();
-        //         let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
-        //         let expected_body_suffix = r#""]}]}]"#;
-        //         let expected_body = format!(
-        //             "{}{}{}",
-        //             expected_body_prefix,
-        //             &to[2..],
-        //             expected_body_suffix
-        //         );
-        //         assert_eq!(bodies, vec!(expected_body));
     }
 
     #[test]
@@ -582,24 +564,6 @@ mod tests {
                 transactions: vec![]
             })
         );
-
-        // TODO: GH-543: Improve MBCS so we can confirm the calls we make are the correct ones.
-        //       Example of older code
-        //         let requests = test_server.requests_so_far();
-        //         let bodies: Vec<String> = requests
-        //             .into_iter()
-        //             .map(|request| serde_json::from_slice(&request.body()).unwrap())
-        //             .map(|b: Value| serde_json::to_string(&b).unwrap())
-        //             .collect();
-        //         let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
-        //         let expected_body_suffix = r#""]}]}]"#;
-        //         let expected_body = format!(
-        //             "{}{}{}",
-        //             expected_body_prefix,
-        //             &to[2..],
-        //             expected_body_suffix
-        //         );
-        //         assert_eq!(bodies, vec!(expected_body));
     }
 
     #[test]

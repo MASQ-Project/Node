@@ -308,7 +308,7 @@ pub fn send_payables_within_batch(
     )
 }
 
-pub fn dynamically_create_blockchain_agent_web3(
+pub fn create_blockchain_agent_web3(
     gas_limit_const_part: u128,
     blockchain_agent_future_result: BlockchainAgentFutureResult,
     wallet: Wallet,
@@ -387,7 +387,7 @@ mod tests {
         .unwrap();
         let pending_nonce = 1;
         let chain = DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
+        let gas_price_in_gwei = DEFAULT_GAS_PRICE;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account = make_payable_account(1);
         let web3_batch = Web3::new(Batch::new(transport));
@@ -398,7 +398,7 @@ mod tests {
             &account,
             consuming_wallet,
             pending_nonce.into(),
-            (gas_price * 1_000_000_000) as u128,
+            gwei_to_wei(gas_price_in_gwei),
         );
 
         let mut batch_result = web3_batch.eth().transport().submit_batch().wait().unwrap();
@@ -431,7 +431,7 @@ mod tests {
         .unwrap();
         let web3_batch = Web3::new(Batch::new(transport));
         let chain = DEFAULT_CHAIN;
-        let gas_price = DEFAULT_GAS_PRICE;
+        let gas_price_in_gwei = DEFAULT_GAS_PRICE;
         let pending_nonce = 1;
         let consuming_wallet = make_paying_wallet(b"paying_wallet");
         let account_1 = make_payable_account(1);
@@ -443,7 +443,7 @@ mod tests {
             chain,
             &web3_batch,
             consuming_wallet,
-            (gas_price * 1_000_000_000) as u128,
+            gwei_to_wei(gas_price_in_gwei),
             pending_nonce.into(),
             &accounts,
         );
@@ -1012,7 +1012,7 @@ mod tests {
             Wallet::from(address)
         };
         let nonce_correct_type = U256::from(nonce);
-        let gas_price = match chain {
+        let gas_price_in_gwei = match chain {
             Chain::EthMainnet => TEST_GAS_PRICE_ETH,
             Chain::EthRopsten => TEST_GAS_PRICE_ETH,
             Chain::PolyMainnet => TEST_GAS_PRICE_POLYGON,
@@ -1032,7 +1032,7 @@ mod tests {
             consuming_wallet,
             payable_account.balance_wei,
             nonce_correct_type,
-            (gas_price * 1_000_000_000) as u128,
+            gwei_to_wei(gas_price_in_gwei),
         );
 
         let byte_set_to_compare = signed_transaction.raw_transaction.0;

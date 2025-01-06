@@ -346,7 +346,7 @@ impl BlockchainBridge {
                     {
                         match persistent_config_arc
                             .lock()
-                            .expect("Unable to lock persistent config in BlockchainBridge")
+                            .expect("Mutex with persistent configuration in BlockchainBridge was poisoned")
                             .set_max_block_count(Some(max_block_count))
                         {
                             Ok(()) => {
@@ -1100,6 +1100,7 @@ mod tests {
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default()
+            .get_chain_result(TEST_DEFAULT_CHAIN)
             .consuming_wallet_result(consuming_wallet)
             .agreed_fee_per_computation_unit_result(123);
         let msg = OutboundPaymentsInstructions::new(vec![], Box::new(agent), None);

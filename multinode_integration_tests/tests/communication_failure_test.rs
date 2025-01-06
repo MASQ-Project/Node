@@ -294,7 +294,7 @@ fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
 
     thread::sleep(Duration::from_millis(1000));
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.adomainthatdoesntexsit.com\r\n\r\n");
+    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.adomainthatdoesntexist.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     assert_eq!(
