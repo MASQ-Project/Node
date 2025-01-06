@@ -26,7 +26,7 @@ impl fmt::Display for BlockchainTransaction {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RetrievedBlockchainTransactions {
     pub new_start_block: u64,
     pub transactions: Vec<BlockchainTransaction>,

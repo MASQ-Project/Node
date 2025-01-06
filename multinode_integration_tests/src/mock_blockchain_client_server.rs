@@ -1,6 +1,7 @@
 // Copyright (c) 2022, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-// Code has been migrated to masq_lib/src/test_utils/mock_blockchain_client_server.rs
+// TODO: GH-805
+// The actual mock server has been migrated to masq_lib/src/test_utils/mock_blockchain_client_server.rs
 
 #[cfg(test)]
 mod tests {
@@ -28,8 +29,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("Thank you and good night", 40)
-            .run_on_docker()
+            .ok_response("Thank you and good night", 40)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let chunks = vec![
@@ -59,12 +60,12 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("Welcome, and thanks for coming!", 39)
-            .response("Thank you and good night", 40)
-            .run_on_docker()
+            .ok_response("Welcome, and thanks for coming!", 39)
+            .ok_response("Thank you and good night", 40)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
-        client.write (b"POST /biddle HTTP/1.1\r\nContent-Length: 5\r\n\r\nfirstPOST /biddle HTTP/1.1\r\nContent-Length: 6\r\n\r\nsecond").unwrap();
+        client.write(b"POST /biddle HTTP/1.1\r\nContent-Length: 5\r\n\r\nfirstPOST /biddle HTTP/1.1\r\nContent-Length: 6\r\n\r\nsecond").unwrap();
 
         let (_, body) = receive_response(&mut client);
         assert_eq!(
@@ -84,8 +85,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("irrelevant".to_string(), 42)
-            .run_on_docker()
+            .ok_response("irrelevant".to_string(), 42)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request = b"POST /biddle HTTP/1.1\r\n\r\nbody";
@@ -101,8 +102,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("irrelevant".to_string(), 42)
-            .run_on_docker()
+            .ok_response("irrelevant".to_string(), 42)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request = b"GET /booga\r\nContent-Length: 4\r\n\r\nbody";
@@ -118,8 +119,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("irrelevant".to_string(), 42)
-            .run_on_docker()
+            .ok_response("irrelevant".to_string(), 42)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request = b"GET /booga HTTP/2.0\r\nContent-Length: 4\r\n\r\nbody";
@@ -137,10 +138,10 @@ mod tests {
         let subject = MockBlockchainClientServer::builder(port)
             .notifier(notifier)
             .begin_batch()
-            .response(1234u64, 40)
+            .ok_response(1234u64, 40)
             .error(1234, "My tummy hurts", None as Option<()>)
             .end_batch()
-            .response(
+            .ok_response(
                 Person {
                     name: "Billy".to_string(),
                     age: 15,
@@ -155,7 +156,7 @@ mod tests {
                     age: 37,
                 }),
             )
-            .run_on_docker()
+            .run_in_docker()
             .start();
         let mut client = connect(port);
 
@@ -198,7 +199,7 @@ mod tests {
         assert_eq!(notified.try_recv().is_err(), true);
 
         let requests = subject.requests();
-        assert_eq! (requests, vec! [
+        assert_eq!(requests, vec![
             "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: 82\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"first\", \"params\": [\"biddle\", \"de\", \"bee\"], \"id\": 40}".to_string(),
             "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: 48\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"second\", \"id\": 42}".to_string(),
             "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: 47\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"third\", \"id\": 42}".to_string(),
@@ -210,14 +211,14 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let subject = MockBlockchainClientServer::builder(port)
-            .response(
+            .ok_response(
                 Person {
                     name: "Billy".to_string(),
                     age: 15,
                 },
                 42,
             )
-            .run_on_docker()
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request =
@@ -232,7 +233,7 @@ mod tests {
             r#"{"jsonrpc": "2.0", "result": {"name":"Billy","age":15}, "id": 42}"#
         );
         let requests = subject.requests();
-        assert_eq! (requests, vec! [
+        assert_eq!(requests, vec![
             "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\nhost: 172.18.0.1:32768\r\ncontent-length: 308\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x59882e4a8f5d24643d4dda422922a870f1b3e664\",\"fromBlock\":\"0x3e8\",\"toBlock\":\"latest\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x00000000000000000000000027d9a2ac83b493f88ce9b4532edcf74e95b9788d\"]}],\"id\":0}".to_string()
         ])
     }
@@ -336,6 +337,6 @@ mod tests {
             body.len(),
             body
         )
-        .into_bytes()
+            .into_bytes()
     }
 }

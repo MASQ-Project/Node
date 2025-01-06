@@ -6,8 +6,5 @@ pub mod blockchain_interface;
 pub mod blockchain_interface_initializer;
 pub mod payer;
 pub mod signature;
-
-mod batch_web3;
-mod blockchain_interface_utils;
 #[cfg(test)]
 pub mod test_utils;
