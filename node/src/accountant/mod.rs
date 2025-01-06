@@ -2052,7 +2052,7 @@ mod tests {
         subject
             .try_send(ReceivedPayments {
                 timestamp: now,
-                new_start_block: 123456789,
+                new_start_block: 123456789u64,
                 response_skeleton_opt: None,
                 transactions: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
             })

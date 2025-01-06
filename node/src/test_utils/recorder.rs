@@ -39,7 +39,9 @@ use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, InboundServerData};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, ProxyClientSubs};
-use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload_0v1};
+use crate::sub_lib::proxy_server::{
+    AddReturnRouteMessage, ClientRequestPayload_0v1, StreamKeyPurge,
+};
 use crate::sub_lib::proxy_server::{AddRouteResultMessage, ProxyServerSubs};
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -398,6 +400,7 @@ pub fn make_proxy_server_subs_from_recorder(addr: &Addr<Recorder>) -> ProxyServe
         stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         node_from_ui: recipient!(addr, NodeFromUiMessage),
         route_result_sub: recipient!(addr, AddRouteResultMessage),
+        schedule_stream_key_purge: recipient!(addr, MessageScheduler<StreamKeyPurge>),
     }
 }
 

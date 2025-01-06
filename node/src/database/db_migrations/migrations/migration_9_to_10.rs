@@ -2,20 +2,20 @@ use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
 
 #[allow(non_camel_case_types)]
-pub struct Migrate_8_to_9;
+pub struct Migrate_9_to_10;
 
-impl DatabaseMigration for Migrate_8_to_9 {
+impl DatabaseMigration for Migrate_9_to_10 {
     fn migrate<'a>(
         &self,
         declaration_utils: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[
-            &"INSERT INTO config (name, value, encrypted) VALUES ('max_block_count', null, 0)",
+            &"INSERT INTO config (name, value, encrypted) VALUES ('max_block_count', 100000, 0) ON CONFLICT(name) DO UPDATE SET value = 100000 WHERE name = 'max_block_count'"
         ])
     }
 
     fn old_version(&self) -> usize {
-        8
+        9
     }
 }
 
@@ -32,11 +32,11 @@ mod tests {
     use std::fs::create_dir_all;
 
     #[test]
-    fn migration_from_8_to_9_is_properly_set() {
+    fn migration_from_9_to_10_is_properly_set() {
         init_test_logging();
         let dir_path = ensure_node_home_directory_exists(
             "db_migrations",
-            "migration_from_8_to_9_is_properly_set",
+            "migration_from_9_to_10_is_properly_set",
         );
         create_dir_all(&dir_path).unwrap();
         let db_path = dir_path.join(DATABASE_FILE);
@@ -45,7 +45,7 @@ mod tests {
 
         let result = subject.initialize_to_version(
             &dir_path,
-            8,
+            9,
             DbInitializationConfig::create_or_migrate(make_external_data()),
         );
 
@@ -53,19 +53,19 @@ mod tests {
 
         let result = subject.initialize_to_version(
             &dir_path,
-            9,
+            10,
             DbInitializationConfig::create_or_migrate(make_external_data()),
         );
 
         let connection = result.unwrap();
         let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "max_block_count");
         let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
-        assert_eq!(mp_value, None);
+        assert_eq!(mp_value, Some(100_000u64.to_string()));
         assert_eq!(mp_encrypted, false);
-        assert_eq!(cs_value, Some(9.to_string()));
+        assert_eq!(cs_value, Some(10.to_string()));
         assert_eq!(cs_encrypted, false);
         TestLogHandler::new().assert_logs_contain_in_order(vec![
-            "DbMigrator: Database successfully migrated from version 8 to 9",
+            "DbMigrator: Database successfully migrated from version 9 to 10",
         ]);
     }
 }

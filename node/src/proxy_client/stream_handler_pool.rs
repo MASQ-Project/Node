@@ -14,7 +14,7 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use futures::future;
 use futures::future::Future;
 use masq_lib::logger::Logger;
@@ -29,20 +29,28 @@ use tokio::prelude::future::{err, ok};
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
+// TODO: This should be renamed to differentiate it from the other StreamHandlerPool,
+// which, unlike this, is an actor.
 pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
 }
 
+#[derive(Debug)]
+pub struct StreamSenders {
+    pub writer_data: Box<dyn SenderWrapper<SequencedPacket>>,
+    pub reader_shutdown_tx: Sender<()>,
+}
+
 pub struct StreamHandlerPoolReal {
     inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    stream_adder_rx: Receiver<(StreamKey, StreamSenders)>,
     stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
 
 struct StreamHandlerPoolRealInner {
     accountant_sub: Recipient<ReportExitServiceProvidedMessage>,
     proxy_client_subs: ProxyClientSubs,
-    stream_writer_channels: HashMap<StreamKey, Box<dyn SenderWrapper<SequencedPacket>>>,
+    stream_writer_channels: HashMap<StreamKey, StreamSenders>,
     resolver: Box<dyn ResolverWrapper>,
     logger: Logger,
     establisher_factory: Box<dyn StreamEstablisherFactory>,
@@ -148,6 +156,30 @@ impl StreamHandlerPoolReal {
         };
     }
 
+    fn send_shutdown_signal_to_stream_reader(
+        reader_shutdown_tx: Sender<()>,
+        stream_key: &StreamKey,
+        logger: &Logger,
+    ) {
+        match reader_shutdown_tx.try_send(()) {
+            Ok(()) => {
+                debug!(
+                    logger,
+                    "A shutdown signal was sent to the StreamReader for stream key {:?}.",
+                    stream_key
+                );
+            }
+            Err(_e) => {
+                debug!(
+                    logger,
+                    "Unable to send a shutdown signal to the StreamReader for \
+                    stream key {:?}. The channel is already gone.",
+                    stream_key
+                );
+            }
+        }
+    }
+
     fn clean_up_bad_stream(
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
@@ -159,12 +191,17 @@ impl StreamHandlerPoolReal {
             inner.logger,
             "Couldn't process request from CORES package: {}", error
         );
-        if let Some(sender_wrapper) = inner.stream_writer_channels.remove(stream_key) {
+        if let Some(stream_senders) = inner.stream_writer_channels.remove(stream_key) {
             debug!(
                 inner.logger,
                 "Removing stream writer for {}",
-                sender_wrapper.peer_addr()
+                stream_senders.writer_data.peer_addr()
             );
+            Self::send_shutdown_signal_to_stream_reader(
+                stream_senders.reader_shutdown_tx,
+                stream_key,
+                &inner.logger,
+            )
         }
         Self::send_terminating_package(
             stream_key,
@@ -185,20 +222,6 @@ impl StreamHandlerPoolReal {
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.clone()).and_then(move |_| {
             let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
-            if last_data {
-                match inner.stream_writer_channels.remove(&stream_key) {
-                    Some(channel) => debug!(
-                        inner.logger,
-                        "Removing StreamWriter {:?} to {}",
-                        stream_key,
-                        channel.peer_addr()
-                    ),
-                    None => debug!(
-                        inner.logger,
-                        "Trying to remove StreamWriter {:?}, but it's already gone", stream_key
-                    ),
-                }
-            }
             if payload_size > 0 {
                 match paying_wallet_opt {
                     Some(wallet) => inner
@@ -218,6 +241,30 @@ impl StreamHandlerPoolReal {
                     ),
                 }
             }
+            if last_data {
+                match inner.stream_writer_channels.remove(&stream_key) {
+                    Some(stream_senders) => {
+                        debug!(
+                            inner.logger,
+                            "Removing StreamWriter and Shutting down StreamReader for {:?} to {}",
+                            stream_key,
+                            stream_senders.writer_data.peer_addr()
+                        );
+                        Self::send_shutdown_signal_to_stream_reader(
+                            stream_senders.reader_shutdown_tx,
+                            &stream_key,
+                            &inner.logger,
+                        )
+                    }
+                    None => {
+                        debug!(
+                            inner.logger,
+                            "Trying to remove StreamWriter and StreamReader for stream key {:?}, but it's already gone", stream_key
+                        )
+                    }
+                }
+            }
+
             Ok(())
         })
     }
@@ -385,7 +432,8 @@ impl StreamHandlerPoolReal {
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
         let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
-        sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.as_ref().clone())
+        sender_wrapper_opt
+            .map(|sender_wrapper_box_ref| sender_wrapper_box_ref.writer_data.as_ref().clone())
     }
 
     fn make_logger_copy(inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>) -> Logger {
@@ -430,7 +478,7 @@ impl StreamHandlerPoolReal {
         let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
-                Some(writer_channel) => {
+                Some(stream_senders) => {
                     inner
                         .proxy_client_subs
                         .inbound_server_data
@@ -438,14 +486,20 @@ impl StreamHandlerPoolReal {
                             stream_key,
                             last_data: true,
                             sequence_number,
-                            source: writer_channel.peer_addr(),
+                            source: stream_senders.writer_data.peer_addr(),
                             data: vec![],
                         })
                         .expect("ProxyClient is dead");
+                    Self::send_shutdown_signal_to_stream_reader(
+                        stream_senders.reader_shutdown_tx,
+                        &stream_key,
+                        &inner.logger,
+                    );
                     debug!(
                         inner.logger,
-                        "Killed StreamWriter to {} and sent server-drop report",
-                        writer_channel.peer_addr()
+                        "Killed StreamWriter and StreamReader for the stream key {:?} to {} and sent server-drop report",
+                        stream_key,
+                        stream_senders.writer_data.peer_addr()
                     )
                 }
                 None => debug!(
@@ -461,16 +515,16 @@ impl StreamHandlerPoolReal {
         loop {
             match self.stream_adder_rx.try_recv() {
                 Err(_) => break,
-                Ok((stream_key, stream_writer_channel)) => {
+                Ok((stream_key, stream_senders)) => {
                     debug!(
                         inner.logger,
                         "Persisting StreamWriter to {} under key {:?}",
-                        stream_writer_channel.peer_addr(),
+                        stream_senders.writer_data.peer_addr(),
                         stream_key
                     );
                     inner
                         .stream_writer_channels
-                        .insert(stream_key, stream_writer_channel)
+                        .insert(stream_key, stream_senders)
                 }
             };
         }
@@ -519,7 +573,7 @@ mod tests {
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
-    use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
+    use crate::sub_lib::channel_wrappers::{FuturesChannelFactoryReal, SenderWrapperReal};
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
@@ -658,8 +712,9 @@ mod tests {
             originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let write_parameters = Arc::new(Mutex::new(vec![]));
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let tx_to_write = Box::new(
-            SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap())
+            SenderWrapperMock::new(peer_addr)
                 .unbounded_send_result(Ok(()))
                 .unbounded_send_params(&write_parameters),
         );
@@ -682,12 +737,13 @@ mod tests {
                 100,
                 200,
             );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(stream_key, tx_to_write);
+            subject.inner.lock().unwrap().stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: tx_to_write,
+                    reader_shutdown_tx: unbounded().0,
+                },
+            );
 
             run_process_package_in_actix(subject, package);
         });
@@ -703,9 +759,11 @@ mod tests {
     #[test]
     fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
+        let test_name = "write_failure_for_nonexistent_stream_generates_termination_message";
         let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
+        let (reader_shutdown_tx, reader_shutdown_rx) = unbounded();
         thread::spawn(move || {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: StreamKey::make_meaningless_stream_key(),
@@ -727,13 +785,11 @@ mod tests {
                 0,
             );
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_success(vec![IpAddr::from_str("2.3.4.5").unwrap()]);
-
-            let tx_to_write = SenderWrapperMock::new(SocketAddr::from_str("2.3.4.5:80").unwrap())
-                .unbounded_send_result(make_send_error(
-                    client_request_payload.sequenced_packet.clone(),
-                ));
+            let peer_addr = SocketAddr::from_str("2.3.4.5:80").unwrap();
+            let resolver = ResolverWrapperMock::new().lookup_ip_success(vec![peer_addr.ip()]);
+            let tx_to_write = SenderWrapperMock::new(peer_addr).unbounded_send_result(
+                make_send_error(client_request_payload.sequenced_packet.clone()),
+            );
 
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -743,17 +799,24 @@ mod tests {
                 100,
                 200,
             );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(client_request_payload.stream_key, Box::new(tx_to_write));
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                inner.stream_writer_channels.insert(
+                    client_request_payload.stream_key,
+                    StreamSenders {
+                        writer_data: Box::new(tx_to_write),
+                        reader_shutdown_tx,
+                    },
+                );
+                inner.logger = Logger::new(test_name);
+            }
 
             run_process_package_in_actix(subject, package);
         });
         proxy_client_awaiter.await_message_count(1);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
+        let received = reader_shutdown_rx.try_recv();
+        assert_eq!(received, Ok(()));
         assert_eq!(
             proxy_client_recording.get_record::<InboundServerData>(0),
             &InboundServerData {
@@ -764,13 +827,15 @@ mod tests {
                 data: vec![],
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: A shutdown signal was sent to the StreamReader \
+            for stream key AAAAAAAAAAAAAAAAAAAAAAAAAAA."
+        ));
     }
 
     #[test]
     fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
         let cryptde = main_cryptde();
-        let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-        let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
@@ -795,12 +860,6 @@ mod tests {
                 client_request_payload.into(),
                 0,
             );
-            let resolver = ResolverWrapperMock::new()
-                .lookup_ip_parameters(&lookup_ip_parameters)
-                .lookup_ip_success(vec![
-                    IpAddr::from_str("2.3.4.5").unwrap(),
-                    IpAddr::from_str("3.4.5.6").unwrap(),
-                ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
             let reader = ReadHalfWrapperMock {
@@ -818,7 +877,7 @@ mod tests {
                 shutdown_results: Arc::new(Mutex::new(vec![])),
             };
             let mut subject = StreamHandlerPoolReal::new(
-                Box::new(resolver),
+                Box::new(ResolverWrapperMock::new()),
                 cryptde,
                 peer_actors.accountant.report_exit_service_provided.clone(),
                 peer_actors.proxy_client_opt.unwrap().clone(),
@@ -855,10 +914,6 @@ mod tests {
 
         proxy_client_awaiter.await_message_count(1);
         assert_eq!(
-            expected_lookup_ip_parameters.lock().unwrap().deref(),
-            &(vec![] as Vec<String>)
-        );
-        assert_eq!(
             expected_write_parameters.lock().unwrap().remove(0),
             b"These are the times".to_vec()
         );
@@ -872,6 +927,126 @@ mod tests {
                 source: SocketAddr::from_str("3.4.5.6:80").unwrap(),
                 data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
             }
+        );
+    }
+
+    #[test]
+    fn stream_handler_pool_sends_shutdown_signal_when_last_data_is_true() {
+        init_test_logging();
+        let test_name = "stream_handler_pool_sends_shutdown_signal_when_last_data_is_true";
+        let (shutdown_tx, shutdown_rx) = unbounded();
+        thread::spawn(move || {
+            let stream_key = StreamKey::make_meaningful_stream_key("I should die");
+            let client_request_payload = ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: b"I'm gonna kill you stream key".to_vec(),
+                    sequence_number: 0,
+                    last_data: true,
+                },
+                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: PublicKey::new(&b"brutal death"[..]),
+            };
+            let package = ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+            let peer_actors = peer_actors_builder().build();
+            let subject = StreamHandlerPoolReal::new(
+                Box::new(ResolverWrapperMock::new()),
+                main_cryptde(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
+                100,
+                200,
+            );
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                inner.logger = Logger::new(test_name);
+                inner.stream_writer_channels.insert(
+                    stream_key,
+                    StreamSenders {
+                        writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                        reader_shutdown_tx: shutdown_tx,
+                    },
+                );
+            }
+
+            run_process_package_in_actix(subject, package);
+        });
+        let received = shutdown_rx.recv();
+        assert_eq!(received, Ok(()));
+        TestLogHandler::new().await_log_containing(
+            &format!(
+                "DEBUG: {test_name}: Removing StreamWriter and Shutting down StreamReader \
+            for oUHoHuDKHjeWq+BJzBIqHpPFBQw to 3.4.5.6:80"
+            ),
+            500,
+        );
+    }
+
+    #[test]
+    fn stream_handler_pool_logs_when_shutdown_channel_is_broken() {
+        init_test_logging();
+        let test_name = "stream_handler_pool_logs_when_shutdown_channel_is_broken";
+        let broken_shutdown_channel_tx = unbounded().0;
+        thread::spawn(move || {
+            let stream_key = StreamKey::make_meaningful_stream_key("I should die");
+            let client_request_payload = ClientRequestPayload_0v1 {
+                stream_key,
+                sequenced_packet: SequencedPacket {
+                    data: b"I'm gonna kill you stream key".to_vec(),
+                    sequence_number: 0,
+                    last_data: true,
+                },
+                target_hostname: Some(String::from("3.4.5.6:80")),
+                target_port: HTTP_PORT,
+                protocol: ProxyProtocol::HTTP,
+                originator_public_key: PublicKey::new(&b"brutal death"[..]),
+            };
+            let package = ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("consuming")),
+                make_meaningless_route(),
+                client_request_payload.into(),
+                0,
+            );
+            let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
+            let peer_actors = peer_actors_builder().build();
+            let subject = StreamHandlerPoolReal::new(
+                Box::new(ResolverWrapperMock::new()),
+                main_cryptde(),
+                peer_actors.accountant.report_exit_service_provided.clone(),
+                peer_actors.proxy_client_opt.unwrap().clone(),
+                100,
+                200,
+            );
+            {
+                let mut inner = subject.inner.lock().unwrap();
+                inner.logger = Logger::new(test_name);
+                inner.stream_writer_channels.insert(
+                    stream_key,
+                    StreamSenders {
+                        writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                        reader_shutdown_tx: broken_shutdown_channel_tx,
+                    },
+                );
+            }
+
+            run_process_package_in_actix(subject, package);
+        });
+        TestLogHandler::new().await_log_containing(
+            &format!(
+                "DEBUG: {test_name}: Unable to send a shutdown signal to the StreamReader \
+                for stream key oUHoHuDKHjeWq+BJzBIqHpPFBQw. The channel is already gone."
+            ),
+            500,
         );
     }
 
@@ -1610,12 +1785,13 @@ mod tests {
                 100,
                 200,
             );
-            subject
-                .inner
-                .lock()
-                .unwrap()
-                .stream_writer_channels
-                .insert(stream_key, Box::new(sender_wrapper));
+            subject.inner.lock().unwrap().stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(sender_wrapper),
+                    reader_shutdown_tx: unbounded().0,
+                },
+            );
 
             run_process_package_in_actix(subject, package);
         });
@@ -1709,11 +1885,16 @@ mod tests {
         subject.stream_killer_rx = stream_killer_rx;
         let stream_key = StreamKey::make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let (shutdown_tx, shutdown_rx) = unbounded();
         {
             let mut inner = subject.inner.lock().unwrap();
-            inner
-                .stream_writer_channels
-                .insert(stream_key, Box::new(SenderWrapperMock::new(peer_addr)));
+            inner.stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown_tx: shutdown_tx,
+                },
+            );
         }
         stream_killer_tx.send((stream_key, 47)).unwrap();
 
@@ -1723,6 +1904,8 @@ mod tests {
         system.run();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         let report = proxy_client_recording.get_record::<InboundServerData>(0);
+        let shutdown_signal_received = shutdown_rx.recv();
+        assert_eq!(shutdown_signal_received, Ok(()));
         assert_eq!(
             report,
             &InboundServerData {
@@ -1733,6 +1916,49 @@ mod tests {
                 data: vec![]
             }
         );
+    }
+
+    #[test]
+    fn clean_up_dead_streams_logs_when_the_stream_reader_is_down() {
+        init_test_logging();
+        let test_name = "clean_up_dead_streams_logs_when_the_shutdown_channel_is_down";
+        let system = System::new(test_name);
+        let peer_actors = peer_actors_builder().build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            main_cryptde(),
+            peer_actors.accountant.report_exit_service_provided,
+            peer_actors.proxy_client_opt.unwrap(),
+            0,
+            0,
+        );
+        let (stream_killer_tx, stream_killer_rx) = unbounded();
+        subject.stream_killer_rx = stream_killer_rx;
+        let stream_key = StreamKey::make_meaningful_stream_key("I'll be gone well before then.");
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let broken_shutdown_channel_tx = unbounded().0;
+        {
+            let mut inner = subject.inner.lock().unwrap();
+            inner.logger = Logger::new(test_name);
+            inner.stream_writer_channels.insert(
+                stream_key,
+                StreamSenders {
+                    writer_data: Box::new(SenderWrapperMock::new(peer_addr)),
+                    reader_shutdown_tx: broken_shutdown_channel_tx,
+                },
+            );
+        }
+        stream_killer_tx.send((stream_key, 47)).unwrap();
+
+        subject.clean_up_dead_streams();
+
+        System::current().stop_with_code(0);
+        system.run();
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: Unable to send a shutdown signal \
+            to the StreamReader for stream key cv9IZ5fizc4kZmR+0d+OQGXr3bw. \
+            The channel is already gone."
+        ));
     }
 
     #[test]
@@ -1759,5 +1985,78 @@ mod tests {
         system.run();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(proxy_client_recording.len(), 0);
+    }
+
+    #[test]
+    fn add_new_streams_works() {
+        init_test_logging();
+        let test_name = "add_new_streams_works";
+        let (stream_adder_tx, stream_adder_rx) = unbounded();
+        let peer_actors = peer_actors_builder().build();
+        let mut subject = StreamHandlerPoolReal::new(
+            Box::new(ResolverWrapperMock::new()),
+            main_cryptde(),
+            peer_actors.accountant.report_exit_service_provided,
+            peer_actors.proxy_client_opt.unwrap(),
+            0,
+            0,
+        );
+        subject.stream_adder_rx = stream_adder_rx;
+        {
+            subject.inner.lock().unwrap().logger = Logger::new(test_name);
+        }
+        let first_stream_key = StreamKey::make_meaningful_stream_key("first_stream_key");
+        let (first_writer_data_tx, _first_writer_data_rx) = futures::sync::mpsc::unbounded();
+        let (first_shutdown_tx, _first_shutdown_rx) = unbounded();
+        let first_stream_senders = StreamSenders {
+            writer_data: Box::new(SenderWrapperReal::new(
+                SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                first_writer_data_tx,
+            )),
+            reader_shutdown_tx: first_shutdown_tx,
+        };
+        let (second_writer_data_tx, _second_writer_data_rx) = futures::sync::mpsc::unbounded();
+        let (second_shutdown_tx, _second_shutdown_rx) = unbounded();
+        let second_stream_key = StreamKey::make_meaningful_stream_key("second_stream_key");
+        let second_stream_senders = StreamSenders {
+            writer_data: Box::new(SenderWrapperReal::new(
+                SocketAddr::from_str("2.3.4.5:6789").unwrap(),
+                second_writer_data_tx,
+            )),
+            reader_shutdown_tx: second_shutdown_tx,
+        };
+        stream_adder_tx
+            .send((first_stream_key.clone(), first_stream_senders))
+            .unwrap();
+        stream_adder_tx
+            .send((second_stream_key.clone(), second_stream_senders))
+            .unwrap();
+
+        subject.add_new_streams();
+
+        let mut inner = subject.inner.lock().unwrap();
+        let actual_first_stream_senders = inner
+            .stream_writer_channels
+            .remove(&first_stream_key)
+            .unwrap();
+        let actual_second_stream_senders = inner
+            .stream_writer_channels
+            .remove(&second_stream_key)
+            .unwrap();
+        assert_eq!(
+            actual_first_stream_senders.writer_data.peer_addr(),
+            SocketAddr::from_str("1.2.3.4:5678").unwrap()
+        );
+        assert_eq!(
+            actual_second_stream_senders.writer_data.peer_addr(),
+            SocketAddr::from_str("2.3.4.5:6789").unwrap()
+        );
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Persisting StreamWriter to 1.2.3.4:5678 under key gY2vJ+OwPuItsBcFhbilDI61LGo"
+        ));
+        tlh.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Persisting StreamWriter to 2.3.4.5:6789 under key 1Kbv+3/MIN4/1hLQXLeNPgdDM58"
+        ));
     }
 }
