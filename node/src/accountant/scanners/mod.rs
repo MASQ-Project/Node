@@ -3064,6 +3064,7 @@ mod tests {
         let test_name = "no_transactions_received_but_start_block_setting_fails";
         let now = SystemTime::now();
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
+        let new_start_block = 6709u64;
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(None))
             .set_start_block_params(&set_start_block_params_arc)
@@ -3075,7 +3076,7 @@ mod tests {
             .build();
         let msg = ReceivedPayments {
             timestamp: now,
-            new_start_block: 6709,
+            new_start_block,
             response_skeleton_opt: None,
             transactions: vec![],
         };
