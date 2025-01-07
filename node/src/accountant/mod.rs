@@ -51,7 +51,7 @@ use crate::sub_lib::blockchain_bridge::{
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Actor, System};
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::AsyncContext;
 use actix::Context;
@@ -106,6 +106,16 @@ pub struct Accountant {
 impl Actor for Accountant {
     type Context = Context<Self>;
 }
+
+/// TODO SPIKE
+impl Supervised for Accountant {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        if panicking() {
+            System::current().stop()
+        }
+    }
+}
+/// TODO SPIKE
 
 impl Drop for Accountant {
     fn drop(&mut self) {
@@ -1191,7 +1201,7 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let scan_timings = result.scan_timings;
+        let scan_timings = &result.scan_timings;
         scan_timings
             .pending_payable
             .handle
@@ -2969,8 +2979,8 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up(accountant, CRASH_KEY);
     }
 
-    #[test]
-    fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
+    #[tokio::test]
+    async fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3145,27 +3155,25 @@ mod tests {
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
             .have_return_all_errorless_fingerprints_shut_down_the_system = true;
-        let accountant_addr = Arbiter::builder()
-            .stop_system_on_panic(true)
-            .start(move |_| {
-                let mut subject = AccountantBuilder::default()
-                    .bootstrapper_config(bootstrapper_config)
-                    .payable_daos(vec![
-                        ForPayableScanner(payable_dao_for_payable_scanner),
-                        ForPendingPayableScanner(payable_dao_for_pending_payable_scanner),
-                    ])
-                    .pending_payable_daos(vec![
-                        ForPayableScanner(pending_payable_dao_for_payable_scanner),
-                        ForPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
-                    ])
-                    .build();
-                subject.scanners.receivable = Box::new(NullScanner::new());
-                let notify_later_half_mock = NotifyLaterHandleMock::default()
-                    .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
-                    .permit_to_send_out();
-                subject.scan_timings.pending_payable.handle = Box::new(notify_later_half_mock);
-                subject
-            });
+        let accountant_addr = actix::Supervisor::start(move |_| {
+            let mut subject = AccountantBuilder::default()
+                .bootstrapper_config(bootstrapper_config)
+                .payable_daos(vec![
+                    ForPayableScanner(payable_dao_for_payable_scanner),
+                    ForPendingPayableScanner(payable_dao_for_pending_payable_scanner),
+                ])
+                .pending_payable_daos(vec![
+                    ForPayableScanner(pending_payable_dao_for_payable_scanner),
+                    ForPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
+                ])
+                .build();
+            subject.scanners.receivable = Box::new(NullScanner::new());
+            let notify_later_half_mock = NotifyLaterHandleMock::default()
+                .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
+                .permit_to_send_out();
+            subject.scan_timings.pending_payable.handle = Box::new(notify_later_half_mock);
+            subject
+        }).await;
         let mut peer_actors = peer_actors_builder().build();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         peer_actors.accountant = accountant_subs.clone();

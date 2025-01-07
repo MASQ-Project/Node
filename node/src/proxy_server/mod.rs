@@ -952,17 +952,14 @@ impl IBCDHelperReal {
             pld.sequenced_packet.data.len()
         );
         let payload_size = pld.sequenced_packet.data.len();
-        tokio::spawn(
-            route_source
+        tokio::spawn(async move {
+            let route_result = route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
                     payload_size,
-                ))
-                .then(move |route_result| {
-                    Self::resolve_route_query_response(tth_args, add_route_sub, route_result);
-                    Ok(())
-                }),
-        );
+                )).await;
+            Self::resolve_route_query_response(tth_args, add_route_sub, route_result);
+        });
         Ok(())
     }
 
@@ -1372,9 +1369,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&make_parameters_arc_thread)
                 .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
@@ -1532,9 +1527,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&stream_key_parameters_arc_thread)
                 .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
@@ -1604,9 +1597,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&stream_key_parameters_arc_thread)
                 .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),

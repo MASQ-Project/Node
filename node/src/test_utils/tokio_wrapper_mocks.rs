@@ -62,7 +62,8 @@ type ShutdownResults = Vec<Poll<io::Result<()>>>;
 pub struct WriteHalfWrapperMock {
     write_params: Arc<Mutex<Vec<Vec<u8>>>>,
     write_results: RefCell<Vec<io::Result<usize>>>,
-    close_results: RefCell<Vec<io::Result<()>>>,
+    shutdown_params: Arc<Mutex<Vec<()>>>,
+    shutdown_results: RefCell<Vec<io::Result<()>>>,
 }
 
 #[async_trait]
@@ -80,10 +81,11 @@ impl WriteHalfWrapper for WriteHalfWrapperMock {
     }
 
     async fn shutdown(&mut self) -> io::Result<()> {
-        if self.close_results.borrow().is_empty() {
-            panic!("WriteHalfWrapperMock: poll_close_results is empty")
+        if self.shutdown_results.borrow().is_empty() {
+            panic!("WriteHalfWrapperMock: close_results is empty")
         }
-        self.close_results.borrow_mut().remove(0)
+        self.shutdown_params.lock().unwrap().push(());
+        self.shutdown_results.borrow_mut().remove(0)
     }
 }
 
@@ -102,7 +104,8 @@ impl WriteHalfWrapperMock {
         WriteHalfWrapperMock {
             write_params: Arc::new(Mutex::new(vec![])),
             write_results: RefCell::new(vec![]),
-            close_results: RefCell::new(vec![]),
+            shutdown_params: Arc::new(Mutex::new(vec![])),
+            shutdown_results: RefCell::new(vec![]),
         }
     }
 
@@ -119,16 +122,16 @@ impl WriteHalfWrapperMock {
         self
     }
 
-    pub fn write_ok(self, len: usize) -> WriteHalfWrapperMock {
-        self.write_result(Ok(len))
-    }
-
-    pub fn close_result(self, result: io::Result<()>) -> WriteHalfWrapperMock {
-        self.close_results.borrow_mut().push(result);
+    pub fn shutdown_params(
+        mut self,
+        params_arc: &Arc<Mutex<Vec<()>>>,
+    ) -> WriteHalfWrapperMock {
+        self.shutdown_params = params_arc.clone();
         self
     }
 
-    pub fn close_ok(self) -> WriteHalfWrapperMock {
-        self.close_result(Ok(()))
+    pub fn shutdown_result(self, result: io::Result<()>) -> WriteHalfWrapperMock {
+        self.shutdown_results.borrow_mut().push(result);
+        self
     }
 }

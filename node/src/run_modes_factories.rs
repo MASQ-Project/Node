@@ -18,6 +18,7 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
+use async_trait::async_trait;
 use tokio::task::{JoinHandle, JoinSet};
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
@@ -72,8 +73,9 @@ pub trait DumpConfigRunner {
     declare_as_any!();
 }
 
+#[async_trait]
 pub trait ServerInitializer: Send {
-    fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
+    async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>>;
     declare_as_any!();
 }
@@ -258,6 +260,7 @@ pub mod mocks {
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
+    use async_trait::async_trait;
     use tokio::task::JoinSet;
 
     pub fn test_clustered_params() -> DIClusteredParams {
@@ -414,8 +417,9 @@ pub mod mocks {
         }
     }
 
+    #[async_trait]
     impl ServerInitializer for ServerInitializerMock {
-        fn go(&mut self, _streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
+        async fn go(&mut self, _streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());
             self.go_results.borrow_mut().remove(0)
         }

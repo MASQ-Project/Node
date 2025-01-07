@@ -14,8 +14,8 @@ pub trait TokioListenerWrapper: Send {
     async fn bind(&mut self, addr: SocketAddr) -> io::Result<()>;
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)>;
 
-    // TODO: See if we can get rid of this
-    fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>>;
+    // // TODO: See if we can get rid of this
+    // fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>>;
 }
 
 #[async_trait]

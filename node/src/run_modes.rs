@@ -13,6 +13,9 @@ use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use tokio::{task};
+use tokio::task::JoinHandle;
+use masq_lib::logger::Logger;
+use masq_lib::test_utils::utils::make_rt;
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -238,21 +241,41 @@ impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new();
         let mut server_initializer = self.server_initializer_factory.make();
-        server_initializer.go(streams, args)?;
-        let _ = task::spawn(async move {
+        let join_handle: JoinHandle<Result<(), String>> = task::spawn(async move {
+            match server_initializer.go(streams, args).await {
+                Ok(_) => (),
+                Err(e) => {
+                    System::current().stop_with_code(1);
+                    return Err(format!("{:?}", e));
+                }
+            }
             // There's only one .join_next() here because there's only ever one future in the JoinSet.
             let result = server_initializer.spawn_long_lived_services().await;
-            match result.expect("There should have been exactly one future in this JoinSet") {
+            match result {
                 Ok(x) => panic!(
                     "DNS server was never supposed to stop, but terminated with {:?}",
                     x
                 ),
-                Err(_) => System::current().stop_with_code(1), // TODO: Maybe log this error?
+                Err(e) => {
+                    System::current().stop_with_code(1);
+                    return Err(format!("{:?}", e));
+                },
             }
         });
         match system.run() {
             Ok(()) => Ok(()),
-            Err(_) => Err(RunnerError::Numeric(1)),
+            Err(e) => {
+                let result = make_rt().block_on(join_handle);
+                let logger = Logger::new("RunnerReal");
+                /// TODO SPIKE
+                match result {
+                    Ok(Ok(_)) => error!(logger, "Node terminated with error: {:?}", e),
+                    Ok(Err(e)) => error!(logger, "Node terminated with error, but we couldn't get the error message: {:?}", e),
+                    Err(e) => error!(logger, "Node terminated with error, but we couldn't look for the error message: {:?}", e),
+                }
+                /// TODO SPIKE
+                Err(RunnerError::Numeric(1))
+            },
         }
     }
 

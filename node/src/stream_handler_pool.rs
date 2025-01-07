@@ -1044,7 +1044,7 @@ mod tests {
             .write_result(Ok(2))
             .write_result(Ok(0))
             .write_params(&write_params_arc)
-            .close_ok();
+            .shutdown_result(Ok(()));
         let local_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.4.5:5673").unwrap();
         let connection_info = ConnectionInfo {
@@ -1388,7 +1388,7 @@ mod tests {
                     ),
                     writer: Box::new(
                         WriteHalfWrapperMock::new()
-                            .write_ok(outgoing_masked_len)
+                            .write_result(Ok(outgoing_masked_len))
                             .write_result(Ok(0))
                             .write_params(&write_params_arc),
                     ),

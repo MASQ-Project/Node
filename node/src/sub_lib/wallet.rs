@@ -160,6 +160,14 @@ impl Wallet {
         }
     }
 
+    // TODO: Should verify() really require a wallet with a secret key? Do you ever need to
+    // verify your own signature? It's _other people's_ signatures that you need to verify,
+    // and you're not going to have their secret keys when you do that; this is probably wrong.
+    // It looks like SecretKey is required as a way to make sure we have access to key_provider;
+    // however, it's not clear that this verify() functionality belongs in Wallet at all.
+    // ---
+    // After a little investigation, I don't think we use this in production at all. Try getting
+    // rid of it and see if there's impact.
     pub fn verify(&self, signature: &Signature, msg: &dyn AsRef<[u8]>) -> bool {
         match self.kind {
             WalletKind::SecretKey(ref key_provider) => {

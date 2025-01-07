@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
 
-use crate::proxy_client::resolver_wrapper::ResolverWrapper;
+use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFactory, ResolverWrapperFactoryReal};
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -14,7 +14,6 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use crossbeam_channel::{unbounded, Receiver};
-use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup_ip::LookupIp;
 use masq_lib::logger::Logger;
 use std::collections::HashMap;
@@ -86,7 +85,7 @@ impl StreamHandlerPoolReal {
                 accountant_sub,
                 proxy_client_subs,
                 stream_writer_channels: HashMap::new(),
-                resolver,
+                resolver_wrapper_factory,
                 logger: Logger::new("ProxyClient"),
                 exit_service_rate,
                 exit_byte_rate,
@@ -106,7 +105,7 @@ impl StreamHandlerPoolReal {
         match Self::find_stream_with_key(&stream_key, &inner_arc) {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
-                let future = async {
+                let future = async move {
                     if let Err(msg) =
                         Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
                             .await
@@ -124,16 +123,20 @@ impl StreamHandlerPoolReal {
                         payload.stream_key
                     )
                 } else {
-                    let future = async {
-                        let sender_wrapper =
-                            Self::make_stream_with_key(&payload, inner_arc_1.clone()).await?;
+                    let inner_arc_2 = inner_arc_1.clone();
+                    let future = async move {
+                        let sender_wrapper = match Self::make_stream_with_key(&payload, inner_arc_2).await {
+                            Ok(sw) => sw,
+                            Err(msg) => {
+                                return;
+                            }
+                        };
                         if let Err(msg) = Self::write_and_tend(
                             sender_wrapper,
                             payload,
                             paying_wallet_opt,
                             inner_arc,
-                        )
-                        .await
+                        ).await
                         {
                             // TODO: This ends up sending an empty response back to the browser and terminating
                             // the stream. User deserves better than that. Send back a response from the
@@ -145,7 +148,6 @@ impl StreamHandlerPoolReal {
                                 msg,
                             );
                         };
-                        Ok(())
                     };
                     task::spawn(future);
                 }
@@ -226,10 +228,10 @@ impl StreamHandlerPoolReal {
         Ok(())
     }
 
-    fn make_stream_with_key(
+    async fn make_stream_with_key(
         payload: &ClientRequestPayload_0v1,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
-    ) -> StreamEstablisherResult {
+    ) -> StreamEstablisherResultInner {
         // TODO: Figure out what to do if a flurry of requests for a particular stream key
         // come flooding in so densely that several of them arrive in the time it takes to
         // resolve the first one and add it to the stream_writers map.
@@ -246,8 +248,8 @@ impl StreamHandlerPoolReal {
                     socket_addr,
                     inner_arc,
                     target_hostname.to_string(),
-                ),
-                Err(_) => Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()),
+                ).await,
+                Err(_) => Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()).await,
             },
             None => {
                 error!(
@@ -255,7 +257,7 @@ impl StreamHandlerPoolReal {
                     "Cannot open new stream with key {:?}: no hostname supplied",
                     payload.stream_key
                 );
-                Box::new(ready(Err("No hostname provided".to_string())))
+                Err("No hostname provided".to_string())
             }
         }
     }
@@ -285,9 +287,8 @@ impl StreamHandlerPoolReal {
         let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
         match stream_establisher
             .establish_stream(&payload, vec![ip_addr], target_hostname)
-            .await
         {
-            Ok(sender_wrapper) => Ok(Box::new(sender_wrapper)),
+            Ok(sender_wrapper) => Ok(sender_wrapper),
             Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
         }
     }
@@ -321,7 +322,6 @@ impl StreamHandlerPoolReal {
                 logger,
                 &mut establisher,
             )
-            .await
             {
                 Ok(sender_wrapper) => Ok(sender_wrapper),
                 Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
@@ -367,7 +367,7 @@ impl StreamHandlerPoolReal {
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
         let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
         let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
-        sender_wrapper_opt.map(|sender_wrapper_box_ref| Box::new(sender_wrapper_box_ref).clone())
+        sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.dup())
     }
 
     fn make_logger_copy(inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>) -> Logger {
@@ -379,7 +379,7 @@ impl StreamHandlerPoolReal {
         sequenced_packet: SequencedPacket,
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
     ) -> Result<(), String> {
-        match sender_wrapper.send(sequenced_packet).await {
+        match sender_wrapper.send(sequenced_packet) {
             Ok(_) => Ok(()),
             Err(_) => Err("Could not queue write to stream; channel full".to_string()),
         }
@@ -528,9 +528,8 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::task::Poll;
     use std::thread;
-    use hickory_resolver::error::ResolveErrorKind;
+    use hickory_resolver::error::{ResolveError, ResolveErrorKind};
     use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 
     struct StreamEstablisherFactoryMock {
@@ -554,7 +553,7 @@ mod tests {
                 .unwrap(),
             _ => panic!("Expected MessageType::ClientRequest, got something else"),
         };
-        let future = async {
+        let future = async move {
             subject.process_package(payload, paying_wallet);
         };
         task::spawn(future);
@@ -569,7 +568,7 @@ mod tests {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let cryptde = main_cryptde();
             let resolver_mock =
-                ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
+                ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(ErrorKind::ConnectionRefused))));
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let establisher = StreamEstablisher {
                 cryptde,
@@ -607,7 +606,7 @@ mod tests {
 
             StreamHandlerPoolReal::process_package(payload, None, Arc::new(Mutex::new(inner)));
 
-            system.run();
+            system.run().unwrap();
         });
 
         proxy_client_awaiter.await_message_count(1);
@@ -751,8 +750,8 @@ mod tests {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
-        let write_parameters = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters.clone();
+        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_write_parameters = write_parameters_arc.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -783,23 +782,13 @@ mod tests {
                 ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock {
-                poll_read_results: vec![
-                    (
-                        first_read_result.to_vec(),
-                        Poll::Ready(Ok(first_read_result.len())),
-                    ),
-                    (
-                        vec![],
-                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
-                    ),
-                ],
-            };
-            let writer = WriteHalfWrapperMock {
-                poll_write_params: write_parameters,
-                poll_write_results: vec![Poll::Ready(Ok(first_read_result.len()))],
-                poll_close_results: Arc::new(Mutex::new(vec![])),
-            };
+            let reader = ReadHalfWrapperMock::new()
+                .read_result(Ok(first_read_result.to_vec()))
+                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+            let writer = WriteHalfWrapperMock::new()
+                .write_params(&write_parameters_arc)// TODO: Do we use this?
+                .write_result(Ok(first_read_result.len()))
+                .shutdown_result(Ok(()));
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -837,9 +826,10 @@ mod tests {
         });
 
         proxy_client_awaiter.await_message_count(1);
+        let no_strings: Vec<String> = vec![];
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
-            &(vec![] as Vec<String>)
+            &no_strings
         );
         assert_eq!(
             expected_write_parameters.lock().unwrap().remove(0),
@@ -863,8 +853,8 @@ mod tests {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
-        let write_parameters = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters.clone();
+        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_write_parameters = write_parameters_arc.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         thread::spawn(move || {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -895,23 +885,13 @@ mod tests {
                 ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock {
-                poll_read_results: vec![
-                    (
-                        first_read_result.to_vec(),
-                        Poll::Ready(Ok(first_read_result.len())),
-                    ),
-                    (
-                        vec![],
-                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
-                    ),
-                ],
-            };
-            let writer = WriteHalfWrapperMock {
-                poll_write_params: write_parameters,
-                poll_write_results: vec![Poll::Ready(Ok(first_read_result.len()))],
-                poll_close_results: Arc::new(Mutex::new(vec![])),
-            };
+            let reader = ReadHalfWrapperMock::new()
+                .read_result(Ok(first_read_result.to_vec()))
+                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+            let writer = WriteHalfWrapperMock::new()
+                .write_params(&write_parameters_arc) // TODO: Do we use this?
+                .write_result(Ok(first_read_result.len()))
+                .shutdown_result(Ok(()));
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -949,9 +929,10 @@ mod tests {
         });
 
         proxy_client_awaiter.await_message_count(1);
+        let no_strings: Vec<String> = vec![];
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
-            &(vec![] as Vec<String>)
+            &no_strings
         );
         assert_eq!(
             expected_write_parameters.lock().unwrap().remove(0),
@@ -998,7 +979,7 @@ mod tests {
                 0,
             );
             let resolver =
-                ResolverWrapperMock::new().lookup_ip_failure(ResolveErrorKind::Io.into());
+                ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(ErrorKind::AddrInUse))));
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -1037,8 +1018,8 @@ mod tests {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
-        let write_parameters = Arc::new(Mutex::new(vec![]));
-        let expected_write_parameters = write_parameters.clone();
+        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let expected_write_parameters = write_parameters_arc.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let before = SystemTime::now();
@@ -1074,23 +1055,13 @@ mod tests {
                 ]);
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let first_read_result = b"HTTP/1.1 200 OK\r\n\r\n";
-            let reader = ReadHalfWrapperMock {
-                poll_read_results: vec![
-                    (
-                        first_read_result.to_vec(),
-                        Poll::Ready(Ok(first_read_result.len())),
-                    ),
-                    (
-                        vec![],
-                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
-                    ),
-                ],
-            };
-            let writer = WriteHalfWrapperMock {
-                poll_write_params: write_parameters,
-                poll_write_results: vec![Poll::Ready(Ok(first_read_result.len()))],
-                poll_close_results: Arc::new(Mutex::new(vec![])),
-            };
+            let reader = ReadHalfWrapperMock::new()
+                .read_result(Ok(first_read_result.to_vec()))
+                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+            let writer = WriteHalfWrapperMock::new()
+                .write_params(&write_parameters_arc) // TODO: Do we use this?
+                .write_result(Ok(first_read_result.len()))
+                .shutdown_result(Ok(()));
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -1244,7 +1215,7 @@ mod tests {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
-        let write_parameters = Arc::new(Mutex::new(vec![]));
+        let write_parameters_arc = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (stream_adder_tx, _stream_adder_rx) = unbounded();
 
@@ -1281,20 +1252,13 @@ mod tests {
                     IpAddr::from_str("3.4.5.6").unwrap(),
                 ]);
 
-            let reader = ReadHalfWrapperMock {
-                poll_read_results: vec![
-                    (vec![], Poll::Pending),
-                    (
-                        vec![],
-                        Poll::Ready(Err(Error::from(ErrorKind::ConnectionAborted))),
-                    ),
-                ],
-            };
-            let writer = WriteHalfWrapperMock {
-                poll_write_params: write_parameters,
-                poll_write_results: vec![Poll::Pending],
-                poll_close_results: Arc::new(Mutex::new(vec![])),
-            };
+            let reader = ReadHalfWrapperMock::new()
+                .read_result(Ok(vec![]))
+                .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
+            let writer = WriteHalfWrapperMock::new()
+                .write_params(&write_parameters_arc) // TODO: Is this used? Do we need it?
+                .write_result(Ok(0))
+                .shutdown_result(Ok(()));
 
             let mut subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
@@ -1306,16 +1270,16 @@ mod tests {
             );
 
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
-            let disconnected_sender = Box::new(
-                SenderWrapperMock::new(peer_addr)
-                    .unbounded_send_result(make_send_error(sequenced_packet)),
-            );
+            let disconnected_sender = SenderWrapperMock::new(peer_addr)
+                    .unbounded_send_result(make_send_error(sequenced_packet));
 
             let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
 
             {
                 let mut inner = subject.inner.lock().unwrap();
+                let channel_factory = FuturesChannelFactoryMock::new()
+                    .make_result(disconnected_sender, ReceiverWrapperMock::new().recv_result(None));
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -1330,14 +1294,7 @@ mod tests {
                         .unwrap()
                         .inbound_server_data,
                     logger: inner.logger.clone(),
-                    channel_factory: Box::new(FuturesChannelFactoryMock {
-                        results: vec![(
-                            disconnected_sender,
-                            Box::new(ReceiverWrapperMock {
-                                poll_results: vec![Poll::Ready(Ok(None))],
-                            }),
-                        )],
-                    }),
+                    channel_factory: Box::new(channel_factory),
                 };
 
                 inner.establisher_factory = Box::new(StreamEstablisherFactoryMock {
@@ -1392,7 +1349,7 @@ mod tests {
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_params(&mut lookup_ip_parameters)
-                .lookup_ip_failure(ResolveErrorKind::Io.into());
+                .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(ErrorKind::BrokenPipe))));
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -1418,7 +1375,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(
-            "ERROR: bad_dns_lookup_produces_log_and_sends_error_response: Could not find IP address for host that.try: io error",
+            "ERROR: bad_dns_lookup_produces_log_and_sends_error_response: Could not find IP address for host that.try: BrokenPipe io error",
         );
     }
 
@@ -1578,7 +1535,7 @@ mod tests {
         subject.clean_up_dead_streams();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         let report = proxy_client_recording.get_record::<InboundServerData>(0);
         assert_eq!(
@@ -1614,7 +1571,7 @@ mod tests {
         subject.clean_up_dead_streams();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(proxy_client_recording.len(), 0);
     }

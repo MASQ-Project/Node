@@ -20,6 +20,7 @@ use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use async_trait::async_trait;
 use time::OffsetDateTime;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -30,8 +31,9 @@ pub struct ServerInitializerReal {
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
 
+#[async_trait]
 impl ServerInitializer for ServerInitializerReal {
-    fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
+    async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult {
         let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
 
         let result: RunModeResult = Ok(())
@@ -39,11 +41,11 @@ impl ServerInitializer for ServerInitializerReal {
                 self.dns_socket_server_opt
                     .as_mut()
                     .expect("DNS Socket Server has already been spawned")
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&params.multi_config).await,
             )
             .combine_results(
                 self.bootstrapper
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&params.multi_config).await,
             );
 
         self.privilege_dropper
@@ -56,11 +58,11 @@ impl ServerInitializer for ServerInitializerReal {
                 self.dns_socket_server_opt
                     .as_mut()
                     .expect("DNS Socket Server has already been spawned")
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&params.multi_config, streams).await,
             )
             .combine_results(
                 self.bootstrapper
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&params.multi_config, streams).await,
             )
     }
 
@@ -70,7 +72,7 @@ impl ServerInitializer for ServerInitializerReal {
             .take()
             .expect("DNS Socket Server has already been spawned");
         let server_future = async move {
-            dns_socket_server.make_server_future()
+            dns_socket_server.make_server_future().await
         };
         tokio::spawn(server_future)
     }
@@ -418,15 +420,16 @@ pub mod tests {
     use async_trait::async_trait;
     use itertools::Itertools;
 
-    impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
-        fn initialize_as_privileged(
+    #[async_trait]
+    impl<C: Send> ConfiguredByPrivilege for CrashTestDummy<C> {
+        async fn initialize_as_privileged(
             &mut self,
             _multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
             Ok(())
         }
 
-        fn initialize_as_unprivileged(
+        async fn initialize_as_unprivileged(
             &mut self,
             _multi_config: &MultiConfig,
             _streams: &mut StdStreams<'_>,
@@ -464,8 +467,9 @@ pub mod tests {
         };
     }
 
-    impl<'a> ConfiguredByPrivilege for ConfiguredByPrivilegeMock {
-        fn initialize_as_privileged(
+    #[async_trait]
+    impl ConfiguredByPrivilege for ConfiguredByPrivilegeMock {
+        async fn initialize_as_privileged(
             &mut self,
             multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
@@ -477,10 +481,10 @@ pub mod tests {
             self.initialize_as_privileged_results.borrow_mut().remove(0)
         }
 
-        fn initialize_as_unprivileged(
+        async fn initialize_as_unprivileged(
             &mut self,
             multi_config: &MultiConfig,
-            _streams: &mut StdStreams,
+            _streams: &mut StdStreams<'_>,
         ) -> Result<(), ConfiguratorError> {
             ingest_values_from_multi_config(
                 &self.queried_values_from_multi_config,
@@ -721,6 +725,7 @@ pub mod tests {
         };
         subject
             .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
+            .await
             .unwrap();
 
         let mut join_handle = subject.spawn_long_lived_services();
@@ -768,8 +773,8 @@ pub mod tests {
         let _ = subject.spawn_long_lived_services();
     }
 
-    #[test]
-    fn go_should_drop_privileges() {
+    #[tokio::test]
+    async fn go_should_drop_privileges() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let bootstrapper_init_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
@@ -823,7 +828,7 @@ pub mod tests {
                 "--dns-servers",
                 "5.5.6.6",
             ]),
-        );
+        ).await;
 
         assert!(result.is_ok());
         let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));
@@ -857,8 +862,8 @@ pub mod tests {
         })
     }
 
-    #[test]
-    fn go_should_combine_errors() {
+    #[tokio::test]
+    async fn go_should_combine_errors() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
         let dns_socket_server = ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Err(ConfiguratorError::required(
@@ -891,7 +896,7 @@ pub mod tests {
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;
 
-        let result = subject.go(&mut holder.streams(), &args);
+        let result = subject.go(&mut holder.streams(), &args).await;
 
         assert_eq!(
             result,

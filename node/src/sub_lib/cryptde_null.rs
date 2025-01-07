@@ -122,7 +122,7 @@ impl CryptDE for CryptDENull {
 
     fn hash(&self, data: &PlainData) -> CryptData {
         let mut hash = Sha1::new();
-        hash.update(data.as_slice());
+        Digest::update(&mut hash, data.as_slice());
         let digest = hash.finalize();
         CryptData::new(digest.as_slice())
     }

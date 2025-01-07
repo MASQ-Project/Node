@@ -8,6 +8,7 @@ use tokio::sync::mpsc::error::{SendError, TryRecvError};
 #[async_trait]
 pub trait ReceiverWrapper<T: Send>: Send {
     async fn recv(&mut self) -> Option<T>;
+    // TODO: It is not clear that try_recv() is used anywhere anymore. If it's not, remove it.
     fn try_recv(&mut self) -> Result<T, TryRecvError>;
 }
 

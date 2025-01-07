@@ -84,10 +84,10 @@ impl WebSocketSupervisorReal {
         connections_to_accept: usize, // TODO: Figure a way to bring this back into service
     ) -> WWResult<()> {
         todo!("Make sure this is covered by tests");
-        let handler = MasqNodeUiv2Handler::new(socket_addr.port(), from_ui_message_sub);
-        let server = WebSocketServer::new(Arc::new(handler), None);
-        let future = server.listen(socket_addr.to_string().as_str(), None);
-        future
+        // let handler = MasqNodeUiv2Handler::new(socket_addr.port(), from_ui_message_sub);
+        // let server = WebSocketServer::new(Arc::new(handler), None);
+        // let future = server.listen(socket_addr.to_string().as_str(), None);
+        // future
     }
 
     fn filter_clients<'a, P>(

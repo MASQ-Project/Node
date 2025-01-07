@@ -12,7 +12,7 @@ type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn Re
 
 #[derive(Default)]
 pub struct FuturesChannelFactoryMock<T> {
-    pub results: Vec<FuturesChannelFactoryMockResult<T>>,
+    make_results: Vec<FuturesChannelFactoryMockResult<T>>,
 }
 
 impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
@@ -20,14 +20,25 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
         &mut self,
         peer_addr: SocketAddr,
     ) -> (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>) {
-        if self.results.is_empty() {
+        if self.make_results.is_empty() {
             (
                 Box::new(SenderWrapperMock::new(peer_addr)),
                 Box::new(ReceiverWrapperMock::new()),
             )
         } else {
-            self.results.remove(0)
+            self.make_results.remove(0)
         }
+    }
+}
+
+impl<T: 'static + Clone + Debug + Send> FuturesChannelFactoryMock<T> {
+    pub fn new() -> Self {
+        Self { make_results: vec![] }
+    }
+
+    pub fn make_result(mut self, sender: SenderWrapperMock<T>, receiver: ReceiverWrapperMock<T>) -> Self {
+        self.make_results.push((Box::new(sender), Box::new(receiver)));
+        self
     }
 }
 

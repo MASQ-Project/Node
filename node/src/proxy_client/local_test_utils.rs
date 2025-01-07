@@ -46,6 +46,10 @@ impl ResolverWrapperMock {
         self.lookup_ip_result(Ok(ip_addrs))
     }
 
+    pub fn lookup_ip_failure(self, e: ResolveError) -> Self {
+        self.lookup_ip_result(Err(e))
+    }
+
     pub fn lookup_ip_result(self, result: Result<Vec<IpAddr>, ResolveError>) -> Self {
         match result {
             Ok(ip_addrs) => {

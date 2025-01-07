@@ -1955,7 +1955,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
@@ -2003,7 +2003,7 @@ mod tests {
         cpm_recipient.try_send(cpm).unwrap();
 
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
             IP Address: {:?} is already a part of different connection progress.",
@@ -2051,7 +2051,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
         let notify_later_ask_about_gossip_params =
             notify_later_ask_about_gossip_params_arc.lock().unwrap();
         assert_eq!(
@@ -2110,7 +2110,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2139,7 +2139,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
         TestLogHandler::new()
             .exists_log_containing(
                 &format!("TRACE: Neighborhood: Received an AskAboutDebutGossipMessage for an unknown node descriptor: {:?}; ignoring",
@@ -2179,7 +2179,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2224,7 +2224,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2268,7 +2268,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2314,7 +2314,7 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2373,7 +2373,7 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2430,7 +2430,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2495,7 +2495,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -5417,7 +5417,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), Ok(()));
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]

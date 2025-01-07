@@ -25,7 +25,7 @@ use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;
 use serde_json::json;
 use serde_json::{Map, Value};
-use heck::AsPascalCase;
+use heck::{AsPascalCase, ToLowerCamelCase, ToSnekCase};
 #[cfg(test)]
 use std::any::Any;
 use std::path::{Path, PathBuf};
@@ -69,7 +69,7 @@ fn configuration_to_json(
 ) -> String {
     let mut map = Map::new();
     configuration.into_iter().for_each(|record| {
-        let json_name = record.name.to_mixed_case();
+        let json_name = record.name.to_lower_camel_case();
         let value_opt = match (&record.value_opt, record.encrypted, &password_opt) {
             (None, _, _) => None,
             (Some(value), false, _) => Some(value.to_string()),
