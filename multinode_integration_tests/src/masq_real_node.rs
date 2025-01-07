@@ -135,7 +135,7 @@ pub struct NodeStartupConfig {
     pub scans_opt: Option<bool>,
     pub log_level_opt: Option<Level>,
     pub ui_port_opt: Option<u16>,
-    pub world_network: Option<(String, Ipv4Addr)>
+    pub world_network: Option<(String, Ipv4Addr)>,
 }
 
 impl Default for NodeStartupConfig {
@@ -821,7 +821,7 @@ impl MASQRealNode {
     ) -> Self {
         let ip_addr = match startup_config.world_network {
             Some((_, ip_add)) => IpAddr::V4(ip_add),
-            None => IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8))
+            None => IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)),
         };
         MASQNodeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
@@ -1409,6 +1409,7 @@ mod tests {
             scans_opt: Some(false),
             log_level_opt: Some(Level::Info),
             ui_port_opt: Some(4321),
+            world_network: None,
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();

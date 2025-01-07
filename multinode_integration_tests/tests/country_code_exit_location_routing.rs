@@ -1,20 +1,22 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::net::Ipv4Addr;
+use masq_lib::messages::{CountryCodes, ToMessageBody, UiSetExitLocationRequest};
 use masq_lib::utils::index_of;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    default_consuming_wallet_info, make_consuming_wallet_info, MASQRealNode,
-    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
+    make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
 };
+use std::net::Ipv4Addr;
 use std::thread;
 use std::time::Duration;
-use masq_lib::messages::{CountryCodes, ToMessageBody, UiSetExitLocationRequest};
 
 #[test]
 fn http_end_to_end_routing_test_with_exit_location() {
-    let countries = vec![(Ipv4Addr::new(197,198,0, 0), "czechia"), (Ipv4Addr::new(57,57,0, 0), "germany")];
+    let countries = vec![
+        (Ipv4Addr::new(197, 198, 0, 0), "czechia"),
+        (Ipv4Addr::new(57, 57, 0, 0), "germany"),
+    ];
     let mut cluster = MASQNodeCluster::start_world(countries).unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
@@ -24,9 +26,12 @@ fn http_end_to_end_routing_test_with_exit_location() {
 
     let nodes = (0..6)
         .map(|index| {
-            let country= match index <= 2 {
-                true => Some(("germany".to_string(), Ipv4Addr::new(197,198,0, index + 1u8))),
-                false => Some(("czechia".to_string(), Ipv4Addr::new(57,57,0, index + 1u8)))
+            let country = match index <= 2 {
+                true => Some((
+                    "germany".to_string(),
+                    Ipv4Addr::new(197, 198, 0, index + 1u8),
+                )),
+                false => Some(("czechia".to_string(), Ipv4Addr::new(57, 57, 0, index + 1u8))),
             };
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
@@ -45,6 +50,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
             .neighbor(nodes.last().unwrap().node_reference())
             .consuming_wallet_info(make_consuming_wallet_info("last_node"))
             .chain(cluster.chain)
+            .world_network(Some(("czechia".to_string(), Ipv4Addr::new(57, 57, 0, 18))))
             // This line is commented out because for some reason the installation of iptables-persistent hangs forever on
             // bullseye-slim. Its absence means that the NodeStartupConfigBuilder::open_firewall_port() function won't work, but
             // at the time of this comment it's used only in this one place, where it adds no value. So we decided to
@@ -52,18 +58,22 @@ fn http_end_to_end_routing_test_with_exit_location() {
             //            .open_firewall_port(8080)
             .build(),
     );
+    cluster.interconnect_world_network("gemany", "test_node_7").unwrap();
 
     thread::sleep(Duration::from_millis(500));
 
     let ui = last_node.make_ui(51883);
-    ui.send_request(UiSetExitLocationRequest {
-        fallback_routing: false,
-        exit_locations: vec![CountryCodes {
-            country_codes: vec!["DE".to_string()],
-            priority: 1,
-        }],
-        show_countries: false,
-    }.tmb(0));
+    ui.send_request(
+        UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryCodes {
+                country_codes: vec!["DE".to_string()],
+                priority: 1,
+            }],
+            show_countries: false,
+        }
+        .tmb(0),
+    );
     thread::sleep(Duration::from_millis(500));
     let mut client = last_node.make_client(8080, 5000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
