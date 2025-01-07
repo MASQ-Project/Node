@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use std::str::FromStr;
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -29,6 +30,29 @@ impl MASQNodeCluster {
         MASQNodeCluster::docker_version()?;
         MASQNodeCluster::cleanup()?;
         MASQNodeCluster::create_network()?;
+        let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
+            Ok(ref hnpd) if !hnpd.is_empty() => Some(hnpd.clone()),
+            _ => None,
+        };
+        if Self::is_in_jenkins() {
+            MASQNodeCluster::interconnect_network()?;
+        }
+        Ok(MASQNodeCluster {
+            startup_configs: HashMap::new(),
+            real_nodes: HashMap::new(),
+            mock_nodes: HashMap::new(),
+            host_node_parent_dir,
+            next_index: 1,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
+        })
+    }
+
+    pub fn start_world(countries: Vec<(Ipv4Addr, &str)>) -> Result<MASQNodeCluster, String> {
+        MASQNodeCluster::docker_version()?;
+        MASQNodeCluster::cleanup()?;
+        for (ip, country) in countries {
+            MASQNodeCluster::create_world_network(ip, country)?;
+        }
         let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
             Ok(ref hnpd) if !hnpd.is_empty() => Some(hnpd.clone()),
             _ => None,
@@ -63,9 +87,16 @@ impl MASQNodeCluster {
 
     pub fn start_real_node(&mut self, config: NodeStartupConfig) -> MASQRealNode {
         let index = self.next_index;
+        let network= &config.world_network.clone();
         self.next_index += 1;
         let node = MASQRealNode::start(config, index, self.host_node_parent_dir.clone());
         let name = node.name().to_string();
+        match network {
+            Some((country, _)) => {
+                MASQNodeCluster::interconnect_world_network(country, node.name().clone())?;
+            },
+            _ => {},
+        }
         self.real_nodes.insert(name.clone(), node);
         self.real_nodes.get(&name).unwrap().clone()
     }
@@ -339,17 +370,17 @@ impl MASQNodeCluster {
     }
 
     #[allow(dead_code)]
-    fn interconnect_world_network(network_one: &str, network_two: &str) -> Result<(), String> {
+    fn interconnect_world_network(network_one: &str, container: &str) -> Result<(), String> {
         let mut command = Command::new(
             "docker",
-            Command::strings(vec!["network", "connect", network_one, network_two]),
+            Command::strings(vec!["network", "connect", network_one, container]),
         );
         match command.wait_for_exit() {
             0 => Ok(()),
             _ => Err(format!(
-                "Could not connect network {} to {}: {}",
+                "Could not connect network {} to conatiner {}: {}",
                 network_one,
-                network_two,
+                container,
                 command.stderr_as_string()
             )),
         }

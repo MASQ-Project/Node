@@ -36,6 +36,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
+use serde_cbor::Value;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 1000;
@@ -135,6 +136,7 @@ pub struct NodeStartupConfig {
     pub scans_opt: Option<bool>,
     pub log_level_opt: Option<Level>,
     pub ui_port_opt: Option<u16>,
+    pub world_network: Option<(String, Ipv4Addr)>
 }
 
 impl Default for NodeStartupConfig {
@@ -167,6 +169,7 @@ impl NodeStartupConfig {
             scans_opt: None,
             log_level_opt: None,
             ui_port_opt: None,
+            world_network: None,
         }
     }
 
@@ -430,6 +433,7 @@ pub struct NodeStartupConfigBuilder {
     log_level_opt: Option<Level>,
     ui_port_opt: Option<u16>,
     db_password: Option<String>,
+    world_network: Option<(String, Ipv4Addr)>,
 }
 
 impl NodeStartupConfigBuilder {
@@ -486,6 +490,7 @@ impl NodeStartupConfigBuilder {
             log_level_opt: None,
             ui_port_opt: None,
             db_password: Some("password".to_string()),
+            world_network: None,
         }
     }
 
@@ -512,6 +517,7 @@ impl NodeStartupConfigBuilder {
             log_level_opt: config.log_level_opt,
             ui_port_opt: config.ui_port_opt,
             db_password: config.db_password_opt.clone(),
+            world_network: config.world_network.clone(),
         }
     }
 
@@ -646,6 +652,11 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn world_network(mut self, value: Option<(String, Ipv4Addr)>) -> Self {
+        self.world_network = value;
+        self
+    }
+
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
             neighborhood_mode: self.neighborhood_mode,
@@ -669,6 +680,7 @@ impl NodeStartupConfigBuilder {
             scans_opt: self.scans_opt,
             log_level_opt: self.log_level_opt,
             ui_port_opt: self.ui_port_opt,
+            world_network: self.world_network,
         }
     }
 }
@@ -808,7 +820,10 @@ impl MASQRealNode {
         host_node_parent_dir: Option<String>,
         docker_run_fn: RunDockerFn,
     ) -> Self {
-        let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
+        let ip_addr = match startup_config.world_network {
+            Some((_, ip_add)) => IpAddr::V4(ip_add),
+            None => IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8))
+        };
         MASQNodeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
             LocalIpInfo::ZeroHop => startup_config,
