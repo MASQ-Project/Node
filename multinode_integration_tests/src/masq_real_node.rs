@@ -36,7 +36,6 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
-use serde_cbor::Value;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 1000;

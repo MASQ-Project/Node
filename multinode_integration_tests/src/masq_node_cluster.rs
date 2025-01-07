@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
-use std::str::FromStr;
+
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -93,7 +93,7 @@ impl MASQNodeCluster {
         let name = node.name().to_string();
         match network {
             Some((country, _)) => {
-                MASQNodeCluster::interconnect_world_network(country, node.name().clone())?;
+                MASQNodeCluster::interconnect_world_network(country, node.name().clone()).unwrap();
             },
             _ => {},
         }
