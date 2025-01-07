@@ -366,7 +366,7 @@ impl MASQNodeCluster {
     }
 
     #[allow(dead_code)]
-    fn interconnect_world_network(network_one: &str, container: &str) -> Result<(), String> {
+    pub fn interconnect_world_network(network_one: &str, container: &str) -> Result<(), String> {
         let mut command = Command::new(
             "docker",
             Command::strings(vec!["network", "connect", network_one, container]),
