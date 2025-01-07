@@ -386,6 +386,11 @@ impl MASQNodeCluster {
     fn create_world_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {
         let mut command = Command::new(
             "docker",
+            Command::strings(vec!["network", "rm", name]),
+        );
+        command.wait_for_exit();
+        let mut command = Command::new(
+            "docker",
             Command::strings(vec![
                 "network",
                 "create",
