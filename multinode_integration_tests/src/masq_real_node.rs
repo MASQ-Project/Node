@@ -851,7 +851,7 @@ impl MASQRealNode {
             None => MASQNodeUtils::find_project_root(),
         };
 
-        docker_run_fn(&root_dir, ip_addr, name, network).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, name, network.clone()).expect("docker run");
 
         let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
         let ui_port_pair = format!("{}:{}", ui_port, ui_port);
@@ -1063,7 +1063,9 @@ impl MASQRealNode {
         root_dir: &str,
         ip_addr: IpAddr,
         container_name_ref: &str,
+        network: CountryNetworkPack,
     ) -> Result<(), String> {
+        let _ = network;
         let container_name = container_name_ref.to_string();
         let node_command_dir = format!("{}/node/target/release", root_dir);
         let host_node_home_dir = Self::node_home_dir(root_dir, container_name_ref);
