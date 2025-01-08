@@ -40,7 +40,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
                         cz_country_pack.clone(),
                         Ipv4Addr::new(197, 198, 0, index * 3 + 1u8),
                     )),
-                false => Some((de_country_pack.clone(), Ipv4Addr::new(57, 57, 0, index * 3 + 1u8))),
+                false => Some((de_country_pack.clone(), Ipv4Addr::new(57, 57, 0, 3 + 1u8))),
             };
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
