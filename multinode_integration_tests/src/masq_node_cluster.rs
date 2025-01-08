@@ -49,6 +49,7 @@ impl MASQNodeCluster {
     pub fn start_world(countries: Vec<(Ipv4Addr, &str)>) -> Result<MASQNodeCluster, String> {
         MASQNodeCluster::docker_version()?;
         MASQNodeCluster::cleanup()?;
+        MASQNodeCluster::create_network()?;
         for (ip, country) in countries {
             MASQNodeCluster::create_world_network(ip, country)?;
         }
@@ -56,9 +57,6 @@ impl MASQNodeCluster {
             Ok(ref hnpd) if !hnpd.is_empty() => Some(hnpd.clone()),
             _ => None,
         };
-        if Self::is_in_jenkins() {
-            MASQNodeCluster::interconnect_network()?;
-        }
         Ok(MASQNodeCluster {
             startup_configs: HashMap::new(),
             real_nodes: HashMap::new(),
