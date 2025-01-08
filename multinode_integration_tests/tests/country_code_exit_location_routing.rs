@@ -50,7 +50,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
             .neighbor(nodes.last().unwrap().node_reference())
             .consuming_wallet_info(make_consuming_wallet_info("last_node"))
             .chain(cluster.chain)
-            .world_network(Some(("czechia".to_string(), Ipv4Addr::new(57, 57, 0, 18))))
+            .world_network(None)
             // This line is commented out because for some reason the installation of iptables-persistent hangs forever on
             // bullseye-slim. Its absence means that the NodeStartupConfigBuilder::open_firewall_port() function won't work, but
             // at the time of this comment it's used only in this one place, where it adds no value. So we decided to
