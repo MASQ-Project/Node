@@ -56,6 +56,7 @@ pub const DEFAULT_MNEMONIC_PHRASE: &str =
     "lamp sadness busy twist illegal task neither survey copper object room project";
 pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct CountryNetworkPack {
     pub name: String,
     pub subnet: Ipv4Addr,
