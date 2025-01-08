@@ -21,6 +21,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .chain(cluster.chain)
+            .world_network(Some(("czechia".to_string(), Ipv4Addr::new(197, 198, 0, 0))))
             .build(),
     );
 
@@ -28,10 +29,10 @@ fn http_end_to_end_routing_test_with_exit_location() {
         .map(|index| {
             let country = match index <= 2 {
                 true => Some((
-                    "germany".to_string(),
+                    "czechia".to_string(),
                     Ipv4Addr::new(197, 198, 0, index + 1u8),
                 )),
-                false => Some(("czechia".to_string(), Ipv4Addr::new(57, 57, 0, index + 1u8))),
+                false => Some(("germany".to_string(), Ipv4Addr::new(57, 57, 0, index + 1u8))),
             };
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()

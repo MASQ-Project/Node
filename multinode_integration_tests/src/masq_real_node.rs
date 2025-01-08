@@ -820,7 +820,7 @@ impl MASQRealNode {
         docker_run_fn: RunDockerFn,
     ) -> Self {
         let ip_addr = match startup_config.world_network {
-            Some((_, ip_add)) => IpAddr::V4(ip_add),
+            Some((_, ip)) => IpAddr::V4(ip),
             None => IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)),
         };
         MASQNodeUtils::clean_up_existing_container(name);
