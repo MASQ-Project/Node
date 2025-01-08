@@ -327,17 +327,11 @@ impl BlockchainInterfaceWeb3 {
         end_block_marker: BlockMarker,
         logger: &Logger,
     ) -> u64 {
-        // TODO: GH-744: Test Drive Me
-
         match end_block_marker {
-            BlockMarker::Value(end_block_number) => {
-                eprintln!("Found from end_block");
-                end_block_number + 1
-            }
+            BlockMarker::Value(end_block_number) => end_block_number + 1,
             BlockMarker::Uninitialized => {
                 match Self::find_highest_block_marker_from_txs(transactions) {
                     BlockMarker::Value(block_number) => {
-                        eprintln!("Found from txns");
                         debug!(
                             logger,
                             "Discovered new start block number from transaction logs: {:?}",
@@ -347,14 +341,8 @@ impl BlockchainInterfaceWeb3 {
                         block_number + 1
                     }
                     BlockMarker::Uninitialized => match start_block_marker {
-                        BlockMarker::Value(start_block) => {
-                            eprintln!("Found from start block");
-                            start_block + 1
-                        }
-                        BlockMarker::Uninitialized => {
-                            eprintln!("Used the fresh value");
-                            FRESH_START_BLOCK
-                        }
+                        BlockMarker::Value(start_block) => start_block + 1,
+                        BlockMarker::Uninitialized => FRESH_START_BLOCK,
                     },
                 }
             }
@@ -380,10 +368,6 @@ impl BlockchainInterfaceWeb3 {
                 match local_end_block_marker {
                     BlockMarker::Uninitialized => BlockMarker::Value(response_block),
                     BlockMarker::Value(local_end_block_number) => {
-                        eprintln!(
-                            "Local: {}, Response: {}",
-                            local_end_block_number, response_block
-                        );
                         BlockMarker::Value(local_end_block_number.min(response_block))
                     }
                 }
