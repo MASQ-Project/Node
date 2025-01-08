@@ -56,6 +56,12 @@ pub const DEFAULT_MNEMONIC_PHRASE: &str =
     "lamp sadness busy twist illegal task neither survey copper object room project";
 pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
 
+pub struct CountryNetworkPack {
+    pub name: String,
+    pub subnet: Ipv4Addr,
+    pub dns_target: Ipv4Addr,
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum EarningWalletInfo {
     None,
@@ -135,7 +141,7 @@ pub struct NodeStartupConfig {
     pub scans_opt: Option<bool>,
     pub log_level_opt: Option<Level>,
     pub ui_port_opt: Option<u16>,
-    pub world_network: Option<(String, Ipv4Addr)>,
+    pub world_network: Option<(CountryNetworkPack, Ipv4Addr)>,
 }
 
 impl Default for NodeStartupConfig {
@@ -432,7 +438,7 @@ pub struct NodeStartupConfigBuilder {
     log_level_opt: Option<Level>,
     ui_port_opt: Option<u16>,
     db_password: Option<String>,
-    world_network: Option<(String, Ipv4Addr)>,
+    world_network: Option<(CountryNetworkPack, Ipv4Addr)>,
 }
 
 impl NodeStartupConfigBuilder {
@@ -651,7 +657,7 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn world_network(mut self, value: Option<(String, Ipv4Addr)>) -> Self {
+    pub fn country_network(mut self, value: Option<(CountryNetworkPack, Ipv4Addr)>) -> Self {
         self.world_network = value;
         self
     }
@@ -819,15 +825,20 @@ impl MASQRealNode {
         host_node_parent_dir: Option<String>,
         docker_run_fn: RunDockerFn,
     ) -> Self {
-        let ip_addr = match startup_config.world_network {
-            Some((_, ip)) => IpAddr::V4(ip),
-            None => IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)),
+        let (ip_addr, network) = match &startup_config.world_network {
+            Some((country, ip)) => (IpAddr::V4(*ip), country),
+            None => (IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &CountryNetworkPack {
+                name: "integration_net".to_string(),
+                subnet: Ipv4Addr::new(127,0,0,0),
+                dns_target: Ipv4Addr::new(127,0,0,1)
+            }),
         };
         MASQNodeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
             LocalIpInfo::ZeroHop => startup_config,
             LocalIpInfo::DistributedUnknown => NodeStartupConfigBuilder::copy(&startup_config)
                 .ip(ip_addr)
+                .dns_target(IpAddr::from(network.dns_target))
                 .build(),
             LocalIpInfo::DistributedKnown(ip_addr) => panic!(
                 "Can't pre-specify the IP address of a MASQRealNode: {}",
@@ -839,7 +850,7 @@ impl MASQRealNode {
             None => MASQNodeUtils::find_project_root(),
         };
 
-        docker_run_fn(&root_dir, ip_addr, name).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, name, network).expect("docker run");
 
         let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
         let ui_port_pair = format!("{}:{}", ui_port, ui_port);
@@ -997,6 +1008,7 @@ impl MASQRealNode {
         root_dir: &str,
         ip_addr: IpAddr,
         container_name_ref: &str,
+        network: CountryNetworkPack,
     ) -> Result<(), String> {
         let container_name = container_name_ref.to_string();
         let node_command_dir = format!("{}/node/target/release", root_dir);
@@ -1016,11 +1028,11 @@ impl MASQRealNode {
             "--ip",
             ip_addr_string.as_str(),
             "--dns",
-            "127.0.0.1",
+            network.dns_target.to_string().as_str(),
             "--name",
             container_name.as_str(),
             "--net",
-            "integration_net",
+            network.name.as_str(),
             "-v",
             node_binary_v_param.as_str(),
             "-v",

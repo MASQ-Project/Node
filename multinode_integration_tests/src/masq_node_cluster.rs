@@ -5,7 +5,7 @@ use crate::masq_mock_node::{
     MutableMASQMockNodeStarter,
 };
 use crate::masq_node::{MASQNode, MASQNodeUtils};
-use crate::masq_real_node::MASQRealNode;
+use crate::masq_real_node::{CountryNetworkPack, MASQRealNode};
 use crate::masq_real_node::NodeStartupConfig;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
@@ -46,12 +46,12 @@ impl MASQNodeCluster {
         })
     }
 
-    pub fn start_world(countries: Vec<(Ipv4Addr, &str)>) -> Result<MASQNodeCluster, String> {
+    pub fn start_world(countries: HashMap<&str, CountryNetworkPack>) -> Result<MASQNodeCluster, String> {
         MASQNodeCluster::docker_version()?;
         MASQNodeCluster::cleanup()?;
         MASQNodeCluster::create_network()?;
-        for (ip, country) in countries {
-            MASQNodeCluster::create_world_network(ip, country)?;
+        for (name, country) in countries {
+            MASQNodeCluster::create_country_network(country.subnet, name)?;
         }
         let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
             Ok(ref hnpd) if !hnpd.is_empty() => Some(hnpd.clone()),
@@ -89,7 +89,7 @@ impl MASQNodeCluster {
         let node = MASQRealNode::start(config, index, self.host_node_parent_dir.clone());
         let name = node.name().to_string();
         if let Some((country, _)) = network {
-            MASQNodeCluster::interconnect_world_network(country, node.name()).unwrap();
+            MASQNodeCluster::interconnect_world_network(country.name.as_str(), node.name()).unwrap();
         }
         self.real_nodes.insert(name.clone(), node);
         self.real_nodes.get(&name).unwrap().clone()
@@ -381,7 +381,7 @@ impl MASQNodeCluster {
     }
 
     #[allow(dead_code)]
-    fn create_world_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {
+    fn create_country_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {
         let mut command = Command::new(
             "docker",
             Command::strings(vec!["network", "rm", name]),

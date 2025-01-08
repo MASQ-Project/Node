@@ -1,44 +1,53 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::collections::HashMap;
 use masq_lib::messages::{CountryCodes, ToMessageBody, UiSetExitLocationRequest};
 use masq_lib::utils::index_of;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{
-    make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
-};
+use multinode_integration_tests_lib::masq_real_node::{CountryNetworkPack, make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder};
 use std::net::Ipv4Addr;
+use std::ops::Deref;
 use std::thread;
 use std::time::Duration;
 
 #[test]
 fn http_end_to_end_routing_test_with_exit_location() {
-    let countries = vec![
-        (Ipv4Addr::new(197, 198, 0, 0), "czechia"),
-        (Ipv4Addr::new(57, 57, 0, 0), "germany"),
-    ];
-    let mut cluster = MASQNodeCluster::start_world(countries).unwrap();
+    let mut countries = HashMap::from([
+        ("czechia", CountryNetworkPack {
+            name: "czechia".to_string(),
+            subnet: Ipv4Addr::new(197, 198, 0, 0),
+            dns_target: Ipv4Addr::new(197, 198, 0, 1),
+        }),
+        ("germany", CountryNetworkPack {
+            name: "germany".to_string(),
+            subnet: Ipv4Addr::new(57, 57, 0, 0),
+            dns_target: Ipv4Addr::new(57, 57, 0, 1),
+        })
+    ]);
+    let mut cluster = MASQNodeCluster::start_world(countries.clone()).unwrap();
+    let cz_country_pack = countries.remove("czechia").unwrap();
+    let de_country_pack = countries.remove("germany").unwrap();
     let first_node = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
             .chain(cluster.chain)
-            .world_network(Some(("czechia".to_string(), Ipv4Addr::new(197, 198, 0, 0))))
+            .country_network(Some((cz_country_pack.clone(), Ipv4Addr::new(197, 198, 0, 2))))
             .build(),
     );
-
     let nodes = (0..6)
         .map(|index| {
             let country = match index <= 2 {
                 true => Some((
-                    "czechia".to_string(),
-                    Ipv4Addr::new(197, 198, 0, index + 1u8),
-                )),
-                false => Some(("germany".to_string(), Ipv4Addr::new(57, 57, 0, index + 1u8))),
+                        cz_country_pack.clone(),
+                        Ipv4Addr::new(197, 198, 0, index * 3 + 1u8),
+                    )),
+                false => Some((de_country_pack.clone(), Ipv4Addr::new(57, 57, 0, index * 3 + 1u8))),
             };
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(first_node.node_reference())
                     .chain(cluster.chain)
-                    .world_network(country)
+                    .country_network(country)
                     .build(),
             )
         })
@@ -51,7 +60,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
             .neighbor(nodes.last().unwrap().node_reference())
             .consuming_wallet_info(make_consuming_wallet_info("last_node"))
             .chain(cluster.chain)
-            .world_network(None)
+            .country_network(None)
             // This line is commented out because for some reason the installation of iptables-persistent hangs forever on
             // bullseye-slim. Its absence means that the NodeStartupConfigBuilder::open_firewall_port() function won't work, but
             // at the time of this comment it's used only in this one place, where it adds no value. So we decided to
