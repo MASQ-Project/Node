@@ -826,13 +826,14 @@ impl MASQRealNode {
         host_node_parent_dir: Option<String>,
         docker_run_fn: RunDockerFn,
     ) -> Self {
-        let (ip_addr, network) = match &startup_config.world_network {
+        let standard_network_pack = CountryNetworkPack {
+            name: "integration_net".to_string(),
+            subnet: Ipv4Addr::new(127,0,0,0),
+            dns_target: Ipv4Addr::new(127,0,0,1)
+        };
+        let (ip_addr, network) = match startup_config.world_network.clone() {
             Some((country, ip)) => (IpAddr::V4(*ip), country),
-            None => (IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &CountryNetworkPack {
-                name: "integration_net".to_string(),
-                subnet: Ipv4Addr::new(127,0,0,0),
-                dns_target: Ipv4Addr::new(127,0,0,1)
-            }),
+            None => (IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), standard_network_pack),
         };
         MASQNodeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
