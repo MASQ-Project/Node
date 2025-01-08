@@ -832,7 +832,7 @@ impl MASQRealNode {
             dns_target: Ipv4Addr::new(127,0,0,1)
         };
         let (ip_addr, network) = match startup_config.world_network.clone() {
-            Some((country, ip)) => (IpAddr::V4(*ip), country),
+            Some((country, ip)) => (IpAddr::V4(ip), country),
             None => (IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), standard_network_pack),
         };
         MASQNodeUtils::clean_up_existing_container(name);
