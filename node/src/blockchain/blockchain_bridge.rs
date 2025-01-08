@@ -44,7 +44,8 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
-use web3::types::H256;
+use ethereum_types::U64;
+use web3::types::{BlockNumber, H256};
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -67,6 +68,27 @@ pub struct BlockchainBridge {
 struct TransactionConfirmationTools {
     new_pp_fingerprints_sub_opt: Option<Recipient<PendingPayableFingerprintSeeds>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
+}
+
+#[derive(PartialEq, Eq)]
+pub enum BlockScanRange {
+    NoLimit,
+    Range(u64),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BlockMarker {
+    Uninitialized,
+    Value(u64),
+}
+
+impl From<BlockMarker> for BlockNumber {
+    fn from(marker: BlockMarker) -> Self {
+        match marker {
+            BlockMarker::Uninitialized => BlockNumber::Latest,
+            BlockMarker::Value(number) => BlockNumber::Number(U64::from(number)),
+        }
+    }
 }
 
 impl Actor for BlockchainBridge {
@@ -413,19 +435,21 @@ impl BlockchainBridge {
                 .lock()
                 .expect("Unable to lock persistent config in BlockchainBridge");
             let start_block_nbr = match persistent_config_lock.start_block() {
-                Ok(Some(sb)) => sb,
-                Ok(None) => u64::MAX,
-                Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
-            };
+                    Ok(Some(sb)) => BlockMarker::Value(sb),
+                    Ok(None) => BlockMarker::Uninitialized,
+                    Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
+                };
             let max_block_count = match persistent_config_lock.max_block_count() {
-                Ok(Some(mbc)) => mbc,
-                _ => u64::MAX,
-            };
+                    Ok(Some(mbc)) => BlockScanRange::Range(mbc),
+                    Ok(None) => BlockScanRange::NoLimit,
+                    Err(e) => panic!("Cannot retrieve block scan range from database; payments to you may not be processed: {:?}", e)
+                };
             (start_block_nbr, max_block_count)
         };
+
         let logger = self.logger.clone();
-        let fallback_next_start_block_number =
-            Self::calculate_fallback_start_block_number(start_block, max_block_count);
+        // let fallback_next_start_block_number =
+        //     Self::calculate_fallback_start_block_number(start_block, max_block_count);
         let received_payments_subs = self
             .received_payments_subs_opt
             .as_ref()
@@ -437,7 +461,7 @@ impl BlockchainBridge {
             self.blockchain_interface
                 .retrieve_transactions(
                     start_block,
-                    fallback_next_start_block_number,
+                    max_block_count,
                     msg.recipient.address(),
                 )
                 .map_err(move |e| {

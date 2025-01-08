@@ -233,7 +233,6 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        // TODO: GH-744: This was the value from master
         "99995231980000000000",
         "471999999700000000000000000",
     );
