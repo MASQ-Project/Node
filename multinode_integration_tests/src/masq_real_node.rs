@@ -1023,6 +1023,8 @@ impl MASQRealNode {
         let ip_addr_string = format!("{}", ip_addr);
         let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
         let home_v_param = format!("{}:{}", host_node_home_dir, DATA_DIRECTORY);
+        let network_dns_target = network.dns_target.to_string();
+        let network_name = network.name;
 
         let mut args = vec![
             "run",
@@ -1030,11 +1032,11 @@ impl MASQRealNode {
             "--ip",
             ip_addr_string.as_str(),
             "--dns",
-            network.dns_target.to_string().as_str().clone(),
+            network_dns_target.as_str(),
             "--name",
             container_name.as_str(),
             "--net",
-            network.name.as_str().clone(),
+            network_name.as_str().clone(),
             "-v",
             node_binary_v_param.as_str(),
             "-v",

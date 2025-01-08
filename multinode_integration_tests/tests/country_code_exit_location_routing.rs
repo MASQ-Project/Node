@@ -7,7 +7,6 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{CountryNetworkPack, make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder};
 use std::net::Ipv4Addr;
-use std::ops::Deref;
 use std::thread;
 use std::time::Duration;
 
