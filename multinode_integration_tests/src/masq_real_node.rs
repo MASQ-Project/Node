@@ -852,7 +852,7 @@ impl MASQRealNode {
             None => MASQNodeUtils::find_project_root(),
         };
 
-        docker_run_fn(&root_dir, ip_addr, name, network.clone()).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, name, network).expect("docker run");
 
         let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
         let ui_port_pair = format!("{}:{}", ui_port, ui_port);
@@ -1036,7 +1036,7 @@ impl MASQRealNode {
             "--name",
             container_name.as_str(),
             "--net",
-            network_name.as_str().clone(),
+            network_name.as_str(),
             "-v",
             node_binary_v_param.as_str(),
             "-v",
