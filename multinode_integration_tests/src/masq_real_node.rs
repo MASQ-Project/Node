@@ -56,7 +56,7 @@ pub const DEFAULT_MNEMONIC_PHRASE: &str =
     "lamp sadness busy twist illegal task neither survey copper object room project";
 pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CountryNetworkPack {
     pub name: String,
     pub subnet: Ipv4Addr,
@@ -1255,7 +1255,7 @@ struct MASQRealNodeGuts {
     routes_data: bool,
 }
 
-type RunDockerFn = Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>;
+type RunDockerFn = Box<dyn Fn(&str, IpAddr, &str, CountryNetworkPack) -> Result<(), String>>;
 
 impl Drop for MASQRealNodeGuts {
     fn drop(&mut self) {
