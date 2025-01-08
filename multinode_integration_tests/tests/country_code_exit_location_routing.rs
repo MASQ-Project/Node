@@ -38,7 +38,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
             let country = match index <= 2 {
                 true => Some((
                         cz_country_pack.clone(),
-                        Ipv4Addr::new(197, 198, 0, 3 + 1u8),
+                        Ipv4Addr::new(197, 198, 0, 3 + index + 1u8),
                     )),
                 false => Some((de_country_pack.clone(), Ipv4Addr::new(57, 57, 0, 3 + 1u8))),
             };
