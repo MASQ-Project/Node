@@ -105,7 +105,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let num_chain_id = self.chain.rec().num_chain_id;
         Box::new(
             lower_level_interface.get_block_number().then(move |response_block_number_result| {
-                let end_block_marker = Self::calculate_end_block_marker(&logger, start_block_marker, scan_range, response_block_number_result);
+                let end_block_marker = Self::calculate_end_block_marker(start_block_marker, scan_range, response_block_number_result, &logger);
                 debug!(
                     logger,
                     "Retrieving transactions from start block: {:?} to end block: {:?} for: {} chain_id: {} contract: {:#x}",
@@ -328,39 +328,45 @@ impl BlockchainInterfaceWeb3 {
         logger: &Logger,
     ) -> u64 {
         // TODO: GH-744: Test Drive Me
-        let highest_block_marker_from_txs = Self::find_highest_block_marker_from_txs(transactions);
-        if let BlockMarker::Value(block_number) = highest_block_marker_from_txs {
-            debug!(
-                logger,
-                "Discovered new start block number from transaction logs: {:?}", block_number
-            );
 
-            block_number
-        } else {
-            Self::calculate_new_start_block(start_block_marker, end_block_marker)
-        }
-    }
-
-    fn calculate_new_start_block(
-        start_block_marker: BlockMarker,
-        end_block_marker: BlockMarker,
-    ) -> u64 {
         match end_block_marker {
-            BlockMarker::Value(end_block_number) => end_block_number,
-            BlockMarker::Uninitialized => match start_block_marker {
-                BlockMarker::Value(start_block) => start_block,
-                BlockMarker::Uninitialized => FRESH_START_BLOCK,
-            },
+            BlockMarker::Value(end_block_number) => {
+                eprintln!("Found from end_block");
+                end_block_number + 1
+            }
+            BlockMarker::Uninitialized => {
+                match Self::find_highest_block_marker_from_txs(transactions) {
+                    BlockMarker::Value(block_number) => {
+                        eprintln!("Found from txns");
+                        debug!(
+                            logger,
+                            "Discovered new start block number from transaction logs: {:?}",
+                            block_number + 1
+                        );
+
+                        block_number + 1
+                    }
+                    BlockMarker::Uninitialized => match start_block_marker {
+                        BlockMarker::Value(start_block) => {
+                            eprintln!("Found from start block");
+                            start_block + 1
+                        }
+                        BlockMarker::Uninitialized => {
+                            eprintln!("Used the fresh value");
+                            FRESH_START_BLOCK
+                        }
+                    },
+                }
+            }
         }
     }
 
     fn calculate_end_block_marker(
-        logger: &Logger,
         start_block: BlockMarker,
         scan_range: BlockScanRange,
         response_block_number_result: Result<U64, BlockchainError>,
+        logger: &Logger,
     ) -> BlockMarker {
-        // TODO: GH-744: Test Drive Me
         let local_end_block_marker = match (start_block, scan_range) {
             (BlockMarker::Value(start_block_number), BlockScanRange::Range(scan_range)) => {
                 BlockMarker::Value(start_block_number + scan_range)
@@ -374,6 +380,10 @@ impl BlockchainInterfaceWeb3 {
                 match local_end_block_marker {
                     BlockMarker::Uninitialized => BlockMarker::Value(response_block),
                     BlockMarker::Value(local_end_block_number) => {
+                        eprintln!(
+                            "Local: {}, Response: {}",
+                            local_end_block_number, response_block
+                        );
                         BlockMarker::Value(local_end_block_number.min(response_block))
                     }
                 }
@@ -512,7 +522,7 @@ mod tests {
         let port = find_free_port();
         #[rustfmt::skip]
         let _blockchain_client_server = MBCSBuilder::new(port)
-            .ok_response("0x178def", 1)
+            .ok_response("0x7d0", 1)// 2000
             .raw_response(
                 r#"{
                 "jsonrpc":"2.0",
@@ -521,7 +531,7 @@ mod tests {
                     {
                         "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
                         "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a",
-                        "blockNumber":"0x4be663",
+                        "blockNumber":"0x2e",
                         "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
                         "logIndex":"0x0",
                         "removed":false,
@@ -536,7 +546,7 @@ mod tests {
                     {
                         "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
                         "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732b",
-                        "blockNumber":"0x4be662",
+                        "blockNumber":"0x30",
                         "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
                         "logIndex":"0x0",
                         "removed":false,
@@ -566,16 +576,16 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be663 + 1,
+                new_start_block: 42 + 1000 + 1,
                 transactions: vec![
                     BlockchainTransaction {
-                        block_number: 0x4be663,
+                        block_number: 46,
                         from: Wallet::from_str("0x3ab28ecedea6cdb6feed398e93ae8c7b316b1182")
                             .unwrap(),
                         wei_amount: 4_503_599_627_370_496u128,
                     },
                     BlockchainTransaction {
-                        block_number: 0x4be662,
+                        block_number: 48,
                         from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                             .unwrap(),
                         wei_amount: 4_503_599_627_370_496u128,
@@ -743,39 +753,6 @@ mod tests {
             })
         );
     }
-
-    // TODO: GH-744: This test was present in master
-    // #[test]
-    // fn blockchain_interface_retrieve_transactions_start_and_end_blocks_can_be_latest() {
-    //     let port = find_free_port();
-    //     let contains_error_causing_to_pick_fallback_value = br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#;
-    //     let _test_server = TestServer::start(
-    //         port,
-    //         vec![contains_error_causing_to_pick_fallback_value.to_vec()],
-    //     );
-    //     let (event_loop_handle, transport) = Http::with_max_parallel(
-    //         &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-    //         REQUESTS_IN_PARALLEL,
-    //     )
-    //         .unwrap();
-    //     let chain = TEST_DEFAULT_CHAIN;
-    //     let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
-    //
-    //     let result = subject.retrieve_transactions(
-    //         BlockNumber::Latest,
-    //         BlockNumber::Latest,
-    //         &make_wallet("earning-wallet"),
-    //     );
-    //
-    //     let expected_new_start_block = BlockNumber::Latest;
-    //     assert_eq!(
-    //         result,
-    //         Ok(RetrievedBlockchainTransactions {
-    //             new_start_block: expected_new_start_block,
-    //             transactions: vec![]
-    //         })
-    //     );
-    // }
 
     #[test]
     fn blockchain_interface_web3_can_build_blockchain_agent() {
@@ -1054,5 +1031,154 @@ mod tests {
             70_000
         );
         assert_eq!(Subject::web3_gas_limit_const_part(Chain::Dev), 55_000);
+    }
+
+    #[test]
+    fn calculate_end_block_marker_works() {
+        let logger = Logger::new("calculate_end_block_marker_works");
+
+        type Subject = BlockchainInterfaceWeb3;
+
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Uninitialized,
+                BlockScanRange::NoLimit,
+                Err(BlockchainError::InvalidResponse),
+                &logger
+            ),
+            BlockMarker::Uninitialized // 000
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Uninitialized,
+                BlockScanRange::NoLimit,
+                Ok(1.into()),
+                &logger
+            ),
+            BlockMarker::Value(1) // 001
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Uninitialized,
+                BlockScanRange::Range(100),
+                Err(BlockchainError::InvalidResponse),
+                &logger
+            ),
+            BlockMarker::Uninitialized // 010
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Uninitialized,
+                BlockScanRange::Range(100),
+                Ok(1.into()),
+                &logger
+            ),
+            BlockMarker::Value(1) // 011
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::NoLimit,
+                Err(BlockchainError::InvalidResponse),
+                &logger
+            ),
+            BlockMarker::Uninitialized // 100
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::NoLimit,
+                Ok(1.into()),
+                &logger
+            ),
+            BlockMarker::Value(1) // 101
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::Range(100),
+                Err(BlockchainError::InvalidResponse),
+                &logger
+            ),
+            BlockMarker::Value(150) // 110
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::Range(100),
+                Ok(120.into()),
+                &logger
+            ),
+            BlockMarker::Value(120) // 111
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::Range(10),
+                Ok(120.into()),
+                &logger
+            ),
+            BlockMarker::Value(50 + 10) // 111
+        );
+    }
+
+    #[test]
+    fn find_new_start_block_works() {
+        let logger = Logger::new("find_new_start_block_works");
+        let transactions = vec![
+            BlockchainTransaction {
+                block_number: 10,
+                from: make_wallet("wallet_1"),
+                wei_amount: 1000,
+            },
+            BlockchainTransaction {
+                block_number: 60,
+                from: make_wallet("wallet_1"),
+                wei_amount: 500,
+            },
+        ];
+
+        type Subject = BlockchainInterfaceWeb3;
+
+        // Case 1: end_block_marker is Value
+        assert_eq!(
+            Subject::find_new_start_block(
+                &[],
+                BlockMarker::Uninitialized,
+                BlockMarker::Value(100),
+                &logger
+            ),
+            101
+        );
+        // Case 2: end_block_marker is Uninitialized, highest block in transactions is Value
+        assert_eq!(
+            Subject::find_new_start_block(
+                &transactions,
+                BlockMarker::Uninitialized,
+                BlockMarker::Uninitialized,
+                &logger
+            ),
+            61
+        );
+        // Case 3: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Value
+        assert_eq!(
+            Subject::find_new_start_block(
+                &[],
+                BlockMarker::Value(50),
+                BlockMarker::Uninitialized,
+                &logger
+            ),
+            51
+        );
+        // Case 4: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Uninitialized
+        assert_eq!(
+            Subject::find_new_start_block(
+                &[],
+                BlockMarker::Uninitialized,
+                BlockMarker::Uninitialized,
+                &logger
+            ),
+            FRESH_START_BLOCK
+        );
     }
 }
