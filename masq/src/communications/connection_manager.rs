@@ -10,7 +10,7 @@ use crate::communications::client_listener_thread::{
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
-use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
+use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
 use async_channel::{RecvError, Sender as WSSender};
 use async_trait::async_trait;
 use futures::future::{join_all, try_maybe_done};
@@ -98,7 +98,7 @@ impl ConnectionManagerBootstrapper {
     pub async fn spawn_background_loops(
         &self,
         port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         timeout_millis: u64,
     ) -> Result<ConnManagerLinksToSubordinates, ClientListenerError> {
         let (launcher, connectors) =
@@ -121,7 +121,7 @@ impl ConnectionManagerBootstrapper {
     fn prepare_launch(
         &self,
         port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         timeout_millis: u64,
     ) -> (Launcher, ConnManagerLinksToSubordinates) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();

@@ -122,7 +122,7 @@ mod tests {
     use crate::terminal::WTermInterfaceDup;
     use crate::terminal::{WTermInterface, WriteResult};
     use crate::test_utils::mocks::{
-        make_async_std_streams, make_async_std_streams_with_full_setup, AsyncStdStreamsFactoryMock,
+        make_async_std_streams, make_async_std_streams_with_further_setup, AsyncStdStreamsFactoryMock,
     };
     use itertools::Either;
     use masq_lib::test_utils::utils::make_rt;
@@ -191,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn error_flushing_through_non_interactive_flush_handle() {
-        let (std_streams, stream_handles) = make_async_std_streams_with_full_setup(
+        let (std_streams, stream_handles) = make_async_std_streams_with_further_setup(
             Either::Left(vec![]),
             Some(std::io::Error::from(ErrorKind::BrokenPipe)),
             None,

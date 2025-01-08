@@ -131,7 +131,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse};
     use std::sync::{Arc, Mutex};
 
@@ -160,7 +160,8 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let factory = CommandFactoryReal::new();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = factory
             .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
@@ -203,7 +204,8 @@ mod tests {
                 "boringPassword".to_string(),
             ])
             .unwrap();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 

@@ -411,14 +411,6 @@ impl AsyncByteArrayReader {
         }
     }
 
-    pub fn reading_attempts(&self) -> usize {
-        self.byte_array_reader_inner
-            .lock()
-            .unwrap()
-            .byte_arrays
-            .len()
-    }
-
     pub fn reject_next_write(&mut self, error: Error) {
         todo!()
     }
@@ -437,6 +429,49 @@ impl ByteArrayReaderInner {
             byte_arrays: read_inputs,
             ..Default::default()
         }
+    }
+
+    pub fn read_attempts(&self)->usize{
+        self.byte_arrays.len()
+    }
+}
+
+
+pub struct ReadCounter {
+    inner: ReadCounterInner
+}
+
+impl ReadCounter {
+    pub fn new(stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>) ->Self {
+        Self{ inner: ReadCounterInner::ReadsEnabled {stdin_access_point} }
+    }
+
+    pub fn reading_not_available()->Self{
+        Self {
+            inner: ReadCounterInner::ReadingNotAvailable
+        }
+    }
+
+    pub fn reads(&self) -> usize {
+        match &self.inner {
+            ReadCounterInner::ReadsEnabled { stdin_access_point } => stdin_access_point.lock().unwrap().count_reads(),
+            ReadCounterInner::ReadingNotAvailable => panic!("Trying to assert on stdin which hasn't been provided")
+        }
+    }
+}
+
+enum ReadCounterInner {
+    ReadsEnabled{stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>},
+    ReadingNotAvailable
+}
+
+pub trait HandleToCountReads{
+    fn count_reads(&self) -> usize;
+}
+
+impl From<&AsyncByteArrayReader> for ReadCounter {
+    fn from(value: &AsyncByteArrayReader) -> Self {
+        todo!()
     }
 }
 

@@ -361,7 +361,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConfigurationResponse, UiPaymentThresholds, UiRatePack, UiScanIntervals,
@@ -424,7 +424,8 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = Box::new(subject)
@@ -485,7 +486,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject =
             ConfigurationCommand::new(&["configuration".to_string(), "password".to_string()])
                 .unwrap();
@@ -585,7 +587,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = Box::new(subject)
@@ -649,7 +652,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = ConfigurationCommand::new(&["configuration".to_string()]).unwrap();
 
         let result = Box::new(subject)

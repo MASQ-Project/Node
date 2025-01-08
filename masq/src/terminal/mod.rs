@@ -65,7 +65,7 @@ impl TerminalWriter {
     }
 }
 
-pub trait WTermInterfaceImplementingSend: WTermInterface + Send {}
+pub trait WTermInterfaceDupAndSend: WTermInterfaceDup + Send {}
 
 pub trait WTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle);
@@ -81,9 +81,9 @@ pub trait WTermInterfaceDup: WTermInterface {
 pub trait RWTermInterface {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError>;
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDup;
+    fn write_only_ref(&self) -> &dyn WTermInterfaceDupAndSend;
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>>;
+    fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend>;
 }
 
 #[async_trait]

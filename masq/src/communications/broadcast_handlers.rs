@@ -8,7 +8,7 @@ use crate::communications::connection_manager::{
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceImplementingSend};
+use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
@@ -113,7 +113,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
 pub trait StandardBroadcastHandlerFactory: Send + Sync {
     fn make(
         &self,
-        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         close_sig: BroadcastReceiver<()>,
     ) -> Box<dyn BroadcastHandler<MessageBody>>;
 }
@@ -135,7 +135,7 @@ impl StandardBroadcastHandlerFactoryReal {
 impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
     fn make(
         &self,
-        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         close_sig: BroadcastReceiver<()>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
         Box::new(StandardBroadcastHandlerReal::new(
@@ -150,7 +150,7 @@ pub trait BroadcastHandler<Message>: Send {
 }
 
 pub struct StandardBroadcastHandlerReal {
-    interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+    interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
     close_sig: BroadcastReceiver<()>,
 }
 
@@ -191,7 +191,7 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
 
 impl StandardBroadcastHandlerReal {
     pub fn new(
-        interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         close_sig: BroadcastReceiver<()>,
     ) -> Self {
         Self {
@@ -202,7 +202,7 @@ impl StandardBroadcastHandlerReal {
 
     async fn handle_message_body(
         message_body_result: Option<MessageBody>,
-        terminal_interface: &mut dyn WTermInterfaceImplementingSend,
+        terminal_interface: &mut dyn WTermInterfaceDupAndSend,
     ) {
         let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
         let (stderr, _stderr_flush_handle) = terminal_interface.stderr();
@@ -348,7 +348,7 @@ mod tests {
     use crate::communications::broadcast_handlers::tests::StreamTypeAndTestHandles::{
         Stderr, Stdout,
     };
-    use crate::test_utils::mocks::{AsyncTestStreamHandles, TermInterfaceMock};
+    use crate::test_utils::mocks::{AsyncTestStreamHandles, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
@@ -361,10 +361,11 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_of_setup_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -384,7 +385,7 @@ mod tests {
 
         subject.send(message);
 
-        streams_handle.await_stdout_is_not_empty().await;
+        stream_handles.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         let expected_stdout = "\n\
 Daemon setup has changed:
@@ -396,16 +397,17 @@ data-directory                /home/booga                                       
 NOTE: no changes were made to the setup because the Node is currently running.
 
 NOTE: your data directory was modified to match the chain parameter.\n\n";
-        assert_homogeneous_output_made_via_single_flush(Stdout(&streams_handle), expected_stdout);
-        streams_handle.assert_empty_stderr();
+        assert_homogeneous_output_made_via_single_flush(Stdout(&stream_handles), expected_stdout);
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_ui_log_was_successful() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -417,21 +419,22 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.await_stdout_is_not_empty().await;
+        stream_handles.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
-            Stdout(&streams_handle),
+            Stdout(&stream_handles),
             "\n\n>>  Info: Empty. No Nodes to report to; continuing\n\n",
         );
-        streams_handle.assert_empty_stderr();
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_crashed_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -443,22 +446,23 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.await_stdout_is_not_empty().await;
+        stream_handles.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
-            Stdout(&streams_handle),
+            Stdout(&stream_handles),
             "\nThe Node running as process 1234 terminated:\n------\nUnknown crash reason\n\
             ------\nThe Daemon is once more accepting setup changes.\n\n",
         );
-        streams_handle.assert_empty_stderr();
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_new_password_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -466,22 +470,23 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.await_stdout_is_not_empty().await;
+        stream_handles.await_stdout_is_not_empty().await;
         close_signaler.signalize_close();
         subject.wait_to_finish().await.unwrap();
         assert_homogeneous_output_made_via_single_flush(
-            Stdout(&streams_handle),
+            Stdout(&stream_handles),
             "\nThe Node's database password has changed.\n\n",
         );
-        streams_handle.assert_empty_stderr();
+        stream_handles.assert_empty_stderr();
     }
 
     #[tokio::test]
     async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -492,21 +497,22 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
         subject.send(message);
 
-        streams_handle.await_stderr_is_not_empty().await;
+        stream_handles.await_stderr_is_not_empty().await;
         close_signaler.signalize_close();
         assert_homogeneous_output_made_via_single_flush(
-            Stderr(&streams_handle),
+            Stderr(&stream_handles),
             "\nCannot handle uninventedMessage request: Node is not running.\n\n",
         );
-        streams_handle.assert_empty_stdout();
+        stream_handles.assert_empty_stdout();
     }
 
     #[tokio::test]
     async fn ui_connection_change_broadcast_is_handled_properly() {
-        let (terminal_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -528,10 +534,11 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
-        let (terminal_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
@@ -580,33 +587,34 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_handler_event_loop_terminates_immediately_at_close() {
-        let (terminal_interface, streams_handle) = TermInterfaceMock::new(None);
+        let (term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let broadcast_handle = StandardBroadcastHandlerReal::new(
-            Some(Box::new(terminal_interface)),
+            Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
         )
         .spawn();
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
         broadcast_handle.send(example_broadcast);
-        streams_handle.await_stdout_is_not_empty().await;
-        // Taking advantage of the knowledge that the TermInterface contains and Arc, and therefore
-        // if the background loop finishes the objects having been being used in this spawned task
-        // are dropped and the count of the references on this Arc will decrement
+        stream_handles.await_stdout_is_not_empty().await;
+        // Taking advantage of the TermInterface containing and Arc, and therefore
+        // if the background loop finishes the objects being used until then in this spawned task
+        // are dropped and which is when the count of the references on this Arc will decrement
         let count_before_close =
-            Arc::strong_count(&streams_handle.stdout.as_ref().right().unwrap());
+            Arc::strong_count(&stream_handles.stdout.as_ref().right().unwrap());
 
         close_signaler.signalize_close();
 
         broadcast_handle.wait_to_finish().await.unwrap();
-        let count_after_close = Arc::strong_count(&streams_handle.stdout.as_ref().right().unwrap());
+        let count_after_close = Arc::strong_count(&stream_handles.stdout.as_ref().right().unwrap());
         assert_eq!(count_before_close, 2);
         assert_eq!(count_after_close, 1);
         assert_homogeneous_output_made_via_single_flush(
-            Stdout(&streams_handle),
+            Stdout(&stream_handles),
             "\nThe Node's database password has changed.\n\n",
         );
-        streams_handle.assert_empty_stderr()
+        stream_handles.assert_empty_stderr()
     }
 
     fn assert_homogeneous_output_made_via_single_flush(

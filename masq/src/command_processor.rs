@@ -5,7 +5,6 @@ use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::CommandFactory;
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
-use crate::command_factory_factory::CommandFactoryFactory;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
@@ -29,17 +28,16 @@ impl CommandProcessorFactory {
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         command_context_factory: &dyn CommandContextFactory,
         command_execution_helper_factory: &dyn CommandExecutionHelperFactory,
-        command_factory_factory: &dyn CommandFactoryFactory,
+        command_factory: Box<dyn CommandFactory>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         //TODO is CommandError proper?
         let background_term_interface_opt = match &term_interface {
-            Either::Left(write_only) => None,
-            Either::Right(read_write) => todo!(),
+            Either::Left(_) => None,
+            Either::Right(read_write) => Some(read_write.write_only_clone()),
         };
 
-        let command_context =
-            command_context_factory
+        let command_context = command_context_factory
             .make(ui_port, background_term_interface_opt)
             .await?;
         // let command_context = match CommandContextReal::new(ui_port, background_term_interface_opt, &self.bootstrapper).await {
@@ -49,8 +47,6 @@ impl CommandProcessorFactory {
         // };
 
         let command_execution_helper = command_execution_helper_factory.make();
-
-        let command_factory = command_factory_factory.make();
 
         match term_interface {
             Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(
@@ -260,13 +256,14 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::command_context_factory::CommandContextFactoryReal;
-    use crate::command_factory_factory::CommandFactoryFactoryReal;
+    use crate::command_factory::CommandFactoryReal;
     use crate::commands::check_password_command::CheckPasswordCommand;
     use crate::communications::broadcast_handlers::{
         BroadcastHandleInactive, BroadcastHandler, StandardBroadcastHandlerReal,
     };
     use crate::test_utils::mocks::{
-        StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock, TermInterfaceMock,
+        MockTerminalMode, StandardBroadcastHandlerFactoryMock, StandardBroadcastHandlerMock,
+        TermInterfaceMock,
     };
     use async_trait::async_trait;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
@@ -281,17 +278,17 @@ mod tests {
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactory::default();
-        let (term_interface, _) = TermInterfaceMock::new(None);
+        let term_interface = TermInterfaceMock::default();
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
-        let command_factory_factory = CommandFactoryFactoryReal::default();
+        let command_factory = Box::new(CommandFactoryReal::default());
 
         let result = Arc::new(subject)
             .make(
                 Either::Left(Box::new(term_interface)),
                 &command_context_factory,
                 &command_execution_helper_factory,
-                &command_factory_factory,
+                command_factory,
                 ui_port,
             )
             .await;

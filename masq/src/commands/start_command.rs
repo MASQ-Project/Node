@@ -60,7 +60,7 @@ impl StartCommand {
 mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use std::string::ToString;
@@ -86,7 +86,8 @@ mod tests {
                 redirect_ui_port: 4321,
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["start".to_string()]).unwrap();
 

@@ -261,7 +261,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
     use std::vec;
@@ -508,7 +508,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -559,7 +560,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,

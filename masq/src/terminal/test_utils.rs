@@ -6,7 +6,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
-    WTermInterfaceDup, WriteResult, WriteStreamType,
+    WTermInterfaceDup, WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
 };
 use crate::test_utils::mocks::TerminalWriterTestReceiver;
 use async_trait::async_trait;
@@ -39,7 +39,7 @@ pub enum WritingTestInputByTermInterfaces<'test> {
 
 pub enum InteractiveInterfaceByModes<'test> {
     ReadWrite(&'test dyn WTermInterface),
-    Write(&'test dyn WTermInterfaceDup),
+    Write(&'test dyn WTermInterfaceDupAndSend),
 }
 
 pub async fn test_writing_streams_of_particular_terminal<'test>(

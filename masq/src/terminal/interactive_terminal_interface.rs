@@ -4,7 +4,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDup, WriteResult, WriteStreamType,
+    WTermInterface, WTermInterfaceDup, WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
 use liso::Response;
@@ -24,7 +24,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 pub struct InteractiveRWTermInterface {
     read_liso: Box<dyn LisoInputWrapper>,
-    write_terminal: Box<dyn WTermInterfaceDup>,
+    write_terminal: Box<dyn WTermInterfaceDupAndSend>,
 }
 
 impl InteractiveRWTermInterface {
@@ -65,12 +65,14 @@ impl RWTermInterface for InteractiveRWTermInterface {
         }
     }
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDup {
+    fn write_only_ref(&self) -> &dyn WTermInterfaceDupAndSend {
         self.write_terminal.as_ref()
     }
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>> {
-        Some(self.write_terminal.dup())
+    fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend> {
+        todo!()
+        //self.write_terminal.dup()
+        // Box::new(WTer)
     }
 }
 
@@ -91,6 +93,8 @@ pub struct InteractiveWTermInterface {
     // Keeping them separate, though, prevents mixing message fragments from both
     stderr_utils: WritingUtils,
 }
+
+impl WTermInterfaceDupAndSend for InteractiveWTermInterface {}
 
 impl WTermInterface for InteractiveWTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
@@ -210,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn masq_prompt_is_set_upon_both_initialization_and_for_each_clone_too() {
+    fn masq_prompt_is_set_upon_initialization_as_well_as_for_each_clone() {
         let initial_terminal_prompt_params_arc = Arc::new(Mutex::new(vec![]));
         let cloned_terminal_prompt_params_arc = Arc::new(Mutex::new(vec![]));
         let r_liso_wrapper = LisoInputWrapperMock::default();
@@ -240,7 +244,7 @@ mod tests {
         drop(initial_terminal_prompt_params);
         drop(cloned_terminal_prompt_params);
 
-        rw_subject.write_only_clone_opt().unwrap();
+        rw_subject.write_only_clone();
 
         let cloned_terminal_prompt_params = cloned_terminal_prompt_params_arc.lock().unwrap();
         assert_eq!(
@@ -266,7 +270,7 @@ mod tests {
         let rw_subject =
             InteractiveRWTermInterface::new(Box::new(r_liso_wrapper), Box::new(w_liso_wrapper));
 
-        let w_only_clone = rw_subject.write_only_clone_opt().unwrap();
+        let w_only_clone = rw_subject.write_only_clone();
 
         let w_only_ref = rw_subject.write_only_ref();
 

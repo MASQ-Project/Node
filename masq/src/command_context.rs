@@ -6,7 +6,7 @@ use crate::communications::connection_manager::{
     ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
-use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
+use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
@@ -114,7 +114,7 @@ impl CommandContext for CommandContextReal {
 impl CommandContextReal {
     pub async fn new(
         daemon_ui_port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = bootstrapper

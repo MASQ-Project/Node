@@ -98,7 +98,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
 
@@ -135,7 +135,8 @@ mod tests {
     async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().send_one_way_result(Ok(()));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = factory
             .make(&[
                 "crash".to_string(),
@@ -155,7 +156,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .send_one_way_params(&send_params_arc)
             .send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -187,7 +189,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .send_one_way_params(&send_params_arc)
             .send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["crash".to_string()]).unwrap();
 
@@ -211,7 +214,8 @@ mod tests {
     async fn crash_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .send_one_way_result(Err(ContextError::ConnectionDropped("blah".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles, _) =
+            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
         let subject = CrashCommand::new(&[
             "crash".to_string(),
             "BlockchainBridge".to_string(),

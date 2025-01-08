@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use tokio::io::{AsyncRead, AsyncWrite};
 use masq_lib::arbitrary_id_stamp_in_trait;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct AsyncStdStreams {
     pub stdin: Box<dyn AsyncRead + Send + Sync + Unpin>,
