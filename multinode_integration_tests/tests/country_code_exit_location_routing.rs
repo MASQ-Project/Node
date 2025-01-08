@@ -67,7 +67,6 @@ fn http_end_to_end_routing_test_with_exit_location() {
             //            .open_firewall_port(8080)
             .build(),
     );
-    MASQNodeCluster::interconnect_world_network("gemany", "test_node_7").unwrap();
 
     thread::sleep(Duration::from_millis(500));
 

@@ -84,13 +84,9 @@ impl MASQNodeCluster {
 
     pub fn start_real_node(&mut self, config: NodeStartupConfig) -> MASQRealNode {
         let index = self.next_index;
-        let network = &config.world_network.clone();
         self.next_index += 1;
         let node = MASQRealNode::start(config, index, self.host_node_parent_dir.clone());
         let name = node.name().to_string();
-        if let Some((country, _)) = network {
-            MASQNodeCluster::interconnect_world_network(country.name.as_str(), node.name()).unwrap();
-        }
         self.real_nodes.insert(name.clone(), node);
         self.real_nodes.get(&name).unwrap().clone()
     }
