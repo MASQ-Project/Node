@@ -339,7 +339,7 @@ impl BlockchainBridge {
                     Ok(None) => BlockMarker::Uninitialized,
                     Err(e) => panic!("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
                 };
-            // TODO: GH-744: Rename this fn to block_scan_range()
+            // TODO: Rename this field to block_scan_range but it'll require changes in database and UI communication
             let block_scan_range_value = match persistent_config_lock.max_block_count() {
                     Ok(Some(range)) => BlockScanRange::Range(range),
                     Ok(None) => BlockScanRange::NoLimit,

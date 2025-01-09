@@ -55,7 +55,7 @@ pub const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
-pub const FRESH_START_BLOCK: u64 = 0; // TODO: GH-744: Test drive me
+pub const FRESH_START_BLOCK: u64 = 0;
 
 pub const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str =
     "To avoid being delinquency-banned, you should \
@@ -488,6 +488,7 @@ mod tests {
             TRANSFER_METHOD_ID,
             "transfer(address,uint256)".keccak256()[0..4],
         );
+        assert_eq!(FRESH_START_BLOCK, 0);
     }
 
     #[test]
