@@ -3173,7 +3173,7 @@ mod tests {
                 .permit_to_send_out();
             subject.scan_timings.pending_payable.handle = Box::new(notify_later_half_mock);
             subject
-        }).await;
+        });
         let mut peer_actors = peer_actors_builder().build();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         peer_actors.accountant = accountant_subs.clone();

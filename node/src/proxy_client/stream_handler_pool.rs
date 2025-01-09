@@ -85,7 +85,7 @@ impl StreamHandlerPoolReal {
                 accountant_sub,
                 proxy_client_subs,
                 stream_writer_channels: HashMap::new(),
-                resolver_wrapper_factory,
+                resolver,
                 logger: Logger::new("ProxyClient"),
                 exit_service_rate,
                 exit_byte_rate,

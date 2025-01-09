@@ -312,7 +312,7 @@ pub fn real_format_function(
 //     INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
 // }
 
-#[cfg(not(feature = "no_test_share"))]
+// #[cfg(not(feature = "no_test_share"))]
 impl Logger {
     pub fn level_enabled(&self, level: Level) -> bool {
         level <= self.level_limit

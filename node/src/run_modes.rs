@@ -241,15 +241,16 @@ impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new();
         let mut server_initializer = self.server_initializer_factory.make();
+        let args_inner = args.to_vec();
+        // TODO Bert thinks the task::spawn() is overkill; wants system.block_on() instead
         let join_handle: JoinHandle<Result<(), String>> = task::spawn(async move {
-            match server_initializer.go(streams, args).await {
+            match server_initializer.go(streams, &args_inner).await {
                 Ok(_) => (),
                 Err(e) => {
                     System::current().stop_with_code(1);
                     return Err(format!("{:?}", e));
                 }
             }
-            // There's only one .join_next() here because there's only ever one future in the JoinSet.
             let result = server_initializer.spawn_long_lived_services().await;
             match result {
                 Ok(x) => panic!(
@@ -325,9 +326,12 @@ mod tests {
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use regex::Regex;
     use std::cell::RefCell;
+    use std::io;
+    use std::io::ErrorKind;
     use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+    use tokio::spawn;
     use tokio::task::JoinSet;
 
     pub struct RunnerMock {
@@ -561,14 +565,13 @@ parm2 - msg2\n"
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
-        let mut join_set = JoinSet::new();
-        join_set.spawn(async { Err(()) });
+        let join_handle = spawn(async { Err(io::Error::from(ErrorKind::BrokenPipe)) });
         runner.server_initializer_factory = Box::new(
             ServerInitializerFactoryMock::default().make_result(Box::new(
                 ServerInitializerMock::default()
                     .go_result(Ok(()))
                     .go_params(&go_params_arc)
-                    .spawn_futures_result(join_set),
+                    .spawn_long_lived_services_result(join_handle),
             )),
         );
         subject.runner = Box::new(runner);

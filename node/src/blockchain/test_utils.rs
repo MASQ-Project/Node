@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::batch_payable_tools::BatchPayableTools;
+use crate::blockchain::batch_payable_tools::{BatchPayableTools, SecP256K1SecretsKeySecretKey};
 use web3::transports::{Batch};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
@@ -361,7 +361,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
             Vec<(
                 TransactionParameters,
                 Web3<Batch<T>>,
-                secp256k1secrets::SecretKey,
+                SecP256K1SecretsKeySecretKey,
             )>,
         >,
     >,
@@ -390,7 +390,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         &self,
         transaction_params: TransactionParameters,
         web3: &Web3<Batch<T>>,
-        key: &secp256k1secrets::SecretKey,
+        key: &SecP256K1SecretsKeySecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         self.sign_transaction_params.lock().unwrap().push((
             transaction_params.clone(),

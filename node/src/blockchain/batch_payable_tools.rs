@@ -14,6 +14,7 @@ pub enum Web3TransportsResult<O> {
     Ok(O)
 }
 
+#[derive(Clone)]
 pub struct SecP256K1SecretsKeySecretKey;
 
 pub trait BatchPayableTools<T>

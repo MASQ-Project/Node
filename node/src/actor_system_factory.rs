@@ -1762,7 +1762,7 @@ mod tests {
             body: crash_request.tmb(123),
         };
         ui_node_addr.try_send(actor_message).unwrap();
-        system.run();
+        system.run().unwrap();
         assert!(
             mercy_signal_rx.try_recv().is_err(),
             "{} while panicking is unable to shut the system down",
@@ -1981,9 +1981,7 @@ mod tests {
             .unwrap();
         let mut b_config = bc_from_earning_wallet(make_wallet("mine"));
         b_config.data_directory = data_dir;
-        let system = System::new(
-            "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
-        );
+        let system = System::new();
         let (addr_tx, addr_rv) = bounded(1);
         let subject = ActorFactoryReal {};
 
@@ -2001,7 +1999,7 @@ mod tests {
         accountant_addr
             .try_send(TestUserDefinedSqliteFnsForNewDelinquencies {})
             .unwrap();
-        assert_eq!(system.run(), 0);
+        system.run().unwrap();
         //we didn't blow up, it recognized the functions
         //this is an example of the error: "no such function: slope_drop_high_bytes"
     }
