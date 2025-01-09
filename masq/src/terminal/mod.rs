@@ -26,7 +26,6 @@ pub enum WriteResult {
 
 #[derive(Debug, PartialEq)]
 pub enum ReadError {
-    ConnectionRefused,
     TerminalOutputInputDisconnected,
     UnexpectedNewValueFromLibrary,
 }
@@ -65,7 +64,9 @@ impl TerminalWriter {
     }
 }
 
-pub trait WTermInterfaceDupAndSend: WTermInterfaceDup + Send {}
+pub trait WTermInterfaceDupAndSend: WTermInterfaceDup + Send {
+    fn write_ref(&self) -> &dyn WTermInterface;
+}
 
 pub trait WTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle);
@@ -81,7 +82,7 @@ pub trait WTermInterfaceDup: WTermInterface {
 pub trait RWTermInterface {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError>;
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDupAndSend;
+    fn write_only_ref(&self) -> &dyn WTermInterface;
 
     fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend>;
 }

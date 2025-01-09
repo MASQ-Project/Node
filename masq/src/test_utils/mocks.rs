@@ -33,7 +33,7 @@ use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::shared_schema::VecU64;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use masq_lib::test_utils::fake_stream_holder::{AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayReaderInner, ByteArrayWriter, ByteArrayWriterInner, HandleToCountReads, ReadCounter, StringAssertionMethods};
+use masq_lib::test_utils::fake_stream_holder::{AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayReaderInner, ByteArrayWriter, ByteArrayWriterInner, HandleToCountReads, StdinReadCounter , StringAssertionMethods};
 use masq_lib::test_utils::websockets_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::localhost;
@@ -192,6 +192,10 @@ impl CommandProcessor for CommandProcessorMock {
         // self.process_results.borrow_mut().remove(0)
     }
 
+    fn write_only_term_interface(&self) -> &dyn WTermInterface {
+        todo!()
+    }
+
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
         todo!()
     }
@@ -206,7 +210,7 @@ impl CommandProcessor for CommandProcessorMock {
 }
 
 impl ProcessorProvidingCommonComponents for CommandProcessorMock {
-    fn components(&mut self) -> &mut CommandProcessorCommon {
+    fn components(&self) -> &CommandProcessorCommon {
         intentionally_blank!()
     }
 }
@@ -732,7 +736,13 @@ pub struct TermInterfaceMock {
     interactive_infrastructure_opt: Option<InteractiveModeInfrastructure>,
     stdout: Arc<Mutex<Vec<String>>>,
     stderr: Arc<Mutex<Vec<String>>>,
+    // TODO: I don't know if we want to keep this
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+}
+
+struct WritingStreamsContainers{
+    stdout: Arc<Mutex<Vec<String>>>,
+    stderr: Arc<Mutex<Vec<String>>>,
 }
 
 impl Default for TermInterfaceMock {
@@ -749,15 +759,16 @@ impl Default for TermInterfaceMock {
 #[async_trait(?Send)]
 impl RWTermInterface for TermInterfaceMock {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError> {
-        todo!()
+        self.interactive_infrastructure_opt.as_ref().unwrap().stdin_read_results.lock().unwrap().stdin_read_results.remove(0)
     }
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDupAndSend {
+    fn write_only_ref(&self) -> &dyn WTermInterface {
         todo!()
     }
 
     fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend> {
-        todo!()
+        let background_terminal = self.interactive_infrastructure_opt.as_ref().expect("This was used as an interactive terminal but not prepared like that").background_terminal_interface_arc_opt.lock().unwrap().take().unwrap();
+        Box::new(background_terminal)
     }
 }
 
@@ -779,7 +790,11 @@ impl WTermInterfaceDup for TermInterfaceMock {
     }
 }
 
-impl WTermInterfaceDupAndSend for TermInterfaceMock {}
+impl WTermInterfaceDupAndSend for TermInterfaceMock {
+    fn write_ref(&self) -> &dyn WTermInterface {
+        todo!()
+    }
+}
 
 impl TermInterfaceMock {
     pub fn new(
@@ -810,8 +825,8 @@ impl TermInterfaceMock {
         let stdout = Arc::new(Mutex::new(vec![]));
         let stderr = Arc::new(Mutex::new(vec![]));
         let stdin_counter = match interactive_infrastructure_opt.as_ref() {
-            Some(infrastructure) => ReadCounter::from(infrastructure),
-            None => ReadCounter::reading_not_available()
+            Some(infrastructure) => StdinReadCounter ::from(infrastructure),
+            None => StdinReadCounter ::reading_not_available()
         };
         let terminal_interface_mock = TermInterfaceMock {
             interactive_infrastructure_opt,
@@ -840,10 +855,12 @@ impl TermInterfaceMock {
                 ) = Self::construct_terminal_with_handles(None);
                 let interactive_infrastructure = InteractiveModeInfrastructure {
                     stdin_read_results: queued_read_line_results_opt
-                        .map(|results| Arc::new(Mutex::new(results))),
-                    background_terminal_interface_opt: Some(Arc::new(Mutex::new(
-                        background_terminal_interface_mock,
-                    ))),
+                        .map(|results|
+                            Arc::new(Mutex::new(ReadLineResults::new(results)))
+                        ).unwrap_or_default(),
+                    background_terminal_interface_arc_opt: Arc::new(Mutex::new(
+                        Some(background_terminal_interface_mock),
+                    )),
                 };
                 Some((
                     interactive_infrastructure,
@@ -874,25 +891,44 @@ impl TermInterfaceMock {
 
 impl HandleToCountReads for ReadLineResults {
     fn count_reads(&self) -> usize {
-        todo!()
+        self.results_initially - self.stdin_read_results.len()
     }
 }
 
-impl From<&InteractiveModeInfrastructure> for ReadCounter {
-    fn from(value: &InteractiveModeInfrastructure) -> Self {
-        todo!()
+impl From<&InteractiveModeInfrastructure> for StdinReadCounter  {
+    fn from(infrastructure: &InteractiveModeInfrastructure) -> Self {
+        StdinReadCounter::new(infrastructure.stdin_read_results.clone())
     }
 }
 
 pub struct InteractiveModeInfrastructure {
     stdin_read_results: Arc<Mutex<ReadLineResults>>,
     // Optional so that it can be pulled out
-    background_terminal_interface_opt: Option<Arc<Mutex<TermInterfaceMock>>>,
+    background_terminal_interface_arc_opt: Arc<Mutex<Option<TermInterfaceMock>>>,
 }
 
 struct ReadLineResults {
     stdin_read_results: Vec<Result<ReadInput, ReadError>>,
     results_initially: usize
+}
+
+impl Default for ReadLineResults {
+    fn default() -> Self {
+        Self {
+            stdin_read_results: vec![],
+            results_initially: 0,
+        }
+    }
+}
+
+impl ReadLineResults {
+    fn new(stdin_read_results: Vec<Result<ReadInput, ReadError>>)-> Self {
+        let results_initially = stdin_read_results.len();
+        Self {
+            stdin_read_results,
+            results_initially,
+        }
+    }
 }
 
 pub enum MockTerminalMode {
@@ -902,14 +938,14 @@ pub enum MockTerminalMode {
 }
 
 pub struct AsyncTestStreamHandles {
-    pub stdin_counter: ReadCounter,
+    pub stdin_counter: StdinReadCounter ,
     pub stdout: Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
     pub stderr: Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
 }
 
 impl AsyncTestStreamHandles {
-    pub fn counted_reads(&self)-> usize{
-        self.stdin_counter.reads()
+    pub fn reads_opt(&self)-> Option<usize>{
+        self.stdin_counter.reads_opt()
     }
     // Recommended to call only once (and keep the result) as repeated calls may be unnecessarily
     // expensive
@@ -1071,7 +1107,7 @@ pub fn make_async_std_streams_with_further_setup(
     };
 
     let reader_ref = stdin.reader.lock().unwrap();
-    let stdin_counter = ReadCounter::from(reader_ref.deref());
+    let stdin_counter = StdinReadCounter ::from(reader_ref.deref());
     drop(reader_ref);
     let (stdout, stdout_clone) = make_async_std_write_stream(stdout_write_err_opt);
     let (stderr, stderr_clone) = make_async_std_write_stream(stderr_write_err_opt);

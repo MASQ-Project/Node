@@ -168,6 +168,7 @@ mod tests {
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
+    use masq_lib::test_utils::fake_stream_holder::StdinReadCounter ;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -360,8 +361,8 @@ mod tests {
                             stderr_opt: Some("Unrecognized command: 'booga'\n"),
                         }
                         .into(),
+                    read_attempts_opt: None,
                 },
-                read_attempts_opt: None,
             },
             BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_created(
                 broadcast_handle_term_interface_opt.as_ref(),
@@ -489,8 +490,8 @@ mod tests {
                             stderr_opt: Some("Transmission problem: Booga!\n"),
                         }
                         .into(),
+                    read_attempts_opt: None,
                 },
-                read_attempts_opt: None,
             },
             BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_created(
                 broadcast_handler_term_interface_opt.as_ref(),
@@ -829,9 +830,9 @@ mod tests {
                             stdout: vec!["setup command", "start command"],
                             stderr: vec![],
                         }
-                        .into()
+                        .into(),
+                    read_attempts_opt: Some(3),
                 },
-                read_attempts_opt: Some(3),
             },
             BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles_opt.unwrap()),
         )
@@ -851,7 +852,7 @@ mod tests {
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
-        let stdin_read_line_results = vec![Err(ReadError::ConnectionRefused)];
+        let stdin_read_line_results = vec![Err(ReadError::TerminalOutputInputDisconnected)];
         let (
             rw_term_interface,
             prime_term_interface_stream_handles,
@@ -868,7 +869,7 @@ mod tests {
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
-        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default();
+        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default().make_result(Box::new(CommandExecutionHelperMock::default()));
         let mut subject = Main {
             std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
@@ -904,8 +905,9 @@ mod tests {
                             stderr_opt: Some("ConnectionRefused\n"),
                         }
                         .into(),
-                },
-                read_attempts_opt: Some(1), // TODO does this work?
+                    // TODO does this work?
+                    read_attempts_opt: Some(1),
+                }
             },
             BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles_opt.unwrap()),
         )
@@ -942,11 +944,11 @@ mod tests {
         for OnePieceWriteStreamsAssertion<'_>
     {
         fn is_empty_stdout_output_expected(&self) -> bool {
-            self.stdout.is_empty()
+            self.stdout_opt.is_none()
         }
 
         fn is_empty_stderr_output_expected(&self) -> bool {
-            self.stderr.is_empty()
+            self.stderr_opt.is_none()
         }
     }
 
@@ -1001,13 +1003,13 @@ mod tests {
     struct TerminalInterfaceAssertionMatrix<'test> {
         term_interface_stream_handles: &'test AsyncTestStreamHandles,
         expected_writes: WriteStreamsAssertion<'test>,
+        // None ... non-interactive mode,
+        // Some ... interactive mode
+        read_attempts_opt: Option<usize>,
     }
 
     struct ProcessorTerminalInterfaceAssertionMatrix<'test> {
         standard_assertions: TerminalInterfaceAssertionMatrix<'test>,
-        // None ... non-interactive mode,
-        // Some ... interactive mode
-        read_attempts_opt: Option<usize>,
     }
 
     impl<'test> ProcessorTerminalInterfaceAssertionMatrix<'test> {
@@ -1057,17 +1059,19 @@ mod tests {
         async fn assert(self) {
             let incidental_streams = self.incidental_std_streams;
             assert_stream_writes(incidental_streams.stream_handles, incidental_streams.write_streams).await;
-            assert_stream_reads(incidental_streams.handles, None);
+            assert_stream_reads(&incidental_streams.stream_handles, Some(0));
 
             let processor_aspiring_streams = self.processor_std_streams;
             assert_stream_writes(processor_aspiring_streams.stream_handles, processor_aspiring_streams.write_streams).await;
-            assert_stream_reads(processor_aspiring_streams.handles, None);
+            assert_stream_reads(&processor_aspiring_streams.stream_handles, Some(0));
 
             let processor_term_interface = self.processor_term_interface;
-            let writes = processor_term_interface.standard_assertions;
+            let processor_term_interface_stream_handles = processor_term_interface.standard_assertions.term_interface_stream_handles;
+            let processor_term_interface_expected_writes = processor_term_interface.standard_assertions.expected_writes;
+            let processor_term_interface_expected_read_attempts_opt = processor_term_interface.standard_assertions.read_attempts_opt;
 
-            assert_stream_writes(writes.term_interface_stream_handles, writes.expected_writes).await;
-            assert_stream_reads(processor_term_interface.handles, expected_read_attempts_opt);
+            assert_stream_writes(processor_term_interface_stream_handles, processor_term_interface_expected_writes).await;
+            assert_stream_reads(&processor_term_interface_stream_handles, processor_term_interface_expected_read_attempts_opt);
 
             let broadcast_term_interface = self.broadcast_handler_term_interface;
             assert_broadcast_term_interface_outputs(
@@ -1079,12 +1083,12 @@ mod tests {
     }
 
     async fn assert_broadcast_term_interface_outputs<'test>(
-        term_interface_opt: Option<&dyn WTermInterfaceDupAndSend>,
+        term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     ) {
         match (term_interface_opt, expected_std_streams_usage_opt) {
             (Some(w_terminal), Some(expected_usage)) => {
-               assert_stream_writes(expected_usage.term_interface_stream_handles, expected_usage.expected_writes_opt);
+               assert_stream_writes(expected_usage.term_interface_stream_handles, expected_usage.expected_writes);
                 let (mut stdout, mut stdout_flusher) = w_terminal.stdout();
                 let (mut stderr, mut stderr_flusher) = w_terminal.stderr();
                 stdout.write("AbCdEfG").await;
@@ -1098,7 +1102,10 @@ mod tests {
                 assert_eq!(
                     expected_usage.term_interface_stream_handles.stderr_all_in_one(),
                     "1a2b3c4"
-                )}
+                );
+                let reads_opt = expected_usage.term_interface_stream_handles.reads_opt();
+                assert_eq!(reads_opt, None)
+            }
             (None, None) => (),
             (actual_opt, expected_opt) => panic!("Interactive mode was expected: {}. But broadcast terminal interface was created and supplied: {}. (Non-interactive mode is not supposed to have one)", expected_opt.is_some(), actual_opt.is_some())
         }
@@ -1108,6 +1115,9 @@ mod tests {
         original_stream_handles: &AsyncTestStreamHandles,
         expected_writes: WriteStreamsAssertion<'test>,
     ) {
+        fn optional_into_empty_or_populated_string(string_opt: Option<&str>)->String{
+            string_opt.map(|s|s.to_string()).unwrap_or_default()
+        }
         fn owned_strings(strings: &[&str]) -> Vec<String> {
             strings.into_iter().map(|s| s.to_string()).collect()
         }
@@ -1119,7 +1129,7 @@ mod tests {
                     original_stream_handles,
                     &one_piece,
                     |original_stream_handles| original_stream_handles.stdout_all_in_one(),
-                    |one_piece| one_piece.stdout.to_string(),
+                    |one_piece| optional_into_empty_or_populated_string(one_piece.stdout_opt),
                 )
                 .await;
                 assert_single_write_stream(
@@ -1127,7 +1137,7 @@ mod tests {
                     original_stream_handles,
                     &one_piece,
                     |original_stream_handles| original_stream_handles.stderr_all_in_one(),
-                    |one_piece| one_piece.stderr.to_string(),
+                    |one_piece| optional_into_empty_or_populated_string(one_piece.stderr_opt),
                 )
                 .await
             }
@@ -1208,61 +1218,16 @@ mod tests {
         );
     }
 
-    // enum FetchersAndExpectedValues<'stream_handles>{
-    //     StdoutOnePiece{fetcher: Box<&'stream_handles (dyn Future<Output = String>)>, expected_output: String},
-    //     StderrOnePiece{fetcher: Box<&'stream_handles (dyn Future<Output = String>)>, expected_output: String},
-    //     StdoutFlushedStrings{fetcher: Box<&'stream_handles (dyn Future<Output = Vec<String>>)>, expected_output: Vec<String>},
-    //     StderrFlushedStrings{fetcher: Box<&'stream_handles (dyn Future<Output = Vec<String>>)>, expected_output: Vec<String>}
-    // }
-    //
-    // impl FetchersAndExpectedValues<'_> {
-    //     async fn assert(self){
-    //         match self {
-    //             FetchersAndExpectedValues::StdoutOnePiece {fetcher, expected_output} => {
-    //                 Self::assert_single_stream("Stdout", fetcher, expected_output).await
-    //             }
-    //             FetchersAndExpectedValues::StderrOnePiece { fetcher, expected_output } => {
-    //                 Self::assert_single_stream("Stderr", fetcher, expected_output).await
-    //             }
-    //             FetchersAndExpectedValues::StdoutFlushedStrings { fetcher, expected_output } => {
-    //                 Self::assert_single_stream("Stdout", fetcher, expected_output).await
-    //             }
-    //             FetchersAndExpectedValues::StderrFlushedStrings { fetcher, expected_output } => {
-    //                 Self::assert_single_stream("Stderr", fetcher, expected_output).await
-    //             }
-    //         }
-    //     }
-    //
-    //     fn assert_single_stream<ExpectedValues>(std_stream_name: &str, actual_output: ExpectedValues, expected_output: ExpectedValues)where ExpectedValues: Debug + PartialEq{
-    //         assert_eq!(
-    //             actual_output,
-    //             expected_output,
-    //             "We expected this printed by {} {:?} but was {:?}",
-    //             std_stream_name,
-    //             expected_output,
-    //             actual_output
-    //         );
-    //     }
-    // }
-
     fn assert_stream_reads(
-        original_stream_handles: &AsyncTestStreamHandles,
+        std_stream_handles: &AsyncTestStreamHandles,
+        // None means that the stdin was not provided (as in the write-only terminal interface)
         expected_read_attempts_opt: Option<usize>,
     ) {
-        match expected_read_attempts_opt {
-            Some(expected) => {
-                let actual = original_stream_handles
-                    .stdin_counter
-                    .as_ref()
-                    .unwrap()
-                    .reading_attempts();
-                assert_eq!(
-                    actual, expected,
-                    "Expected read attempts ({}) don't match the actual count {}",
-                    expected, actual
-                )
-            }
-            None => (),
+        let actual_reads_opt = std_stream_handles.reads_opt();
+        match (actual_reads_opt, expected_read_attempts_opt) {
+            (Some(actual), Some(expected)) => assert_eq!(actual, expected, "Expected read attempts {} don't match the actual {}", expected, actual),
+            (None, None) => (),
+            (actual_opt, expected_opt) => panic!("Expected {:?} doesn't match the actual {:?}", expected_opt, actual_opt )
         }
     }
 }

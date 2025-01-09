@@ -65,8 +65,8 @@ impl RWTermInterface for InteractiveRWTermInterface {
         }
     }
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDupAndSend {
-        self.write_terminal.as_ref()
+    fn write_only_ref(&self) -> &dyn WTermInterface {
+        self.write_terminal.write_ref()
     }
 
     fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend> {
@@ -94,7 +94,11 @@ pub struct InteractiveWTermInterface {
     stderr_utils: WritingUtils,
 }
 
-impl WTermInterfaceDupAndSend for InteractiveWTermInterface {}
+impl WTermInterfaceDupAndSend for InteractiveWTermInterface {
+    fn write_ref(&self) -> &dyn WTermInterface {
+        todo!()
+    }
+}
 
 impl WTermInterface for InteractiveWTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
@@ -177,11 +181,9 @@ impl FlushHandleInner for InteractiveFlushHandleInner {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::interactive_terminal_interface::{
-        InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND,
-    };
+    use crate::terminal::interactive_terminal_interface::{InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND};
     use crate::terminal::test_utils::{
-        test_writing_streams_of_particular_terminal, InteractiveInterfaceByModes,
+        test_writing_streams_of_particular_terminal, InteractiveInterfaceByUse,
         LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
         WritingTestInput, WritingTestInputByTermInterfaces,
     };
@@ -276,7 +278,7 @@ mod tests {
 
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByModes::ReadWrite(&rw_subject),
+                term_interface: InteractiveInterfaceByUse::RWPrimeInterface(&rw_subject),
                 streams_assertion_handles: rw_liso_println_params.clone(),
             }),
             "read-write subject",
@@ -284,7 +286,7 @@ mod tests {
         .await;
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByModes::Write(w_only_clone.as_ref()),
+                term_interface: InteractiveInterfaceByUse::WOnlyBackgroundInterface(w_only_clone.as_ref()),
                 streams_assertion_handles: w_liso_println_params,
             }),
             "write only clone",
@@ -294,7 +296,7 @@ mod tests {
         assert!(rw_liso_println_params.is_empty());
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByModes::Write(w_only_ref),
+                term_interface: InteractiveInterfaceByUse::WOnlyPrimeInterface(w_only_ref),
                 streams_assertion_handles: rw_liso_println_params,
             }),
             "write only ref",

@@ -9,7 +9,7 @@ use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::ConnectionManagerBootstrapper;
 use crate::masq_short_writeln;
-use crate::terminal::{FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface};
+use crate::terminal::{FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
@@ -48,14 +48,12 @@ impl CommandProcessorFactory {
 
         let command_execution_helper = command_execution_helper_factory.make();
 
+        let command_processor_common = CommandProcessorCommon::new(    command_context,
+                                                                       command_factory,
+                                                                       command_execution_helper);
         match term_interface {
-            Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(
-                command_context,
-                command_factory,
-                command_execution_helper,
-                write_only_ti,
-            ))),
-            Either::Right(read_write_ti) => todo!(),
+            Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(command_processor_common, write_only_ti))),
+            Either::Right(read_write_ti) => Ok(Box::new(CommandProcessorInteractive::new(command_processor_common, read_write_ti))),
         }
     }
 }
@@ -78,11 +76,12 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
 
     async fn handle_command_common(&mut self, command_parts: &[String]) -> Result<(), ()> {
         let components = self.components();
-        let term_interface = components.term_interface.as_ref();
+        let terminal_interface = self.write_only_term_interface();
         let command_factory = components.command_factory.as_ref();
         let command_execution_helper = components.command_execution_helper.as_ref();
         let command_context = components.command_context.as_ref();
-        let (stderr, _flush_handle) = term_interface.stderr();
+        let (stderr, _flush_handle) = terminal_interface.stderr();
+
         let command = match command_factory.make(command_parts) {
             Ok(c) => c,
             Err(UnrecognizedSubcommand(msg)) => {
@@ -96,7 +95,7 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
         };
 
         let res =
-            command_execution_helper.execute_command(command, command_context, term_interface);
+            command_execution_helper.execute_command(command, command_context, terminal_interface);
 
         match res {
             Ok(_) => Ok(()),
@@ -107,6 +106,8 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
         }
     }
 
+    fn write_only_term_interface(&self)-> &dyn WTermInterface;
+
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
 
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
@@ -115,18 +116,32 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
 }
 
 pub trait ProcessorProvidingCommonComponents {
-    fn components(&mut self) -> &mut CommandProcessorCommon;
+    fn components(&self) -> &CommandProcessorCommon;
 }
 
 pub struct CommandProcessorCommon {
-    term_interface: Box<dyn WTermInterface>,
     command_context: Box<dyn CommandContext>,
     command_factory: Box<dyn CommandFactory>,
     command_execution_helper: Box<dyn CommandExecutionHelper>,
 }
 
+impl CommandProcessorCommon {
+    fn new(
+        command_context: Box<dyn CommandContext>,
+        command_factory: Box<dyn CommandFactory>,
+        command_execution_helper: Box<dyn crate::command_processor::CommandExecutionHelper>,
+    ) -> Self {
+        Self {
+            command_context,
+            command_factory,
+            command_execution_helper,
+        }
+    }
+}
+
 pub struct CommandProcessorNonInteractive {
     command_processor_common: CommandProcessorCommon,
+    terminal_interface: Box<dyn WTermInterface>
 }
 
 #[async_trait(?Send)]
@@ -135,6 +150,10 @@ impl CommandProcessor for CommandProcessorNonInteractive {
         let command_args =
             initial_subcommand_opt.expect("Missing command args in non-interactive mode");
         self.handle_command_common(command_args).await
+    }
+
+    fn write_only_term_interface(&self) -> &dyn WTermInterface {
+        todo!()
     }
 
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
@@ -151,44 +170,59 @@ impl CommandProcessor for CommandProcessorNonInteractive {
 }
 
 impl ProcessorProvidingCommonComponents for CommandProcessorNonInteractive {
-    fn components(&mut self) -> &mut CommandProcessorCommon {
-        &mut self.command_processor_common
+    fn components(&self) -> &CommandProcessorCommon {
+        &self.command_processor_common
     }
 }
 
 impl CommandProcessorNonInteractive {
     fn new(
-        command_context: Box<dyn CommandContext>,
-        command_factory: Box<dyn CommandFactory>,
-        command_execution_helper: Box<dyn CommandExecutionHelper>,
-        term_interface: Box<dyn WTermInterface>,
+        command_processor_common: CommandProcessorCommon,
+        terminal_interface: Box<dyn WTermInterface>
     ) -> Self {
-        let command_processor_common = CommandProcessorCommon {
-            term_interface,
-            command_context,
-            command_factory,
-            command_execution_helper,
-        };
         Self {
             command_processor_common,
+            terminal_interface
         }
     }
 }
 
 pub struct CommandProcessorInteractive {
-    context: Box<dyn CommandContext>,
-    command_execution_helper: Box<dyn CommandExecutionHelper>,
+    command_processor_common: CommandProcessorCommon,
+    terminal_interface: Box<dyn RWTermInterface>
+}
+
+impl CommandProcessorInteractive {
+    fn new(command_processor_common: CommandProcessorCommon, terminal_interface: Box<dyn RWTermInterface>) -> CommandProcessorInteractive {
+        Self {
+            command_processor_common,
+            terminal_interface
+        }
+    }
 }
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorInteractive {
-    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
-        // if let Some(synchronizer) = self.context.terminal_interface_opt.clone() {
-        //     let _lock = synchronizer.lock();
-        //     return command.execute(&mut self.context);
-        // }
-        //command.execute(&mut self.context)
-        todo!()
+    async fn process(&mut self, _initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
+        loop {
+            let args = match self.terminal_interface.read_line().await {
+                Ok(read_input) => match read_input {
+                    ReadInput::Line(cmd) => {split_possibly_quoted_cml(cmd)}
+                    ReadInput::Quit => todo!(),
+                    ReadInput::Ignored { .. } => todo!()
+                }
+                Err(e) => todo!()
+            };
+
+            match self.handle_command_common(&args).await {
+                Ok(_) => todo!(),
+                Err(_) => todo!()
+            }
+        }
+    }
+
+    fn write_only_term_interface(&self) -> &dyn WTermInterface {
+        self.terminal_interface.write_only_ref()
     }
 
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
@@ -206,8 +240,8 @@ impl CommandProcessor for CommandProcessorInteractive {
 }
 
 impl ProcessorProvidingCommonComponents for CommandProcessorInteractive {
-    fn components(&mut self) -> &mut CommandProcessorCommon {
-        todo!()
+    fn components(&self) -> &CommandProcessorCommon {
+        &self.command_processor_common
     }
 }
 
@@ -249,6 +283,31 @@ impl CommandExecutionHelper for CommandExecutionHelperReal {
     ) -> Result<(), CommandError> {
         todo!()
     }
+}
+
+fn split_possibly_quoted_cml(input: String) -> Vec<String> {
+    let mut active_single = false;
+    let mut active_double = false;
+    let mut pieces: Vec<String> = vec![];
+    let mut current_piece = String::new();
+    input.chars().for_each(|c| {
+        if c.is_whitespace() && !active_double && !active_single {
+            if !current_piece.is_empty() {
+                pieces.push(current_piece.clone());
+                current_piece.clear();
+            }
+        } else if c == '"' && !active_single {
+            active_double = !active_double;
+        } else if c == '\'' && !active_double {
+            active_single = !active_single;
+        } else {
+            current_piece.push(c);
+        }
+    });
+    if !current_piece.is_empty() {
+        pieces.push(current_piece)
+    }
+    pieces
 }
 
 #[cfg(test)]
@@ -310,6 +369,89 @@ mod tests {
     #[tokio::test]
     async fn interactive_processor_handles_nonexistent_server() {
         test_handles_nonexistent_server(true).await
+    }
+
+
+    #[test]
+    fn split_possibly_quoted_cml_handles_balanced_double_quotes() {
+        let command_line =
+            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth\" "
+                .to_string();
+
+        let result = split_possibly_quoted_cml(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_possibly_quoted_cml_handles_unbalanced_double_quotes() {
+        let command_line =
+            "  first \"second\" third  \"fourth'fifth\" \t sixth \"seventh eighth\tninth  "
+                .to_string();
+
+        let result = split_possibly_quoted_cml(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth'fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_possibly_quoted_cml_handles_balanced_single_quotes() {
+        let command_line =
+            "  first \n 'second' \n third \n 'fourth\"fifth' \t sixth 'seventh eighth\tninth' "
+                .to_string();
+
+        let result = split_possibly_quoted_cml(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth".to_string(),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_possibly_quoted_cml_handles_unbalanced_single_quotes() {
+        let command_line =
+            "  first 'second' third  'fourth\"fifth' \t sixth 'seventh eighth\tninth  ".to_string();
+        let result = split_possibly_quoted_cml(command_line);
+
+        assert_eq!(
+            result,
+            vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "fourth\"fifth".to_string(),
+                "sixth".to_string(),
+                "seventh eighth\tninth  ".to_string(),
+            ]
+        )
     }
 
     #[test]

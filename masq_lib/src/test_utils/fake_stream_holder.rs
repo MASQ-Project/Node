@@ -420,58 +420,70 @@ impl AsyncByteArrayReader {
 pub struct ByteArrayReaderInner {
     byte_arrays: Vec<Vec<u8>>,
     position: usize,
+    // TODO is it ever used somewhat well?
     next_error: Option<Error>,
+    results_initially: usize,
+}
+
+impl HandleToCountReads for ByteArrayReaderInner {
+    fn count_reads(&self) -> usize {
+        self.results_initially - self.byte_arrays.len()
+    }
 }
 
 impl ByteArrayReaderInner {
-    pub fn new(read_inputs: Vec<Vec<u8>>) -> Self {
+    pub fn new(byte_arrays: Vec<Vec<u8>>) -> Self {
+        let results_initially = byte_arrays.len();
         Self {
-            byte_arrays: read_inputs,
-            ..Default::default()
+            byte_arrays,
+            position: 0,
+            next_error: None,
+            results_initially,
         }
-    }
-
-    pub fn read_attempts(&self)->usize{
-        self.byte_arrays.len()
     }
 }
 
-
-pub struct ReadCounter {
-    inner: ReadCounterInner
+pub struct StdinReadCounter {
+    inner: ReadCounterInner,
 }
 
-impl ReadCounter {
-    pub fn new(stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>) ->Self {
-        Self{ inner: ReadCounterInner::ReadsEnabled {stdin_access_point} }
-    }
-
-    pub fn reading_not_available()->Self{
+impl StdinReadCounter {
+    pub fn new(stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>) -> Self {
         Self {
-            inner: ReadCounterInner::ReadingNotAvailable
+            inner: ReadCounterInner::ReadsEnabled { stdin_access_point },
         }
     }
 
-    pub fn reads(&self) -> usize {
+    pub fn reading_not_available() -> Self {
+        Self {
+            inner: ReadCounterInner::ReadingNotAvailable,
+        }
+    }
+
+    pub fn reads_opt(&self) -> Option<usize> {
         match &self.inner {
-            ReadCounterInner::ReadsEnabled { stdin_access_point } => stdin_access_point.lock().unwrap().count_reads(),
-            ReadCounterInner::ReadingNotAvailable => panic!("Trying to assert on stdin which hasn't been provided")
+            ReadCounterInner::ReadsEnabled { stdin_access_point } => {
+                Some(stdin_access_point.lock().unwrap().count_reads())
+            }
+            ReadCounterInner::ReadingNotAvailable => None,
         }
     }
 }
 
 enum ReadCounterInner {
-    ReadsEnabled{stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>},
-    ReadingNotAvailable
+    ReadsEnabled {
+        stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>,
+    },
+    ReadingNotAvailable,
 }
 
-pub trait HandleToCountReads{
+pub trait HandleToCountReads {
     fn count_reads(&self) -> usize;
 }
 
-impl From<&AsyncByteArrayReader> for ReadCounter {
+impl From<&AsyncByteArrayReader> for StdinReadCounter {
     fn from(value: &AsyncByteArrayReader) -> Self {
-        todo!()
+        StdinReadCounter::new(value.byte_array_reader_inner.clone())
     }
 }
 

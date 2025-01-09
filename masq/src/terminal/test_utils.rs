@@ -34,12 +34,13 @@ pub enum WritingTestInputByTermInterfaces<'test> {
     NonInteractive(
         WritingTestInput<&'test dyn WTermInterfaceDup, NonInteractiveStreamsAssertionHandles>,
     ),
-    Interactive(WritingTestInput<InteractiveInterfaceByModes<'test>, LisoFlushedAssertableStrings>),
+    Interactive(WritingTestInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
 }
 
-pub enum InteractiveInterfaceByModes<'test> {
-    ReadWrite(&'test dyn WTermInterface),
-    Write(&'test dyn WTermInterfaceDupAndSend),
+pub enum InteractiveInterfaceByUse<'test> {
+    RWPrimeInterface(&'test dyn WTermInterface),
+    WOnlyPrimeInterface(&'test dyn WTermInterface),
+    WOnlyBackgroundInterface(&'test dyn WTermInterfaceDupAndSend),
 }
 
 pub async fn test_writing_streams_of_particular_terminal<'test>(
@@ -71,10 +72,11 @@ pub async fn test_writing_streams_of_particular_terminal<'test>(
             streams_assertion_handles,
         }) => {
             let (stdout_components, stderr_components) = match term_interface {
-                InteractiveInterfaceByModes::ReadWrite(term_interface) => {
+                InteractiveInterfaceByUse::RWPrimeInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
-                InteractiveInterfaceByModes::Write(term_interface) => {
+                InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => todo!(),
+                InteractiveInterfaceByUse::WOnlyBackgroundInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
             };
