@@ -493,18 +493,6 @@ impl BlockchainBridge {
         actix::spawn(future);
     }
 
-    fn calculate_fallback_start_block_number(start_block_number: u64, max_block_count: u64) -> u64 {
-        if max_block_count == u64::MAX {
-            if start_block_number == u64::MAX {
-                start_block_number
-            } else {
-                start_block_number + 1u64
-            }
-        } else {
-            start_block_number + max_block_count
-        }
-    }
-
     fn process_payments(
         &self,
         agent: Box<dyn BlockchainAgent>,
@@ -2247,18 +2235,6 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
-    }
-
-    #[test]
-    fn calculate_fallback_start_block_number_works() {
-        assert_eq!(
-            BlockchainBridge::calculate_fallback_start_block_number(10_000, u64::MAX),
-            10_000 + 1
-        );
-        assert_eq!(
-            BlockchainBridge::calculate_fallback_start_block_number(5_000, 10_000),
-            5_000 + 10_000
-        );
     }
 }
 

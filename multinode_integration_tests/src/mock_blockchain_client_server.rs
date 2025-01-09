@@ -385,7 +385,6 @@
 //     request_accumulator: String,
 // }
 
-
 #[cfg(test)]
 mod tests {
     use crate::masq_node_cluster::{DockerHostSocketAddr, MASQNodeCluster};
