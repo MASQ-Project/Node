@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
 
-use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFactory, ResolverWrapperFactoryReal};
+use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFactory};
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -24,6 +24,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::task;
+use web3::block_on;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
 
 pub trait StreamHandlerPool {
@@ -31,7 +32,7 @@ pub trait StreamHandlerPool {
 }
 
 pub struct StreamHandlerPoolReal {
-    inner: Arc<Mutex<StreamHandlerPoolRealInner>>,
+    inner: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
     stream_adder_rx: Receiver<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
     stream_killer_rx: Receiver<(StreamKey, u64)>,
 }
@@ -53,8 +54,10 @@ impl StreamHandlerPool for StreamHandlerPoolReal {
         payload: ClientRequestPayload_0v1,
         paying_wallet_opt: Option<Wallet>,
     ) {
-        self.do_housekeeping();
-        Self::process_package(payload, paying_wallet_opt, self.inner.clone())
+        block_on(async move {
+            self.do_housekeeping().await;
+            Self::process_package(payload, paying_wallet_opt, self.inner.clone()).await
+        });
     }
 }
 
@@ -74,7 +77,7 @@ impl StreamHandlerPoolReal {
         let (stream_killer_tx, stream_killer_rx) = unbounded();
         let (stream_adder_tx, stream_adder_rx) = unbounded();
         StreamHandlerPoolReal {
-            inner: Arc::new(Mutex::new(StreamHandlerPoolRealInner {
+            inner: Arc::new(tokio::sync::Mutex::new(StreamHandlerPoolRealInner {
                 establisher_factory: Box::new(StreamEstablisherFactoryReal {
                     cryptde,
                     stream_adder_tx,
@@ -95,14 +98,14 @@ impl StreamHandlerPoolReal {
         }
     }
 
-    fn process_package(
+    async fn process_package(
         payload: ClientRequestPayload_0v1,
         paying_wallet_opt: Option<Wallet>,
-        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
     ) {
         let stream_key = payload.stream_key;
         let inner_arc_1 = inner_arc.clone();
-        match Self::find_stream_with_key(&stream_key, &inner_arc) {
+        match Self::find_stream_with_key(&stream_key, &inner_arc).await {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
                 let future = async move {
@@ -110,7 +113,7 @@ impl StreamHandlerPoolReal {
                         Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
                             .await
                     {
-                        Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, msg)
+                        Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, msg).await
                     }
                 };
                 task::spawn(future);
@@ -118,7 +121,7 @@ impl StreamHandlerPoolReal {
             None => {
                 if payload.sequenced_packet.data.is_empty() {
                     debug!(
-                        Self::make_logger_copy(&inner_arc_1),
+                        Self::make_logger_copy(&inner_arc_1).await,
                         "Empty request payload received for nonexistent stream {:?} - ignoring",
                         payload.stream_key
                     )
@@ -155,13 +158,13 @@ impl StreamHandlerPoolReal {
         };
     }
 
-    fn clean_up_bad_stream(
-        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+    async fn clean_up_bad_stream(
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
         stream_key: &StreamKey,
         source: SocketAddr,
         error: String,
     ) {
-        let mut inner = inner_arc.lock().expect("Stream handler pool was poisoned");
+        let mut inner = inner_arc.lock().await;
         error!(
             inner.logger,
             "Couldn't process request from CORES package: {}", error
@@ -184,14 +187,14 @@ impl StreamHandlerPoolReal {
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload_0v1,
         paying_wallet_opt: Option<Wallet>,
-        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
     ) -> Result<(), String> {
         let stream_key = payload.stream_key;
         let last_data = payload.sequenced_packet.last_data;
         let payload_size = payload.sequenced_packet.data.len();
 
         Self::perform_write(payload.sequenced_packet, sender_wrapper.dup()).await?;
-        let mut inner = inner_arc.lock().expect("Stream handler pool is poisoned");
+        let mut inner = inner_arc.lock().await;
         if last_data {
             match inner.stream_writer_channels.remove(&stream_key) {
                 Some(channel) => debug!(
@@ -230,12 +233,12 @@ impl StreamHandlerPoolReal {
 
     async fn make_stream_with_key(
         payload: &ClientRequestPayload_0v1,
-        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
     ) -> StreamEstablisherResultInner {
         // TODO: Figure out what to do if a flurry of requests for a particular stream key
         // come flooding in so densely that several of them arrive in the time it takes to
         // resolve the first one and add it to the stream_writers map.
-        let logger = Self::make_logger_copy(&inner_arc);
+        let logger = Self::make_logger_copy(&inner_arc).await;
         debug!(
             logger,
             "No stream to {:?} exists; resolving host", &payload.target_hostname
@@ -271,20 +274,21 @@ impl StreamHandlerPoolReal {
         }
     }
 
-    fn make_establisher(inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>) -> StreamEstablisher {
+    async fn make_establisher(inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>) -> StreamEstablisher {
         let inner = inner_arc
             .lock()
-            .unwrap_or_else(|_| panic!("Stream handler pool is poisoned"));
+            .await;
         inner.establisher_factory.make()
     }
 
     async fn handle_ip(
         payload: ClientRequestPayload_0v1,
         ip_addr: IpAddr,
-        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
     ) -> StreamEstablisherResultInner {
-        let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc);
+        let mut stream_establisher =
+            StreamHandlerPoolReal::make_establisher(inner_arc).await;
         match stream_establisher
             .establish_stream(&payload, vec![ip_addr], target_hostname)
         {
@@ -294,23 +298,24 @@ impl StreamHandlerPoolReal {
     }
 
     async fn lookup_dns(
-        inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
         payload: ClientRequestPayload_0v1,
     ) -> StreamEstablisherResultInner {
         let fqdn = Self::make_fqdn(&target_hostname);
         let dns_resolve_failed_sub = inner_arc
             .lock()
-            .expect("Stream handler pool is poisoned")
+            .await
             .proxy_client_subs
             .dns_resolve_failed
             .clone();
-        let mut establisher = StreamHandlerPoolReal::make_establisher(inner_arc.clone());
+        let mut establisher =
+            StreamHandlerPoolReal::make_establisher(inner_arc.clone()).await;
         let stream_key = payload.stream_key;
-        let logger = StreamHandlerPoolReal::make_logger_copy(&inner_arc);
+        let logger = StreamHandlerPoolReal::make_logger_copy(&inner_arc).await;
         match inner_arc
             .lock()
-            .expect("Stream handler pool is poisoned")
+            .await
             .resolver
             .lookup_ip(&fqdn)
             .await
@@ -361,17 +366,17 @@ impl StreamHandlerPoolReal {
         format!("{}.", target_hostname)
     }
 
-    fn find_stream_with_key(
+    async fn find_stream_with_key(
         stream_key: &StreamKey,
-        inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>,
+        inner_arc: &Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
     ) -> Option<Box<dyn SenderWrapper<SequencedPacket>>> {
-        let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
+        let inner = inner_arc.lock().await;
         let sender_wrapper_opt = inner.stream_writer_channels.get(stream_key);
         sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.dup())
     }
 
-    fn make_logger_copy(inner_arc: &Arc<Mutex<StreamHandlerPoolRealInner>>) -> Logger {
-        let inner = inner_arc.lock().expect("Stream handler pool is poisoned");
+    async fn make_logger_copy(inner_arc: &Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>) -> Logger {
+        let inner = inner_arc.lock().await;
         inner.logger.clone()
     }
 
@@ -401,13 +406,13 @@ impl StreamHandlerPoolReal {
             .expect("ProxyClient is dead");
     }
 
-    fn do_housekeeping(&self) {
-        self.clean_up_dead_streams();
-        self.add_new_streams();
+    async fn do_housekeeping(&self) {
+        self.clean_up_dead_streams().await;
+        self.add_new_streams().await;
     }
 
-    fn clean_up_dead_streams(&self) {
-        let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
+    async fn clean_up_dead_streams(&self) {
+        let mut inner = self.inner.lock().await;
         while let Ok((stream_key, sequence_number)) = self.stream_killer_rx.try_recv() {
             match inner.stream_writer_channels.remove(&stream_key) {
                 Some(writer_channel) => {
@@ -436,8 +441,8 @@ impl StreamHandlerPoolReal {
         }
     }
 
-    fn add_new_streams(&self) {
-        let mut inner = self.inner.lock().expect("Stream handler pool is poisoned");
+    async fn add_new_streams(&self) {
+        let mut inner = self.inner.lock().await;
         loop {
             match self.stream_adder_rx.try_recv() {
                 Err(_) => break,
@@ -604,7 +609,7 @@ mod tests {
                 originator_public_key: cryptde.public_key().clone(),
             };
 
-            StreamHandlerPoolReal::process_package(payload, None, Arc::new(Mutex::new(inner)));
+            StreamHandlerPoolReal::process_package(payload, None, Arc::new(tokio::sync::Mutex::new(inner)));
 
             system.run().unwrap();
         });
@@ -620,8 +625,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn non_terminal_payload_can_be_sent_over_existing_connection() {
+    #[tokio::test]
+    async fn non_terminal_payload_can_be_sent_over_existing_connection() {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let client_request_payload = ClientRequestPayload_0v1 {
@@ -651,7 +656,7 @@ mod tests {
             0,
         );
 
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder().build();
             let subject = StreamHandlerPoolReal::new(
                 Box::new(ResolverWrapperMock::new()),
@@ -664,7 +669,7 @@ mod tests {
             subject
                 .inner
                 .lock()
-                .unwrap()
+                .await
                 .stream_writer_channels
                 .insert(stream_key, tx_to_write);
 
@@ -679,13 +684,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn write_failure_for_nonexistent_stream_generates_termination_message() {
+    #[tokio::test]
+    async fn write_failure_for_nonexistent_stream_generates_termination_message() {
         init_test_logging();
         let cryptde = main_cryptde();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -725,7 +730,7 @@ mod tests {
             subject
                 .inner
                 .lock()
-                .unwrap()
+                .await
                 .stream_writer_channels
                 .insert(client_request_payload.stream_key, Box::new(tx_to_write));
 
@@ -745,15 +750,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
+    #[tokio::test]
+    async fn when_hostname_is_ip_establish_stream_without_dns_lookup() {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters_arc = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters_arc.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
@@ -801,7 +806,7 @@ mod tests {
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             {
-                let mut inner = subject.inner.lock().unwrap();
+                let mut inner = subject.inner.lock().await;
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -848,15 +853,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn ip_is_parsed_even_without_port() {
+    #[tokio::test]
+    async fn ip_is_parsed_even_without_port() {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
         let write_parameters_arc = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters_arc.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
@@ -904,7 +909,7 @@ mod tests {
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             {
-                let mut inner = subject.inner.lock().unwrap();
+                let mut inner = subject.inner.lock().await;
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -1013,8 +1018,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn nonexistent_connection_springs_into_being_and_is_persisted_to_handle_transaction() {
+    #[tokio::test]
+    async fn nonexistent_connection_springs_into_being_and_is_persisted_to_handle_transaction() {
         let cryptde = main_cryptde();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let expected_lookup_ip_parameters = lookup_ip_parameters.clone();
@@ -1023,7 +1028,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
         let before = SystemTime::now();
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder()
                 .proxy_client(proxy_client)
                 .accountant(accountant)
@@ -1074,7 +1079,7 @@ mod tests {
             subject.stream_killer_rx = stream_killer_rx;
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             {
-                let mut inner = subject.inner.lock().unwrap();
+                let mut inner = subject.inner.lock().await;
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -1125,14 +1130,14 @@ mod tests {
         check_timestamp(before, resp_msg.timestamp, after);
     }
 
-    #[test]
-    fn failing_to_make_a_connection_sends_an_error_response() {
+    #[tokio::test]
+    async fn failing_to_make_a_connection_sends_an_error_response() {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
@@ -1184,11 +1189,11 @@ mod tests {
                         .connect_pair_result(Err(Error::from(ErrorKind::Other))),
                 ),
                 proxy_client_sub,
-                logger: subject.inner.lock().unwrap().logger.clone(),
+                logger: subject.inner.lock().await.logger.clone(),
                 channel_factory: Box::new(FuturesChannelFactoryReal {}),
             };
 
-            subject.inner.lock().unwrap().establisher_factory =
+            subject.inner.lock().await.establisher_factory =
                 Box::new(StreamEstablisherFactoryMock {
                     make_results: RefCell::new(vec![establisher]),
                 });
@@ -1210,8 +1215,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
+    #[tokio::test]
+    async fn trying_to_write_to_disconnected_stream_writer_sends_an_error_response() {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
@@ -1219,7 +1224,7 @@ mod tests {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let (stream_adder_tx, _stream_adder_rx) = unbounded();
 
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             let sequenced_packet = SequencedPacket {
@@ -1277,7 +1282,7 @@ mod tests {
             subject.stream_killer_rx = stream_killer_rx;
 
             {
-                let mut inner = subject.inner.lock().unwrap();
+                let mut inner = subject.inner.lock().await;
                 let channel_factory = FuturesChannelFactoryMock::new()
                     .make_result(disconnected_sender, ReceiverWrapperMock::new().recv_result(None));
                 let establisher = StreamEstablisher {
@@ -1318,14 +1323,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn bad_dns_lookup_produces_log_and_sends_error_response() {
+    #[tokio::test]
+    async fn bad_dns_lookup_produces_log_and_sends_error_response() {
         init_test_logging();
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let originator_key = PublicKey::new(&b"men's souls"[..]);
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket {
@@ -1358,7 +1363,7 @@ mod tests {
                 100,
                 200,
             );
-            subject.inner.lock().unwrap().logger =
+            subject.inner.lock().await.logger =
                 Logger::new("bad_dns_lookup_produces_log_and_sends_error_response");
             spawn_process_package(subject, package);
         });
@@ -1379,8 +1384,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn error_from_tx_to_writer_removes_stream() {
+    #[tokio::test]
+    async fn error_from_tx_to_writer_removes_stream() {
         init_test_logging();
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
@@ -1411,7 +1416,7 @@ mod tests {
         let sender_wrapper = SenderWrapperMock::new(SocketAddr::from_str("1.2.3.4:5678").unwrap())
             .unbounded_send_params(&send_params)
             .unbounded_send_result(make_send_error(sequenced_packet.clone()));
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let resolver = ResolverWrapperMock::new();
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
@@ -1430,7 +1435,7 @@ mod tests {
             subject
                 .inner
                 .lock()
-                .unwrap()
+                .await
                 .stream_writer_channels
                 .insert(stream_key, Box::new(sender_wrapper));
 
@@ -1444,14 +1449,14 @@ mod tests {
         tlh.await_log_containing("Removing stream writer for 1.2.3.4:5678", 1000);
     }
 
-    #[test]
-    fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
+    #[tokio::test]
+    async fn process_package_does_not_create_new_connection_for_zero_length_data_with_unfamiliar_stream_key(
     ) {
         init_test_logging();
         let cryptde = main_cryptde();
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        thread::spawn(move || {
+        tokio::spawn(async move {
             let peer_actors = peer_actors_builder()
                 .hopper(hopper)
                 .accountant(accountant)
@@ -1485,7 +1490,7 @@ mod tests {
                 200,
             );
 
-            subject.inner.lock().unwrap().establisher_factory =
+            subject.inner.lock().await.establisher_factory =
                 Box::new(StreamEstablisherFactoryMock {
                     make_results: RefCell::new(vec![]),
                 });
@@ -1507,8 +1512,8 @@ mod tests {
         assert_eq!(hopper_recording.len(), 0);
     }
 
-    #[test]
-    fn clean_up_dead_streams_sends_server_drop_report_if_dead_stream_is_in_map() {
+    #[tokio::test]
+    async fn clean_up_dead_streams_sends_server_drop_report_if_dead_stream_is_in_map() {
         let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -1525,7 +1530,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         {
-            let mut inner = subject.inner.lock().unwrap();
+            let mut inner = subject.inner.lock().await;
             inner
                 .stream_writer_channels
                 .insert(stream_key, Box::new(SenderWrapperMock::new(peer_addr)));
