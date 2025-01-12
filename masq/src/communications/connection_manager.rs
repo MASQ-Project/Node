@@ -19,7 +19,7 @@ use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCras
 use masq_lib::messages::{UiRedirect, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use masq_lib::websockets_handshake::WSClientConnInitiator;
+use masq_lib::websockets_handshake::WSClientConnectionInitiator;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -95,25 +95,21 @@ impl ConnectionManagerBootstrapper {
         }
     }
 
-    pub async fn spawn_background_loops(
+    pub async fn spawn_communication_services(
         &self,
         port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         timeout_millis: u64,
-    ) -> Result<ConnManagerLinksToSubordinates, ClientListenerError> {
-        let (launcher, connectors) =
+    ) -> Result<ConnectionManagerLinksToSubordinates, ClientListenerError> {
+        let (launcher, mut central_event_loop_ready_rx, connectors) =
             self.prepare_launch(port, terminal_interface_opt, timeout_millis);
 
-        //TODO you can have a method on launcher that can run these three following calls;
-        // before that, clone the receiver and
-        //TODO is this question mark tested?
-        let talker_half = (launcher.spawn_ws_client_listener)().await?;
+        match launcher.spawn_event_loops().await {
+            Ok(_) => (),
+            Err(e) => todo!("{:?}", e)
+        };
 
-        let standard_broadcast_handle = (launcher.spawn_standard_broadcast_handler)();
-
-        (launcher.spawn_cms_event_loop)(talker_half, standard_broadcast_handle);
-
-        launcher.event_loop_ready_rx.borrow_mut().recv().await;
+        central_event_loop_ready_rx.recv().await.expect("Spawning event loops failed");
 
         Ok(connectors)
     }
@@ -123,7 +119,7 @@ impl ConnectionManagerBootstrapper {
         port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         timeout_millis: u64,
-    ) -> (Launcher, ConnManagerLinksToSubordinates) {
+    ) -> (Launcher, UnboundedReceiver<()>, ConnectionManagerLinksToSubordinates) {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let close_sync_flag = Arc::new(AtomicBool::new(false));
         let (async_close_signal_tx, async_close_signal_rx) = tokio::sync::broadcast::channel(10);
@@ -134,7 +130,7 @@ impl ConnectionManagerBootstrapper {
 
         // TODO does this future have to be in the closure?
         let spawn_ws_client_listener: SpawnClientListenerFuture = Box::new(move || {
-            Box::pin(make_client_listener(
+            Box::pin(spawn_client_listener(
                 port,
                 listener_to_manager_tx,
                 close_sig_client_listener,
@@ -142,7 +138,7 @@ impl ConnectionManagerBootstrapper {
             ))
         });
 
-        let spawn_standard_broadcast_handler = {
+        let spawn_standard_broadcast_handler: SpawnStandardBroadcastHandlerClosure = {
             let mut standard_broadcast_handler = self
                 .standard_broadcast_handler_factory
                 .make(terminal_interface_opt, close_sig_standard_broadcast_handler);
@@ -159,7 +155,7 @@ impl ConnectionManagerBootstrapper {
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (event_loop_ready_tx, event_loop_ready_rx) = unbounded_channel();
 
-        let spawn_cms_event_loop = Box::new(
+        let spawn_central_event_loop = Box::new(
             move |ws_client_handle: Box<dyn WSClientHandle>,
                   standard_broadcast_handle: Box<dyn BroadcastHandle<MessageBody>>| {
                 let broadcast_handles =
@@ -192,8 +188,7 @@ impl ConnectionManagerBootstrapper {
         let launch_platform = Launcher::new(
             spawn_ws_client_listener,
             spawn_standard_broadcast_handler,
-            spawn_cms_event_loop,
-            event_loop_ready_rx,
+            spawn_central_event_loop,
         );
 
         let connection_manager_connectors = ConnectionManagerConnectors::new(
@@ -203,12 +198,12 @@ impl ConnectionManagerBootstrapper {
             active_port_response_rx,
         );
 
-        let connection_manager_internal_communications = ConnManagerLinksToSubordinates {
+        let connection_manager_internal_communications = ConnectionManagerLinksToSubordinates {
             communication_channels: connection_manager_connectors,
             close_signaler: CloseSignaler::new(async_close_signal_tx, close_sync_flag),
         };
 
-        (launch_platform, connection_manager_internal_communications)
+        (launch_platform, event_loop_ready_rx, connection_manager_internal_communications)
     }
 }
 
@@ -218,38 +213,42 @@ type SpawnClientListenerFuture = Box<
     >,
 >;
 
-type SpawnStandardBroadcastHandler = Box<dyn FnOnce() -> Box<dyn BroadcastHandle<MessageBody>>>;
+type SpawnStandardBroadcastHandlerClosure = Box<dyn FnOnce() -> Box<dyn BroadcastHandle<MessageBody>>>;
 
-type SpawnCMSEventLoop =
+type SpawnCMSEventLoopClosure =
     Box<dyn FnOnce(Box<dyn WSClientHandle>, Box<dyn BroadcastHandle<MessageBody>>)>;
 
-//TODO create a part called Spawning, containing those three...you can later call .spawn_loops(self) on it to finish the launch and take the last item of
-// launcher out, with no cloning...
 struct Launcher {
     spawn_ws_client_listener: SpawnClientListenerFuture,
-    spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
-    spawn_cms_event_loop: SpawnCMSEventLoop,
-    event_loop_ready_rx: RefCell<UnboundedReceiver<()>>,
+    spawn_standard_broadcast_handler: SpawnStandardBroadcastHandlerClosure,
+    spawn_communication_department_event_loop: SpawnCMSEventLoopClosure,
 }
 
 impl Launcher {
     pub fn new(
         spawn_ws_client_listener: SpawnClientListenerFuture,
-        spawn_standard_broadcast_handler: SpawnStandardBroadcastHandler,
-        spawn_cms_event_loop: SpawnCMSEventLoop,
-        event_loop_ready_rx: UnboundedReceiver<()>,
+        spawn_standard_broadcast_handler: SpawnStandardBroadcastHandlerClosure,
+        spawn_communication_department_event_loop: SpawnCMSEventLoopClosure,
     ) -> Self {
-        let event_loop_ready_rx = RefCell::new(event_loop_ready_rx);
         Self {
             spawn_ws_client_listener,
             spawn_standard_broadcast_handler,
-            spawn_cms_event_loop,
-            event_loop_ready_rx,
+            // TODO should I continue with this nomenclature and replace the CMS with CMD
+            spawn_communication_department_event_loop
         }
+    }
+
+    pub async fn spawn_event_loops(self) -> Result<(), ClientListenerError>{
+        let talker_half = (self.spawn_ws_client_listener)().await?;
+        let standard_broadcast_handle = (self.spawn_standard_broadcast_handler)();
+
+        (self.spawn_communication_department_event_loop)(talker_half, standard_broadcast_handle);
+
+        Ok(())
     }
 }
 
-pub struct ConnManagerLinksToSubordinates {
+pub struct ConnectionManagerLinksToSubordinates {
     communication_channels: ConnectionManagerConnectors,
     close_signaler: CloseSignaler,
 }
@@ -295,7 +294,7 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub fn new(internal_communication: ConnManagerLinksToSubordinates) -> Self {
+    pub fn new(internal_communication: ConnectionManagerLinksToSubordinates) -> Self {
         Self {
             communication_channels: internal_communication.communication_channels,
             closing_signaler: internal_communication.close_signaler,
@@ -354,32 +353,15 @@ impl ConnectionManager {
     }
 }
 
-async fn make_client_listener(
+async fn spawn_client_listener(
     port: u16,
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-    close_sig: BroadcastReceiver<()>,
+    close_sig_rx: BroadcastReceiver<()>,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
-    let conn_initiator = WSClientConnInitiator::new(port);
-    //
-    // let url = format!("ws://{}:{}", localhost(), port);
-    // // TODO should the values be set in this config comprehensively tested?
-    // let mut ws_config = WebSocketConfig::default();
-    //
-    // // TODO implement the handshake when ready
-    // // ws_config.handshake = Some(Arc::new(WSClientHandshakeHandler::default()));
-    // let websocket: WebSocket = match WebSocket::new(Some(&url), Some(ws_config)) {
-    //     Ok(ws) => ws,
-    //     Err(e) => todo!(),
-    // };
-    //
-    // // TODO should the values be set in this config comprehensively tested?
-    // let mut connect_options = ConnectOptions::default();
-    // connect_options.block_async_connect = true;
-    // connect_options.strategy = ConnectStrategy::Fallback;
-    // connect_options.connect_timeout = Some(Duration::from_millis(timeout_millis));
+    let connection_initiator = WSClientConnectionInitiator::new(port);
 
-    let ws = match conn_initiator.connect_with_timeout().await {
+    let ws = match connection_initiator.connect_with_timeout().await {
         Ok(ws) => ws,
         Err(Error::NotConnected) => todo!(), //return Err(ClientListenerError::Closed),
         Err(Error::ConnectionTimeout) => todo!(), // return Err(ClientListenerError::Timeout),
@@ -388,7 +370,7 @@ async fn make_client_listener(
 
     let mut client_listener = ClientListener::new(ws);
     let talker_half = client_listener
-        .start(close_sig, listener_to_manager_tx)
+        .start(close_sig_rx, listener_to_manager_tx)
         .await;
 
     Ok(talker_half)
@@ -424,7 +406,7 @@ impl ConnectionsEventLoop {
     ) -> JoinHandle<()> {
         tokio::task::spawn(async move {
             // TODO do we need this?
-            event_loop_ready_tx.send(()).expect("cannot send pong");
+            event_loop_ready_tx.send(()).expect("couldn't signal redinness");
 
             loop {
                 match (
@@ -592,7 +574,7 @@ impl ConnectionsEventLoop {
             None => return inner, // Sender died; ignore
         };
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let talker_half = match make_client_listener(
+        let talker_half = match spawn_client_listener(
             redirect_order.port,
             listener_to_manager_tx,
             inner.close_sig.async_signal.resubscribe(),
@@ -668,7 +650,7 @@ impl ConnectionsEventLoop {
         }
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         inner.listener_to_manager_rx = listener_to_manager_rx;
-        match make_client_listener(
+        match spawn_client_listener(
             inner.active_port.expect("Active port disappeared!"),
             listener_to_manager_tx,
             inner.close_sig.dup_receiver(),
@@ -824,13 +806,15 @@ mod tests {
     use masq_lib::test_utils::websockets_utils::{
         establish_ws_conn_with_handshake, websocket_utils,
     };
-    use masq_lib::utils::{find_free_port, running_test};
+    use masq_lib::utils::{find_free_port, localhost, running_test};
     use std::hash::Hash;
+    use std::net::SocketAddr;
     use std::process::Termination;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::thread::spawn;
     use std::time::{Duration, SystemTime};
+    use tokio::net::TcpListener;
     use tokio::runtime::Runtime;
     use tokio::select;
     use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
@@ -879,7 +863,7 @@ mod tests {
         let port = server.port();
         let stop_handle = server.start().await;
         let connectors = ConnectionManagerBootstrapper::default()
-            .spawn_background_loops(port, None, 1000)
+            .spawn_communication_services(port, None, 1000)
             .await
             .unwrap();
         let subject = ConnectionManager::new(connectors);
@@ -1012,7 +996,7 @@ mod tests {
         let (_, close_sig) = CloseSignalling::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = make_client_listener(
+        let client_listener_handle = spawn_client_listener(
             port,
             listener_to_manager_tx.clone(),
             close_sig.async_signal,
@@ -1487,7 +1471,7 @@ mod tests {
         //     )),
         // );
         let connectors = bootstrapper
-            .spawn_background_loops(daemon_port, None, 1000)
+            .spawn_communication_services(daemon_port, None, 1000)
             .await
             .unwrap();
         daemon_stop_handle.await_conn_established(None).await;
@@ -1585,7 +1569,7 @@ mod tests {
         let stop_handle = server.start().await;
         let (_, close_sig) = CloseSignalling::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = make_client_listener(
+        let client_listener_handle = spawn_client_listener(
             port,
             listener_to_manager_tx.clone(),
             close_sig.async_signal,
@@ -1762,15 +1746,22 @@ mod tests {
         assert_eq!(sync_flag.load(Ordering::Relaxed), true)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
     async fn handles_close_order() {
         running_test();
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port);
-        let server_handle = server.start().await;
+        let background = tokio::spawn(async move {
+            {
+                let socket_addr = SocketAddr::new(localhost(), port);
+                let (tcp_stream, _) = TcpListener::bind(socket_addr).await.unwrap().accept().await.unwrap();
+                tokio_tungstenite::accept_async(tcp_stream).await.unwrap();
+            }
+        });
+        // let server = MockWebSocketsServer::new(port);
+        // let server_handle = server.start().await;
         let mut bootstrapper = ConnectionManagerBootstrapper::default();
         let connectors = bootstrapper
-            .spawn_background_loops(port, None, 1000)
+            .spawn_communication_services(port, None, 1000)
             .await
             .unwrap();
         let mut subject = ConnectionManager::new(connectors);
@@ -1794,7 +1785,8 @@ mod tests {
             )
             .await;
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        server_handle.await_conn_disconnected(None).await;
+        background.await.unwrap();
+        // server_handle.retrieve_recorded_requests(Some(1)).await;
     }
 
     async fn make_inner() -> CmsManagerInner {
@@ -1847,7 +1839,7 @@ mod tests {
     //     let server = MockWebSocketsServer::new(port);
     //     let stop_handle = server.start().await;
     //     let client_listener_handle =
-    //         make_client_listener_handler_with_meaningless_event_loop_handle(port).await;
+    //         spawn_client_listener_handler_with_meaningless_event_loop_handle(port).await;
     //     while !client_listener_handle.is_connection_open() {
     //         tokio::time::sleep(Duration::from_millis(1)).await
     //     }
@@ -1864,7 +1856,7 @@ mod tests {
     //     client_listener_handle
     // }
 
-    // async fn make_client_listener_handler_with_meaningless_event_loop_handle(
+    // async fn spawn_client_listener_handler_with_meaningless_event_loop_handle(
     //     port: u16,
     // ) -> WSClientHandle {
     //     let (websocket, talker_half, _) = websocket_utils(port).await;

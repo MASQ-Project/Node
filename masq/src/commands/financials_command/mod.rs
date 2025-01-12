@@ -317,8 +317,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = factory.make(&["financials".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -346,8 +346,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -385,8 +385,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -424,8 +424,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -642,8 +642,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -684,8 +684,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -735,8 +735,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -851,8 +851,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
@@ -1014,8 +1014,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1083,8 +1083,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1154,8 +1154,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1225,8 +1225,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1318,8 +1318,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1389,8 +1389,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1474,8 +1474,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1583,8 +1583,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1671,8 +1671,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1750,8 +1750,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -1799,8 +1799,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 

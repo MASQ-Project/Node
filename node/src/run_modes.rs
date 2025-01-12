@@ -43,7 +43,7 @@ impl RunModes {
     }
 
     pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
-        let mode = match self.entrance_interview(args, streams) {
+        let mode = match self.meet_bouncers_at_the_door(args, streams) {
             Enter(mode) => mode,
             Leave(exit_code) => return exit_code,
         };
@@ -64,7 +64,7 @@ impl RunModes {
         }
     }
 
-    fn entrance_interview(&self, args: &[String], streams: &mut StdStreams) -> ProgramEntering {
+    fn meet_bouncers_at_the_door(&self, args: &[String], streams: &mut StdStreams) -> ProgramEntering {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
         if let ExitCode(exit_code) = Self::ensure_help_or_version(args, &mode, streams) {
             return Leave(exit_code);

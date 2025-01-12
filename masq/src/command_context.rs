@@ -118,16 +118,18 @@ impl CommandContextReal {
         bootstrapper: &ConnectionManagerBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = bootstrapper
-            .spawn_background_loops(
+            .spawn_communication_services(
                 daemon_ui_port,
                 terminal_interface_opt,
                 REDIRECT_TIMEOUT_MILLIS,
             )
             .await;
+
         let connectors = match result {
             Ok(c) => c,
             Err(e) => return Err(ConnectionRefused(format!("{:?}", e))),
         };
+
         let connection = ConnectionManager::new(connectors);
 
         Ok(Self { connection })

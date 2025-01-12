@@ -2,9 +2,7 @@
 
 use crate::messages::NODE_UI_PROTOCOL;
 use crate::utils::localhost;
-use crate::websockets_handshake::{
-    ws_url, HandshakeResultTx, MASQWSClientHandshakeHandler, WSClientConnInitiator,
-};
+use crate::websockets_handshake::{ws_url, HandshakeResultTx, MASQWSClientHandshakeHandler, WSClientConnectionInitiator, WS_CLIENT_CONNECT_TIMEOUT_MS};
 use async_channel::{Receiver, Sender};
 use futures_util::TryFutureExt;
 use std::net::SocketAddr;
@@ -23,9 +21,7 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
     port: u16,
     protocol: &'static str,
 ) -> Result<WebSocket, String> {
-    let mut connector = WSClientConnInitiator::new(port);
-    connector.global_timeout = Duration::from_millis(4_000);
-    connector.prepare_handshake_procedure =
+    let prepare_handshake_handler =
         Box::new(|tx: HandshakeResultTx| -> Arc<dyn Handshake> {
             Arc::new(MASQWSClientHandshakeHandler::new(
                 Duration::from_millis(500),
@@ -33,6 +29,9 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
                 tx,
             ))
         });
+    let set_global_timeout = Duration::from_millis(4_000);
+    let connect_timeout = Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS);
+    let mut connector = WSClientConnectionInitiator::new_with_full_setup(port, prepare_handshake_handler, set_global_timeout, connect_timeout);
     connector
         .connect_with_timeout()
         .await

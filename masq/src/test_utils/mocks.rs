@@ -204,7 +204,7 @@ impl CommandProcessor for CommandProcessorMock {
         todo!()
     }
 
-    fn close(&mut self) {
+    async fn close(&mut self) {
         self.close_params.lock().unwrap().push(());
     }
 }
@@ -300,8 +300,9 @@ pub struct CommandExecutionHelperMock {
     execute_command_results: RefCell<Vec<Result<(), CommandError>>>,
 }
 
+#[async_trait(?Send)]
 impl CommandExecutionHelper for CommandExecutionHelperMock {
-    fn execute_command(
+    async fn execute_command(
         &self,
         command: Box<dyn Command>,
         context: &dyn CommandContext,
@@ -733,11 +734,66 @@ impl TerminalWriterTestReceiver {
 }
 
 pub struct TermInterfaceMock {
-    interactive_infrastructure_opt: Option<InteractiveModeInfrastructure>,
-    stdout: Arc<Mutex<Vec<String>>>,
-    stderr: Arc<Mutex<Vec<String>>>,
+    inner: TerminalInterfaceMockInner,
     // TODO: I don't know if we want to keep this
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+}
+
+enum TerminalInterfaceMockInner{
+    NonInteractive{
+        writing_streams: WritingStreamsContainers
+    },
+    Interactive {
+        stdin_read_results: Arc<Mutex<ReadLineResults>>,
+        // Simplification by helping ourselves with a whole new terminal.
+        // It should be configured as non-interactive though
+        writing_part: Box<TermInterfaceMock>,
+        // Optional so that it can be pulled out
+        background_terminal_interface_arc_opt: Arc<Mutex<Option<TermInterfaceMock>>>,
+    }
+}
+
+impl TerminalInterfaceMockInner {
+    fn writing_streams_for_non_interactive_mode(&self) -> &WritingStreamsContainers{
+        match self {
+            TerminalInterfaceMockInner::NonInteractive {writing_streams } => writing_streams,
+            TerminalInterfaceMockInner::Interactive { .. } => panic!("Trying to fetch simple writing utils from a mock not having been set up as non-interactive")
+        }
+    }
+    fn write_only_terminal_for_interactive_mode(&self) -> &dyn WTermInterface{
+        match self {
+            TerminalInterfaceMockInner::NonInteractive { ..} => panic!("Trying to access an auxiliary write only terminal on a mock not having been set up as interactive"),
+            TerminalInterfaceMockInner::Interactive {writing_part,..} => writing_part.as_ref()
+        }
+    }
+
+    fn background_terminal(&self) ->TermInterfaceMock {
+        match self {
+            TerminalInterfaceMockInner::NonInteractive { .. } => panic!("Trying to fetch the background terminal from a mock not having been set up as interactive"),
+            TerminalInterfaceMockInner::Interactive { background_terminal_interface_arc_opt, .. } => background_terminal_interface_arc_opt.lock().unwrap().take().expect("Trying to fetch the background terminal more than once")
+        }
+    }
+
+    fn stdin_read_results(&self) -> &Arc<Mutex<ReadLineResults>>{
+        match self {
+            TerminalInterfaceMockInner::NonInteractive { .. } => panic!("Trying to access stdin results from a mock terminal not having been set up as interactive"),
+            TerminalInterfaceMockInner::Interactive { stdin_read_results,..} => stdin_read_results
+        }
+    }
+
+    fn stdout_arc(&self) -> &Arc<Mutex<Vec<String>>>{
+        match self {
+            TerminalInterfaceMockInner::NonInteractive {writing_streams} => &writing_streams.stdout,
+            TerminalInterfaceMockInner::Interactive { writing_part, ..} => writing_part.inner.stdout_arc()
+        }
+    }
+
+    fn stderr_arc(&self) -> &Arc<Mutex<Vec<String>>>{
+        match self {
+            TerminalInterfaceMockInner::NonInteractive {writing_streams} => &writing_streams.stderr,
+            TerminalInterfaceMockInner::Interactive { writing_part, ..} => writing_part.inner.stderr_arc()
+        }
+    }
 }
 
 struct WritingStreamsContainers{
@@ -745,40 +801,43 @@ struct WritingStreamsContainers{
     stderr: Arc<Mutex<Vec<String>>>,
 }
 
-impl Default for TermInterfaceMock {
-    fn default() -> Self {
-        Self {
-            interactive_infrastructure_opt: None,
-            stdout: Arc::new(Mutex::new(vec![])),
-            stderr: Arc::new(Mutex::new(vec![])),
-            arbitrary_id_stamp_opt: None,
-        }
+impl WritingStreamsContainers {
+    fn new() -> (Self, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<String>>>) {
+        let stdout = Arc::new(Mutex::new(vec![]));
+        let stderr = Arc::new(Mutex::new(vec![]));
+        (Self {
+            stdout: stdout.clone(),
+            stderr: stderr.clone(),
+        },
+        stdout,
+            stderr)
+
     }
+
 }
 
 #[async_trait(?Send)]
 impl RWTermInterface for TermInterfaceMock {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError> {
-        self.interactive_infrastructure_opt.as_ref().unwrap().stdin_read_results.lock().unwrap().stdin_read_results.remove(0)
+        self.inner.stdin_read_results().lock().unwrap().stdin_read_results.remove(0)
     }
 
     fn write_only_ref(&self) -> &dyn WTermInterface {
-        todo!()
+        self.inner.write_only_terminal_for_interactive_mode()
     }
 
     fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend> {
-        let background_terminal = self.interactive_infrastructure_opt.as_ref().expect("This was used as an interactive terminal but not prepared like that").background_terminal_interface_arc_opt.lock().unwrap().take().unwrap();
-        Box::new(background_terminal)
+        Box::new(self.inner.background_terminal())
     }
 }
 
 impl WTermInterface for TermInterfaceMock {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
-        Self::set_up_assertable_writer(&self.stdout, WriteStreamType::Stdout)
+        Self::set_up_assertable_writer(self.inner.stdout_arc(), WriteStreamType::Stdout)
     }
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
-        Self::set_up_assertable_writer(&self.stderr, WriteStreamType::Stderr)
+        Self::set_up_assertable_writer(self.inner.stderr_arc(), WriteStreamType::Stderr)
     }
 
     arbitrary_id_stamp_in_trait_impl!();
@@ -797,78 +856,63 @@ impl WTermInterfaceDupAndSend for TermInterfaceMock {
 }
 
 impl TermInterfaceMock {
-    pub fn new(
-        mock_terminal_mode: MockTerminalMode,
-    ) -> (Self, AsyncTestStreamHandles, Option<AsyncTestStreamHandles>) {
-        let interactiveness_opt = Self::maybe_set_up_as_interactive(mock_terminal_mode);
-        let (
-            interactive_infrastructure_opt,
-            background_terminal_interface_stream_handles_for_broadcasts_opt,
-        ) = match interactiveness_opt {
-            None => (None, None),
-            Some((infrastructure, stream_handles)) => (Some(infrastructure), Some(stream_handles)),
+    pub fn new_non_interactive()->(Self, AsyncTestStreamHandles){
+        let (writing_streams, stdout_handle, stderr_handle) = WritingStreamsContainers::new();
+        let inner = TerminalInterfaceMockInner::NonInteractive {
+            writing_streams
         };
 
-        let (prime_terminal_interface_mock, prime_terminal_interface_stream_handles) =
-            Self::construct_terminal_with_handles(interactive_infrastructure_opt);
+        let mock = Self {
+            inner,
+            arbitrary_id_stamp_opt: None,
+        };
+
+        let terminal_interface_stream_handles = AsyncTestStreamHandles {
+            stdin_counter: StdinReadCounter::reading_not_available(),
+            stdout: Either::Right(stdout_handle),
+            stderr: Either::Right(stderr_handle),
+        };
 
         (
-            prime_terminal_interface_mock,
-            prime_terminal_interface_stream_handles,
-            background_terminal_interface_stream_handles_for_broadcasts_opt,
+            mock,
+            terminal_interface_stream_handles
         )
     }
 
-    fn construct_terminal_with_handles(
-        interactive_infrastructure_opt: Option<InteractiveModeInfrastructure>,
-    ) -> (TermInterfaceMock, AsyncTestStreamHandles) {
-        let stdout = Arc::new(Mutex::new(vec![]));
-        let stderr = Arc::new(Mutex::new(vec![]));
-        let stdin_counter = match interactive_infrastructure_opt.as_ref() {
-            Some(infrastructure) => StdinReadCounter ::from(infrastructure),
-            None => StdinReadCounter ::reading_not_available()
+    pub fn new_interactive(read_results: Vec<Result<ReadInput, ReadError>>)-> (Self, AsyncTestStreamHandles, AsyncTestStreamHandles) {
+        let (
+            background_terminal_interface_mock,
+            background_terminal_interface_stream_handles,
+        ) = Self::new_non_interactive();
+
+        let (writing_streams, stdout_handle, stderr_handle) = WritingStreamsContainers::new();
+
+        let stdin_read_results =  Arc::new(Mutex::new(ReadLineResults::new(read_results)));
+
+        let writing_part = Box::new(TermInterfaceMock { inner: TerminalInterfaceMockInner::NonInteractive { writing_streams }, arbitrary_id_stamp_opt: None });
+
+        let inner = TerminalInterfaceMockInner::Interactive {
+            stdin_read_results: stdin_read_results.clone(),
+            writing_part,
+            background_terminal_interface_arc_opt: Arc::new(Mutex::new(Some(background_terminal_interface_mock))),
         };
-        let terminal_interface_mock = TermInterfaceMock {
-            interactive_infrastructure_opt,
-            stdout: stdout.clone(),
-            stderr: stderr.clone(),
+
+        let mock = Self {
+            inner,
             arbitrary_id_stamp_opt: None,
         };
-        let terminal_interface_stream_handles = AsyncTestStreamHandles {
-            // Cannot be kept track of easily. And if we did do that, we could only assert on
-            // the number of reads
-            stdin_counter,
-            stdout: Either::Right(stdout),
-            stderr: Either::Right(stderr),
-        };
-        (terminal_interface_mock, terminal_interface_stream_handles)
-    }
 
-    fn maybe_set_up_as_interactive(
-        mock_terminal_mode: MockTerminalMode,
-    ) -> Option<(InteractiveModeInfrastructure, AsyncTestStreamHandles)> {
-        match mock_terminal_mode {
-            MockTerminalMode::InteractiveMode(queued_read_line_results_opt) => {
-                let (
-                    background_terminal_interface_mock,
-                    background_terminal_interface_stream_handles,
-                ) = Self::construct_terminal_with_handles(None);
-                let interactive_infrastructure = InteractiveModeInfrastructure {
-                    stdin_read_results: queued_read_line_results_opt
-                        .map(|results|
-                            Arc::new(Mutex::new(ReadLineResults::new(results)))
-                        ).unwrap_or_default(),
-                    background_terminal_interface_arc_opt: Arc::new(Mutex::new(
-                        Some(background_terminal_interface_mock),
-                    )),
-                };
-                Some((
-                    interactive_infrastructure,
-                    background_terminal_interface_stream_handles,
-                ))
-            }
-            MockTerminalMode::NonInteractiveMode => None,
-        }
+        let prime_terminal_interface_stream_handles = AsyncTestStreamHandles {
+            stdin_counter: StdinReadCounter::new(stdin_read_results),
+            stdout: Either::Right(stdout_handle),
+            stderr: Either::Right(stderr_handle),
+        };
+
+        (
+            mock,
+            prime_terminal_interface_stream_handles,
+            background_terminal_interface_stream_handles
+        )
     }
 
     fn set_up_assertable_writer(
@@ -1017,14 +1061,14 @@ impl AsyncTestStreamHandles {
         let start = SystemTime::now();
         let hard_limit = Duration::from_millis(hard_limit_ms);
         while Self::check_is_empty(handle) {
-            tokio::time::sleep(Duration::from_millis(15)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
             if start.elapsed().unwrap() >= hard_limit {
                 panic!(
-                    "Waited for {} while we didn't find any output written in {}{}",
+                    "Waited for {} while we didn't receive any output written in {} despite expected some. {}",
                     hard_limit_ms,
                     stream_name,
                     expected_value_opt
-                        .map(|val| format!(": expected value was '{}'", val))
+                        .map(|val| format!("The expected values were '{}'", val))
                         .unwrap_or_else(|| String::new())
                 )
             }

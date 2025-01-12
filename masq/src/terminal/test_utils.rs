@@ -327,10 +327,11 @@ impl FlushHandleInnerMock {
         receiver_from_terminal_writer: UnboundedReceiver<String>,
         reference_for_assertions_on_flushes: Arc<Mutex<Vec<String>>>,
     ) -> Self {
+        let output_receiver = TerminalWriterTestReceiver {
+            receiver_from_terminal_writer,
+        };
         let utils = TerminalWriterLinkToFlushHandleInnerMock {
-            output_receiver: TerminalWriterTestReceiver {
-                receiver_from_terminal_writer,
-            },
+            output_receiver,
             flushed_strings: reference_for_assertions_on_flushes,
         };
         self.terminal_writer_connection_opt = Some(utils);

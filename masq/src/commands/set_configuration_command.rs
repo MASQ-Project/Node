@@ -136,8 +136,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = SetConfigurationCommand {
             name: "start-block".to_string(),
             value: "123456".to_string(),

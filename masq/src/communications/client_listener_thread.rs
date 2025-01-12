@@ -50,10 +50,10 @@ impl ClientListener {
     ) -> Box<dyn WSClientHandle> {
         let listener_half = self.websocket.receiver_rx().clone();
         let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig);
-        let task_handle = event_loop.spawn();
+        let abort_handle = event_loop.spawn().abort_handle();
         Box::new(WSClientHandleReal::new(
             self.websocket,
-            task_handle.abort_handle(),
+            abort_handle,
         ))
     }
 }

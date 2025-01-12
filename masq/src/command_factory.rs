@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::fmt::{Display, Formatter};
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::check_password_command::CheckPasswordCommand;
@@ -23,6 +24,12 @@ use std::sync::Arc;
 pub enum CommandFactoryError {
     UnrecognizedSubcommand(String),
     CommandSyntax(String),
+}
+
+impl Display for CommandFactoryError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
 }
 
 pub trait CommandFactory {

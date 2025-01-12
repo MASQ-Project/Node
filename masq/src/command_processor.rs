@@ -84,18 +84,14 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
 
         let command = match command_factory.make(command_parts) {
             Ok(c) => c,
-            Err(UnrecognizedSubcommand(msg)) => {
-                masq_short_writeln!(stderr, "Unrecognized command: '{}'", msg);
-                return Err(());
-            }
-            Err(CommandSyntax(msg)) => {
-                //masq_short_writeln!(stderr, "Wrong command syntax: '{}'", msg);
-                todo!() //return false;
+            Err(e) => {
+                masq_short_writeln!(stderr, "{}", e);
+                return Err(())
             }
         };
 
         let res =
-            command_execution_helper.execute_command(command, command_context, terminal_interface);
+            command_execution_helper.execute_command(command, command_context, terminal_interface).await;
 
         match res {
             Ok(_) => Ok(()),
@@ -112,7 +108,7 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
 
     fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
 
-    fn close(&mut self);
+    async fn close(&mut self);
 }
 
 pub trait ProcessorProvidingCommonComponents {
@@ -153,7 +149,7 @@ impl CommandProcessor for CommandProcessorNonInteractive {
     }
 
     fn write_only_term_interface(&self) -> &dyn WTermInterface {
-        todo!()
+        self.terminal_interface.as_ref()
     }
 
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
@@ -164,7 +160,7 @@ impl CommandProcessor for CommandProcessorNonInteractive {
         todo!()
     }
 
-    fn close(&mut self) {
+    async fn close(&mut self) {
         self.command_processor_common.command_context.close();
     }
 }
@@ -214,8 +210,14 @@ impl CommandProcessor for CommandProcessorInteractive {
                 Err(e) => todo!()
             };
 
+            if let [single_arg] = args[..].as_ref() {
+                if single_arg == "exit" {
+                    return Ok(())
+                }
+            }
+
             match self.handle_command_common(&args).await {
-                Ok(_) => todo!(),
+                Ok(_) => (),
                 Err(_) => todo!()
             }
         }
@@ -233,9 +235,12 @@ impl CommandProcessor for CommandProcessorInteractive {
         todo!()
     }
 
-    fn close(&mut self) {
-        todo!("you can print something like \"MASQ is terminating\"");
-        //self.context.close();
+    async fn close(&mut self) {
+        let (writer, flush_handle) = self.terminal_interface.write_only_ref().stdout();
+
+        masq_short_writeln!(writer, "Exiting MASQ...");
+
+        self.command_processor_common.command_context.close();
     }
 }
 
@@ -249,22 +254,18 @@ pub trait CommandExecutionHelperFactory {
     fn make(&self) -> Box<dyn CommandExecutionHelper>;
 }
 
+#[derive(Default)]
 pub struct CommandExecutionHelperFactoryReal {}
 
 impl CommandExecutionHelperFactory for CommandExecutionHelperFactoryReal {
     fn make(&self) -> Box<dyn CommandExecutionHelper> {
-        todo!()
+        Box::new(CommandExecutionHelperReal{})
     }
 }
 
-impl Default for CommandExecutionHelperFactoryReal {
-    fn default() -> Self {
-        todo!()
-    }
-}
-
+#[async_trait(?Send)]
 pub trait CommandExecutionHelper {
-    fn execute_command(
+    async fn execute_command(
         &self,
         command: Box<dyn Command>,
         context: &dyn CommandContext,
@@ -274,14 +275,15 @@ pub trait CommandExecutionHelper {
 
 pub struct CommandExecutionHelperReal {}
 
+#[async_trait(?Send)]
 impl CommandExecutionHelper for CommandExecutionHelperReal {
-    fn execute_command(
+    async fn execute_command(
         &self,
         command: Box<dyn Command>,
         context: &dyn CommandContext,
         term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
-        todo!()
+        command.execute(context, term_interface).await
     }
 }
 
@@ -337,7 +339,7 @@ mod tests {
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactory::default();
-        let term_interface = TermInterfaceMock::default();
+        let (term_interface,_) = TermInterfaceMock::new_non_interactive();
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
         let command_factory = Box::new(CommandFactoryReal::default());

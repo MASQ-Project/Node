@@ -244,8 +244,8 @@ mod tests {
                 errors: vec![],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -315,8 +315,8 @@ scans                         off                                               
                 errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[

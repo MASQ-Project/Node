@@ -29,6 +29,7 @@ pub struct Main {
     std_streams_factory: Box<dyn AsyncStdStreamsFactory>,
     initial_args_parser: Box<dyn InitialArgsParser>,
     term_interface_factory: Box<dyn TerminalInterfaceFactory>,
+    // Optional in order to allow a vacancy after pulling the value out
     command_factory_opt: Option<Box<dyn CommandFactory>>,
     command_context_factory: Box<dyn CommandContextFactory>,
     command_execution_helper_factory: Box<dyn CommandExecutionHelperFactory>,
@@ -37,7 +38,15 @@ pub struct Main {
 
 impl Default for Main {
     fn default() -> Self {
-        Main::new()
+        Self {
+            std_streams_factory: Box::new(AsyncStdStreamsFactoryReal::default()),
+            initial_args_parser: Box::new(InitialArgsParserReal::default()),
+            term_interface_factory: Box::new(TerminalInterfaceFactoryReal::default()),
+            command_factory_opt: Some(Box::new(CommandFactoryReal::default())),
+            command_context_factory: Box::new(CommandContextFactoryReal::default()),
+            command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
+            command_processor_static_factory: Default::default(),
+        }
     }
 }
 
@@ -55,7 +64,7 @@ impl Main {
         );
 
         match self
-            .enter_new_shift_with_smile(
+            .do_this_work(
                 initialization_args.ui_port,
                 &mut incidental_streams,
                 term_interface,
@@ -68,19 +77,7 @@ impl Main {
         }
     }
 
-    pub fn new() -> Self {
-        Self {
-            std_streams_factory: Box::new(AsyncStdStreamsFactoryReal::default()),
-            initial_args_parser: Box::new(InitialArgsParserReal::default()),
-            term_interface_factory: Box::new(TerminalInterfaceFactoryReal::default()),
-            command_factory_opt: Some(Box::new(CommandFactoryReal::default())),
-            command_context_factory: Box::new(CommandContextFactoryReal::default()),
-            command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
-            command_processor_static_factory: Default::default(),
-        }
-    }
-
-    async fn enter_new_shift_with_smile(
+    async fn do_this_work(
         &mut self,
         ui_port: u16,
         incidental_streams: &mut AsyncStdStreams,
@@ -119,15 +116,14 @@ impl Main {
             .process(initial_subcommand_opt.as_deref())
             .await;
 
-        command_processor.close();
+        command_processor.close().await;
 
         result
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
-        fn both_do_not_start_with_two_dashes(
-            one_program_arg: &&String,
-            program_arg_next_to_the_previous: &&String,
+        fn none_starts_with_two_dashes(
+            (_, (one_program_arg, program_arg_next_to_the_previous)): &(usize, (&String,&String))
         ) -> bool {
             [one_program_arg, program_arg_next_to_the_previous]
                 .iter()
@@ -140,7 +136,7 @@ impl Main {
         original_args
             .zip(one_item_shifted_forth)
             .enumerate()
-            .find(|(_index, (left, right))| both_do_not_start_with_two_dashes(left, right))
+            .find(none_starts_with_two_dashes)
             .map(|(index, _)| args.iter().skip(index + 1).cloned().collect())
     }
 }
@@ -155,7 +151,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
     use crate::run_modes::tests::StreamType::{Stderr, Stdout};
-    use crate::terminal::{ReadError, ReadInput, WTermInterfaceDupAndSend};
+    use crate::terminal::{FlushHandle, ReadError, ReadInput, TerminalWriter, WTermInterfaceDupAndSend};
     use crate::test_utils::mocks::{
         make_async_std_streams, make_terminal_writer, AsyncStdStreamsFactoryMock,
         AsyncTestStreamHandles, CommandContextFactoryMock, CommandContextMock,
@@ -169,6 +165,8 @@ mod tests {
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
     use masq_lib::test_utils::fake_stream_holder::StdinReadCounter ;
+    use crate::command_factory::CommandFactoryError::CommandSyntax;
+    use crate::masq_short_writeln;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -188,8 +186,8 @@ mod tests {
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
-        let (w_term_interface, term_interface_stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (w_term_interface, term_interface_stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
@@ -268,8 +266,8 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(Other("not really an error".to_string())));
-        let (mut w_term_interface, term_interface_stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut w_term_interface, term_interface_stream_handles) =
+            TermInterfaceMock::new_non_interactive();
 
         let result = command.execute(&mut context, &mut w_term_interface).await;
 
@@ -299,7 +297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn go_works_when_command_is_unrecognized() {
+    async fn go_works_when_command_is_invalid() {
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -310,8 +308,8 @@ mod tests {
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
-        let (w_term_interface, term_interface_stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (w_term_interface, term_interface_stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
@@ -377,63 +375,6 @@ mod tests {
         assert_eq!(result, 1);
     }
 
-    //TODO it may not be doubling
-    // TODO seems like doubling the previous test
-    // #[tokio::test]
-    // async fn go_works_when_command_has_bad_syntax() {
-    //     let c_make_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let command_factory = CommandFactoryMock::new()
-    //         .make_params(&c_make_params_arc)
-    //         .make_result(Err(CommandSyntax("Unknown syntax booga".to_string())));
-    //     let (incidental_std_streams, incidental_std_stream_handles) = make_async_std_streams(vec![]).await;
-    //     let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) = make_async_std_streams(vec![]).await;
-    //     let std_streams_factory = AsyncStdStreamFactoryMock::default()
-    //         .make_result(incidental_std_streams)
-    //         .make_result(processor_aspiring_std_streams);
-    //     let (w_term_interface, term_interface_stream_handles) = TermInterfaceMock::new(None).await;
-    //     let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
-    //         .make_result(Either::Left(Box::new(w_term_interface)));
-    //     let command_context = CommandContextMock::default();
-    //     let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let command_context_factory =
-    //         CommandContextFactoryMock::new()
-    //             .make_params(&make_command_context_params_arc)
-    //             .make_result(Ok(Box::new(command_context)));
-    //     let command_execution_helper = CommandExecutionHelperMock::default();
-    //     let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
-    //         .make_result(Box::new(command_execution_helper));
-    //     let mut subject = Main {
-    //         std_streams_factory: Box::new(std_streams_factory),
-    //         initial_args_parser: Box::new(InitialArgsParserMock::default()),
-    //         term_interface_factory: Box::new(terminal_interface_factory),
-    //         command_factory: Box::new(command_factory),
-    //         command_context_factory: Box::new(command_context_factory),
-    //         command_execution_helper_factory: Box::new(()),
-    //         command_processor_static_factory: Default::default(),
-    //     };
-    //
-    //     let result = subject
-    //         .go(&["command".to_string(), "subcommand".to_string()])
-    //         .await;
-    //
-    //     assert_eq!(result, 1);
-    //     let c_make_params = c_make_params_arc.lock().unwrap();
-    //     assert_eq!(*c_make_params, vec![vec!["subcommand".to_string()],]);
-    //     let mut make_command_context_params = make_command_context_params_arc.lock().unwrap();
-    //     let (ui_port, broadcast_handler_term_interface_opt) = make_command_context_params.pop().unwrap();
-    //     assert_eq!(ui_port, 5333);
-    //     StdStreamsAssertionMatrix::compose(
-    //         &incidental_std_stream_handles,
-    //         &processor_aspiring_std_stream_handles,
-    //         &term_interface_stream_handles,
-    //         None,
-    //         None,
-    //         None,
-    //         Some(ProcessorTerminalInterfaceAssertionMatrix{ standard_assertions: TerminalInterfaceAssertionMatrix { term_interface_stream_handles: &term_interface_stream_handles, write_streams: WriteStreamsAssertion::with_one_piece_output("", "Unknown syntax booga\n")}, read_attempts_opt: None }),
-    //         None
-    //     ).assert().await;
-    // }
-
     #[tokio::test]
     async fn go_works_when_command_execution_fails() {
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
@@ -446,8 +387,8 @@ mod tests {
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let (w_term_interface, term_interface_stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (w_term_interface, term_interface_stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Left(Box::new(w_term_interface)));
         let command_context = CommandContextMock::default();
@@ -517,8 +458,8 @@ mod tests {
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let (w_term_interface, term_interface_stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (w_term_interface, term_interface_stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Left(Box::new(w_term_interface)));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
@@ -604,8 +545,8 @@ mod tests {
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let (w_term_interface, term_interface_stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (w_term_interface, term_interface_stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Left(Box::new(w_term_interface)));
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
@@ -652,7 +593,8 @@ mod tests {
         StdStreamsAssertionMatrix::compose(
             BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&incidental_std_stream_handles),
             BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
-            // TODO this is wrong!! The setup command should cause a displayable output
+            // We say that no output is expected only because we intercept the command's execution
+            // by mocking the CommandExecutionHelper
             ProcessorTerminalInterfaceAssertionMatrix::assert_terminal_not_used(
                 &term_interface_stream_handles,
             ),
@@ -731,7 +673,9 @@ mod tests {
             _context: &dyn CommandContext,
             term_interface: &dyn WTermInterface,
         ) -> Result<(), CommandError> {
-            intentionally_blank!()
+            let (writer, flush_handle) = term_interface.stdout();
+            masq_short_writeln!(writer, "{}", self.output);
+            Ok(())
         }
         fn as_any(&self) -> &dyn Any {
             self
@@ -764,10 +708,8 @@ mod tests {
         let (
             rw_term_interface,
             prime_term_interface_stream_handles,
-            background_term_interface_stream_handles_opt,
-        ) = TermInterfaceMock::new(MockTerminalMode::InteractiveMode(Some(
-            stdin_read_line_results,
-        )));
+            background_term_interface_stream_handles,
+        ) = TermInterfaceMock::new_interactive(stdin_read_line_results);
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Right(Box::new(rw_term_interface)));
@@ -781,21 +723,13 @@ mod tests {
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
-        let command_execution_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_execution_helper = CommandExecutionHelperMock::default()
-            .execute_command_params(&command_execution_params_arc)
-            .execute_command_result(Ok(()))
-            .execute_command_result(Ok(()))
-            .execute_command_result(Ok(()));
-        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
-            .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
             std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
             command_factory_opt: Some(Box::new(command_factory)),
             command_context_factory: Box::new(command_context_factory),
-            command_execution_helper_factory: Box::new(command_execution_helper_factory),
+            command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
             command_processor_static_factory: Default::default(),
         };
 
@@ -827,19 +761,17 @@ mod tests {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &prime_term_interface_stream_handles,
                     expected_writes: FlushesWriteStreamsAssertion {
-                            stdout: vec!["setup command", "start command"],
+                            stdout: vec!["setup command\n", "start command\n","MASQ is terminating...\n"],
                             stderr: vec![],
                         }
                         .into(),
                     read_attempts_opt: Some(3),
                 },
             },
-            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles_opt.unwrap()),
+            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles),
         )
         .assert()
         .await;
-        let command_execution_helper = command_execution_params_arc.lock().unwrap();
-        assert_eq!(command_execution_helper.len(), 3)
     }
 
     #[tokio::test]
@@ -856,10 +788,8 @@ mod tests {
         let (
             rw_term_interface,
             prime_term_interface_stream_handles,
-            background_term_interface_stream_handles_opt,
-        ) = TermInterfaceMock::new(MockTerminalMode::InteractiveMode(Some(
-            stdin_read_line_results,
-        )));
+            background_term_interface_stream_handles,
+        ) = TermInterfaceMock::new_interactive(stdin_read_line_results);
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Right(Box::new(rw_term_interface)));
@@ -909,7 +839,7 @@ mod tests {
                     read_attempts_opt: Some(1),
                 }
             },
-            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles_opt.unwrap()),
+            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles),
         )
         .assert()
         .await;
@@ -973,16 +903,18 @@ mod tests {
     }
 
     impl<'test> From<OnePieceWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test> {
-        fn from(assertion: OnePieceWriteStreamsAssertion<'test>) -> Self {
+        fn from(assertions: OnePieceWriteStreamsAssertion<'test>) -> Self {
             WriteStreamsAssertion {
-                one_piece_or_distinct_flushes: Either::Left(assertion),
+                one_piece_or_distinct_flushes: Either::Left(assertions),
             }
         }
     }
 
     impl<'test> From<FlushesWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test> {
-        fn from(value: FlushesWriteStreamsAssertion<'test>) -> Self {
-            todo!()
+        fn from(assertions: FlushesWriteStreamsAssertion<'test>) -> Self {
+            WriteStreamsAssertion {
+                one_piece_or_distinct_flushes: Either::Right(assertions)
+            }
         }
     }
 
@@ -996,7 +928,7 @@ mod tests {
         fn assert_streams_not_used(
             stream_handles: &'test AsyncTestStreamHandles
         ) -> Self {
-            todo!()
+            Self{ stream_handles, write_streams: WriteStreamsAssertion { one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion{ stdout_opt: None, stderr_opt: None }) } }
         }
     }
 
@@ -1016,12 +948,18 @@ mod tests {
         fn assert_terminal_not_used(
             stream_handles: &'test AsyncTestStreamHandles,
         ) -> Self {
-            todo!()
+            Self{ standard_assertions: TerminalInterfaceAssertionMatrix {
+                term_interface_stream_handles: stream_handles,
+                expected_writes: WriteStreamsAssertion{one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion{ stdout_opt: None, stderr_opt: None }) }  ,
+                read_attempts_opt: None,
+            } }
         }
     }
 
     struct BroadcastHandlerTerminalInterfaceAssertionMatrix<'test> {
         w_term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
+        // None means the terminal is not even considered as existing, we therefore suspect
+        // the non-interactive mode
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     }
 
@@ -1029,14 +967,24 @@ mod tests {
         fn assert_terminal_not_created(
             w_term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
         ) -> Self {
-            todo!()
+            Self {
+                w_term_interface_opt,
+                expected_std_streams_usage_opt: None,
+            }
         }
 
         fn assert_terminal_not_used(
             w_term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
             stream_handles: &'test AsyncTestStreamHandles,
         ) -> Self {
-            todo!()
+           Self{
+               w_term_interface_opt,
+               expected_std_streams_usage_opt: Some(TerminalInterfaceAssertionMatrix{
+                   term_interface_stream_handles: stream_handles,
+                   expected_writes: WriteStreamsAssertion{ one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion{ stdout_opt: None, stderr_opt: None }) },
+                   read_attempts_opt: None,
+               })
+           }
         }
     }
 
@@ -1086,20 +1034,31 @@ mod tests {
         term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     ) {
+        macro_rules! assert_terminal_output_stream_and_its_stream_handle_are_connected {
+            ($fetch_write_utils: expr, $await_non_empty_output: expr, $fetch_written_data_all_in_one: expr, $literals_to_test_it_with: literal)=> {
+                let (mut std_stream_writer, flush_handle) = $fetch_write_utils;
+                std_stream_writer.write($literals_to_test_it_with).await;
+                drop(flush_handle);
+                $await_non_empty_output.await;
+                assert_eq!(
+                    $fetch_written_data_all_in_one,
+                    $literals_to_test_it_with
+                )
+            }
+        }
+
         match (term_interface_opt, expected_std_streams_usage_opt) {
             (Some(w_terminal), Some(expected_usage)) => {
-               assert_stream_writes(expected_usage.term_interface_stream_handles, expected_usage.expected_writes);
-                let (mut stdout, mut stdout_flusher) = w_terminal.stdout();
-                let (mut stderr, mut stderr_flusher) = w_terminal.stderr();
-                stdout.write("AbCdEfG").await;
-                drop(stdout_flusher);
-                assert_eq!(
+                assert_stream_writes(expected_usage.term_interface_stream_handles, expected_usage.expected_writes).await;
+                assert_terminal_output_stream_and_its_stream_handle_are_connected!(
+                    term_interface_opt.as_ref().unwrap().stdout(),
+                    expected_usage.term_interface_stream_handles.await_stdout_is_not_empty(),
                     expected_usage.term_interface_stream_handles.stdout_all_in_one(),
                     "AbCdEfG"
                 );
-                stderr.write("1a2b3c4").await;
-                drop(stderr_flusher);
-                assert_eq!(
+                assert_terminal_output_stream_and_its_stream_handle_are_connected!(
+                    term_interface_opt.as_ref().unwrap().stderr(),
+                    expected_usage.term_interface_stream_handles.await_stderr_is_not_empty(),
                     expected_usage.term_interface_stream_handles.stderr_all_in_one(),
                     "1a2b3c4"
                 );

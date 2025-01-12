@@ -160,8 +160,8 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let factory = CommandFactoryReal::new();
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
@@ -204,8 +204,8 @@ mod tests {
                 "boringPassword".to_string(),
             ])
             .unwrap();
-        let (mut term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (mut term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 

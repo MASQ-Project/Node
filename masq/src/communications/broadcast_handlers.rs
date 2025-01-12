@@ -361,8 +361,8 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_of_setup_triggers_correct_handler() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -403,8 +403,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_ui_log_was_successful() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -430,8 +430,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_crashed_triggers_correct_handler() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -458,8 +458,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_new_password_triggers_correct_handler() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -482,8 +482,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -508,8 +508,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn ui_connection_change_broadcast_is_handled_properly() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -534,8 +534,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
@@ -587,8 +587,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_handler_event_loop_terminates_immediately_at_close() {
-        let (term_interface, stream_handles, _) =
-            TermInterfaceMock::new(MockTerminalMode::NonInteractiveMode);
+        let (term_interface, stream_handles) =
+            TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = CloseSignalling::make_for_test();
         let broadcast_handle = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
