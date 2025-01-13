@@ -32,7 +32,7 @@ fn debtors_are_credited_once_but_not_twice() {
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     eprintln!("Setting up mock blockchain client");
     let blockchain_client_server = MBCSBuilder::new(mbcs_port)
-        .ok_response("0x5DC", 1) // eth_blockNumber 1500
+        .ok_response("0x9C4", 1) // eth_blockNumber 2500
         .ok_response(
             vec![LogObject {
                 removed: false,
@@ -139,12 +139,12 @@ fn debtors_are_credited_once_but_not_twice() {
         assert_eq!(receivable_accounts.len(), 1);
         assert_eq!(receivable_accounts[0].balance_wei, 9_000_000_000);
     }
-    // Use the config DAO to verify that the start block has been advanced to 2001
+    // Use the config DAO to verify that the start block has been advanced to 2501
     {
         let config_dao = config_dao(&node_name);
         assert_eq!(
             config_dao.get("start_block").unwrap().value_opt.unwrap(),
-            "2001"
+            "2501"
         );
     }
 }
