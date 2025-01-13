@@ -1313,8 +1313,6 @@ impl Hostname {
     fn validate_ipv4(addr: Ipv4Addr) -> Result<(), String> {
         if addr.octets() == [0, 0, 0, 0] {
             Err("0.0.0.0".to_string())
-        } else if addr.octets() == [127, 0, 0, 1] {
-            Err("127.0.0.1".to_string())
         } else {
             Ok(())
         }
