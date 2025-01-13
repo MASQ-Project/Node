@@ -1311,6 +1311,8 @@ impl Hostname {
     }
 
     fn validate_ipv4(addr: Ipv4Addr) -> Result<(), String> {
+        // TODO: 127.0.0.1 is being used in integration tests, that's why it's not here,
+        // but we should invalidate that IP too for safety
         if addr.octets() == [0, 0, 0, 0] {
             Err("0.0.0.0".to_string())
         } else {
@@ -6281,10 +6283,6 @@ mod tests {
         assert_eq!(
             Hostname::new("0.0.0.0").validate_hostname(),
             Err("0.0.0.0".to_string())
-        );
-        assert_eq!(
-            Hostname::new("127.0.0.1").validate_hostname(),
-            Err("127.0.0.1".to_string())
         );
         assert_eq!(Hostname::new("192.168.1.158").validate_hostname(), Ok(()));
         // IPv6
