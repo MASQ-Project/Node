@@ -304,7 +304,7 @@ fn dns_resolution_failure_for_wildcard_ip_with_real_nodes() {
         String::from_utf8(response.clone()).unwrap()
     );
     assert_eq!(
-        index_of(&response, &b"<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address www.adomainthatdoesntexsit.com</p>"[..]).is_some(),
+        index_of(&response, &b"<p>DNS Failure, We have tried multiple Exit Nodes and all have failed to resolve this address www.adomainthatdoesntexist.com</p>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
