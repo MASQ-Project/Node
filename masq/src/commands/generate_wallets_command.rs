@@ -356,9 +356,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::terminal::test_utils::{
-        allow_in_test_spawned_task_to_finish, wait_for_write_to_finish,
-    };
+    use crate::terminal::test_utils::{allow_spawned_tasks_to_finish, wait_for_write_to_finish};
     use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
@@ -942,7 +940,7 @@ mod tests {
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
-        allow_in_test_spawned_task_to_finish().await;
+        allow_spawned_tasks_to_finish().await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_flushed_strings(),
@@ -976,7 +974,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
-        allow_in_test_spawned_task_to_finish().await;
+        allow_spawned_tasks_to_finish().await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_all_in_one(),
@@ -1023,7 +1021,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_spawned_tasks_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
