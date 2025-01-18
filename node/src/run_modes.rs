@@ -64,7 +64,11 @@ impl RunModes {
         }
     }
 
-    fn meet_bouncers_at_the_door(&self, args: &[String], streams: &mut StdStreams) -> ProgramEntering {
+    fn meet_bouncers_at_the_door(
+        &self,
+        args: &[String],
+        streams: &mut StdStreams,
+    ) -> ProgramEntering {
         let (mode, privilege_required) = self.determine_mode_and_priv_req(args);
         if let ExitCode(exit_code) = Self::ensure_help_or_version(args, &mode, streams) {
             return Leave(exit_code);

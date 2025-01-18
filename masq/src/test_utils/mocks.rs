@@ -15,7 +15,7 @@ use crate::communications::broadcast_handlers::{
 };
 use crate::communications::client_listener_thread::WSClientHandle;
 use crate::communications::connection_manager::{
-    BroadcastReceiver, CloseSignalling, ConnectionManagerBootstrapper, RedirectOrder,
+    BroadcastReceiver, CMBootstrapper, ClosingStageDetector, RedirectOrder,
 };
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
@@ -33,10 +33,16 @@ use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::shared_schema::VecU64;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use masq_lib::test_utils::fake_stream_holder::{AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayReaderInner, ByteArrayWriter, ByteArrayWriterInner, HandleToCountReads, StdinReadCounter , StringAssertionMethods};
+use masq_lib::test_utils::fake_stream_holder::{
+    AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayReaderInner, ByteArrayWriter,
+    ByteArrayWriterInner, HandleToCountReads, StdinReadCounter, StringAssertionMethods,
+};
 use masq_lib::test_utils::websockets_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::localhost;
+use masq_lib::websockets_handshake::{
+    HandshakeResultRx, HandshakeResultTx, WSHandshakeHandlerFactory,
+};
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, intentionally_blank,
     set_arbitrary_id_stamp_in_mock_impl,
@@ -57,8 +63,8 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use workflow_websocket::client::{
-    Ack, ConnectOptions, ConnectStrategy, Error, Message, Result as ClientResult, WebSocket,
-    WebSocketConfig,
+    Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, Result as ClientResult,
+    WebSocket, WebSocketConfig,
 };
 
 #[derive(Default)]
@@ -553,6 +559,30 @@ impl MockCommand {
 //     }
 // }
 
+pub struct WSClientHandshakeAlwaysAcceptingHandler {
+    handshake_confirmation_tx: HandshakeResultTx,
+}
+
+#[async_trait]
+impl Handshake for WSClientHandshakeAlwaysAcceptingHandler {
+    async fn handshake(
+        &self,
+        _sender: &Sender<Message>,
+        _receiver: &Receiver<Message>,
+    ) -> ClientResult<()> {
+        self.handshake_confirmation_tx.send(Ok(())).unwrap();
+        Ok(())
+    }
+}
+
+impl WSClientHandshakeAlwaysAcceptingHandler {
+    pub fn new(handshake_confirmation_tx: HandshakeResultTx) -> Self {
+        Self {
+            handshake_confirmation_tx,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct WSClientHandleMock {
     send_params: Arc<Mutex<Vec<Message>>>,
@@ -739,9 +769,9 @@ pub struct TermInterfaceMock {
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
-enum TerminalInterfaceMockInner{
-    NonInteractive{
-        writing_streams: WritingStreamsContainers
+enum TerminalInterfaceMockInner {
+    NonInteractive {
+        writing_streams: WritingStreamsContainers,
     },
     Interactive {
         stdin_read_results: Arc<Mutex<ReadLineResults>>,
@@ -750,53 +780,61 @@ enum TerminalInterfaceMockInner{
         writing_part: Box<TermInterfaceMock>,
         // Optional so that it can be pulled out
         background_terminal_interface_arc_opt: Arc<Mutex<Option<TermInterfaceMock>>>,
-    }
+    },
 }
 
 impl TerminalInterfaceMockInner {
-    fn writing_streams_for_non_interactive_mode(&self) -> &WritingStreamsContainers{
+    fn writing_streams_for_non_interactive_mode(&self) -> &WritingStreamsContainers {
         match self {
             TerminalInterfaceMockInner::NonInteractive {writing_streams } => writing_streams,
             TerminalInterfaceMockInner::Interactive { .. } => panic!("Trying to fetch simple writing utils from a mock not having been set up as non-interactive")
         }
     }
-    fn write_only_terminal_for_interactive_mode(&self) -> &dyn WTermInterface{
+    fn write_only_terminal_for_interactive_mode(&self) -> &dyn WTermInterface {
         match self {
             TerminalInterfaceMockInner::NonInteractive { ..} => panic!("Trying to access an auxiliary write only terminal on a mock not having been set up as interactive"),
             TerminalInterfaceMockInner::Interactive {writing_part,..} => writing_part.as_ref()
         }
     }
 
-    fn background_terminal(&self) ->TermInterfaceMock {
+    fn background_terminal(&self) -> TermInterfaceMock {
         match self {
             TerminalInterfaceMockInner::NonInteractive { .. } => panic!("Trying to fetch the background terminal from a mock not having been set up as interactive"),
             TerminalInterfaceMockInner::Interactive { background_terminal_interface_arc_opt, .. } => background_terminal_interface_arc_opt.lock().unwrap().take().expect("Trying to fetch the background terminal more than once")
         }
     }
 
-    fn stdin_read_results(&self) -> &Arc<Mutex<ReadLineResults>>{
+    fn stdin_read_results(&self) -> &Arc<Mutex<ReadLineResults>> {
         match self {
             TerminalInterfaceMockInner::NonInteractive { .. } => panic!("Trying to access stdin results from a mock terminal not having been set up as interactive"),
             TerminalInterfaceMockInner::Interactive { stdin_read_results,..} => stdin_read_results
         }
     }
 
-    fn stdout_arc(&self) -> &Arc<Mutex<Vec<String>>>{
+    fn stdout_arc(&self) -> &Arc<Mutex<Vec<String>>> {
         match self {
-            TerminalInterfaceMockInner::NonInteractive {writing_streams} => &writing_streams.stdout,
-            TerminalInterfaceMockInner::Interactive { writing_part, ..} => writing_part.inner.stdout_arc()
+            TerminalInterfaceMockInner::NonInteractive { writing_streams } => {
+                &writing_streams.stdout
+            }
+            TerminalInterfaceMockInner::Interactive { writing_part, .. } => {
+                writing_part.inner.stdout_arc()
+            }
         }
     }
 
-    fn stderr_arc(&self) -> &Arc<Mutex<Vec<String>>>{
+    fn stderr_arc(&self) -> &Arc<Mutex<Vec<String>>> {
         match self {
-            TerminalInterfaceMockInner::NonInteractive {writing_streams} => &writing_streams.stderr,
-            TerminalInterfaceMockInner::Interactive { writing_part, ..} => writing_part.inner.stderr_arc()
+            TerminalInterfaceMockInner::NonInteractive { writing_streams } => {
+                &writing_streams.stderr
+            }
+            TerminalInterfaceMockInner::Interactive { writing_part, .. } => {
+                writing_part.inner.stderr_arc()
+            }
         }
     }
 }
 
-struct WritingStreamsContainers{
+struct WritingStreamsContainers {
     stdout: Arc<Mutex<Vec<String>>>,
     stderr: Arc<Mutex<Vec<String>>>,
 }
@@ -805,21 +843,26 @@ impl WritingStreamsContainers {
     fn new() -> (Self, Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<String>>>) {
         let stdout = Arc::new(Mutex::new(vec![]));
         let stderr = Arc::new(Mutex::new(vec![]));
-        (Self {
-            stdout: stdout.clone(),
-            stderr: stderr.clone(),
-        },
-        stdout,
-            stderr)
-
+        (
+            Self {
+                stdout: stdout.clone(),
+                stderr: stderr.clone(),
+            },
+            stdout,
+            stderr,
+        )
     }
-
 }
 
 #[async_trait(?Send)]
 impl RWTermInterface for TermInterfaceMock {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError> {
-        self.inner.stdin_read_results().lock().unwrap().stdin_read_results.remove(0)
+        self.inner
+            .stdin_read_results()
+            .lock()
+            .unwrap()
+            .stdin_read_results
+            .remove(0)
     }
 
     fn write_only_ref(&self) -> &dyn WTermInterface {
@@ -856,11 +899,9 @@ impl WTermInterfaceDupAndSend for TermInterfaceMock {
 }
 
 impl TermInterfaceMock {
-    pub fn new_non_interactive()->(Self, AsyncTestStreamHandles){
+    pub fn new_non_interactive() -> (Self, AsyncTestStreamHandles) {
         let (writing_streams, stdout_handle, stderr_handle) = WritingStreamsContainers::new();
-        let inner = TerminalInterfaceMockInner::NonInteractive {
-            writing_streams
-        };
+        let inner = TerminalInterfaceMockInner::NonInteractive { writing_streams };
 
         let mock = Self {
             inner,
@@ -873,28 +914,30 @@ impl TermInterfaceMock {
             stderr: Either::Right(stderr_handle),
         };
 
-        (
-            mock,
-            terminal_interface_stream_handles
-        )
+        (mock, terminal_interface_stream_handles)
     }
 
-    pub fn new_interactive(read_results: Vec<Result<ReadInput, ReadError>>)-> (Self, AsyncTestStreamHandles, AsyncTestStreamHandles) {
-        let (
-            background_terminal_interface_mock,
-            background_terminal_interface_stream_handles,
-        ) = Self::new_non_interactive();
+    pub fn new_interactive(
+        read_results: Vec<Result<ReadInput, ReadError>>,
+    ) -> (Self, AsyncTestStreamHandles, AsyncTestStreamHandles) {
+        let (background_terminal_interface_mock, background_terminal_interface_stream_handles) =
+            Self::new_non_interactive();
 
         let (writing_streams, stdout_handle, stderr_handle) = WritingStreamsContainers::new();
 
-        let stdin_read_results =  Arc::new(Mutex::new(ReadLineResults::new(read_results)));
+        let stdin_read_results = Arc::new(Mutex::new(ReadLineResults::new(read_results)));
 
-        let writing_part = Box::new(TermInterfaceMock { inner: TerminalInterfaceMockInner::NonInteractive { writing_streams }, arbitrary_id_stamp_opt: None });
+        let writing_part = Box::new(TermInterfaceMock {
+            inner: TerminalInterfaceMockInner::NonInteractive { writing_streams },
+            arbitrary_id_stamp_opt: None,
+        });
 
         let inner = TerminalInterfaceMockInner::Interactive {
             stdin_read_results: stdin_read_results.clone(),
             writing_part,
-            background_terminal_interface_arc_opt: Arc::new(Mutex::new(Some(background_terminal_interface_mock))),
+            background_terminal_interface_arc_opt: Arc::new(Mutex::new(Some(
+                background_terminal_interface_mock,
+            ))),
         };
 
         let mock = Self {
@@ -911,7 +954,7 @@ impl TermInterfaceMock {
         (
             mock,
             prime_terminal_interface_stream_handles,
-            background_terminal_interface_stream_handles
+            background_terminal_interface_stream_handles,
         )
     }
 
@@ -939,7 +982,7 @@ impl HandleToCountReads for ReadLineResults {
     }
 }
 
-impl From<&InteractiveModeInfrastructure> for StdinReadCounter  {
+impl From<&InteractiveModeInfrastructure> for StdinReadCounter {
     fn from(infrastructure: &InteractiveModeInfrastructure) -> Self {
         StdinReadCounter::new(infrastructure.stdin_read_results.clone())
     }
@@ -953,7 +996,7 @@ pub struct InteractiveModeInfrastructure {
 
 struct ReadLineResults {
     stdin_read_results: Vec<Result<ReadInput, ReadError>>,
-    results_initially: usize
+    results_initially: usize,
 }
 
 impl Default for ReadLineResults {
@@ -966,7 +1009,7 @@ impl Default for ReadLineResults {
 }
 
 impl ReadLineResults {
-    fn new(stdin_read_results: Vec<Result<ReadInput, ReadError>>)-> Self {
+    fn new(stdin_read_results: Vec<Result<ReadInput, ReadError>>) -> Self {
         let results_initially = stdin_read_results.len();
         Self {
             stdin_read_results,
@@ -982,13 +1025,13 @@ pub enum MockTerminalMode {
 }
 
 pub struct AsyncTestStreamHandles {
-    pub stdin_counter: StdinReadCounter ,
+    pub stdin_counter: StdinReadCounter,
     pub stdout: Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
     pub stderr: Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
 }
 
 impl AsyncTestStreamHandles {
-    pub fn reads_opt(&self)-> Option<usize>{
+    pub fn reads_opt(&self) -> Option<usize> {
         self.stdin_counter.reads_opt()
     }
     // Recommended to call only once (and keep the result) as repeated calls may be unnecessarily
@@ -1151,7 +1194,7 @@ pub fn make_async_std_streams_with_further_setup(
     };
 
     let reader_ref = stdin.reader.lock().unwrap();
-    let stdin_counter = StdinReadCounter ::from(reader_ref.deref());
+    let stdin_counter = StdinReadCounter::from(reader_ref.deref());
     drop(reader_ref);
     let (stdout, stdout_clone) = make_async_std_write_stream(stdout_write_err_opt);
     let (stderr, stderr_clone) = make_async_std_write_stream(stderr_write_err_opt);

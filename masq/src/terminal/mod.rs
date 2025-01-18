@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use async_trait::async_trait;
 use itertools::Itertools;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::intentionally_blank;
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use std::fmt::{Display, Formatter};
 use std::io::Error;
 use std::sync::Arc;

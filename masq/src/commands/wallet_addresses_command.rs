@@ -117,8 +117,7 @@ mod tests {
                 earning_wallet_address: "0x454654klljkjk".to_string(),
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["wallet-addresses".to_string(), "bonkers".to_string()])
@@ -151,8 +150,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(4644, "bad bad bad thing".to_string()),
         ));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["wallet-addresses".to_string(), "some password".to_string()])
@@ -172,8 +170,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject =
             WalletAddressesCommand::new(&["wallet-addresses".to_string(), "bonkers".to_string()])
                 .unwrap();

@@ -181,7 +181,9 @@ impl FlushHandleInner for InteractiveFlushHandleInner {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::interactive_terminal_interface::{InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND};
+    use crate::terminal::interactive_terminal_interface::{
+        InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND,
+    };
     use crate::terminal::test_utils::{
         test_writing_streams_of_particular_terminal, InteractiveInterfaceByUse,
         LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
@@ -286,7 +288,9 @@ mod tests {
         .await;
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByUse::WOnlyBackgroundInterface(w_only_clone.as_ref()),
+                term_interface: InteractiveInterfaceByUse::WOnlyBackgroundInterface(
+                    w_only_clone.as_ref(),
+                ),
                 streams_assertion_handles: w_liso_println_params,
             }),
             "write only clone",

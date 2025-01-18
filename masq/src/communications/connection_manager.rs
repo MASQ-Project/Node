@@ -19,7 +19,10 @@ use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCras
 use masq_lib::messages::{UiRedirect, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use masq_lib::websockets_handshake::WSClientConnectionInitiator;
+use masq_lib::websockets_handshake::{
+    HandshakeResultTx, WSClientConnectionInitiator, WSHandshakeHandlerFactory,
+    WSHandshakeHandlerFactoryReal,
+};
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -70,80 +73,73 @@ impl RedirectOrder {
     }
 }
 
-pub struct ConnectionManagerBootstrapper {
-    pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-    pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
+#[derive(Debug)]
+pub enum ServicesDeploymentError {
+    ClientListener(ClientListenerError),
 }
 
-impl Default for ConnectionManagerBootstrapper {
+pub struct CMBootstrapper {
+    pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
+    pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
+    pub ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
+}
+
+impl Default for CMBootstrapper {
     fn default() -> Self {
         Self::new(
-            Box::new(StandardBroadcastHandlerFactoryReal::new()),
+            Box::new(StandardBroadcastHandlerFactoryReal::default()),
             Box::new(RedirectBroadcastHandleFactoryReal::default()),
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
         )
     }
 }
 
-impl ConnectionManagerBootstrapper {
+impl CMBootstrapper {
     fn new(
         standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
         redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
+        ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
     ) -> Self {
         Self {
             standard_broadcast_handler_factory,
             redirect_broadcast_handle_factory,
+            ws_handshake_handler_factory_arc,
         }
     }
 
-    pub async fn spawn_communication_services(
-        &self,
+    pub async fn establish_connection_manager(
+        self,
         port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         timeout_millis: u64,
-    ) -> Result<ConnectionManagerLinksToSubordinates, ClientListenerError> {
-        let (launcher, mut central_event_loop_ready_rx, connectors) =
-            self.prepare_launch(port, terminal_interface_opt, timeout_millis);
-
-        match launcher.spawn_event_loops().await {
-            Ok(_) => (),
-            Err(e) => todo!("{:?}", e)
-        };
-
-        central_event_loop_ready_rx.recv().await.expect("Spawning event loops failed");
-
-        Ok(connectors)
-    }
-
-    fn prepare_launch(
-        &self,
-        port: u16,
-        terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
-        timeout_millis: u64,
-    ) -> (Launcher, UnboundedReceiver<()>, ConnectionManagerLinksToSubordinates) {
+    ) -> Result<ConnectionManager, ServicesDeploymentError> {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let close_sync_flag = Arc::new(AtomicBool::new(false));
+        let close_sync_flag = SyncCloseFlag::default();
         let (async_close_signal_tx, async_close_signal_rx) = tokio::sync::broadcast::channel(10);
-        let close_sig = CloseSignalling::new(async_close_signal_rx, close_sync_flag.clone());
+        let close_sig = ClosingStageDetector::new(async_close_signal_rx, close_sync_flag.clone());
         let close_sig_client_listener = close_sig.dup_receiver();
         //TODO how should I test that all these channels are interconnected?
         let close_sig_standard_broadcast_handler = close_sig.dup_receiver();
 
-        // TODO does this future have to be in the closure?
-        let spawn_ws_client_listener: SpawnClientListenerFuture = Box::new(move || {
-            Box::pin(spawn_client_listener(
-                port,
-                listener_to_manager_tx,
-                close_sig_client_listener,
-                timeout_millis,
-            ))
-        });
-
-        let spawn_standard_broadcast_handler: SpawnStandardBroadcastHandlerClosure = {
-            let mut standard_broadcast_handler = self
-                .standard_broadcast_handler_factory
-                .make(terminal_interface_opt, close_sig_standard_broadcast_handler);
-            Box::new(move || standard_broadcast_handler.spawn())
+        let ws_client_handle = match spawn_client_listener(
+            port,
+            listener_to_manager_tx,
+            close_sig_client_listener,
+            self.ws_handshake_handler_factory_arc.clone(),
+            timeout_millis,
+        )
+        .await
+        {
+            Ok(ch) => ch,
+            Err(e) => {
+                todo!("{:?}", e)
+            }
         };
+
+        let standard_broadcast_handler = self
+            .standard_broadcast_handler_factory
+            .make(terminal_interface_opt, close_sig_standard_broadcast_handler)
+            .spawn();
 
         let (redirect_order_tx, redirect_order_rx) = unbounded_channel();
         let redirect_broadcast_handle = Box::new(RedirectBroadcastHandle::new(redirect_order_tx));
@@ -153,160 +149,113 @@ impl ConnectionManagerBootstrapper {
         let (redirect_response_tx, redirect_response_rx) = unbounded_channel();
         let (active_port_response_tx, active_port_response_rx) = unbounded_channel();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
-        let (event_loop_ready_tx, event_loop_ready_rx) = unbounded_channel();
 
-        let spawn_central_event_loop = Box::new(
-            move |ws_client_handle: Box<dyn WSClientHandle>,
-                  standard_broadcast_handle: Box<dyn BroadcastHandle<MessageBody>>| {
-                let broadcast_handles =
-                    BroadcastHandles::new(standard_broadcast_handle, redirect_broadcast_handle);
+        let broadcast_handles =
+            BroadcastHandles::new(standard_broadcast_handler, redirect_broadcast_handle);
 
-                let inner = CmsManagerInner {
-                    active_port: Some(port),
-                    daemon_port: port,
-                    node_port: None,
-                    conversations: HashMap::new(),
-                    conversations_waiting: HashSet::new(),
-                    next_context_id: 1,
-                    demand_rx,
-                    conversation_return_tx,
-                    conversations_to_manager_tx,
-                    conversations_to_manager_rx,
-                    listener_to_manager_rx,
-                    ws_client_handle,
-                    broadcast_handles,
-                    redirect_order_rx,
-                    redirect_response_tx,
-                    active_port_response_tx,
-                    close_sig,
-                };
+        let inner = CMDepartment {
+            active_port_opt: Some(port),
+            daemon_port: port,
+            node_port_opt: None,
+            conversations: HashMap::new(),
+            conversations_waiting: HashSet::new(),
+            next_context_id: 1,
+            demand_rx,
+            conversation_return_tx,
+            conversations_to_manager_tx,
+            conversations_to_manager_rx,
+            listener_to_manager_rx,
+            ws_client_handle,
+            ws_handshake_handler_factory_arc: self.ws_handshake_handler_factory_arc,
+            broadcast_handles,
+            redirect_order_rx,
+            redirect_response_tx,
+            active_port_response_tx,
+            close_sig,
+        };
 
-                let _join_handle = ConnectionsEventLoop::spawn(inner, event_loop_ready_tx);
-            },
-        );
+        let central_even_loop_join_handle = CentralEventLoop::spawn(inner);
 
-        let launch_platform = Launcher::new(
-            spawn_ws_client_listener,
-            spawn_standard_broadcast_handler,
-            spawn_central_event_loop,
-        );
-
-        let connection_manager_connectors = ConnectionManagerConnectors::new(
+        let internal_communications = CMChannelsToSubordinates::new(
             demand_tx,
             conversation_return_rx,
             redirect_response_rx,
             active_port_response_rx,
         );
 
-        let connection_manager_internal_communications = ConnectionManagerLinksToSubordinates {
-            communication_channels: connection_manager_connectors,
-            close_signaler: CloseSignaler::new(async_close_signal_tx, close_sync_flag),
-        };
+        let close_signaler = CloseSignaler::new(async_close_signal_tx, close_sync_flag);
 
-        (launch_platform, event_loop_ready_rx, connection_manager_internal_communications)
+        let manager = ConnectionManager::new(
+            internal_communications,
+            close_signaler,
+            central_even_loop_join_handle,
+        );
+
+        Ok(manager)
     }
 }
 
-type SpawnClientListenerFuture = Box<
-    dyn FnOnce() -> Pin<
-        Box<dyn Future<Output = Result<Box<dyn WSClientHandle>, ClientListenerError>>>,
-    >,
->;
-
-type SpawnStandardBroadcastHandlerClosure = Box<dyn FnOnce() -> Box<dyn BroadcastHandle<MessageBody>>>;
-
-type SpawnCMSEventLoopClosure =
-    Box<dyn FnOnce(Box<dyn WSClientHandle>, Box<dyn BroadcastHandle<MessageBody>>)>;
-
-struct Launcher {
-    spawn_ws_client_listener: SpawnClientListenerFuture,
-    spawn_standard_broadcast_handler: SpawnStandardBroadcastHandlerClosure,
-    spawn_communication_department_event_loop: SpawnCMSEventLoopClosure,
-}
-
-impl Launcher {
-    pub fn new(
-        spawn_ws_client_listener: SpawnClientListenerFuture,
-        spawn_standard_broadcast_handler: SpawnStandardBroadcastHandlerClosure,
-        spawn_communication_department_event_loop: SpawnCMSEventLoopClosure,
-    ) -> Self {
-        Self {
-            spawn_ws_client_listener,
-            spawn_standard_broadcast_handler,
-            // TODO should I continue with this nomenclature and replace the CMS with CMD
-            spawn_communication_department_event_loop
-        }
-    }
-
-    pub async fn spawn_event_loops(self) -> Result<(), ClientListenerError>{
-        let talker_half = (self.spawn_ws_client_listener)().await?;
-        let standard_broadcast_handle = (self.spawn_standard_broadcast_handler)();
-
-        (self.spawn_communication_department_event_loop)(talker_half, standard_broadcast_handle);
-
-        Ok(())
-    }
-}
-
-pub struct ConnectionManagerLinksToSubordinates {
-    communication_channels: ConnectionManagerConnectors,
-    close_signaler: CloseSignaler,
-}
-
-pub struct ConnectionManagerConnectors {
+pub struct CMChannelsToSubordinates {
     demand_tx: UnboundedSender<Demand>,
-    receivers: RefCell<ConnectionManagerReceivers>,
+    response_receivers: RefCell<CMReceivers>,
 }
 
-struct ConnectionManagerReceivers {
+struct CMReceivers {
     conversation_return_rx: UnboundedReceiver<NodeConversation>,
     //TODO we never use this!!! ... it should probably print a message or something
     redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
     active_port_response_rx: UnboundedReceiver<Option<u16>>,
 }
 
-impl ConnectionManagerConnectors {
+impl CMChannelsToSubordinates {
     pub fn new(
         demand_tx: UnboundedSender<Demand>,
         conversation_return_rx: UnboundedReceiver<NodeConversation>,
         redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
         active_port_response_rx: UnboundedReceiver<Option<u16>>,
     ) -> Self {
-        let receivers = RefCell::new(ConnectionManagerReceivers {
+        let receivers = RefCell::new(CMReceivers {
             conversation_return_rx,
             redirect_response_rx,
             active_port_response_rx,
         });
         Self {
             demand_tx,
-            receivers,
+            response_receivers: receivers,
         }
     }
 
-    pub fn receivers_mut(&self) -> RefMut<'_, ConnectionManagerReceivers> {
-        self.receivers.borrow_mut()
+    // TODO really?? Cannot this be done better?
+    pub fn receivers_mut(&self) -> RefMut<'_, CMReceivers> {
+        self.response_receivers.borrow_mut()
     }
 }
 
 pub struct ConnectionManager {
-    communication_channels: ConnectionManagerConnectors,
+    internal_communications: CMChannelsToSubordinates,
     closing_signaler: CloseSignaler,
+    central_even_loop_join_handle: JoinHandle<()>,
 }
 
 impl ConnectionManager {
-    pub fn new(internal_communication: ConnectionManagerLinksToSubordinates) -> Self {
+    pub fn new(
+        internal_communications: CMChannelsToSubordinates,
+        closing_signaler: CloseSignaler,
+        central_even_loop_join_handle: JoinHandle<()>,
+    ) -> Self {
         Self {
-            communication_channels: internal_communication.communication_channels,
-            closing_signaler: internal_communication.close_signaler,
+            internal_communications,
+            closing_signaler,
+            central_even_loop_join_handle,
         }
     }
 
     pub async fn active_ui_port(&self) -> Option<u16> {
-        self.communication_channels
+        self.internal_communications
             .demand_tx
             .send(Demand::ActivePort)
             .expect("ConnectionManagerThread is dead");
-        let mut receivers = self.communication_channels.receivers_mut();
+        let mut receivers = self.internal_communications.receivers_mut();
         let request_fut = receivers.active_port_response_rx.recv();
         // (Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS))
         // {
@@ -327,11 +276,11 @@ impl ConnectionManager {
     }
 
     pub async fn start_conversation(&self) -> NodeConversation {
-        self.communication_channels
+        self.internal_communications
             .demand_tx
             .send(Demand::Conversation)
             .expect("ConnectionManager is not connected");
-        self.communication_channels
+        self.internal_communications
             .receivers_mut()
             .conversation_return_rx
             .recv()
@@ -341,15 +290,10 @@ impl ConnectionManager {
 
     pub fn close(&self) {
         self.closing_signaler.signalize_close();
-        self.communication_channels
+        self.internal_communications
             .demand_tx
             .send(Demand::Close)
-            .expect("ConnectionManagerThread is dead");
-    }
-
-    #[cfg(test)]
-    pub fn is_closing(&self) -> bool {
-        self.closing_signaler.is_closing()
+            .expect("CMDepartment not working");
     }
 }
 
@@ -357,9 +301,11 @@ async fn spawn_client_listener(
     port: u16,
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     close_sig_rx: BroadcastReceiver<()>,
+    ws_handshake_handler_factory: Arc<dyn WSHandshakeHandlerFactory>,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
-    let connection_initiator = WSClientConnectionInitiator::new(port);
+    let connection_initiator =
+        WSClientConnectionInitiator::new(port, timeout_millis, ws_handshake_handler_factory);
 
     let ws = match connection_initiator.connect_with_timeout().await {
         Ok(ws) => ws,
@@ -376,10 +322,10 @@ async fn spawn_client_listener(
     Ok(talker_half)
 }
 
-struct CmsManagerInner {
-    active_port: Option<u16>,
+struct CMDepartment {
+    active_port_opt: Option<u16>,
     daemon_port: u16,
-    node_port: Option<u16>,
+    node_port_opt: Option<u16>,
     conversations:
         HashMap<u64, async_channel::Sender<Result<MessageBody, NodeConversationTermination>>>,
     conversations_waiting: HashSet<u64>,
@@ -390,65 +336,62 @@ struct CmsManagerInner {
     conversations_to_manager_rx: async_channel::Receiver<OutgoingMessageType>,
     listener_to_manager_rx: UnboundedReceiver<Result<MessageBody, ClientListenerError>>,
     ws_client_handle: Box<dyn WSClientHandle>,
+    ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
     broadcast_handles: BroadcastHandles,
     redirect_order_rx: UnboundedReceiver<RedirectOrder>,
     redirect_response_tx: UnboundedSender<Result<(), ClientListenerError>>,
     active_port_response_tx: UnboundedSender<Option<u16>>,
-    close_sig: CloseSignalling,
+    close_sig: ClosingStageDetector,
 }
 
-pub struct ConnectionsEventLoop {}
+pub struct CentralEventLoop {}
 
-impl ConnectionsEventLoop {
-    fn spawn(
-        mut inner: CmsManagerInner,
-        event_loop_ready_tx: UnboundedSender<()>,
-    ) -> JoinHandle<()> {
+impl CentralEventLoop {
+    fn spawn(mut inner: CMDepartment) -> JoinHandle<()> {
         tokio::task::spawn(async move {
-            // TODO do we need this?
-            event_loop_ready_tx.send(()).expect("couldn't signal redinness");
-
             loop {
-                match (
-                    inner.close_sig.sync_state().load(Ordering::Relaxed),
-                    inner.active_port,
-                ) {
-                    (true, _) => break,
-                    (false, None) => {
+                match inner.active_port_opt {
+                    None => {
                         Self::send_daemon_crashed(&inner);
                         break;
                     }
-                    _ => inner = Self::loop_guts(inner).await,
+                    _ => match Self::loop_guts(inner).await {
+                        Some(returned_inner) => inner = returned_inner,
+                        None => break,
+                    },
                 }
             }
         })
     }
 
-    async fn loop_guts(mut inner: CmsManagerInner) -> CmsManagerInner {
+    async fn loop_guts(mut inner: CMDepartment) -> Option<CMDepartment> {
         tokio::select! {
             demand_result = inner.demand_rx.recv() => Self::handle_demand (inner, demand_result).await,
-            message_body_result_result = inner.conversations_to_manager_rx.recv() => Self::handle_outgoing_message_body (inner, message_body_result_result).await,
-            redirect_order_result = inner.redirect_order_rx.recv() => Self::handle_redirect_order (inner, redirect_order_result).await,
-            message_body_result_result = inner.listener_to_manager_rx.recv() => Self::handle_incoming_message_body (inner, message_body_result_result).await,
+            message_body_result_result = inner.conversations_to_manager_rx.recv() => Some(Self::handle_outgoing_message_body (inner, message_body_result_result).await),
+            redirect_order_result = inner.redirect_order_rx.recv() => Some(Self::handle_redirect_order (inner, redirect_order_result).await),
+            message_body_result_result = inner.listener_to_manager_rx.recv() => Some(Self::handle_incoming_message_body (inner, message_body_result_result).await),
         }
     }
 
     async fn handle_demand(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         demand_opt: Option<Demand>,
-    ) -> CmsManagerInner {
+    ) -> Option<CMDepartment> {
         match demand_opt {
-            Some(Demand::Conversation) => Self::handle_conversation_trigger(inner),
-            Some(Demand::ActivePort) => Self::handle_active_port_request(inner),
-            Some(Demand::Close) => Self::handle_close(inner).await,
+            Some(Demand::Conversation) => Some(Self::handle_conversation_trigger(inner)),
+            Some(Demand::ActivePort) => Some(Self::handle_active_port_request(inner)),
+            Some(Demand::Close) => {
+                Self::handle_close(inner).await;
+                None
+            }
             None => {
-                inner.active_port = None;
-                inner
+                inner.active_port_opt = None;
+                Some(inner)
             }
         }
     }
 
-    fn handle_conversation_trigger(mut inner: CmsManagerInner) -> CmsManagerInner {
+    fn handle_conversation_trigger(mut inner: CMDepartment) -> CMDepartment {
         let (manager_to_conversation_tx, manager_to_conversation_rx) = async_channel::unbounded();
         let context_id = inner.next_context_id;
         inner.next_context_id += 1;
@@ -456,7 +399,7 @@ impl ConnectionsEventLoop {
             context_id,
             inner.conversations_to_manager_tx.clone(),
             manager_to_conversation_rx,
-            inner.close_sig.sync_state().clone(),
+            inner.close_sig.sync_flag_ref().clone(),
         );
         inner
             .conversations
@@ -471,9 +414,9 @@ impl ConnectionsEventLoop {
     }
 
     async fn handle_incoming_message_body(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         msg_result_opt: Option<Result<MessageBody, ClientListenerError>>,
-    ) -> CmsManagerInner {
+    ) -> CMDepartment {
         match msg_result_opt {
             Some(msg_result) => match msg_result {
                 Ok(message_body) => match message_body.path {
@@ -509,16 +452,18 @@ impl ConnectionsEventLoop {
                 }
             },
             None => {
-                return Self::fallback(inner, NodeConversationTermination::Fatal).await;
+                if !inner.close_sig.sync_flag.masq_is_closing() {
+                    return Self::fallback(inner, NodeConversationTermination::Fatal).await;
+                }
             }
         };
         inner
     }
 
     async fn handle_outgoing_message_body(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         msg_opt: Result<OutgoingMessageType, RecvError>,
-    ) -> CmsManagerInner {
+    ) -> CMDepartment {
         match msg_opt {
             Err(e) => todo!(),
             Ok(OutgoingMessageType::ConversationMessage (message_body)) => match message_body.path {
@@ -566,9 +511,9 @@ impl ConnectionsEventLoop {
     }
 
     async fn handle_redirect_order(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         redirect_order_opt: Option<RedirectOrder>,
-    ) -> CmsManagerInner {
+    ) -> CMDepartment {
         let redirect_order = match redirect_order_opt {
             Some(ro) => ro,
             None => return inner, // Sender died; ignore
@@ -578,6 +523,7 @@ impl ConnectionsEventLoop {
             redirect_order.port,
             listener_to_manager_tx,
             inner.close_sig.async_signal.resubscribe(),
+            inner.ws_handshake_handler_factory_arc.clone(),
             redirect_order.timeout_millis,
         )
         .await
@@ -590,8 +536,8 @@ impl ConnectionsEventLoop {
                 return inner;
             }
         };
-        inner.node_port = Some(redirect_order.port);
-        inner.active_port = Some(redirect_order.port);
+        inner.node_port_opt = Some(redirect_order.port);
+        inner.active_port_opt = Some(redirect_order.port);
         inner.listener_to_manager_rx = listener_to_manager_rx;
         inner.ws_client_handle = talker_half;
         //TODO this is a working solution for conversations; know that a redirected fire-and-forget is just ignored and it does not resend if it's the absolutely first message: GH-487
@@ -616,44 +562,43 @@ impl ConnectionsEventLoop {
         inner
     }
 
-    fn handle_active_port_request(inner: CmsManagerInner) -> CmsManagerInner {
+    fn handle_active_port_request(inner: CMDepartment) -> CMDepartment {
         inner
             .active_port_response_tx
-            .send(inner.active_port)
+            .send(inner.active_port_opt)
             .expect("ConnectionManager is dead");
         inner
     }
 
-    async fn handle_close(mut inner: CmsManagerInner) -> CmsManagerInner {
+    async fn handle_close(mut inner: CMDepartment) {
         let _ = inner.ws_client_handle.disconnect().await;
         let _ = inner.ws_client_handle.close_talker_half();
-        inner = Self::fallback(inner, NodeConversationTermination::Graceful).await;
-        inner
     }
 
     async fn fallback(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         termination: NodeConversationTermination,
-    ) -> CmsManagerInner {
-        inner.node_port = None;
-        match &inner.active_port {
+    ) -> CMDepartment {
+        inner.node_port_opt = None;
+        match &inner.active_port_opt {
             None => {
                 inner = Self::disappoint_all_conversations(inner, termination).await;
                 return inner;
             }
             Some(active_port) if *active_port == inner.daemon_port => {
-                inner.active_port = None;
+                inner.active_port_opt = None;
                 inner = Self::disappoint_all_conversations(inner, termination).await;
                 return inner;
             }
-            Some(_) => inner.active_port = Some(inner.daemon_port),
+            Some(_) => inner.active_port_opt = Some(inner.daemon_port),
         }
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         inner.listener_to_manager_rx = listener_to_manager_rx;
         match spawn_client_listener(
-            inner.active_port.expect("Active port disappeared!"),
+            inner.active_port_opt.expect("Active port disappeared!"),
             listener_to_manager_tx,
             inner.close_sig.dup_receiver(),
+            inner.ws_handshake_handler_factory_arc.clone(),
             FALLBACK_TIMEOUT_MILLIS,
         )
         .await
@@ -667,9 +612,9 @@ impl ConnectionsEventLoop {
     }
 
     async fn disappoint_waiting_conversations(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         error: NodeConversationTermination,
-    ) -> CmsManagerInner {
+    ) -> CMDepartment {
         join_all(inner.conversations_waiting.iter().map(|context_id| {
             inner
                 .conversations
@@ -683,9 +628,9 @@ impl ConnectionsEventLoop {
     }
 
     async fn disappoint_all_conversations(
-        mut inner: CmsManagerInner,
+        mut inner: CMDepartment,
         error: NodeConversationTermination,
-    ) -> CmsManagerInner {
+    ) -> CMDepartment {
         join_all(
             inner
                 .conversations
@@ -698,7 +643,7 @@ impl ConnectionsEventLoop {
         inner
     }
 
-    fn send_daemon_crashed(inner: &CmsManagerInner) {
+    fn send_daemon_crashed(inner: &CMDepartment) {
         let crash_msg = UiNodeCrashedBroadcast {
             process_id: 0,
             crash_reason: CrashReason::DaemonCrashed,
@@ -709,11 +654,11 @@ impl ConnectionsEventLoop {
 
 pub struct CloseSignaler {
     async_signal: BroadcastSender<()>,
-    sync_flag: Arc<AtomicBool>,
+    sync_flag: SyncCloseFlag,
 }
 
 impl CloseSignaler {
-    fn new(async_signal: BroadcastSender<()>, sync_flag: Arc<AtomicBool>) -> Self {
+    fn new(async_signal: BroadcastSender<()>, sync_flag: SyncCloseFlag) -> Self {
         Self {
             async_signal,
             sync_flag,
@@ -721,25 +666,23 @@ impl CloseSignaler {
     }
 
     pub fn signalize_close(&self) {
-        self.sync_flag.store(true, Ordering::Relaxed);
+        self.sync_flag.inner.store(true, Ordering::Relaxed);
         let _ = self.async_signal.send(());
-    }
-
-    #[cfg(test)]
-    fn is_closing(&self) -> bool {
-        self.sync_flag.load(Ordering::Relaxed)
     }
 }
 
 pub type BroadcastReceiver<T> = tokio::sync::broadcast::Receiver<T>;
 
-pub struct CloseSignalling {
+pub struct ClosingStageDetector {
+    // This is meant to be used mostly in select!() macros. It allows to terminate loops with
+    // an async task which is being awaited but not ready at the moment.
     async_signal: BroadcastReceiver<()>,
-    sync_flag: Arc<AtomicBool>,
+    // This works as a simple check in code not being intercepted by async calls.
+    sync_flag: SyncCloseFlag,
 }
 
-impl CloseSignalling {
-    pub fn new(async_signal: BroadcastReceiver<()>, sync_flag: Arc<AtomicBool>) -> Self {
+impl ClosingStageDetector {
+    pub fn new(async_signal: BroadcastReceiver<()>, sync_flag: SyncCloseFlag) -> Self {
         Self {
             async_signal,
             sync_flag,
@@ -749,33 +692,36 @@ impl CloseSignalling {
         self.async_signal.resubscribe()
     }
 
-    pub fn sync_state(&self) -> &Arc<AtomicBool> {
+    pub fn sync_flag_ref(&self) -> &SyncCloseFlag {
         &self.sync_flag
     }
 }
 
-#[cfg(test)]
-impl CloseSignalling {
-    pub fn make_for_test() -> (CloseSignaler, CloseSignalling) {
-        let (tx, rx) = tokio::sync::broadcast::channel(10);
-        let sync_flag = Arc::new(AtomicBool::new(false));
-        let close_sig = CloseSignalling {
-            async_signal: rx,
-            sync_flag: sync_flag.clone(),
-        };
-
-        let signaler = CloseSignaler::new(tx, sync_flag);
-
-        (signaler, close_sig)
-    }
-}
-
-impl Clone for CloseSignalling {
+impl Clone for ClosingStageDetector {
     fn clone(&self) -> Self {
-        CloseSignalling {
+        ClosingStageDetector {
             async_signal: self.async_signal.resubscribe(),
             sync_flag: self.sync_flag.clone(),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct SyncCloseFlag {
+    inner: Arc<AtomicBool>,
+}
+
+impl Default for SyncCloseFlag {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl SyncCloseFlag {
+    pub fn masq_is_closing(&self) -> bool {
+        self.inner.load(Ordering::Relaxed)
     }
 }
 
@@ -786,9 +732,11 @@ mod tests {
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
     use crate::test_utils::mocks::{
         RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock,
-        StandardBroadcastHandlerMock, WSClientHandleMock,
+        StandardBroadcastHandlerMock, WSClientHandleMock, WSClientHandshakeAlwaysAcceptingHandler,
     };
     use async_channel::TryRecvError;
+    use futures::stream::FusedStream;
+    use futures::{SinkExt, Stream, StreamExt};
     use masq_lib::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiDescriptorRequest, UiFinancialStatistics,
         UiNodeCrashedBroadcast, UiSetupBroadcast,
@@ -804,9 +752,10 @@ mod tests {
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
     use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils,
+        establish_ws_conn_with_handshake, websocket_utils, WSHandshakeHandlerFactoryMock,
     };
     use masq_lib::utils::{find_free_port, localhost, running_test};
+    use masq_lib::websockets_handshake::MASQClientWSHandshakeHandler;
     use std::hash::Hash;
     use std::net::SocketAddr;
     use std::process::Termination;
@@ -819,6 +768,36 @@ mod tests {
     use tokio::select;
     use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
     use tokio::task::JoinError;
+    use tokio_tungstenite::{client_async, tungstenite};
+
+    impl ConnectionManager {
+        pub fn is_closing(&self) -> bool {
+            self.closing_signaler.is_closing()
+        }
+    }
+
+    impl CloseSignaler {
+        pub fn is_closing(&self) -> bool {
+            self.sync_flag.masq_is_closing()
+        }
+    }
+
+    impl ClosingStageDetector {
+        pub fn make_for_test() -> (CloseSignaler, ClosingStageDetector) {
+            let (tx, rx) = tokio::sync::broadcast::channel(10);
+            let sync_flag = SyncCloseFlag {
+                inner: Arc::new(AtomicBool::new(false)),
+            };
+            let close_sig = ClosingStageDetector {
+                async_signal: rx,
+                sync_flag: sync_flag.clone(),
+            };
+
+            let signaler = CloseSignaler::new(tx, sync_flag);
+
+            (signaler, close_sig)
+        }
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -862,11 +841,10 @@ mod tests {
     ) -> (ConnectionManager, MockWebSocketsServerHandle) {
         let port = server.port();
         let stop_handle = server.start().await;
-        let connectors = ConnectionManagerBootstrapper::default()
-            .spawn_communication_services(port, None, 1000)
+        let subject = CMBootstrapper::default()
+            .establish_connection_manager(port, None, 1000)
             .await
             .unwrap();
-        let subject = ConnectionManager::new(connectors);
         (subject, stop_handle)
     }
 
@@ -874,9 +852,9 @@ mod tests {
     async fn handle_demand_brings_the_party_to_a_close_if_the_channel_fails() {
         let inner = make_inner().await;
 
-        let inner = ConnectionsEventLoop::handle_demand(inner, None).await;
+        let inner = CentralEventLoop::handle_demand(inner, None).await.unwrap();
 
-        assert_eq!(inner.active_port, None);
+        assert_eq!(inner.active_port_opt, None);
     }
 
     #[tokio::test]
@@ -993,13 +971,14 @@ mod tests {
             .queue_string("irrelevant")
             .queue_string("irrelevant");
         let stop_handle = server.start().await;
-        let (_, close_sig) = CloseSignalling::make_for_test();
+        let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let client_listener_handle = spawn_client_listener(
             port,
             listener_to_manager_tx.clone(),
             close_sig.async_signal,
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
             4_000,
         )
         .await
@@ -1017,14 +996,14 @@ mod tests {
         inner.redirect_order_rx = redirect_order_rx;
         inner.demand_rx = demand_rx;
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let conversation1 = conversation_return_rx.try_recv().unwrap();
         let (conversation1_tx, mut conversation1_rx) = conversation1.tx_rx();
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let conversation2 = conversation_return_rx.try_recv().unwrap();
         let (conversation2_tx, mut conversation2_rx) = conversation2.tx_rx();
-        let get_existing_keys = |inner: &CmsManagerInner| {
+        let get_existing_keys = |inner: &CMDepartment| {
             inner
                 .conversations
                 .iter()
@@ -1043,7 +1022,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await; // send request 1
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap(); // send request 1
 
         // Conversations 1 and 2, 1 waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
@@ -1056,7 +1035,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
 
         // Conversations 1 and 2, 1 and 2 waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
@@ -1066,7 +1045,7 @@ mod tests {
         let response2 = UiShutdownResponse {}.tmb(2);
         assert_eq!(response2.path, MessagePath::Conversation(2));
         listener_to_manager_tx.send(Ok(response2)).unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let result2 = conversation2_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, 1 still waiting
@@ -1078,7 +1057,7 @@ mod tests {
         let response1 = UiShutdownResponse {}.tmb(1);
         assert_eq!(response1.path, MessagePath::Conversation(1));
         listener_to_manager_tx.send(Ok(response1)).unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let result1 = conversation1_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, nobody waiting
@@ -1092,7 +1071,7 @@ mod tests {
             .send(OutgoingMessageType::SignOff(1))
             .await
             .unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
 
         // Only Conversation 2, nobody waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![2]));
@@ -1103,7 +1082,7 @@ mod tests {
             .send(OutgoingMessageType::SignOff(2))
             .await
             .unwrap();
-        inner = ConnectionsEventLoop::loop_guts(inner).await;
+        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
 
         // No more conversations, nobody waiting
         assert_eq!(get_existing_keys(&inner), vec_to_set(vec![]));
@@ -1113,18 +1092,14 @@ mod tests {
     #[tokio::test]
     async fn when_fallback_fails_daemon_crash_broadcast_is_sent() {
         let mut inner = make_inner().await;
-        let (event_loop_ready_tx, mut event_loop_ready_rx) = unbounded_channel();
         let broadcast_handle_send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handle =
             BroadcastHandleMock::default().send_params(&broadcast_handle_send_params_arc);
-        inner.active_port = None;
+        inner.active_port_opt = None;
         inner.broadcast_handles.standard = Box::new(broadcast_handle);
 
-        ConnectionsEventLoop::spawn(inner, event_loop_ready_tx)
-            .await
-            .unwrap();
+        CentralEventLoop::spawn(inner).await.unwrap();
 
-        event_loop_ready_rx.recv().await.unwrap();
         let mut broadcast_handle_send_params = broadcast_handle_send_params_arc.lock().unwrap();
         let message_body: MessageBody = (*broadcast_handle_send_params).remove(0);
         let crash_broadcast = UiNodeCrashedBroadcast::fmb(message_body).unwrap().0;
@@ -1140,14 +1115,14 @@ mod tests {
         let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
         let (decoy_tx, mut decoy_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
-        inner.active_port = Some(node_port);
+        inner.active_port_opt = Some(node_port);
         inner.daemon_port = daemon_port;
-        inner.node_port = Some(node_port);
+        inner.node_port_opt = Some(node_port);
         inner.conversations.insert(4, conversation_tx);
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::handle_incoming_message_body(inner, None).await;
+        let inner = CentralEventLoop::handle_incoming_message_body(inner, None).await;
 
         wait_on_establishing_connection(inner.ws_client_handle.as_ref()).await;
         let disconnect_notification = conversation_rx.try_recv().unwrap();
@@ -1156,11 +1131,11 @@ mod tests {
             Err(NodeConversationTermination::Fatal)
         );
         assert_eq!(decoy_rx.try_recv().is_err(), true); // no disconnect notification sent to conversation not waiting
-        assert_eq!(inner.active_port, Some(daemon_port));
+        assert_eq!(inner.active_port_opt, Some(daemon_port));
         assert_eq!(inner.daemon_port, daemon_port);
-        assert_eq!(inner.node_port, None);
+        assert_eq!(inner.node_port_opt, None);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
-        let _ = ConnectionsEventLoop::handle_outgoing_message_body(
+        let _ = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
@@ -1181,13 +1156,13 @@ mod tests {
         let (idle_conversation_tx, mut idle_conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.daemon_port = unoccupied_port;
-        inner.active_port = Some(unoccupied_port);
-        inner.node_port = None;
+        inner.active_port_opt = Some(unoccupied_port);
+        inner.node_port_opt = None;
         inner.conversations.insert(4, waiting_conversation_tx);
         inner.conversations.insert(5, idle_conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
+        let inner = CentralEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1200,8 +1175,8 @@ mod tests {
             Err(NodeConversationTermination::Fatal)
         );
         assert_eq!(inner.daemon_port, unoccupied_port);
-        assert_eq!(inner.active_port, None);
-        assert_eq!(inner.node_port, None);
+        assert_eq!(inner.active_port_opt, None);
+        assert_eq!(inner.node_port_opt, None);
     }
 
     #[tokio::test]
@@ -1211,13 +1186,13 @@ mod tests {
         let (idle_conversation_tx, mut idle_conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.daemon_port = unoccupied_port;
-        inner.active_port = None;
-        inner.node_port = None;
+        inner.active_port_opt = None;
+        inner.node_port_opt = None;
         inner.conversations.insert(4, waiting_conversation_tx);
         inner.conversations.insert(5, idle_conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
+        let inner = CentralEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1230,8 +1205,8 @@ mod tests {
             Err(NodeConversationTermination::Fatal)
         );
         assert_eq!(inner.daemon_port, unoccupied_port);
-        assert_eq!(inner.active_port, None);
-        assert_eq!(inner.node_port, None);
+        assert_eq!(inner.active_port_opt, None);
+        assert_eq!(inner.node_port_opt, None);
     }
 
     #[tokio::test]
@@ -1241,7 +1216,7 @@ mod tests {
         let mut inner = make_inner().await;
         inner.redirect_response_tx = redirect_response_tx;
 
-        ConnectionsEventLoop::handle_redirect_order(
+        CentralEventLoop::handle_redirect_order(
             inner,
             Some(RedirectOrder::new(node_port, 0, 1000)),
         )
@@ -1274,14 +1249,14 @@ mod tests {
         inner.conversations = conversations;
         inner.conversations_waiting = conversations_waiting;
 
-        inner = ConnectionsEventLoop::handle_redirect_order(
+        inner = CentralEventLoop::handle_redirect_order(
             inner,
             Some(RedirectOrder::new(node_port, 1, 1000)),
         )
         .await;
 
         wait_on_establishing_connection(inner.ws_client_handle.as_ref()).await;
-        let get_existing_keys = |inner: &CmsManagerInner| {
+        let get_existing_keys = |inner: &CMDepartment| {
             inner
                 .conversations
                 .iter()
@@ -1307,14 +1282,14 @@ mod tests {
         let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
         let (decoy_tx, mut decoy_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
-        inner.active_port = Some(daemon_port);
+        inner.active_port_opt = Some(daemon_port);
         inner.daemon_port = daemon_port;
-        inner.node_port = None;
+        inner.node_port_opt = None;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let _ = ConnectionsEventLoop::handle_incoming_message_body(inner, None).await;
+        let _ = CentralEventLoop::handle_incoming_message_body(inner, None).await;
 
         let disappointment = conversation_rx.try_recv().unwrap();
         assert_eq!(disappointment, Err(NodeConversationTermination::Fatal));
@@ -1331,14 +1306,14 @@ mod tests {
         let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
         let (decoy_tx, mut decoy_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
-        inner.active_port = Some(node_port);
+        inner.active_port_opt = Some(node_port);
         inner.daemon_port = daemon_port;
-        inner.node_port = Some(node_port);
+        inner.node_port_opt = Some(node_port);
         inner.conversations.insert(4, conversation_tx);
         inner.conversations.insert(5, decoy_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::handle_incoming_message_body(
+        let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
             Some(Err(ClientListenerError::Broken("Booga".to_string()))),
         )
@@ -1351,11 +1326,11 @@ mod tests {
             Err(NodeConversationTermination::Fatal)
         );
         assert_eq!(decoy_rx.try_recv().is_err(), true); // no disconnect notification sent to conversation not waiting
-        assert_eq!(inner.active_port, Some(daemon_port));
+        assert_eq!(inner.active_port_opt, Some(daemon_port));
         assert_eq!(inner.daemon_port, daemon_port);
-        assert_eq!(inner.node_port, None);
+        assert_eq!(inner.node_port_opt, None);
         assert_eq!(inner.conversations_waiting.is_empty(), true);
-        let _ = ConnectionsEventLoop::handle_outgoing_message_body(
+        let _ = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
@@ -1375,22 +1350,22 @@ mod tests {
         let node_port = find_free_port();
         let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
-        inner.active_port = Some(node_port);
+        inner.active_port_opt = Some(node_port);
         inner.daemon_port = daemon_port;
-        inner.node_port = Some(node_port);
+        inner.node_port_opt = Some(node_port);
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::handle_incoming_message_body(
+        let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
             Some(Err(ClientListenerError::UnexpectedPacket)),
         )
         .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no disconnect notification sent
-        assert_eq!(inner.active_port, Some(node_port));
+        assert_eq!(inner.active_port_opt, Some(node_port));
         assert_eq!(inner.daemon_port, daemon_port);
-        assert_eq!(inner.node_port, Some(node_port));
+        assert_eq!(inner.node_port_opt, Some(node_port));
         assert_eq!(inner.conversations_waiting.is_empty(), false);
     }
 
@@ -1410,7 +1385,7 @@ mod tests {
         inner.conversations_waiting.insert(4);
         inner.broadcast_handles.standard = Box::new(broadcast_handler);
 
-        let inner = ConnectionsEventLoop::handle_incoming_message_body(
+        let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
         )
@@ -1464,19 +1439,18 @@ mod tests {
         }
         .tmb(1);
         // let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut bootstrapper = ConnectionManagerBootstrapper::default();
+        let mut bootstrapper = CMBootstrapper::default();
         // bootstrapper.redirect_broadcast_handle_factory = Box::new(
         //     RedirectBroadcastHandleFactoryMock::default().make_result(Box::new(
         //         BroadcastHandleMock::default().send_params(&send_params_arc),
         //     )),
         // );
-        let connectors = bootstrapper
-            .spawn_communication_services(daemon_port, None, 1000)
+        let mut subject = bootstrapper
+            .establish_connection_manager(daemon_port, None, 1000)
             .await
             .unwrap();
         daemon_stop_handle.await_conn_established(None).await;
         release_opening_broadcast_msg_tx.send(()).unwrap();
-        let mut subject = ConnectionManager::new(connectors);
         let mut conversation = subject.start_conversation().await;
 
         let result = conversation.transact(request, 1000).await.unwrap();
@@ -1516,7 +1490,7 @@ mod tests {
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::handle_incoming_message_body(
+        let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
         )
@@ -1539,7 +1513,7 @@ mod tests {
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
 
-        let inner = ConnectionsEventLoop::handle_incoming_message_body(
+        let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
             Some(Ok(incoming_message.clone())),
         )
@@ -1556,7 +1530,7 @@ mod tests {
         inner.next_context_id = 42;
         inner.conversation_return_tx = conversation_return_tx;
 
-        let inner = ConnectionsEventLoop::handle_conversation_trigger(inner);
+        let inner = CentralEventLoop::handle_conversation_trigger(inner);
 
         assert_eq!(inner.next_context_id, 43);
         assert_eq!(inner.conversations.is_empty(), true);
@@ -1567,12 +1541,13 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (_, close_sig) = CloseSignalling::make_for_test();
+        let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let client_listener_handle = spawn_client_listener(
             port,
             listener_to_manager_tx.clone(),
             close_sig.async_signal,
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
             4_000,
         )
         .await
@@ -1593,7 +1568,7 @@ mod tests {
         }
         .tmb(0);
 
-        let _ = ConnectionsEventLoop::handle_outgoing_message_body(
+        let _ = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 outgoing_message.clone(),
@@ -1632,7 +1607,7 @@ mod tests {
         inner.conversations_waiting = vec_to_set(vec![2, 3]);
         inner.ws_client_handle = client_listener_handle;
 
-        inner = ConnectionsEventLoop::handle_outgoing_message_body(
+        inner = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(2),
@@ -1664,7 +1639,7 @@ mod tests {
         inner.conversations = conversations;
         inner.conversations_waiting = vec_to_set(vec![1]);
 
-        inner = ConnectionsEventLoop::handle_outgoing_message_body(
+        inner = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(42),
@@ -1709,7 +1684,7 @@ mod tests {
         //     thread::sleep(Duration::from_millis(500));
         // }
 
-        inner = ConnectionsEventLoop::handle_outgoing_message_body(
+        inner = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 UiUnmarshalError {
@@ -1737,34 +1712,29 @@ mod tests {
     #[tokio::test]
     async fn close_signaler_signalizes_properly() {
         let (tx, mut rx) = tokio::sync::broadcast::channel(10);
-        let sync_flag = Arc::new(AtomicBool::new(false));
+        let sync_flag = SyncCloseFlag::default();
         let subject = CloseSignaler::new(tx, sync_flag.clone());
 
         subject.signalize_close();
 
         rx.recv().await.unwrap();
-        assert_eq!(sync_flag.load(Ordering::Relaxed), true)
+        assert_eq!(sync_flag.masq_is_closing(), true)
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
+    #[tokio::test]
     async fn handles_close_order() {
+        // TODO this tests a suboptimal solution. The library we use isn't perfect and we had
+        // to settle for calling its "disconnect" instead of competing a proper Close handshake
         running_test();
         let port = find_free_port();
-        let background = tokio::spawn(async move {
-            {
-                let socket_addr = SocketAddr::new(localhost(), port);
-                let (tcp_stream, _) = TcpListener::bind(socket_addr).await.unwrap().accept().await.unwrap();
-                tokio_tungstenite::accept_async(tcp_stream).await.unwrap();
-            }
-        });
-        // let server = MockWebSocketsServer::new(port);
-        // let server_handle = server.start().await;
-        let mut bootstrapper = ConnectionManagerBootstrapper::default();
-        let connectors = bootstrapper
-            .spawn_communication_services(port, None, 1000)
+        let server = MockWebSocketsServer::new(port);
+        let server_handle = server.start().await;
+        let mut bootstrapper = CMBootstrapper::default();
+        let mut subject = bootstrapper
+            .establish_connection_manager(port, None, 1500)
             .await
             .unwrap();
-        let mut subject = ConnectionManager::new(connectors);
+        server_handle.await_conn_established(None).await;
         let mut conversation1 = subject.start_conversation().await;
         let mut conversation2 = subject.start_conversation().await;
 
@@ -1785,19 +1755,19 @@ mod tests {
             )
             .await;
         assert_eq!(result, Err(ClientError::ConnectionDropped));
-        background.await.unwrap();
-        // server_handle.retrieve_recorded_requests(Some(1)).await;
+        server_handle.await_conn_disconnected(None).await;
+        subject.central_even_loop_join_handle.await.unwrap();
     }
 
-    async fn make_inner() -> CmsManagerInner {
+    async fn make_inner() -> CMDepartment {
         let broadcast_handles = BroadcastHandles::new(
             Box::new(BroadcastHandleMock::default()),
             Box::new(BroadcastHandleMock::default()),
         );
-        CmsManagerInner {
-            active_port: Some(0),
+        CMDepartment {
+            active_port_opt: Some(0),
             daemon_port: 0,
-            node_port: None,
+            node_port_opt: None,
             conversations: HashMap::new(),
             conversations_waiting: HashSet::new(),
             next_context_id: 0,
@@ -1807,11 +1777,12 @@ mod tests {
             conversations_to_manager_rx: async_channel::unbounded().1,
             listener_to_manager_rx: unbounded_channel().1,
             ws_client_handle: Box::new(WSClientHandleMock::default()),
+            ws_handshake_handler_factory_arc: Arc::new(WSHandshakeHandlerFactoryReal::default()),
             broadcast_handles,
             redirect_order_rx: unbounded_channel().1,
             redirect_response_tx: unbounded_channel().0,
             active_port_response_tx: unbounded_channel().0,
-            close_sig: CloseSignalling::make_for_test().1,
+            close_sig: ClosingStageDetector::make_for_test().1,
         }
     }
 

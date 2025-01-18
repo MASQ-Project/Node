@@ -231,8 +231,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory.make(&["shutdown".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -245,8 +244,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = ShutdownCommand::new();
 
         let result = Box::new(subject)
@@ -274,8 +272,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new().wait_params(&wait_params_arc);
         let mut subject = ShutdownCommand::new();
@@ -308,8 +305,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new().wait_params(&wait_params_arc);
         let mut subject = ShutdownCommand::new();
@@ -345,8 +341,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(Some(port));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -384,8 +379,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(None);
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)
@@ -424,8 +418,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(msg.clone()))
             .active_port_result(Some(port));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let wait_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_awaiter = ShutdownAwaiterMock::new()
             .wait_params(&wait_params_arc)

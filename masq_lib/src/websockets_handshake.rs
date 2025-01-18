@@ -9,6 +9,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::unbounded_channel;
 use workflow_websocket::client::result::Result as ClientResult;
 use workflow_websocket::client::ConnectStrategy::Fallback;
 use workflow_websocket::client::Message as ClientMessage;
@@ -19,10 +20,10 @@ use workflow_websocket::server::Message as ServerMessage;
 use workflow_websocket::server::{Error as ServerError, WebSocketReceiver, WebSocketSender};
 
 pub const WS_CLIENT_CONNECT_TIMEOUT_MS: u64 = 2_000;
-pub const WS_CLIENT_HANDSHAKE_TIMEOUT_MS: u64 = 1_000;
+pub const WS_CLIENT_HANDSHAKE_TIMEOUT_MS: u64 = 1_300;
 pub const WS_CLIENT_GLOBAL_TIMEOUT_MS: u64 = 3_000;
 
-pub struct MASQWSClientHandshakeHandler {
+pub struct MASQClientWSHandshakeHandler {
     handshake_procedure: Box<dyn ClientHandshakeProcedure>,
     handshake_timeout: Duration,
     protocol: String,
@@ -32,7 +33,7 @@ pub struct MASQWSClientHandshakeHandler {
 pub type HandshakeResultTx = tokio::sync::mpsc::UnboundedSender<ClientResult<()>>;
 pub type HandshakeResultRx = tokio::sync::mpsc::UnboundedReceiver<ClientResult<()>>;
 
-impl MASQWSClientHandshakeHandler {
+impl MASQClientWSHandshakeHandler {
     pub fn new(
         handshake_timeout: Duration,
         protocol: &str,
@@ -46,6 +47,31 @@ impl MASQWSClientHandshakeHandler {
             protocol,
             handshake_result_tx,
         }
+    }
+}
+
+#[async_trait]
+impl Handshake for MASQClientWSHandshakeHandler {
+    async fn handshake(
+        &self,
+        sender: &async_channel::Sender<ClientMessage>,
+        receiver: &async_channel::Receiver<ClientMessage>,
+    ) -> ClientResult<()> {
+        let res = self
+            .handshake_procedure
+            .do_handshake(self.handshake_timeout, &self.protocol, sender, receiver)
+            .await;
+
+        // The library would've thrown this error away hadn't we stepped in by...
+        let sentinel_res = match res {
+            Ok(()) => Ok(()),
+            Err(_) => Err(ClientError::NegotiationFailure),
+        };
+
+        // ...using this channel.
+        let _ = self.handshake_result_tx.send(res);
+
+        sentinel_res
     }
 }
 
@@ -94,31 +120,6 @@ impl ClientHandshakeProcedure for ClientHandshakeProcedureReal {
             Ok(e) => e,
             Err(_) => Err(ClientError::Custom("Handshake timeout".to_string())),
         }
-    }
-}
-
-#[async_trait]
-impl Handshake for MASQWSClientHandshakeHandler {
-    async fn handshake(
-        &self,
-        sender: &async_channel::Sender<ClientMessage>,
-        receiver: &async_channel::Receiver<ClientMessage>,
-    ) -> ClientResult<()> {
-        let res = self
-            .handshake_procedure
-            .do_handshake(self.handshake_timeout, &self.protocol, sender, receiver)
-            .await;
-
-        // The library would've thrown this error away hadn't we stepped in by...
-        let sentinel_res = match res {
-            Ok(()) => Ok(()),
-            Err(_) => Err(ClientError::NegotiationFailure),
-        };
-
-        // ...using this channel.
-        let _ = self.handshake_result_tx.send(res);
-
-        sentinel_res
     }
 }
 
@@ -179,51 +180,76 @@ async fn respond_to_handshake_request(
     }
 }
 
-pub type PrepareHandshakeHandler =
-    Box<dyn FnOnce(HandshakeResultTx) -> Arc<dyn Handshake> + Send>;
+pub trait WSHandshakeHandlerFactory: Send + Sync {
+    fn make(&self, confirmation_tx: HandshakeResultTx) -> Arc<dyn Handshake>;
+}
+
+#[derive(Default)]
+pub struct WSHandshakeHandlerFactoryReal {}
+
+impl WSHandshakeHandlerFactory for WSHandshakeHandlerFactoryReal {
+    fn make(&self, confirmation_tx: HandshakeResultTx) -> Arc<dyn Handshake> {
+        Arc::new(MASQClientWSHandshakeHandler::new(
+            Duration::from_millis(WS_CLIENT_HANDSHAKE_TIMEOUT_MS),
+            NODE_UI_PROTOCOL,
+            confirmation_tx,
+        ))
+    }
+}
 
 pub struct WSClientConnectionInitiator {
-    prepare_handshake_handler: PrepareHandshakeHandler,
     global_timeout: Duration,
     connect_timeout: Duration,
+    handshake_handler: Arc<dyn Handshake>,
+    handshake_confirmation_rx: HandshakeResultRx,
     url: String,
 }
 
 impl WSClientConnectionInitiator {
-    pub fn new(port: u16) -> WSClientConnectionInitiator {
-        let prepare_handshake_handler: PrepareHandshakeHandler = Box::new(move |tx| {
-            Arc::new(MASQWSClientHandshakeHandler::new(
-                Duration::from_millis(WS_CLIENT_HANDSHAKE_TIMEOUT_MS),
-                NODE_UI_PROTOCOL,
-                tx,
-            ))
-        });
-        let global_timeout = Duration::from_millis(WS_CLIENT_GLOBAL_TIMEOUT_MS);
+    pub fn new(
+        port: u16,
+        global_timeout_ms: u64,
+        ws_handshake_handler_factory: Arc<dyn WSHandshakeHandlerFactory>,
+    ) -> WSClientConnectionInitiator {
+        let (handshake_confirmation_tx, handshake_confirmation_rx) = unbounded_channel();
+        let handshake_handler = ws_handshake_handler_factory.make(handshake_confirmation_tx);
+        let global_timeout = Duration::from_millis(global_timeout_ms);
         let connect_timeout = Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS);
-        Self::new_with_full_setup(port, prepare_handshake_handler, global_timeout, connect_timeout )
+        Self::new_with_full_setup(
+            port,
+            handshake_handler,
+            handshake_confirmation_rx,
+            global_timeout,
+            connect_timeout,
+        )
     }
 
-    pub fn new_with_full_setup(port: u16, prepare_handshake_handler: PrepareHandshakeHandler, global_timeout: Duration, connect_timeout: Duration)-> WSClientConnectionInitiator {
+    pub fn new_with_full_setup(
+        port: u16,
+        handshake_handler: Arc<dyn Handshake>,
+        handshake_confirmation_rx: HandshakeResultRx,
+        global_timeout: Duration,
+        connect_timeout: Duration,
+    ) -> WSClientConnectionInitiator {
         let url = ws_url(port);
         Self {
             url,
-            prepare_handshake_handler,
+            handshake_handler,
+            handshake_confirmation_rx,
             global_timeout,
             connect_timeout,
         }
     }
 
-    // Found possibly a spot of wrong design in the connect procedure: despite the library
-    // provides configuration with connect timeout, it may not follow up if the connection
-    // is initiated but fails on the handshake due to which it falls into infinite retries.
-    // It is when the server always accepts the TCP connections but returns an error or
-    // even panics before the handshake completes. This function ensures it would always
-    // fall back when the time lapses even if it's stuck in loops or on a blocking issue.
+    // Found a possible weak design in the third party's connect procedure: despite the library
+    // provides configuration with connect timeout, it may not follow up if the connection is
+    // initiated but fails on the handshake due to which it falls into infinite retries. It is
+    // when the server always accepts the TCP connections but returns an error or even panics
+    // before the handshake completes. This function ensures it would always fall back when
+    // the time lapses and wouldn't get stuck in loops or upon a blocking issue.
     pub async fn connect_with_timeout(self) -> ClientResult<WebSocket> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
         let mut ws_config = WebSocketConfig::default();
-        ws_config.handshake = Some((self.prepare_handshake_handler)(tx));
+        ws_config.handshake = Some(self.handshake_handler);
 
         let ws = WebSocket::new(Some(&self.url), Some(ws_config))?;
 
@@ -237,7 +263,7 @@ impl WSClientConnectionInitiator {
         tokio::select! {
             biased;
 
-            res = Self::asserted_connect(&ws, connect_options, rx) => {
+            res = Self::asserted_connect(&ws, connect_options, self.handshake_confirmation_rx) => {
                 match res {
                     Ok(_) => Ok(ws),
                     Err(e) => Err(e)
@@ -246,7 +272,7 @@ impl WSClientConnectionInitiator {
 
             _ = delay => {
                 Self::disconnect(ws).await;
-                Err(ClientError::Custom(format!("WS connect: global timeout after {} ms", self.global_timeout.as_millis())))
+                Err(ClientError::Custom(format!("WS connect: Client reached global timeout after {} ms", self.global_timeout.as_millis())))
             }
         }
     }
@@ -295,9 +321,11 @@ mod tests {
     use super::*;
     use crate::messages::NODE_UI_PROTOCOL;
     use crate::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use crate::test_utils::websockets_utils::establish_ws_conn_with_handshake;
+    use crate::test_utils::websockets_utils::{
+        establish_ws_conn_with_handshake, WSHandshakeHandlerFactoryMock,
+    };
     use crate::utils::{find_free_port, localhost};
-    use crate::websockets_handshake::MASQWSClientHandshakeHandler;
+    use crate::websockets_handshake::MASQClientWSHandshakeHandler;
     use crate::websockets_handshake::WS_CLIENT_CONNECT_TIMEOUT_MS;
     use futures_util::future::join_all;
     use std::sync::{Arc, Mutex};
@@ -311,22 +339,23 @@ mod tests {
     #[test]
     fn constants_are_correct() {
         assert_eq!(WS_CLIENT_CONNECT_TIMEOUT_MS, 2_000);
-        assert_eq!(WS_CLIENT_HANDSHAKE_TIMEOUT_MS, 1_000);
+        assert_eq!(WS_CLIENT_HANDSHAKE_TIMEOUT_MS, 1_300);
         assert_eq!(WS_CLIENT_GLOBAL_TIMEOUT_MS, 3_000);
     }
 
     #[test]
     fn timeouts_are_set_properly() {
-        let result = WSClientConnectionInitiator::new(123);
+        let global_timeout_ms = 456456;
+        let ws_handshake_handler_factory = Arc::new(WSHandshakeHandlerFactoryReal::default());
+
+        let result =
+            WSClientConnectionInitiator::new(123, global_timeout_ms, ws_handshake_handler_factory);
 
         assert_eq!(
             result.connect_timeout.as_millis(),
             Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS).as_millis()
         );
-        assert_eq!(
-            result.global_timeout.as_millis(),
-            Duration::from_millis(WS_CLIENT_GLOBAL_TIMEOUT_MS).as_millis()
-        )
+        assert_eq!(result.global_timeout.as_millis(), global_timeout_ms as u128)
     }
 
     #[tokio::test]
@@ -334,18 +363,21 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let server_handle = server.start().await;
-        let mut connector = WSClientConnectionInitiator::new(port);
+        let mut connector = WSClientConnectionInitiator::new(
+            port,
+            6000,
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
+        );
         connector.connect_timeout = Duration::from_millis(5_000);
-        connector.global_timeout = Duration::from_millis(6_000);
 
         let ws = connector.connect_with_timeout().await.unwrap();
 
-        ws.send(ClientMessage::Text("Hello MASQ world".to_string()))
+        ws.send(ClientMessage::Text("Hello world with MASQ".to_string()))
             .await
             .unwrap();
         let mut requests = server_handle.retrieve_recorded_requests(Some(1)).await;
         let only_msg = requests.remove(0);
-        assert_eq!(only_msg.expect_textual_msg(), "Hello MASQ world");
+        assert_eq!(only_msg.expect_textual_msg(), "Hello world with MASQ");
     }
 
     #[tokio::test]
@@ -379,11 +411,15 @@ mod tests {
                 }
             }
         });
-        let mut connector = WSClientConnectionInitiator::new(port);
+        // This should work as an ultimate constraint
+        let global_timeout_ms = 20;
+        let mut connector = WSClientConnectionInitiator::new(
+            port,
+            global_timeout_ms,
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
+        );
         // We'd receive a different error due to this limit
         connector.connect_timeout = Duration::from_millis(4_000);
-        // This should work as an ultimate constraint
-        connector.global_timeout = Duration::from_millis(20);
         let before = Instant::now();
 
         let result = connector.connect_with_timeout().await;
@@ -391,7 +427,7 @@ mod tests {
         let after = Instant::now();
         match result {
             Err(ClientError::Custom(msg))
-                if msg.contains("WS connect: global timeout after 20 ms") => {}
+                if msg.contains("WS connect: Client reached global timeout after 20 ms") => {}
             Err(e) => panic!(
                 "Expected ClientError::Custom with connection timeout msg but got: {:?}",
                 e
@@ -409,23 +445,31 @@ mod tests {
         // the error is natively only swallowed and the client tries to reconnect and go through
         // the same procedure again. I had to invent a notification channel letting the foreground
         // task know about the emerged error and cancel the whole efforts, returning a failure.
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let server_handle = server.start().await;
-        let mut connector = WSClientConnectionInitiator::new(port);
-        connector.prepare_handshake_handler = Box::new(|tx| -> Arc<dyn Handshake> {
-            let mut handler = MASQWSClientHandshakeHandler::new(
-                Duration::from_millis(60_000),
-                "CorrectProtocol",
-                tx,
-            );
+        let _server_handle = server.start().await;
+        let handshake_timeout = Duration::from_millis(60_000);
+        let (tx, rx) = unbounded_channel();
+        let ws_handshake_handler = {
+            let mut handler =
+                MASQClientWSHandshakeHandler::new(handshake_timeout, "CorrectProtocol", tx);
             handler.handshake_procedure = Box::new(
                 ClientHandshakeProcedureMock::default().do_handshake_result(Err(
                     ClientError::Custom("Your handshake ain't right".to_string()),
                 )),
             );
             Arc::new(handler)
-        });
+        };
+        let ws_handshake_handler_factory = Arc::new(
+            WSHandshakeHandlerFactoryMock::default()
+                .make_params(make_params_arc)
+                .make_plain_result(ws_handshake_handler),
+        );
+        let global_timeout = 60_000;
+        let mut connector =
+            WSClientConnectionInitiator::new(port, global_timeout, ws_handshake_handler_factory);
+        connector.handshake_confirmation_rx = rx;
         connector.connect_timeout = Duration::from_millis(60_000);
         connector.global_timeout = Duration::from_millis(60_000);
         let before = Instant::now();
@@ -448,7 +492,11 @@ mod tests {
 
     #[tokio::test]
     async fn connect_with_timeout_cannot_establish_local_ws_object() {
-        let mut connector = WSClientConnectionInitiator::new(12345);
+        let mut connector = WSClientConnectionInitiator::new(
+            12345,
+            6000,
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
+        );
         let bad_url = "X-files://new-protocols.com";
         connector.url = bad_url.to_string();
 
@@ -466,7 +514,7 @@ mod tests {
         expected = "internal error: entered unreachable code: block_async_connect for WS should be set but apparently wasn't"
     )]
     async fn asserted_connect_is_not_meant_for_none_blocking_mode() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let url = ws_url(12345);
         let ws = WebSocket::new(Some(&url), None).unwrap();
         let mut connect_options = ConnectOptions::default();
@@ -479,7 +527,7 @@ mod tests {
     async fn asserted_connect_with_handshake_result_rx_returning_err() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let server_handle = server.start().await;
+        let _server_handle = server.start().await;
         let (_, rx) = tokio::sync::mpsc::unbounded_channel();
         let url = ws_url(port);
         let ws = WebSocket::new(Some(&url), None).unwrap();
@@ -488,7 +536,7 @@ mod tests {
 
         let result = WSClientConnectionInitiator::asserted_connect(&ws, connect_options, rx).await;
 
-        let err = match result {
+        match result {
             Err(ClientError::Custom(msg)) if msg == "Handshake verification channel closed" => (),
             Err(e) => panic!(
                 "Expected Custom(Handshake verification channel closed) but got {:?}",
@@ -508,7 +556,7 @@ mod tests {
 
         WSClientConnectionInitiator::disconnect(ws).await;
 
-        server_handle.await_conn_disconnected(None).await
+        server_handle.await_conn_disconnected().await
     }
 
     #[derive(Default)]
@@ -571,7 +619,7 @@ mod tests {
     async fn client_handshake_handler_timeout_error() {
         let (tx, mut handshake_res_rx) = tokio::sync::mpsc::unbounded_channel();
         let subject =
-            MASQWSClientHandshakeHandler::new(Duration::from_millis(5), NODE_UI_PROTOCOL, tx);
+            MASQClientWSHandshakeHandler::new(Duration::from_millis(5), NODE_UI_PROTOCOL, tx);
         let (to_server_tx, to_server_rx) = async_channel::unbounded();
         let (_from_server_tx, from_server_rx) = async_channel::unbounded();
 
@@ -589,7 +637,7 @@ mod tests {
     #[tokio::test]
     async fn client_handshake_handler_sender_error() {
         let (tx, mut handshake_res_rx) = tokio::sync::mpsc::unbounded_channel();
-        let subject = MASQWSClientHandshakeHandler::new(
+        let subject = MASQClientWSHandshakeHandler::new(
             Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS),
             NODE_UI_PROTOCOL,
             tx,
@@ -607,7 +655,7 @@ mod tests {
     #[tokio::test]
     async fn client_handshake_handler_receiver_error() {
         let (tx, mut handshake_res_rx) = tokio::sync::mpsc::unbounded_channel();
-        let subject = MASQWSClientHandshakeHandler::new(
+        let subject = MASQClientWSHandshakeHandler::new(
             Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS),
             NODE_UI_PROTOCOL,
             tx,
@@ -676,14 +724,14 @@ mod tests {
     fn setup_for_full_client_server_msg_exchange(
         server_response: ClientMessage,
     ) -> (
-        MASQWSClientHandshakeHandler,
+        MASQClientWSHandshakeHandler,
         async_channel::Sender<ClientMessage>,
         async_channel::Receiver<ClientMessage>,
         HandshakeResultRx,
         JoinHandle<ClientMessage>,
     ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let subject = MASQWSClientHandshakeHandler::new(
+        let subject = MASQClientWSHandshakeHandler::new(
             Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS),
             NODE_UI_PROTOCOL,
             tx,

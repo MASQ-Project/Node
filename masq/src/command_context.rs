@@ -3,13 +3,15 @@
 use crate::command_context::ContextError::ConnectionRefused;
 use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::{
-    ConnectionManager, ConnectionManagerBootstrapper, REDIRECT_TIMEOUT_MILLIS,
+    CMBootstrapper, ConnectionManager, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::communications::node_conversation::ClientError;
 use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
+use masq_lib::intentionally_blank;
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
 use std::io;
@@ -115,22 +117,16 @@ impl CommandContextReal {
     pub async fn new(
         daemon_ui_port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
-        bootstrapper: &ConnectionManagerBootstrapper,
+        bootstrapper: CMBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = bootstrapper
-            .spawn_communication_services(
-                daemon_ui_port,
-                terminal_interface_opt,
-                REDIRECT_TIMEOUT_MILLIS,
-            )
+            .establish_connection_manager(daemon_ui_port, terminal_interface_opt, 5000)
             .await;
 
-        let connectors = match result {
+        let connection = match result {
             Ok(c) => c,
             Err(e) => return Err(ConnectionRefused(format!("{:?}", e))),
         };
-
-        let connection = ConnectionManager::new(connectors);
 
         Ok(Self { connection })
     }
@@ -203,9 +199,9 @@ mod tests {
         let handle = server.start().await;
         let standard_broadcast_handler_factory =
             Box::new(StandardBroadcastHandlerFactoryMock::default());
-        let bootstrapper = ConnectionManagerBootstrapper::default();
+        let bootstrapper = CMBootstrapper::default();
 
-        let subject = CommandContextReal::new(port, None, &bootstrapper)
+        let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
 
@@ -255,9 +251,9 @@ mod tests {
         running_test();
         let port = find_free_port();
         let broadcast_handle = BroadcastHandleInactive;
-        let bootstrapper = ConnectionManagerBootstrapper::default();
+        let bootstrapper = CMBootstrapper::default();
 
-        let result = CommandContextReal::new(port, None, &bootstrapper).await;
+        let result = CommandContextReal::new(port, None, bootstrapper).await;
 
         match result {
             Err(ConnectionRefused(_)) => (),
@@ -277,8 +273,8 @@ mod tests {
         });
         let stop_handle = server.start().await;
         let broadcast_handle = BroadcastHandleInactive;
-        let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, &bootstrapper)
+        let bootstrapper = CMBootstrapper::default();
+        let mut subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
 
@@ -296,8 +292,8 @@ mod tests {
         let server = MockWebSocketsServer::new(port).queue_string("disconnect");
         let stop_handle = server.start().await;
         let broadcast_handle = BroadcastHandleInactive;
-        let bootstrapper = ConnectionManagerBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, &bootstrapper)
+        let bootstrapper = CMBootstrapper::default();
+        let mut subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
 

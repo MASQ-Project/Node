@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::fmt::{Display, Formatter};
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::check_password_command::CheckPasswordCommand;
@@ -18,6 +17,7 @@ use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 use crate::commands::wallet_addresses_command::WalletAddressesCommand;
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]

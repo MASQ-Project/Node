@@ -508,8 +508,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -560,8 +559,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,

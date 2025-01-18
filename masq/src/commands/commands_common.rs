@@ -138,8 +138,7 @@ mod tests {
     async fn two_way_transaction_passes_dropped_connection_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -154,8 +153,7 @@ mod tests {
     async fn two_way_transaction_passes_payload_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::PayloadError(10, "booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -171,8 +169,7 @@ mod tests {
     async fn two_way_transaction_passes_other_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -192,8 +189,7 @@ mod tests {
             payload: Ok("unparseable".to_string()),
         };
         let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =

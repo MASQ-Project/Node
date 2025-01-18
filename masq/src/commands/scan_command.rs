@@ -103,8 +103,7 @@ mod tests {
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
@@ -123,8 +122,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiScanResponse {}.tmb(0)));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["scan".to_string(), name.to_string()])
@@ -150,8 +148,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("blah".to_string())));
         let subject = ScanCommand::new(&["scan".to_string(), "payables".to_string()]).unwrap();
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)

@@ -86,8 +86,7 @@ mod tests {
                 redirect_ui_port: 4321,
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["start".to_string()]).unwrap();
 

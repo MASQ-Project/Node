@@ -3,7 +3,7 @@
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{
-    BroadcastReceiver, CloseSignalling, RedirectOrder, REDIRECT_TIMEOUT_MILLIS,
+    BroadcastReceiver, ClosingStageDetector, RedirectOrder, REDIRECT_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
@@ -122,7 +122,7 @@ pub struct StandardBroadcastHandlerFactoryReal {}
 
 impl Default for StandardBroadcastHandlerFactoryReal {
     fn default() -> Self {
-        todo!()
+        Self::new()
     }
 }
 
@@ -361,9 +361,8 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_of_setup_triggers_correct_handler() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -403,9 +402,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_ui_log_was_successful() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -430,9 +428,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_crashed_triggers_correct_handler() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -458,9 +455,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_new_password_triggers_correct_handler() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -482,9 +478,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -508,9 +503,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn ui_connection_change_broadcast_is_handled_properly() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -534,9 +528,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),
@@ -587,9 +580,8 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
 
     #[tokio::test]
     async fn broadcast_handler_event_loop_terminates_immediately_at_close() {
-        let (term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let broadcast_handle = StandardBroadcastHandlerReal::new(
             Some(Box::new(term_interface)),
             close_sig.dup_receiver(),

@@ -135,8 +135,7 @@ mod tests {
     async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&[
                 "crash".to_string(),
@@ -156,8 +155,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .send_one_way_params(&send_params_arc)
             .send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -189,8 +187,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .send_one_way_params(&send_params_arc)
             .send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["crash".to_string()]).unwrap();
 
@@ -214,8 +211,7 @@ mod tests {
     async fn crash_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .send_one_way_result(Err(ContextError::ConnectionDropped("blah".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = CrashCommand::new(&[
             "crash".to_string(),
             "BlockchainBridge".to_string(),

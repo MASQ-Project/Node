@@ -846,8 +846,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -891,8 +890,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -925,8 +923,7 @@ mod tests {
     #[tokio::test]
     async fn response_with_mnemonic_phrase_is_processed() {
         let mut context = CommandContextMock::new();
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, mut stdout_flush_handle) = term_interface.stdout();
         let (stderr, mut stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
@@ -964,8 +961,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
     #[tokio::test]
     async fn response_without_mnemonic_phrase_is_processed() {
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
@@ -1011,8 +1007,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
             }
             .tmb(4321)));
-        let (mut term_interface, stream_handles) =
-            TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {

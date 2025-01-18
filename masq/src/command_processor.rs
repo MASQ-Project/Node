@@ -7,9 +7,11 @@ use crate::command_factory::CommandFactory;
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::connection_manager::ConnectionManagerBootstrapper;
+use crate::communications::connection_manager::CMBootstrapper;
 use crate::masq_short_writeln;
-use crate::terminal::{FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface};
+use crate::terminal::{
+    FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
+};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
@@ -19,7 +21,7 @@ use tokio::io::AsyncWrite;
 use tokio::runtime::Runtime;
 
 pub struct CommandProcessorFactory {
-    bootstrapper: ConnectionManagerBootstrapper,
+    bootstrapper: CMBootstrapper,
 }
 
 impl CommandProcessorFactory {
@@ -48,12 +50,17 @@ impl CommandProcessorFactory {
 
         let command_execution_helper = command_execution_helper_factory.make();
 
-        let command_processor_common = CommandProcessorCommon::new(    command_context,
-                                                                       command_factory,
-                                                                       command_execution_helper);
+        let command_processor_common =
+            CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
         match term_interface {
-            Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(command_processor_common, write_only_ti))),
-            Either::Right(read_write_ti) => Ok(Box::new(CommandProcessorInteractive::new(command_processor_common, read_write_ti))),
+            Either::Left(write_only_ti) => Ok(Box::new(CommandProcessorNonInteractive::new(
+                command_processor_common,
+                write_only_ti,
+            ))),
+            Either::Right(read_write_ti) => Ok(Box::new(CommandProcessorInteractive::new(
+                command_processor_common,
+                read_write_ti,
+            ))),
         }
     }
 }
@@ -65,7 +72,7 @@ impl Default for CommandProcessorFactory {
 }
 
 impl CommandProcessorFactory {
-    pub fn new(bootstrapper: ConnectionManagerBootstrapper) -> Self {
+    pub fn new(bootstrapper: CMBootstrapper) -> Self {
         Self { bootstrapper }
     }
 }
@@ -86,12 +93,13 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
             Ok(c) => c,
             Err(e) => {
                 masq_short_writeln!(stderr, "{}", e);
-                return Err(())
+                return Err(());
             }
         };
 
-        let res =
-            command_execution_helper.execute_command(command, command_context, terminal_interface).await;
+        let res = command_execution_helper
+            .execute_command(command, command_context, terminal_interface)
+            .await;
 
         match res {
             Ok(_) => Ok(()),
@@ -102,7 +110,7 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
         }
     }
 
-    fn write_only_term_interface(&self)-> &dyn WTermInterface;
+    fn write_only_term_interface(&self) -> &dyn WTermInterface;
 
     fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
 
@@ -137,7 +145,7 @@ impl CommandProcessorCommon {
 
 pub struct CommandProcessorNonInteractive {
     command_processor_common: CommandProcessorCommon,
-    terminal_interface: Box<dyn WTermInterface>
+    terminal_interface: Box<dyn WTermInterface>,
 }
 
 #[async_trait(?Send)]
@@ -174,25 +182,28 @@ impl ProcessorProvidingCommonComponents for CommandProcessorNonInteractive {
 impl CommandProcessorNonInteractive {
     fn new(
         command_processor_common: CommandProcessorCommon,
-        terminal_interface: Box<dyn WTermInterface>
+        terminal_interface: Box<dyn WTermInterface>,
     ) -> Self {
         Self {
             command_processor_common,
-            terminal_interface
+            terminal_interface,
         }
     }
 }
 
 pub struct CommandProcessorInteractive {
     command_processor_common: CommandProcessorCommon,
-    terminal_interface: Box<dyn RWTermInterface>
+    terminal_interface: Box<dyn RWTermInterface>,
 }
 
 impl CommandProcessorInteractive {
-    fn new(command_processor_common: CommandProcessorCommon, terminal_interface: Box<dyn RWTermInterface>) -> CommandProcessorInteractive {
+    fn new(
+        command_processor_common: CommandProcessorCommon,
+        terminal_interface: Box<dyn RWTermInterface>,
+    ) -> CommandProcessorInteractive {
         Self {
             command_processor_common,
-            terminal_interface
+            terminal_interface,
         }
     }
 }
@@ -203,22 +214,22 @@ impl CommandProcessor for CommandProcessorInteractive {
         loop {
             let args = match self.terminal_interface.read_line().await {
                 Ok(read_input) => match read_input {
-                    ReadInput::Line(cmd) => {split_possibly_quoted_cml(cmd)}
+                    ReadInput::Line(cmd) => split_possibly_quoted_cml(cmd),
                     ReadInput::Quit => todo!(),
-                    ReadInput::Ignored { .. } => todo!()
-                }
-                Err(e) => todo!()
+                    ReadInput::Ignored { .. } => todo!(),
+                },
+                Err(e) => todo!(),
             };
 
             if let [single_arg] = args[..].as_ref() {
                 if single_arg == "exit" {
-                    return Ok(())
+                    return Ok(());
                 }
             }
 
             match self.handle_command_common(&args).await {
                 Ok(_) => (),
-                Err(_) => todo!()
+                Err(_) => todo!(),
             }
         }
     }
@@ -259,7 +270,7 @@ pub struct CommandExecutionHelperFactoryReal {}
 
 impl CommandExecutionHelperFactory for CommandExecutionHelperFactoryReal {
     fn make(&self) -> Box<dyn CommandExecutionHelper> {
-        Box::new(CommandExecutionHelperReal{})
+        Box::new(CommandExecutionHelperReal {})
     }
 }
 
@@ -339,7 +350,7 @@ mod tests {
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactory::default();
-        let (term_interface,_) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _) = TermInterfaceMock::new_non_interactive();
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
         let command_factory = Box::new(CommandFactoryReal::default());
@@ -372,7 +383,6 @@ mod tests {
     async fn interactive_processor_handles_nonexistent_server() {
         test_handles_nonexistent_server(true).await
     }
-
 
     #[test]
     fn split_possibly_quoted_cml_handles_balanced_double_quotes() {

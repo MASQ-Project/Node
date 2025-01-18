@@ -123,7 +123,7 @@ impl Main {
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
         fn none_starts_with_two_dashes(
-            (_, (one_program_arg, program_arg_next_to_the_previous)): &(usize, (&String,&String))
+            (_, (one_program_arg, program_arg_next_to_the_previous)): &(usize, (&String, &String)),
         ) -> bool {
             [one_program_arg, program_arg_next_to_the_previous]
                 .iter()
@@ -146,12 +146,16 @@ mod tests {
     use super::*;
     use crate::command_context::CommandContext;
     use crate::command_context::ContextError::Other;
+    use crate::command_factory::CommandFactoryError::CommandSyntax;
     use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
+    use crate::masq_short_writeln;
     use crate::run_modes::tests::StreamType::{Stderr, Stdout};
-    use crate::terminal::{FlushHandle, ReadError, ReadInput, TerminalWriter, WTermInterfaceDupAndSend};
+    use crate::terminal::{
+        FlushHandle, ReadError, ReadInput, TerminalWriter, WTermInterfaceDupAndSend,
+    };
     use crate::test_utils::mocks::{
         make_async_std_streams, make_terminal_writer, AsyncStdStreamsFactoryMock,
         AsyncTestStreamHandles, CommandContextFactoryMock, CommandContextMock,
@@ -161,12 +165,10 @@ mod tests {
     };
     use masq_lib::intentionally_blank;
     use masq_lib::messages::{ToMessageBody, UiNewPasswordBroadcast, UiShutdownRequest};
+    use masq_lib::test_utils::fake_stream_holder::StdinReadCounter;
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
-    use masq_lib::test_utils::fake_stream_holder::StdinReadCounter ;
-    use crate::command_factory::CommandFactoryError::CommandSyntax;
-    use crate::masq_short_writeln;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -348,17 +350,20 @@ mod tests {
         let (ui_port, broadcast_handle_term_interface_opt) = make_processor_params.pop().unwrap();
         assert_eq!(ui_port, 5333);
         StdStreamsAssertionMatrix::compose(
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&incidental_std_stream_handles),
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
             ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &term_interface_stream_handles,
-                    expected_writes:
-                        OnePieceWriteStreamsAssertion {
-                            stdout_opt: None,
-                            stderr_opt: Some("Unrecognized command: 'booga'\n"),
-                        }
-                        .into(),
+                    expected_writes: OnePieceWriteStreamsAssertion {
+                        stdout_opt: None,
+                        stderr_opt: Some("Unrecognized command: 'booga'\n"),
+                    }
+                    .into(),
                     read_attempts_opt: None,
                 },
             },
@@ -420,17 +425,20 @@ mod tests {
         let (ui_port, broadcast_handler_term_interface_opt) = make_processor_params.pop().unwrap();
         assert_eq!(ui_port, 5333);
         StdStreamsAssertionMatrix::compose(
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&incidental_std_stream_handles),
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
             ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &term_interface_stream_handles,
-                    expected_writes:
-                        OnePieceWriteStreamsAssertion {
-                            stdout_opt: None,
-                            stderr_opt: Some("Transmission problem: Booga!\n"),
-                        }
-                        .into(),
+                    expected_writes: OnePieceWriteStreamsAssertion {
+                        stdout_opt: None,
+                        stderr_opt: Some("Transmission problem: Booga!\n"),
+                    }
+                    .into(),
                     read_attempts_opt: None,
                 },
             },
@@ -490,12 +498,16 @@ mod tests {
                 stream_handles: &incidental_std_stream_handles,
                 write_streams: OnePieceWriteStreamsAssertion {
                     stdout_opt: None,
-                    stderr_opt: Some("Processor initialization failed: Can't connect to Daemon or Node: \
-                    \"booga\". Probably this means the Daemon isn't running.\n")
+                    stderr_opt: Some(
+                        "Processor initialization failed: Can't connect to Daemon or Node: \
+                    \"booga\". Probably this means the Daemon isn't running.\n",
+                    ),
                 }
                 .into(),
             },
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
             ProcessorTerminalInterfaceAssertionMatrix::assert_terminal_not_used(
                 &term_interface_stream_handles,
             ),
@@ -591,8 +603,12 @@ mod tests {
             make_command_context_params.pop().unwrap();
         assert_eq!(ui_port, 10000);
         StdStreamsAssertionMatrix::compose(
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&incidental_std_stream_handles),
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
             // We say that no output is expected only because we intercept the command's execution
             // by mocking the CommandExecutionHelper
             ProcessorTerminalInterfaceAssertionMatrix::assert_terminal_not_used(
@@ -755,20 +771,31 @@ mod tests {
             vec![vec!["setup".to_string()], vec!["start".to_string()]]
         );
         StdStreamsAssertionMatrix::compose(
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&incidental_std_stream_handles),
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
             ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &prime_term_interface_stream_handles,
                     expected_writes: FlushesWriteStreamsAssertion {
-                            stdout: vec!["setup command\n", "start command\n","MASQ is terminating...\n"],
-                            stderr: vec![],
-                        }
-                        .into(),
+                        stdout: vec![
+                            "setup command\n",
+                            "start command\n",
+                            "MASQ is terminating...\n",
+                        ],
+                        stderr: vec![],
+                    }
+                    .into(),
                     read_attempts_opt: Some(3),
                 },
             },
-            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles),
+            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(
+                broadcast_handler_term_interface_opt.as_ref(),
+                &background_term_interface_stream_handles,
+            ),
         )
         .assert()
         .await;
@@ -799,7 +826,8 @@ mod tests {
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
-        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default().make_result(Box::new(CommandExecutionHelperMock::default()));
+        let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
+            .make_result(Box::new(CommandExecutionHelperMock::default()));
         let mut subject = Main {
             std_streams_factory: Box::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserMock::default()),
@@ -825,21 +853,28 @@ mod tests {
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
         StdStreamsAssertionMatrix::compose(
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&incidental_std_stream_handles),
-            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(&processor_aspiring_std_stream_handles),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
             ProcessorTerminalInterfaceAssertionMatrix {
                 standard_assertions: TerminalInterfaceAssertionMatrix {
                     term_interface_stream_handles: &prime_term_interface_stream_handles,
                     expected_writes: OnePieceWriteStreamsAssertion {
-                            stdout_opt: None,
-                            stderr_opt: Some("ConnectionRefused\n"),
-                        }
-                        .into(),
+                        stdout_opt: None,
+                        stderr_opt: Some("ConnectionRefused\n"),
+                    }
+                    .into(),
                     // TODO does this work?
                     read_attempts_opt: Some(1),
-                }
+                },
             },
-            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(broadcast_handler_term_interface_opt.as_ref(), &background_term_interface_stream_handles),
+            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_used(
+                broadcast_handler_term_interface_opt.as_ref(),
+                &background_term_interface_stream_handles,
+            ),
         )
         .assert()
         .await;
@@ -913,7 +948,7 @@ mod tests {
     impl<'test> From<FlushesWriteStreamsAssertion<'test>> for WriteStreamsAssertion<'test> {
         fn from(assertions: FlushesWriteStreamsAssertion<'test>) -> Self {
             WriteStreamsAssertion {
-                one_piece_or_distinct_flushes: Either::Right(assertions)
+                one_piece_or_distinct_flushes: Either::Right(assertions),
             }
         }
     }
@@ -924,11 +959,17 @@ mod tests {
         // Reading should be forbidden in these streams
     }
 
-    impl <'test> BareStreamsFromStreamFactoryAssertionMatrix<'test> {
-        fn assert_streams_not_used(
-            stream_handles: &'test AsyncTestStreamHandles
-        ) -> Self {
-            Self{ stream_handles, write_streams: WriteStreamsAssertion { one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion{ stdout_opt: None, stderr_opt: None }) } }
+    impl<'test> BareStreamsFromStreamFactoryAssertionMatrix<'test> {
+        fn assert_streams_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self {
+            Self {
+                stream_handles,
+                write_streams: WriteStreamsAssertion {
+                    one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion {
+                        stdout_opt: None,
+                        stderr_opt: None,
+                    }),
+                },
+            }
         }
     }
 
@@ -945,14 +986,21 @@ mod tests {
     }
 
     impl<'test> ProcessorTerminalInterfaceAssertionMatrix<'test> {
-        fn assert_terminal_not_used(
-            stream_handles: &'test AsyncTestStreamHandles,
-        ) -> Self {
-            Self{ standard_assertions: TerminalInterfaceAssertionMatrix {
-                term_interface_stream_handles: stream_handles,
-                expected_writes: WriteStreamsAssertion{one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion{ stdout_opt: None, stderr_opt: None }) }  ,
-                read_attempts_opt: None,
-            } }
+        fn assert_terminal_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self {
+            Self {
+                standard_assertions: TerminalInterfaceAssertionMatrix {
+                    term_interface_stream_handles: stream_handles,
+                    expected_writes: WriteStreamsAssertion {
+                        one_piece_or_distinct_flushes: Either::Left(
+                            OnePieceWriteStreamsAssertion {
+                                stdout_opt: None,
+                                stderr_opt: None,
+                            },
+                        ),
+                    },
+                    read_attempts_opt: None,
+                },
+            }
         }
     }
 
@@ -977,49 +1025,79 @@ mod tests {
             w_term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
             stream_handles: &'test AsyncTestStreamHandles,
         ) -> Self {
-           Self{
-               w_term_interface_opt,
-               expected_std_streams_usage_opt: Some(TerminalInterfaceAssertionMatrix{
-                   term_interface_stream_handles: stream_handles,
-                   expected_writes: WriteStreamsAssertion{ one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion{ stdout_opt: None, stderr_opt: None }) },
-                   read_attempts_opt: None,
-               })
-           }
+            Self {
+                w_term_interface_opt,
+                expected_std_streams_usage_opt: Some(TerminalInterfaceAssertionMatrix {
+                    term_interface_stream_handles: stream_handles,
+                    expected_writes: WriteStreamsAssertion {
+                        one_piece_or_distinct_flushes: Either::Left(
+                            OnePieceWriteStreamsAssertion {
+                                stdout_opt: None,
+                                stderr_opt: None,
+                            },
+                        ),
+                    },
+                    read_attempts_opt: None,
+                }),
+            }
         }
     }
 
-
     impl<'test> StdStreamsAssertionMatrix<'test> {
         pub fn compose(
-            incidental_std_streams_assertion_matrix: BareStreamsFromStreamFactoryAssertionMatrix<'test>,
+            incidental_std_streams_assertion_matrix: BareStreamsFromStreamFactoryAssertionMatrix<
+                'test,
+            >,
             processor_aspiring_std_streams_assertions_matrix: BareStreamsFromStreamFactoryAssertionMatrix<'test>,
-            processor_term_interface_assertion_matrix: ProcessorTerminalInterfaceAssertionMatrix<'test>,
+            processor_term_interface_assertion_matrix: ProcessorTerminalInterfaceAssertionMatrix<
+                'test,
+            >,
             broadcast_handler_term_interface_assertion_matrix: BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>,
         ) -> Self {
             Self {
                 incidental_std_streams: incidental_std_streams_assertion_matrix,
                 processor_std_streams: processor_aspiring_std_streams_assertions_matrix,
                 processor_term_interface: processor_term_interface_assertion_matrix,
-                broadcast_handler_term_interface: broadcast_handler_term_interface_assertion_matrix
+                broadcast_handler_term_interface: broadcast_handler_term_interface_assertion_matrix,
             }
         }
 
         async fn assert(self) {
             let incidental_streams = self.incidental_std_streams;
-            assert_stream_writes(incidental_streams.stream_handles, incidental_streams.write_streams).await;
+            assert_stream_writes(
+                incidental_streams.stream_handles,
+                incidental_streams.write_streams,
+            )
+            .await;
             assert_stream_reads(&incidental_streams.stream_handles, Some(0));
 
             let processor_aspiring_streams = self.processor_std_streams;
-            assert_stream_writes(processor_aspiring_streams.stream_handles, processor_aspiring_streams.write_streams).await;
+            assert_stream_writes(
+                processor_aspiring_streams.stream_handles,
+                processor_aspiring_streams.write_streams,
+            )
+            .await;
             assert_stream_reads(&processor_aspiring_streams.stream_handles, Some(0));
 
             let processor_term_interface = self.processor_term_interface;
-            let processor_term_interface_stream_handles = processor_term_interface.standard_assertions.term_interface_stream_handles;
-            let processor_term_interface_expected_writes = processor_term_interface.standard_assertions.expected_writes;
-            let processor_term_interface_expected_read_attempts_opt = processor_term_interface.standard_assertions.read_attempts_opt;
+            let processor_term_interface_stream_handles = processor_term_interface
+                .standard_assertions
+                .term_interface_stream_handles;
+            let processor_term_interface_expected_writes =
+                processor_term_interface.standard_assertions.expected_writes;
+            let processor_term_interface_expected_read_attempts_opt = processor_term_interface
+                .standard_assertions
+                .read_attempts_opt;
 
-            assert_stream_writes(processor_term_interface_stream_handles, processor_term_interface_expected_writes).await;
-            assert_stream_reads(&processor_term_interface_stream_handles, processor_term_interface_expected_read_attempts_opt);
+            assert_stream_writes(
+                processor_term_interface_stream_handles,
+                processor_term_interface_expected_writes,
+            )
+            .await;
+            assert_stream_reads(
+                &processor_term_interface_stream_handles,
+                processor_term_interface_expected_read_attempts_opt,
+            );
 
             let broadcast_term_interface = self.broadcast_handler_term_interface;
             assert_broadcast_term_interface_outputs(
@@ -1035,16 +1113,13 @@ mod tests {
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     ) {
         macro_rules! assert_terminal_output_stream_and_its_stream_handle_are_connected {
-            ($fetch_write_utils: expr, $await_non_empty_output: expr, $fetch_written_data_all_in_one: expr, $literals_to_test_it_with: literal)=> {
+            ($fetch_write_utils: expr, $await_non_empty_output: expr, $fetch_written_data_all_in_one: expr, $literals_to_test_it_with: literal) => {
                 let (mut std_stream_writer, flush_handle) = $fetch_write_utils;
                 std_stream_writer.write($literals_to_test_it_with).await;
                 drop(flush_handle);
                 $await_non_empty_output.await;
-                assert_eq!(
-                    $fetch_written_data_all_in_one,
-                    $literals_to_test_it_with
-                )
-            }
+                assert_eq!($fetch_written_data_all_in_one, $literals_to_test_it_with)
+            };
         }
 
         match (term_interface_opt, expected_std_streams_usage_opt) {
@@ -1074,8 +1149,8 @@ mod tests {
         original_stream_handles: &AsyncTestStreamHandles,
         expected_writes: WriteStreamsAssertion<'test>,
     ) {
-        fn optional_into_empty_or_populated_string(string_opt: Option<&str>)->String{
-            string_opt.map(|s|s.to_string()).unwrap_or_default()
+        fn optional_into_empty_or_populated_string(string_opt: Option<&str>) -> String {
+            string_opt.map(|s| s.to_string()).unwrap_or_default()
         }
         fn owned_strings(strings: &[&str]) -> Vec<String> {
             strings.into_iter().map(|s| s.to_string()).collect()
@@ -1184,9 +1259,16 @@ mod tests {
     ) {
         let actual_reads_opt = std_stream_handles.reads_opt();
         match (actual_reads_opt, expected_read_attempts_opt) {
-            (Some(actual), Some(expected)) => assert_eq!(actual, expected, "Expected read attempts {} don't match the actual {}", expected, actual),
+            (Some(actual), Some(expected)) => assert_eq!(
+                actual, expected,
+                "Expected read attempts {} don't match the actual {}",
+                expected, actual
+            ),
             (None, None) => (),
-            (actual_opt, expected_opt) => panic!("Expected {:?} doesn't match the actual {:?}", expected_opt, actual_opt )
+            (actual_opt, expected_opt) => panic!(
+                "Expected {:?} doesn't match the actual {:?}",
+                expected_opt, actual_opt
+            ),
         }
     }
 }

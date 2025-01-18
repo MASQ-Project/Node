@@ -122,7 +122,8 @@ mod tests {
     use crate::terminal::WTermInterfaceDup;
     use crate::terminal::{WTermInterface, WriteResult};
     use crate::test_utils::mocks::{
-        make_async_std_streams, make_async_std_streams_with_further_setup, AsyncStdStreamsFactoryMock,
+        make_async_std_streams, make_async_std_streams_with_further_setup,
+        AsyncStdStreamsFactoryMock,
     };
     use itertools::Either;
     use masq_lib::test_utils::utils::make_rt;
