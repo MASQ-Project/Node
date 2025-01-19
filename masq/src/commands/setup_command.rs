@@ -191,7 +191,7 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::terminal::test_utils::allow_spawned_tasks_to_finish;
+    use crate::terminal::test_utils::allow_writtings_to_finish;
     use crate::test_utils::mocks::{
         make_terminal_writer, CommandContextMock, MockTerminalMode, TermInterfaceMock,
     };
@@ -263,7 +263,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_spawned_tasks_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -331,7 +331,7 @@ scans                         off                                               
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_spawned_tasks_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

@@ -132,7 +132,7 @@ impl CMBootstrapper {
         {
             Ok(ch) => ch,
             Err(e) => {
-                todo!("{:?}", e)
+                return Err(ServicesDeploymentError::ClientListener(e))
             }
         };
 

@@ -339,6 +339,6 @@ impl FlushHandleInnerMock {
     }
 }
 
-pub async fn allow_spawned_tasks_to_finish() {
+pub async fn allow_writtings_to_finish() {
     tokio::time::sleep(Duration::from_millis(1)).await
 }

@@ -70,9 +70,7 @@ impl RWTermInterface for InteractiveRWTermInterface {
     }
 
     fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend> {
-        todo!()
-        //self.write_terminal.dup()
-        // Box::new(WTer)
+        self.write_terminal.dup()
     }
 }
 

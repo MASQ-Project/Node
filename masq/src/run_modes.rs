@@ -33,7 +33,7 @@ pub struct Main {
     command_factory_opt: Option<Box<dyn CommandFactory>>,
     command_context_factory: Box<dyn CommandContextFactory>,
     command_execution_helper_factory: Box<dyn CommandExecutionHelperFactory>,
-    command_processor_static_factory: CommandProcessorFactory,
+    command_processor_factory: CommandProcessorFactory,
 }
 
 impl Default for Main {
@@ -45,7 +45,7 @@ impl Default for Main {
             command_factory_opt: Some(Box::new(CommandFactoryReal::default())),
             command_context_factory: Box::new(CommandContextFactoryReal::default()),
             command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         }
     }
 }
@@ -84,14 +84,32 @@ impl Main {
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         initial_subcommand_opt: Option<&[String]>,
     ) -> Result<(), ()> {
+        let mut command_processor = self.initialize_processor(ui_port, incidental_streams, term_interface).await?;
+
+        let result = command_processor
+            .process_command_line(initial_subcommand_opt.as_deref())
+            .await;
+
+        command_processor.close().await;
+
+        result
+    }
+
+    async fn initialize_processor(
+        &mut self,
+        ui_port: u16,
+        incidental_streams: &mut AsyncStdStreams,
+        term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
+    ) -> Result<Box<dyn CommandProcessor>, ()>{
         let command_context_factory = self.command_context_factory.as_ref();
         let execution_helper_factory = self.command_execution_helper_factory.as_ref();
         let command_factory = self
             .command_factory_opt
             .take()
             .expect("CommandFactory wasn't prepared properly");
-        let mut command_processor = match self
-            .command_processor_static_factory
+
+        match self
+            .command_processor_factory
             .make(
                 term_interface,
                 command_context_factory,
@@ -101,24 +119,16 @@ impl Main {
             )
             .await
         {
-            Ok(processor) => processor,
+            Ok(processor) => Ok(processor),
             Err(e) => {
                 write_async_stream_and_flush!(
                     &mut incidental_streams.stderr,
                     "Processor initialization failed: {}",
                     e
                 );
-                return Err(());
+                Err(())
             }
-        };
-
-        let result = command_processor
-            .process(initial_subcommand_opt.as_deref())
-            .await;
-
-        command_processor.close().await;
-
-        result
+        }
     }
 
     fn extract_subcommand(args: &[String]) -> Option<Vec<String>> {
@@ -217,7 +227,7 @@ mod tests {
             command_factory_opt: Some(Box::new(command_factory)),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject
@@ -335,7 +345,7 @@ mod tests {
             command_factory_opt: Some(Box::new(command_factory)),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject
@@ -414,7 +424,7 @@ mod tests {
             command_factory_opt: Some(Box::new(command_factory)),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject
@@ -482,7 +492,7 @@ mod tests {
             command_factory_opt: Some(Box::new(CommandFactoryMock::default())),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject
@@ -520,34 +530,6 @@ mod tests {
         assert_eq!(result, 1);
     }
 
-    #[test]
-    fn populate_interactive_dependencies_produces_all_needed_to_block_printing_from_another_thread_when_the_lock_is_acquired(
-    ) {
-        //TODO rewrite me
-        // let (test_stream_factory, test_stream_handle) = TestStreamFactory::new();
-        // let (broadcast_handle, terminal_interface) =
-        //     CommandContextDependencies::populate_interactive_dependencies(test_stream_factory)
-        //         .unwrap();
-        // {
-        //     let _lock = terminal_interface.as_ref().unwrap().lock();
-        //     broadcast_handle.send(UiNewPasswordBroadcast {}.tmb(0));
-        //
-        //     let output = test_stream_handle.stdout_so_far();
-        //
-        //     assert_eq!(output, "")
-        // }
-        // // Because of Win from Actions
-        // #[cfg(target_os = "windows")]
-        // win_test_import::thread::sleep(win_test_import::Duration::from_millis(200));
-        //
-        // let output_when_unlocked = test_stream_handle.stdout_so_far();
-        //
-        // assert_eq!(
-        //     output_when_unlocked,
-        //     "\nThe Node\'s database password has changed.\n\n"
-        // )
-    }
-
     #[tokio::test]
     async fn non_interactive_mode_works_when_special_ui_port_is_required() {
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -583,7 +565,7 @@ mod tests {
             command_factory_opt: Some(Box::new(command_factory)),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject
@@ -746,7 +728,7 @@ mod tests {
             command_factory_opt: Some(Box::new(command_factory)),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject
@@ -835,7 +817,7 @@ mod tests {
             command_factory_opt: Some(Box::new(CommandFactoryMock::default())),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
-            command_processor_static_factory: Default::default(),
+            command_processor_factory: Default::default(),
         };
 
         let result = subject.go(&["command".to_string()]).await;
@@ -880,6 +862,11 @@ mod tests {
         .await;
         let close_params = close_params_arc.lock().unwrap();
         assert_eq!(*close_params, vec![()])
+    }
+
+    #[tokio::test]
+    async fn broadcast_is_received_from_node() {
+        todo!("Write me up: Send a broadcast from the MockWebsocketServer")
     }
 
     struct StdStreamsAssertionMatrix<'test> {

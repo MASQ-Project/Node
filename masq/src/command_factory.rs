@@ -282,7 +282,6 @@ mod tests {
 
     #[test]
     fn complains_about_setup_command_with_bad_syntax() {
-        todo!("could I make the help messages more illuminating?");
         let subject = CommandFactoryReal::new();
 
         let result = subject

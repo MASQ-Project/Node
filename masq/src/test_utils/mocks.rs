@@ -192,7 +192,7 @@ pub struct CommandProcessorMock {
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorMock {
-    async fn process(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
+    async fn process_command_line(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
         todo!()
         // self.process_params.lock().unwrap().push(command);
         // self.process_results.borrow_mut().remove(0)
