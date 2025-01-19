@@ -118,11 +118,11 @@ where
             )
             .build();
 
-        let fallback_start_block_number = match end_block {
+        let end_block_number_opt = match end_block {
             BlockNumber::Number(eb) => Some(eb.as_u64()),
             _ => {
                 if let BlockNumber::Number(start_block_number) = start_block {
-                    Some(start_block_number.as_u64() + 1u64)
+                    Some(start_block_number.as_u64())
                 } else {
                     None
                 }
@@ -142,9 +142,9 @@ where
                     Err(_) => {
                         debug!(
                             logger,
-                            "Using fallback block number: {:?}", fallback_start_block_number
+                            "Using fallback block number: {:?}", end_block_number_opt
                         );
-                        fallback_start_block_number
+                        end_block_number_opt
                     }
                 };
 
@@ -178,7 +178,7 @@ where
                             // was not successful.
                             let transaction_max_block_number = self
                                 .find_largest_transaction_block_number(
-                                    response_block_number_opt,
+                                    response_block_number_opt.min(end_block_number_opt),
                                     &transactions,
                                 );
                             debug!(
@@ -671,6 +671,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use serde_derive::Deserialize;
     use serde_json::{json, Value};
+    use std::default::Default;
     use std::net::Ipv4Addr;
 
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
@@ -683,6 +684,7 @@ mod tests {
         BlockchainTransaction, RpcPayablesFailure,
     };
     use indoc::indoc;
+    use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
     use sodiumoxide::hex;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -1020,7 +1022,7 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_start_block_plus_one(
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
@@ -1035,23 +1037,18 @@ mod tests {
         let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
 
         let start_block = BlockNumber::Number(42u64.into());
+        let expected_new_start_block = BlockNumber::Number(43u64.into());
+
         let result = subject.retrieve_transactions(
             start_block,
             BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        let expected_fallback_start_block =
-            if let BlockNumber::Number(start_block_nbr) = start_block {
-                start_block_nbr.as_u64() + 1u64
-            } else {
-                panic!("start_block of Latest, Earliest, and Pending are not supported!")
-            };
-
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: BlockNumber::Number((1 + expected_fallback_start_block).into()),
+                new_start_block: expected_new_start_block,
                 transactions: vec![]
             })
         );
@@ -2309,6 +2306,178 @@ mod tests {
         assert_eq!(
             "transfer(address,uint256)".keccak256()[0..4],
             TRANSFER_METHOD_ID,
+        );
+    }
+
+    #[test]
+    fn retrieve_transactions_ensures_no_skipped_blocks() {
+        let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
+        let port = find_free_port();
+        #[rustfmt::skip]
+        let _test_server = TestServer::start (port, vec![
+            br#"[{"jsonrpc":"2.0","id":1,"result":"0x40bbf8"},{
+                "jsonrpc":"2.0",
+                "id":2,
+                "result":[
+                    {
+                        "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
+                        "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a",
+                        "blockNumber":"0x14382",
+                        "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
+                        "logIndex":"0x0",
+                        "removed":false,
+                        "topics":[
+                            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            "0x0000000000000000000000003ab28ecedea6cdb6feed398e93ae8c7b316b1182",
+                            "0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"
+                        ],
+                        "transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681",
+                        "transactionIndex":"0x0"
+                    }
+                ]}]"#.to_vec(),
+            br#"[{"jsonrpc":"2.0","id":1,"result":"0x40bbf9"},{
+                "jsonrpc":"2.0",
+                "id":2,
+                "result":[
+                    {
+                        "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
+                        "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732b",
+                        "blockNumber":"0x308b3",
+                        "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
+                        "logIndex":"0x0",
+                        "removed":false,
+                        "topics":[
+                            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            "0x0000000000000000000000003ab28ecedea6cdb6feed398e93ae8c7b316b1182",
+                            "0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"
+                        ],
+                        "transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0680",
+                        "transactionIndex":"0x0"
+                    }
+                ]}]"#.to_vec(),
+            br#"[{"jsonrpc":"2.0","id":1,"result":"0x40bbfa"},{
+                "jsonrpc":"2.0",
+                "id":2,
+                "result":[
+                    {
+                        "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
+                        "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a",
+                        "blockNumber":"0x34248",
+                        "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
+                        "logIndex":"0x0",
+                        "removed":false,
+                        "topics":[
+                            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            "0x0000000000000000000000003ab28ecedea6cdb6feed398e93ae8c7b316b1182",
+                            "0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"
+                        ],
+                        "transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681",
+                        "transactionIndex":"0x0"
+                    }
+            ]}]"#.to_vec(),
+            br#"[{"jsonrpc":"2.0","id":1,"result":"0x40bbfb"},{
+                "jsonrpc":"2.0",
+                "id":2,
+                "result":[
+                    {
+                        "address":"0xcd6c588e005032dd882cd43bf53a32129be81302",
+                        "blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a",
+                        "blockNumber":"0x49b7e",
+                        "data":"0x0000000000000000000000000000000000000000000000000010000000000000",
+                        "logIndex":"0x0",
+                        "removed":false,
+                        "topics":[
+                            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                            "0x0000000000000000000000003ab28ecedea6cdb6feed398e93ae8c7b316b1182",
+                            "0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"
+                        ],
+                        "transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681",
+                        "transactionIndex":"0x0"
+                }
+            ]}]"#.to_vec(),
+        ]);
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let chain = TEST_DEFAULT_CHAIN;
+        let subject = BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain);
+        let _end_block_nbr = 0x4be662u64;
+        let wallet = Wallet::new(to);
+        init_test_logging();
+
+        // First call to retrieve_transactions
+        let end_block_1 = BlockNumber::Number((1u64 + DEFAULT_MAX_BLOCK_COUNT).into());
+        let result1 = subject
+            .retrieve_transactions(BlockNumber::Number(1u64.into()), end_block_1, &wallet)
+            .unwrap();
+
+        // Second call to retrieve_transactions with non-overlapping but continuous block range
+        let new_start_block_1 = if let BlockNumber::Number(value) = result1.new_start_block {
+            value.as_u64()
+        } else {
+            panic!("Unexpected block number type")
+        };
+
+        let end_block_2 = BlockNumber::Number((new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT).into());
+        let result2 = subject
+            .retrieve_transactions(result1.new_start_block, end_block_2, &wallet)
+            .unwrap();
+
+        let new_start_block_2 = if let BlockNumber::Number(value) = result2.new_start_block {
+            value.as_u64()
+        } else {
+            panic!("Unexpected block number type")
+        };
+        let end_block_3 = BlockNumber::Number((new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT).into());
+        let result3 = subject
+            .retrieve_transactions(result2.new_start_block, end_block_3, &wallet)
+            .unwrap();
+
+        let new_start_block_3 = if let BlockNumber::Number(value) = result3.new_start_block {
+            value.as_u64()
+        } else {
+            panic!("Unexpected block number type")
+        };
+
+        let end_block_4 = BlockNumber::Number((new_start_block_3 + DEFAULT_MAX_BLOCK_COUNT).into());
+        let result4 = subject
+            .retrieve_transactions(result3.new_start_block, end_block_4, &wallet)
+            .unwrap();
+
+        let new_start_block_4 = if let BlockNumber::Number(value) = result4.new_start_block {
+            value.as_u64()
+        } else {
+            panic!("Unexpected block number type")
+        };
+
+        assert_eq!(new_start_block_1, 2 + DEFAULT_MAX_BLOCK_COUNT);
+        assert_eq!(
+            new_start_block_2,
+            1 + new_start_block_1 + DEFAULT_MAX_BLOCK_COUNT
+        );
+        assert_eq!(
+            new_start_block_3,
+            1 + new_start_block_2 + DEFAULT_MAX_BLOCK_COUNT
+        );
+        assert_eq!(
+            new_start_block_4,
+            1 + new_start_block_3 + DEFAULT_MAX_BLOCK_COUNT
+        );
+
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.exists_log_containing(
+            "Retrieving transactions from start block: Number(1) to end block: Number(100001) for: 0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc chain_id: 3 contract: 0x384dec25e03f94931767ce4c3556168468ba24c3",
+        );
+        test_log_handler.exists_log_containing(
+            "Retrieving transactions from start block: Number(100002) to end block: Number(200002) for: 0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc chain_id: 3 contract: 0x384dec25e03f94931767ce4c3556168468ba24c3",
+        );
+        test_log_handler.exists_log_containing(
+            "Retrieving transactions from start block: Number(200003) to end block: Number(300003) for: 0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc chain_id: 3 contract: 0x384dec25e03f94931767ce4c3556168468ba24c3",
+        );
+        test_log_handler.exists_log_containing(
+            "Retrieving transactions from start block: Number(300004) to end block: Number(400004) for: 0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc chain_id: 3 contract: 0x384dec25e03f94931767ce4c3556168468ba24c3",
         );
     }
 }
