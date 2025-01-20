@@ -17,7 +17,6 @@ use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_reco
 
 #[test]
 fn http_end_to_end_routing_test_with_exit_location() {
-    let mut cluster = MASQNodeCluster::start().unwrap();
     let mut countries = HashMap::from([
         ("czechia", CountryNetworkPack {
             name: "czechia".to_string(),
