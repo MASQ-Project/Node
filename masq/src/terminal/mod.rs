@@ -27,7 +27,14 @@ pub enum WriteResult {
 #[derive(Debug, PartialEq)]
 pub enum ReadError {
     TerminalOutputInputDisconnected,
-    UnexpectedNewValueFromLibrary,
+}
+
+impl Display for ReadError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadError::TerminalOutputInputDisconnected => write!(f, "IO disconnected")
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -180,7 +187,7 @@ impl Drop for FlushHandle {
 mod tests {
     use crate::terminal::test_utils::FlushHandleInnerMock;
     use crate::terminal::writing_utils::ArcMutexFlushHandleInner;
-    use crate::terminal::{FlushHandle, TerminalWriter, WriteResult, WriteStreamType};
+    use crate::terminal::{FlushHandle, ReadError, TerminalWriter, WriteResult, WriteStreamType};
     use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -254,5 +261,10 @@ mod tests {
             panic_msg,
             "Flushing Stderr stream failed due to: OSError(Kind(Other))"
         )
+    }
+
+    #[test]
+    fn read_error_implements_display(){
+        assert_eq!(ReadError::TerminalOutputInputDisconnected.to_string(), "IO disconnected")
     }
 }

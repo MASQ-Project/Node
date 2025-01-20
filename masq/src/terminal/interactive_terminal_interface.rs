@@ -40,6 +40,7 @@ impl InteractiveRWTermInterface {
 }
 
 pub const UNINTERPRETABLE_COMMAND: &str = "Uninterpretable command: Ignored";
+pub const UNIMPLEMENTED_INSTRUCTION: &str = "Unimplemented new instruction";
 
 #[async_trait(?Send)]
 impl RWTermInterface for InteractiveRWTermInterface {
@@ -60,8 +61,8 @@ impl RWTermInterface for InteractiveRWTermInterface {
             Response::Unknown(_) => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
             }),
-            // As to my knowledge, this is untestable
-            _ => Err(ReadError::UnexpectedNewValueFromLibrary),
+            // They declared the enum as non-exhaustive. As to my knowledge, this is untestable
+            _ => Ok(ReadInput::Ignored {msg_opt: Some(UNIMPLEMENTED_INSTRUCTION.to_string())}),
         }
     }
 
@@ -113,14 +114,6 @@ impl WTermInterface for InteractiveWTermInterface {
         self.stderr_utils.get_utils()
     }
 }
-
-// impl WTermInterfaceDup for InteractiveWTermInterface {
-//     fn dup(&self) -> Box<dyn WTermInterfaceDup> {
-//         Box::new(InteractiveWTermInterface::new(
-//             self.write_liso_arc.clone_output(),
-//         ))
-//     }
-// }
 
 impl InteractiveWTermInterface {
     pub fn new(write_liso_box: Box<dyn LisoOutputWrapper>) -> Self {
@@ -185,9 +178,7 @@ impl FlushHandleInner for InteractiveFlushHandleInner {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::interactive_terminal_interface::{
-        InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND,
-    };
+    use crate::terminal::interactive_terminal_interface::{InteractiveRWTermInterface, InteractiveWTermInterface, UNIMPLEMENTED_INSTRUCTION, UNINTERPRETABLE_COMMAND};
     use crate::terminal::test_utils::{
         test_writing_streams_of_particular_terminal, InteractiveInterfaceByUse,
         LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
@@ -200,7 +191,8 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(UNINTERPRETABLE_COMMAND, "Uninterpretable command: Ignored")
+        assert_eq!(UNINTERPRETABLE_COMMAND, "Uninterpretable command: Ignored");
+        assert_eq!(UNIMPLEMENTED_INSTRUCTION, "Unimplemented new instruction")
     }
 
     #[test]

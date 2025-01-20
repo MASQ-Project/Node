@@ -117,7 +117,7 @@ async fn assert_proper_writing<'test>(
         "In {}: initial check of output emptiness failed",
         tested_case
     );
-    let mut stream_output_after_check = test_output_handle.drain_flushed_strings().unwrap();
+    let mut stream_output_after_check = test_output_handle.drain_flushed_strings();
     eprintln!("{:?}", stream_output_after_check);
     assert_eq!(
         stream_output_after_check.next_flush().unwrap().output(),
@@ -232,15 +232,13 @@ impl StringAssertionMethods for LisoFlushedAssertableStrings {
             .map(|flushed_str| flushed_str.output())
             .join("")
     }
-    fn drain_flushed_strings(&self) -> Option<FlushedStrings> {
-        Some(
+    fn drain_flushed_strings(&self) -> FlushedStrings {
             self.flushes
                 .lock()
                 .unwrap()
                 .drain(..)
                 .collect::<Vec<FlushedString>>()
-                .into(),
-        )
+                .into()
     }
 }
 

@@ -1131,7 +1131,6 @@ impl AsyncTestStreamHandles {
         match handle {
             Either::Left(async_byte_array) => async_byte_array
                 .drain_flushed_strings()
-                .unwrap()
                 .as_simple_strings(),
             Either::Right(naked_string_containers) => {
                 naked_string_containers.lock().unwrap().drain(..).collect()

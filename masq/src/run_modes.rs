@@ -188,33 +188,33 @@ mod tests {
 
     #[tokio::test]
     async fn non_interactive_mode_works_when_everything_is_copacetic() {
+        let make_std_streams_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
+        let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_params_arc = Arc::new(Mutex::new(vec![]));
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
-        let make_std_streams_params_arc = Arc::new(Mutex::new(vec![]));
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_params(&make_std_streams_params_arc)
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let (w_term_interface, term_interface_stream_handles) =
             TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
-        let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::default()
-            .make_params(&c_make_params_arc)
+            .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(command)));
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context = CommandContextMock::default().close_params(&close_params_arc);
-        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::default()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
-        let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
         let command_execution_helper = CommandExecutionHelperMock::default()
             .execute_command_params(&execute_command_params_arc)
             .execute_command_result(Ok(()));
@@ -253,14 +253,21 @@ mod tests {
         let (ui_port, broadcast_handle_term_interface_opt) =
             make_command_context_params.pop().unwrap();
         assert_eq!(ui_port, 5333);
-        // TODO make better
-        incidental_std_stream_handles.assert_empty_stderr();
-        incidental_std_stream_handles.assert_empty_stdout();
-        processor_aspiring_std_stream_handles.assert_empty_stderr();
-        processor_aspiring_std_stream_handles.assert_empty_stdout();
-        term_interface_stream_handles.assert_empty_stderr();
-        term_interface_stream_handles.assert_empty_stdout();
-        let c_make_params = c_make_params_arc.lock().unwrap();
+        StdStreamsAssertionMatrix::compose(
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
+            ProcessorTerminalInterfaceAssertionMatrix::assert_terminal_not_used(&term_interface_stream_handles),
+            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_created(
+                broadcast_handle_term_interface_opt.as_ref(),
+            ),
+        )
+            .assert()
+            .await;
+        let c_make_params = make_command_params_arc.lock().unwrap();
         assert_eq!(
             *c_make_params,
             vec![
@@ -289,49 +296,58 @@ mod tests {
         );
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(*transact_params, vec![(UiShutdownRequest {}.tmb(1), 1000)]);
-        //TODO use the assertion matrix
-        term_interface_stream_handles
-            .await_stdout_is_not_empty()
+        StdStreamsAssertionMatrix::compose(
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &incidental_std_stream_handles,
+            ),
+            BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
+                &processor_aspiring_std_stream_handles,
+            ),
+            ProcessorTerminalInterfaceAssertionMatrix {
+                standard_assertions: TerminalInterfaceAssertionMatrix {
+                    term_interface_stream_handles: &term_interface_stream_handles,
+                    expected_writes: FlushesWriteStreamsAssertion {
+                        stdout: vec!["MockCommand output"],
+                        stderr: vec!["MockCommand error"],
+                    }
+                        .into(),
+                    read_attempts_opt: None,
+                },
+            },
+            BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_created(
+                broadcast_handle_term_interface_opt.as_ref(),
+            ),
+        )
+            .assert()
             .await;
-        assert_eq!(
-            term_interface_stream_handles.stdout_all_in_one(),
-            "MockCommand output"
-        );
-        term_interface_stream_handles
-            .await_stderr_is_not_empty()
-            .await;
-        assert_eq!(
-            term_interface_stream_handles.stderr_all_in_one(),
-            "MockCommand error"
-        );
         let close_params = close_params_arc.lock().unwrap();
         assert_eq!(*close_params, vec![()]);
     }
 
     #[tokio::test]
     async fn go_works_when_command_is_invalid() {
+        let make_std_streams_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_params_arc = Arc::new(Mutex::new(vec![]));;
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
-        let make_std_streams_params_arc = Arc::new(Mutex::new(vec![]));
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_params(&make_std_streams_params_arc)
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let (w_term_interface, term_interface_stream_handles) =
             TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
-        let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::default()
-            .make_params(&c_make_params_arc)
+            .make_params(&make_command_params_arc)
             .make_result(Err(UnrecognizedSubcommand("booga".to_string())));
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let processor = CommandContextMock::default().close_params(&close_params_arc);
-        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::default()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(processor)));
@@ -383,7 +399,7 @@ mod tests {
         )
         .assert()
         .await;
-        let c_make_params = c_make_params_arc.lock().unwrap();
+        let c_make_params = make_command_params_arc.lock().unwrap();
         assert_eq!(*c_make_params, vec![vec!["subcommand".to_string()],]);
         let close_params = close_params_arc.lock().unwrap();
         assert_eq!(*close_params, vec![()]);
@@ -392,6 +408,8 @@ mod tests {
 
     #[tokio::test]
     async fn go_works_when_command_execution_fails() {
+        let make_command_context_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
         let command_factory =
             CommandFactoryMock::default().make_result(Ok(Box::new(command.clone())));
@@ -407,11 +425,9 @@ mod tests {
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Left(Box::new(w_term_interface)));
         let command_context = CommandContextMock::default();
-        let make_command_context_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_factory_params_arc)
             .make_result(Ok(Box::new(command_context)));
-        let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
         let command_execution_helper = CommandExecutionHelperMock::default()
             .execute_command_params(&execute_command_params_arc)
             .execute_command_result(Err(Transmission("Booga!".to_string())));
@@ -469,6 +485,7 @@ mod tests {
 
     #[tokio::test]
     async fn go_works_when_daemon_is_not_running() {
+        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -480,7 +497,6 @@ mod tests {
             TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Left(Box::new(w_term_interface)));
-        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
@@ -532,6 +548,9 @@ mod tests {
 
     #[tokio::test]
     async fn non_interactive_mode_works_when_special_ui_port_is_required() {
+        let c_make_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
+        let command_execution_params_arc = Arc::new(Mutex::new(vec![]));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -543,16 +562,13 @@ mod tests {
             TermInterfaceMock::new_non_interactive();
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Left(Box::new(w_term_interface)));
-        let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::default()
             .make_params(&c_make_params_arc)
             .make_result(Ok(Box::new(SetupCommand::new(&[]).unwrap())));
         let command_context = CommandContextMock::default();
-        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
-        let command_execution_params_arc = Arc::new(Mutex::new(vec![]));
         let command_execution_helper = CommandExecutionHelperMock::default()
             .execute_command_params(&command_execution_params_arc)
             .execute_command_result(Ok(()));
@@ -690,6 +706,9 @@ mod tests {
 
     #[tokio::test]
     async fn interactive_mode_works_when_everything_is_copacetic() {
+        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -697,7 +716,6 @@ mod tests {
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let stdin_read_line_results = vec![
             Ok(ReadInput::Line("setup".to_string())),
             Ok(ReadInput::Line("start".to_string())),
@@ -711,13 +729,11 @@ mod tests {
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Right(Box::new(rw_term_interface)));
-        let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
             .make_result(Ok(Box::new(FakeCommand::new("start command"))));
         let command_context = CommandContextMock::new();
-        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
@@ -785,6 +801,9 @@ mod tests {
 
     #[tokio::test]
     async fn interactive_mode_works_for_stdin_read_error() {
+        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
+        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -792,7 +811,6 @@ mod tests {
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
             .make_result(incidental_std_streams)
             .make_result(processor_aspiring_std_streams);
-        let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let stdin_read_line_results = vec![Err(ReadError::TerminalOutputInputDisconnected)];
         let (
             rw_term_interface,
@@ -802,9 +820,7 @@ mod tests {
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Right(Box::new(rw_term_interface)));
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context = CommandContextMock::default().close_params(&close_params_arc);
-        let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
@@ -827,10 +843,6 @@ mod tests {
         let (is_interactive, passed_streams) = make_term_interface_params.remove(0);
         assert_eq!(is_interactive, true);
         assert!(make_term_interface_params.is_empty());
-        assert_eq!(
-            prime_term_interface_stream_handles.stderr_all_in_one(),
-            "ConnectionRefused\n".to_string()
-        );
         let mut make_command_context_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
@@ -846,10 +858,9 @@ mod tests {
                     term_interface_stream_handles: &prime_term_interface_stream_handles,
                     expected_writes: OnePieceWriteStreamsAssertion {
                         stdout_opt: None,
-                        stderr_opt: Some("ConnectionRefused\n"),
+                        stderr_opt: Some("Terminal read error: IO disconnected\n"),
                     }
                     .into(),
-                    // TODO does this work?
                     read_attempts_opt: Some(1),
                 },
             },

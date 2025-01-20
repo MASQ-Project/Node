@@ -146,7 +146,7 @@ pub struct CommandProcessorNonInteractive {
 impl CommandProcessor for CommandProcessorNonInteractive {
     async fn process_command_line(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
         let command_args =
-            initial_subcommand_opt.expect("Missing command args in non-interactive mode");
+            initial_subcommand_opt.expect("Missing args in non-interactive mode");
         self.handle_command_common(command_args).await
     }
 
@@ -212,7 +212,11 @@ impl CommandProcessor for CommandProcessorInteractive {
                     ReadInput::Quit => todo!(),
                     ReadInput::Ignored { .. } => todo!(),
                 },
-                Err(e) => todo!(),
+                Err(e) => {
+                    let (stderr, _stderr_flush_handle) = self.terminal_interface.write_only_ref().stderr();
+                    masq_short_writeln!(stderr, "Terminal read error: {}", e);
+                    break Err(())
+                }
             };
 
             if let [single_arg] = args[..].as_ref() {

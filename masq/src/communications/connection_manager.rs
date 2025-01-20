@@ -752,7 +752,7 @@ mod tests {
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
     use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils, WSHandshakeHandlerFactoryMock,
+        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake, WSHandshakeHandlerFactoryMock,
     };
     use masq_lib::utils::{find_free_port, localhost, running_test};
     use masq_lib::websockets_handshake::MASQClientWSHandshakeHandler;
@@ -1830,7 +1830,7 @@ mod tests {
     // async fn spawn_client_listener_handler_with_meaningless_event_loop_handle(
     //     port: u16,
     // ) -> WSClientHandle {
-    //     let (websocket, talker_half, _) = websocket_utils(port).await;
+    //     let (websocket, talker_half, _) = websocket_utils_with_masq_handshake(port).await;
     //     let meaningless_spawn_handle = tokio::task::spawn(async {
     //         loop {
     //             tokio::time::sleep(Duration::from_millis(1000)).await;
