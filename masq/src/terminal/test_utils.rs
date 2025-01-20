@@ -6,7 +6,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
-    WTermInterfaceDup, WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
+    WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
 };
 use crate::test_utils::mocks::TerminalWriterTestReceiver;
 use async_trait::async_trait;
@@ -32,7 +32,7 @@ pub struct NonInteractiveStreamsAssertionHandles {
 
 pub enum WritingTestInputByTermInterfaces<'test> {
     NonInteractive(
-        WritingTestInput<&'test dyn WTermInterfaceDup, NonInteractiveStreamsAssertionHandles>,
+        WritingTestInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>,
     ),
     Interactive(WritingTestInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
 }
@@ -75,7 +75,7 @@ pub async fn test_writing_streams_of_particular_terminal<'test>(
                 InteractiveInterfaceByUse::RWPrimeInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
-                InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => todo!(),
+                InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => (term_interface.stdout(), term_interface.stderr()),
                 InteractiveInterfaceByUse::WOnlyBackgroundInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }

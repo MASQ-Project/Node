@@ -13,6 +13,7 @@ use tokio::time::Instant;
 pub enum ClientError {
     // TODO: Perhaps this can be combined with NodeConversationTermination
     NoServer(u16, String),
+    ClosingStage,
     ConnectionDropped,
     FallbackFailed(String),
     PacketType(String),
@@ -80,7 +81,7 @@ impl NodeConversation {
         }
 
         if self.closing_stage.masq_is_closing() {
-            return Err(ClientError::ConnectionDropped);
+            return Err(ClientError::ClosingStage);
         }
 
         match self
@@ -115,7 +116,7 @@ impl NodeConversation {
         }
 
         if self.closing_stage.masq_is_closing() {
-            return Err(ClientError::ConnectionDropped);
+            return Err(ClientError::ClosingStage);
         }
 
         outgoing_msg.path = MessagePath::Conversation(self.context_id());

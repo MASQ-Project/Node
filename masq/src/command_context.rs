@@ -31,6 +31,7 @@ impl From<ClientError> for ContextError {
     fn from(client_error: ClientError) -> Self {
         match client_error {
             ClientError::ConnectionDropped => ContextError::ConnectionDropped(String::new()),
+            ClientError::ClosingStage => ContextError::ConnectionDropped("Close being executed".to_string()),
             ClientError::Deserialization(_) => ContextError::PayloadError(
                 UNMARSHAL_ERROR,
                 "Node or Daemon sent corrupted packet".to_string(),
@@ -134,6 +135,7 @@ impl CommandContextReal {
 
 #[cfg(test)]
 mod tests {
+    use tokio_tungstenite::tungstenite::Message;
     use super::*;
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
@@ -155,6 +157,7 @@ mod tests {
         running_test();
         let result: Vec<ContextError> = vec![
             ClientError::FallbackFailed("fallback reason".to_string()),
+            ClientError::ClosingStage,
             ClientError::ConnectionDropped,
             ClientError::NoServer(1234, "blah".to_string()),
             ClientError::Timeout(1234),
@@ -171,6 +174,7 @@ mod tests {
             result,
             vec![
                 ContextError::ConnectionDropped("fallback reason".to_string()),
+                ContextError::ConnectionDropped("Close being executed".to_string()),
                 ContextError::ConnectionDropped("".to_string()),
                 ContextError::ConnectionDropped(
                     "No server listening on port 1234 where it's supposed to be".to_string()
@@ -268,16 +272,17 @@ mod tests {
     async fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port).queue_string("disconnect");
+        let server = MockWebSocketsServer::new(port).queue_owned_message(Message::Close(None));
         let server_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
         let request = UiSetupRequest { values: vec![] };
         let mut subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
+        server_handle.await_conn_established(None).await;
 
         let response = subject
-            .transact(UiSetupRequest { values: vec![] }.clone().tmb(2), 1000)
+            .transact(request.clone().tmb(1), 1000)
             .await;
 
         match response {
@@ -286,7 +291,7 @@ mod tests {
         }
         let mut recorded = server_handle.retrieve_recorded_requests(Some(1)).await;
         let msg = recorded.remove(0);
-        assert_eq!(msg.expect_masq_msg(), request.tmb(2));
+        assert_eq!(msg.expect_masq_msg(), request.tmb(1));
     }
 
     #[tokio::test]

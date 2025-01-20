@@ -226,7 +226,7 @@ mod tests {
     use tokio::task::JoinError;
     use tokio::time::Instant;
     use tokio_tungstenite::tungstenite::protocol::Role;
-    use tokio_tungstenite::{accept_async, accept_async_with_config};
+    use tokio_tungstenite::{accept_async, accept_async_with_config, tungstenite};
     use workflow_websocket::client::{Ack, Message as ClientMessage};
     use workflow_websocket::server::{Message as ServerMessage, WebSocketConfig};
 
@@ -263,30 +263,31 @@ mod tests {
     #[tokio::test]
     async fn processes_incoming_close_correctly() {
         let port = find_free_port();
-        let server_join_handle = tokio::task::spawn(async move {
-            let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
-                .await
-                .unwrap();
-            let (tcp, _) = listener.accept().await.unwrap();
-            let mut config = WebSocketConfig::default();
-            config.accept_unmasked_frames = true;
-            let (mut write, read) = accept_async_with_config(tcp, Some(config))
-                .await
-                .unwrap()
-                .split();
-            //  todo!("THIS test passes even if exchanged the Close(None) message with some garbage!");
-            write
-                .send(tokio_tungstenite::tungstenite::Message::Ping(b"123".into()))
-                .await
-                .expect("sending failed");
-            write.flush().await.expect("flushing failed");
-        });
+        let server_handle = MockWebSocketsServer::new(port).queue_owned_message(tungstenite::Message::Close(None)).start().await;
+        // let server_join_handle = tokio::task::spawn(async move {
+        //     let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
+        //         .await
+        //         .unwrap();
+        //     let (tcp, _) = listener.accept().await.unwrap();
+        //     let mut config = WebSocketConfig::default();
+        //     config.accept_unmasked_frames = true;
+        //     let (mut write, read) = accept_async_with_config(tcp, Some(config))
+        //         .await
+        //         .unwrap()
+        //         .split();
+        //      todo!("THIS test passes even if exchanged the Close(None) message with some garbage!");
+        //     write
+        //         .send(tokio_tungstenite::tungstenite::Message::Ping(b"123".into()))
+        //         .await
+        //         .expect("sending failed");
+        //     write.flush().await.expect("flushing failed");
+        // });
         let (websocket, listener_half, talker_half) = websocket_utils_without_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
+        let (close_signaler, close_detector) = ClosingStageDetector::make_for_test();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
-            .start(close_sig.dup_receiver(), message_body_tx)
+            .start(close_detector.dup_receiver(), message_body_tx)
             .await;
 
         let conn_closed_announcement = message_body_rx.recv().await.unwrap();
@@ -301,7 +302,8 @@ mod tests {
         };
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
-        server_join_handle.await.unwrap();
+        // Because not ordered from our side
+        assert_eq!(close_signaler.is_closing(), false)
     }
 
     #[tokio::test]

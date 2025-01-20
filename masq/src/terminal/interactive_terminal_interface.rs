@@ -4,7 +4,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDup, WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
+    WTermInterface, WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
 use liso::Response;
@@ -94,7 +94,13 @@ pub struct InteractiveWTermInterface {
 
 impl WTermInterfaceDupAndSend for InteractiveWTermInterface {
     fn write_ref(&self) -> &dyn WTermInterface {
-        todo!()
+        self
+    }
+
+    fn dup(&self) -> Box<dyn WTermInterfaceDupAndSend> {
+        Box::new(InteractiveWTermInterface::new(
+            self.write_liso_arc.clone_output(),
+        ))
     }
 }
 
@@ -108,13 +114,13 @@ impl WTermInterface for InteractiveWTermInterface {
     }
 }
 
-impl WTermInterfaceDup for InteractiveWTermInterface {
-    fn dup(&self) -> Box<dyn WTermInterfaceDup> {
-        Box::new(InteractiveWTermInterface::new(
-            self.write_liso_arc.clone_output(),
-        ))
-    }
-}
+// impl WTermInterfaceDup for InteractiveWTermInterface {
+//     fn dup(&self) -> Box<dyn WTermInterfaceDup> {
+//         Box::new(InteractiveWTermInterface::new(
+//             self.write_liso_arc.clone_output(),
+//         ))
+//     }
+// }
 
 impl InteractiveWTermInterface {
     pub fn new(write_liso_box: Box<dyn LisoOutputWrapper>) -> Self {

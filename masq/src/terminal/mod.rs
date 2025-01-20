@@ -64,18 +64,15 @@ impl TerminalWriter {
     }
 }
 
-pub trait WTermInterfaceDupAndSend: WTermInterfaceDup + Send {
+pub trait WTermInterfaceDupAndSend: WTermInterface + Send {
     fn write_ref(&self) -> &dyn WTermInterface;
+    fn dup(&self) -> Box<dyn WTermInterfaceDupAndSend>;
 }
 
 pub trait WTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle);
     fn stderr(&self) -> (TerminalWriter, FlushHandle);
     arbitrary_id_stamp_in_trait!();
-}
-
-pub trait WTermInterfaceDup: WTermInterface {
-    fn dup(&self) -> Box<dyn WTermInterfaceDup>;
 }
 
 #[async_trait(?Send)]
@@ -96,22 +93,20 @@ pub trait FlushHandleInner: Send + Sync {
     fn stream_type(&self) -> WriteStreamType;
 
     async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
-        let output = self
-            .buffered_strings()
+        let entire_output = self
+            .buffered_distinct_strings()
             .await
             .into_iter()
             .collect::<String>();
-        self.write_internal(output).await
+        self.write_internal(entire_output).await
     }
 
-    async fn buffered_strings(&mut self) -> Vec<String> {
+    async fn buffered_distinct_strings(&mut self) -> Vec<String> {
         let mut vec = vec![];
         loop {
             match self.output_chunks_receiver_ref_mut().try_recv() {
                 Ok(output_fragment) => vec.push(output_fragment),
-                // TODO maybe you want to write something like: "incompletely flushed: {:?}", e....
-                // mainly because some err is okay some bad ...
-                Err(e) => break todo!(),
+                Err(_) => break
             }
         }
         vec

@@ -4,7 +4,7 @@ use crate::terminal::async_streams::AsyncStdStreamsFactory;
 use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
-    FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WTermInterfaceDup, WriteResult,
+    FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult,
     WriteStreamType,
 };
 use async_trait::async_trait;
@@ -32,13 +32,13 @@ impl WTermInterface for NonInteractiveWTermInterface {
     }
 }
 
-impl WTermInterfaceDup for NonInteractiveWTermInterface {
-    fn dup(&self) -> Box<dyn WTermInterfaceDup> {
-        Box::new(NonInteractiveWTermInterface::new(
-            self.stream_factory.clone(),
-        ))
-    }
-}
+// impl WTermInterfaceDup for NonInteractiveWTermInterface {
+//     fn dup(&self) -> Box<dyn WTermInterfaceDup> {
+//         Box::new(NonInteractiveWTermInterface::new(
+//             self.stream_factory.clone(),
+//         ))
+//     }
+// }
 
 impl NonInteractiveWTermInterface {
     pub fn new(stream_factory: Arc<dyn AsyncStdStreamsFactory>) -> Self {
@@ -119,7 +119,6 @@ mod tests {
         test_writing_streams_of_particular_terminal, NonInteractiveStreamsAssertionHandles,
         WritingTestInput, WritingTestInputByTermInterfaces,
     };
-    use crate::terminal::WTermInterfaceDup;
     use crate::terminal::{WTermInterface, WriteResult};
     use crate::test_utils::mocks::{
         make_async_std_streams, make_async_std_streams_with_further_setup,
@@ -155,7 +154,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writing_works_for_non_interactive_terminal_interface_as_well_as_its_duplicate() {
+    async fn writing_works_for_non_interactive_terminal_interface() {
         let (first_instance_std_streams, first_instance_handles) = make_async_std_streams(vec![]);
         let (second_instance_std_streams, second_instance_handles) = make_async_std_streams(vec![]);
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
@@ -163,8 +162,6 @@ mod tests {
             .make_result(second_instance_std_streams);
 
         let subject = NonInteractiveWTermInterface::new(Arc::new(std_streams_factory));
-
-        let duplicate = subject.dup();
 
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::NonInteractive(WritingTestInput {
@@ -177,17 +174,6 @@ mod tests {
             "subject",
         )
         .await;
-        test_writing_streams_of_particular_terminal(
-            WritingTestInputByTermInterfaces::NonInteractive(WritingTestInput {
-                term_interface: duplicate.as_ref(),
-                streams_assertion_handles: NonInteractiveStreamsAssertionHandles {
-                    stdout: second_instance_handles.stdout.left().unwrap(),
-                    stderr: second_instance_handles.stderr.left().unwrap(),
-                },
-            }),
-            "duplicate",
-        )
-        .await
     }
 
     #[tokio::test]

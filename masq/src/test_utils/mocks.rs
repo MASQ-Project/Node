@@ -23,7 +23,7 @@ use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDup, WTermInterfaceDupAndSend, WriteStreamType,
+    WTermInterface, WTermInterfaceDupAndSend, WriteStreamType,
 };
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
@@ -886,14 +886,12 @@ impl WTermInterface for TermInterfaceMock {
     arbitrary_id_stamp_in_trait_impl!();
 }
 
-impl WTermInterfaceDup for TermInterfaceMock {
-    fn dup(&self) -> Box<dyn WTermInterfaceDup> {
-        todo!()
-    }
-}
-
 impl WTermInterfaceDupAndSend for TermInterfaceMock {
     fn write_ref(&self) -> &dyn WTermInterface {
+        todo!()
+    }
+
+    fn dup(&self) -> Box<dyn WTermInterfaceDupAndSend> {
         todo!()
     }
 }

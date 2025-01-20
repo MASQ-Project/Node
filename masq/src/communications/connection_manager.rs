@@ -1744,7 +1744,7 @@ mod tests {
         let result = conversation1
             .transact(UiShutdownRequest {}.tmb(0), 1000)
             .await;
-        assert_eq!(result, Err(ClientError::ConnectionDropped));
+        assert_eq!(result, Err(ClientError::ClosingStage));
         let result = conversation2
             .send(
                 UiUnmarshalError {
@@ -1754,7 +1754,7 @@ mod tests {
                 .tmb(0),
             )
             .await;
-        assert_eq!(result, Err(ClientError::ConnectionDropped));
+        assert_eq!(result, Err(ClientError::ClosingStage));
         server_handle.await_conn_disconnected(None).await;
         subject.central_even_loop_join_handle.await.unwrap();
     }
