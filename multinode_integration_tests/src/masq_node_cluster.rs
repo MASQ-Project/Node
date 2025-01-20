@@ -13,6 +13,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
+use std::io::{Error, ErrorKind};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
 
 pub struct MASQNodeCluster {
@@ -44,6 +45,42 @@ impl MASQNodeCluster {
             next_index: 1,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         })
+    }
+
+    pub fn start_router_container(countries: &mut HashMap<&str, CountryNetworkPack>) -> Result<(), Error> { // HashMap<String, String>
+        let mut command = Command::new(
+            "docker",
+            Command::strings(vec!["run", "-d", "--name", "router", "--cap-add=NET_ADMIN", "--net=integration_net", "alpine", "sleep", "infinity"]),
+        );
+        command.wait_for_exit();
+        for (country, _) in countries.iter_mut() {
+            let country_name = *country;
+            Command::new(
+                "docker",
+                Command::strings(vec!["network", "connect", country_name, "router"])
+            ).wait_for_exit();
+        }
+        for (country, pack) in countries {
+            let country_name = *country;
+            let network_adapter = format!("{{{{.NetworkSettings.Networks.{}.IPAddress}}}}", country_name);
+            let mut command = Command::new(
+                "docker",
+                Command::strings(vec!["inspect", "-f", network_adapter.as_str(), "router"])
+            );
+            match command.wait_for_exit() == 0 {
+                true => {
+                    let return_string = command.stdout_as_string();
+                    if return_string.starts_with("<no value>") {
+                        return Err(Error::new(ErrorKind::NotConnected, format!("router is not connected in {} network", country_name)))
+                    } else {
+                        pack.networks.insert(country_name.to_string(), return_string);
+                    }
+                },
+                false => return Err(Error::new(ErrorKind::Interrupted, "Command to inspect router container failed"))
+
+            }
+        }
+        Ok(())
     }
 
     pub fn start_world(countries: HashMap<&str, CountryNetworkPack>) -> Result<MASQNodeCluster, String> {
@@ -359,22 +396,22 @@ impl MASQNodeCluster {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn interconnect_world_network(network_one: &str, container: &str) -> Result<(), String> {
-        let mut command = Command::new(
-            "docker",
-            Command::strings(vec!["network", "connect", network_one, container]),
-        );
-        match command.wait_for_exit() {
-            0 => Ok(()),
-            _ => Err(format!(
-                "Could not connect network {} to conatiner {}: {}",
-                network_one,
-                container,
-                command.stderr_as_string()
-            )),
-        }
-    }
+    // #[allow(dead_code)]
+    // pub fn interconnect_world_network(network_one: &str, container: &str) -> Result<(), String> {
+    //     let mut command = Command::new(
+    //         "docker",
+    //         Command::strings(vec!["network", "connect", network_one, container]),
+    //     );
+    //     match command.wait_for_exit() {
+    //         0 => Ok(()),
+    //         _ => Err(format!(
+    //             "Could not connect network {} to conatiner {}: {}",
+    //             network_one,
+    //             container,
+    //             command.stderr_as_string()
+    //         )),
+    //     }
+    // }
 
     #[allow(dead_code)]
     fn create_country_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {

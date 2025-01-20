@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::env::current_dir;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use crate::masq_node::MASQNode;
@@ -61,6 +63,9 @@ pub struct CountryNetworkPack {
     pub name: String,
     pub subnet: Ipv4Addr,
     pub dns_target: Ipv4Addr,
+    pub connect: String,
+    pub subnet_connect: Ipv4Addr,
+    pub networks: HashMap<String, String>,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -829,7 +834,10 @@ impl MASQRealNode {
         let standard_network_pack = CountryNetworkPack {
             name: "integration_net".to_string(),
             subnet: Ipv4Addr::new(127,0,0,0),
-            dns_target: Ipv4Addr::new(127,0,0,1)
+            dns_target: Ipv4Addr::new(127,0,0,1),
+            connect: "".to_string(),
+            subnet_connect: Ipv4Addr::new(127,0,0,0),
+            networks: HashMap::new(),
         };
         let (ip_addr, network) = match startup_config.world_network.clone() {
             Some((country, ip)) => (IpAddr::V4(ip), country),
@@ -852,7 +860,7 @@ impl MASQRealNode {
             None => MASQNodeUtils::find_project_root(),
         };
 
-        docker_run_fn(&root_dir, ip_addr, name, network).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, name, network.clone()).expect("docker run");
 
         let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
         let ui_port_pair = format!("{}:{}", ui_port, ui_port);
@@ -866,6 +874,7 @@ impl MASQRealNode {
             ],
         )
         .expect("port_exposer wouldn't run");
+
         match &real_startup_config.firewall_opt {
             None => (),
             Some(firewall) => {
@@ -917,6 +926,21 @@ impl MASQRealNode {
         });
         let mut result = Self { guts };
         result.restart_node(restart_startup_config);
+        for (_key, _net) in network.networks {
+            // if key == network.name {
+            //     let subnet = format!("{}/16", network.subnet_connect);
+            //     let mut command = Command::new(
+            //         "docker",
+            //         Command::strings(vec!["exec", name, "ip", "route", "add", subnet.as_str(), "via", net.as_str()])
+            //     );
+            //     match command.wait_for_exit() == 0 {
+            //         true => {
+            //             println!("route add result: {}", command.stdout_as_string());
+            //         },
+            //         false => panic!("failed {}", command.stderr_as_string())
+            //     }
+            // }
+        }
         let node_reference = Self::extract_node_reference(name).expect("extracting node reference");
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
@@ -1024,7 +1048,14 @@ impl MASQRealNode {
         let node_binary_v_param = format!("{}:/node_root/node", node_command_dir);
         let home_v_param = format!("{}:{}", host_node_home_dir, DATA_DIRECTORY);
         let network_dns_target = network.dns_target.to_string();
+        let entry_point = match network.name.as_str() {
+            "czechia" => "/var/script/routes_cz.sh",
+            "france" => "/var/script/routes_fr.sh",
+            _ => "",
+        };
         let network_name = network.name;
+        let current_dir = current_dir();
+        let volume = format!("{}:/var/script", current_dir.unwrap().join("docker").join("routes").to_str().unwrap());
 
         let mut args = vec![
             "run",
@@ -1038,6 +1069,8 @@ impl MASQRealNode {
             "--net",
             network_name.as_str(),
             "-v",
+            volume.as_str(),
+            "-v",
             node_binary_v_param.as_str(),
             "-v",
             home_v_param.as_str(),
@@ -1046,6 +1079,10 @@ impl MASQRealNode {
             "--cap-add=NET_ADMIN",
         ];
 
+        if !entry_point.is_empty() {
+            args.push("--entrypoint");
+            args.push(entry_point);
+        }
         args.push("test_node_image");
         let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()?;
