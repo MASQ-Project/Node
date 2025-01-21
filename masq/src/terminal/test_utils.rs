@@ -103,7 +103,7 @@ async fn assert_proper_writing<'test>(
     tested_case: &'test str,
 ) {
     writer.write("Word.").await;
-    writer.writeln("This seems like a sentence.").await;
+    writer.writeln("This is a sentence.").await;
     let stream_output_first_check = test_output_handle.get_string();
     let life_checker = flush_handle.life_checking_reference();
     let references_at_start = Arc::strong_count(&flush_handle.life_checking_reference());
@@ -118,10 +118,9 @@ async fn assert_proper_writing<'test>(
         tested_case
     );
     let mut stream_output_after_check = test_output_handle.drain_flushed_strings();
-    eprintln!("{:?}", stream_output_after_check);
     assert_eq!(
         stream_output_after_check.next_flush().unwrap().output(),
-        "Word.This seems like a sentence.\n",
+        "Word.This is a sentence.\n",
         "In {}: expected output doesn't match",
         tested_case
     );

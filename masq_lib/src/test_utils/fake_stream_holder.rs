@@ -195,7 +195,7 @@ impl Read for ByteArrayReader {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct FlushableByteOutput {
     byte_array: Vec<u8>,
     already_flushed_opt: Option<SystemTime>,
@@ -361,7 +361,13 @@ impl AsyncByteArrayWriter {
 
 impl StringAssertionMethods for AsyncByteArrayWriter {
     fn get_string(&self) -> String {
-        String::from_utf8(self.get_bytes()).unwrap()
+        match self.inner_arc.lock().unwrap().captured_writes.as_ref() {
+            Either::Left(bytes) => String::from_utf8(bytes.clone()).unwrap(),
+            Either::Right(flushes) => {
+                let drained = drain_flushes((*flushes).clone());
+                drained.iter().map(|flushed|&flushed.string).join("")
+            }
+        }
     }
     fn drain_flushed_strings(&self) -> FlushedStrings {
         let mut arc = self.inner_arc.lock().unwrap();

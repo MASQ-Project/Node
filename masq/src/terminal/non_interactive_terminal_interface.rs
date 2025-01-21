@@ -32,14 +32,6 @@ impl WTermInterface for NonInteractiveWTermInterface {
     }
 }
 
-// impl WTermInterfaceDup for NonInteractiveWTermInterface {
-//     fn dup(&self) -> Box<dyn WTermInterfaceDup> {
-//         Box::new(NonInteractiveWTermInterface::new(
-//             self.stream_factory.clone(),
-//         ))
-//     }
-// }
-
 impl NonInteractiveWTermInterface {
     pub fn new(stream_factory: Arc<dyn AsyncStdStreamsFactory>) -> Self {
         let streams = stream_factory.make();
