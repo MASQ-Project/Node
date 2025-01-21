@@ -85,9 +85,9 @@ impl Command for SetExitLocationCommand {
             fallback_routing: self.fallback_routing,
             show_countries: self.show_countries,
         };
-
         let _: UiSetExitLocationResponse =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
+        //TODO rename _ to output and implement NodeToUiMessage handler
         Ok(())
     }
 

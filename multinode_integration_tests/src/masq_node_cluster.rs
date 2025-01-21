@@ -5,7 +5,7 @@ use crate::masq_mock_node::{
     MutableMASQMockNodeStarter,
 };
 use crate::masq_node::{MASQNode, MASQNodeUtils};
-use crate::masq_real_node::{CountryNetworkPack, MASQRealNode};
+use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
@@ -13,7 +13,6 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::io::{Error, ErrorKind};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
 
 pub struct MASQNodeCluster {
@@ -37,63 +36,6 @@ impl MASQNodeCluster {
         if Self::is_in_jenkins() {
             MASQNodeCluster::interconnect_network()?;
         }
-        Ok(MASQNodeCluster {
-            startup_configs: HashMap::new(),
-            real_nodes: HashMap::new(),
-            mock_nodes: HashMap::new(),
-            host_node_parent_dir,
-            next_index: 1,
-            chain: TEST_DEFAULT_MULTINODE_CHAIN,
-        })
-    }
-
-    pub fn start_router_container(countries: &mut HashMap<&str, CountryNetworkPack>) -> Result<(), Error> { // HashMap<String, String>
-        let mut command = Command::new(
-            "docker",
-            Command::strings(vec!["run", "-d", "--name", "router", "--cap-add=NET_ADMIN", "--net=integration_net", "alpine", "sleep", "infinity"]),
-        );
-        command.wait_for_exit();
-        for (country, _) in countries.iter_mut() {
-            let country_name = *country;
-            Command::new(
-                "docker",
-                Command::strings(vec!["network", "connect", country_name, "router"])
-            ).wait_for_exit();
-        }
-        for (country, pack) in countries {
-            let country_name = *country;
-            let network_adapter = format!("{{{{.NetworkSettings.Networks.{}.IPAddress}}}}", country_name);
-            let mut command = Command::new(
-                "docker",
-                Command::strings(vec!["inspect", "-f", network_adapter.as_str(), "router"])
-            );
-            match command.wait_for_exit() == 0 {
-                true => {
-                    let return_string = command.stdout_as_string();
-                    if return_string.starts_with("<no value>") {
-                        return Err(Error::new(ErrorKind::NotConnected, format!("router is not connected in {} network", country_name)))
-                    } else {
-                        pack.networks.insert(country_name.to_string(), return_string);
-                    }
-                },
-                false => return Err(Error::new(ErrorKind::Interrupted, "Command to inspect router container failed"))
-
-            }
-        }
-        Ok(())
-    }
-
-    pub fn start_world(countries: HashMap<&str, CountryNetworkPack>) -> Result<MASQNodeCluster, String> {
-        MASQNodeCluster::docker_version()?;
-        MASQNodeCluster::cleanup()?;
-        MASQNodeCluster::create_network()?;
-        for (name, country) in countries {
-            MASQNodeCluster::create_country_network(country.subnet, name)?;
-        }
-        let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
-            Ok(ref hnpd) if !hnpd.is_empty() => Some(hnpd.clone()),
-            _ => None,
-        };
         Ok(MASQNodeCluster {
             startup_configs: HashMap::new(),
             real_nodes: HashMap::new(),
@@ -391,48 +333,6 @@ impl MASQNodeCluster {
             0 => Ok(()),
             _ => Err(format!(
                 "Could not connect subjenkins to integration_net: {}",
-                command.stderr_as_string()
-            )),
-        }
-    }
-
-    // #[allow(dead_code)]
-    // pub fn interconnect_world_network(network_one: &str, container: &str) -> Result<(), String> {
-    //     let mut command = Command::new(
-    //         "docker",
-    //         Command::strings(vec!["network", "connect", network_one, container]),
-    //     );
-    //     match command.wait_for_exit() {
-    //         0 => Ok(()),
-    //         _ => Err(format!(
-    //             "Could not connect network {} to conatiner {}: {}",
-    //             network_one,
-    //             container,
-    //             command.stderr_as_string()
-    //         )),
-    //     }
-    // }
-
-    #[allow(dead_code)]
-    fn create_country_network(ipv4addr: Ipv4Addr, name: &str) -> Result<(), String> {
-        let mut command = Command::new(
-            "docker",
-            Command::strings(vec!["network", "rm", name]),
-        );
-        command.wait_for_exit();
-        let mut command = Command::new(
-            "docker",
-            Command::strings(vec![
-                "network",
-                "create",
-                format!("--subnet={}/16", ipv4addr).as_str(),
-                name,
-            ]),
-        );
-        match command.wait_for_exit() {
-            0 => Ok(()),
-            _ => Err(format!(
-                "Could not create network integration_net: {}",
                 command.stderr_as_string()
             )),
         }
