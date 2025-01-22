@@ -66,6 +66,7 @@ use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, Result as ClientResult,
     WebSocket, WebSocketConfig,
 };
+use crate::run_modes::CLIProgramEntering;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -339,15 +340,24 @@ impl CommandExecutionHelperMock {
 }
 
 #[derive(Default)]
-pub struct InitialArgsParserMock;
+pub struct InitialArgsParserMock{
+    parse_initialization_args_results: RefCell<Vec<CLIProgramEntering>>
+}
 
 impl InitialArgsParser for InitialArgsParserMock {
     fn parse_initialization_args(
         &self,
         _args: &[String],
-        std_streams: &AsyncStdStreams,
-    ) -> InitializationArgs {
-        InitializationArgs::new(DEFAULT_UI_PORT)
+        _std_streams: &AsyncStdStreams,
+    ) -> CLIProgramEntering {
+        CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT))
+    }
+}
+
+impl InitialArgsParserMock {
+    pub fn parse_initialization_args_result(self, result: CLIProgramEntering)->Self{
+        self.parse_initialization_args_results.borrow_mut().push(result);
+        self
     }
 }
 

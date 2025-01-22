@@ -4,26 +4,14 @@ use crate::schema::app;
 use crate::terminal::async_streams::AsyncStdStreams;
 use clap::error::ErrorKind;
 use masq_lib::shared_schema::InsecurePort;
-
-// pub trait NonInteractiveClapFactory: Send {
-//     fn make(&self) -> Box<dyn InitialArgsParser>;
-// }
-
-// #[derive(Default)]
-// pub struct NonInteractiveClapFactoryReal {}
-//
-// impl NonInteractiveClapFactory for NonInteractiveClapFactoryReal {
-//     fn make(&self) -> Box<dyn InitialArgsParser> {
-//         Box::new(InitialClapParserReal::default())
-//     }
-// }
+use crate::run_modes::CLIProgramEntering;
 
 pub trait InitialArgsParser {
     fn parse_initialization_args(
         &self,
         args: &[String],
         std_streams: &AsyncStdStreams,
-    ) -> InitializationArgs;
+    ) -> CLIProgramEntering;
 }
 
 #[derive(Default)]
@@ -34,7 +22,7 @@ impl InitialArgsParser for InitialArgsParserReal {
         &self,
         args: &[String],
         std_streams: &AsyncStdStreams,
-    ) -> InitializationArgs {
+    ) -> CLIProgramEntering {
         let matches = match app().try_get_matches_from(args) {
             Ok(m) => m,
             Err(e) if e.kind() == ErrorKind::DisplayHelp => {
@@ -49,10 +37,12 @@ impl InitialArgsParser for InitialArgsParserReal {
             .get_one::<InsecurePort>("ui-port")
             .expect("ui-port is not properly defaulted")
             .port;
-        InitializationArgs::new(ui_port)
+
+        CLIProgramEntering::Enter(InitializationArgs::new(ui_port))
     }
 }
 
+#[derive(Debug)]
 pub struct InitializationArgs {
     pub ui_port: u16,
 }
@@ -81,7 +71,11 @@ mod tests {
             &streams,
         );
 
-        assert_eq!(result.ui_port, DEFAULT_UI_PORT);
+        let init_args = match result {
+            CLIProgramEntering::Enter(init_args) => init_args,
+            x => panic!("we expected Enter with init args but got {:?}", x)
+        };
+        assert_eq!(init_args.ui_port, DEFAULT_UI_PORT);
         handles.assert_empty_stderr();
         handles.assert_empty_stdout();
     }
@@ -98,7 +92,11 @@ mod tests {
             &streams,
         );
 
-        assert_eq!(result.ui_port, 10000);
+        let init_args = match result {
+            CLIProgramEntering::Enter(init_args) => init_args,
+            x => panic!("we expected Enter with init args but got {:?}", x)
+        };
+        assert_eq!(init_args.ui_port, 10000);
         handles.assert_empty_stderr();
         handles.assert_empty_stdout();
     }

@@ -9,7 +9,6 @@ use crate::run_modes_factories::{
 };
 use actix::System;
 use clap::Error;
-use futures::future::Future;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -210,7 +209,7 @@ impl RunModes {
     }
 }
 
-enum ProgramEntering {
+pub enum ProgramEntering {
     Enter(Mode),
     Leave(i32),
 }
