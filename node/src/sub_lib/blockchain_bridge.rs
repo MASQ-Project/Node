@@ -88,7 +88,7 @@ mod tests {
     use crate::blockchain::test_utils::make_blockchain_interface_web3;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
-    use actix::Actor;
+    use actix::{Actor, System};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
 
@@ -111,10 +111,13 @@ mod tests {
             Arc::new(Mutex::new(persistent_config)),
             false,
         );
+        let system = System::new("blockchain_bridge_subs_factory_produces_proper_subs");
         let addr = accountant.start();
 
         let subs = subject.make(&addr);
 
+        System::current().stop();
+        system.run();
         assert_eq!(subs, BlockchainBridge::make_subs_from(&addr))
     }
 }
