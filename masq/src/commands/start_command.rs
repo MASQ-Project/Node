@@ -60,12 +60,12 @@ impl StartCommand {
 mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use std::string::ToString;
     use std::sync::{Arc, Mutex};
-    use crate::terminal::test_utils::allow_writtings_to_finish;
 
     #[test]
     fn constants_have_correct_values() {

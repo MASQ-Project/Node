@@ -4,8 +4,7 @@ use crate::terminal::async_streams::AsyncStdStreamsFactory;
 use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
-    FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult,
-    WriteStreamType,
+    FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};

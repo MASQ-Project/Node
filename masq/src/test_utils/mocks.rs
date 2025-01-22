@@ -18,6 +18,7 @@ use crate::communications::connection_manager::{
     BroadcastReceiver, CMBootstrapper, ClosingStageDetector, RedirectOrder,
 };
 use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
+use crate::run_modes::CLIProgramEntering;
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
@@ -66,7 +67,6 @@ use workflow_websocket::client::{
     Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, Result as ClientResult,
     WebSocket, WebSocketConfig,
 };
-use crate::run_modes::CLIProgramEntering;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -193,7 +193,10 @@ pub struct CommandProcessorMock {
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorMock {
-    async fn process_command_line(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
+    async fn process_command_line(
+        &mut self,
+        initial_subcommand_opt: Option<&[String]>,
+    ) -> Result<(), ()> {
         todo!()
         // self.process_params.lock().unwrap().push(command);
         // self.process_results.borrow_mut().remove(0)
@@ -340,8 +343,8 @@ impl CommandExecutionHelperMock {
 }
 
 #[derive(Default)]
-pub struct InitialArgsParserMock{
-    parse_initialization_args_results: RefCell<Vec<CLIProgramEntering>>
+pub struct InitialArgsParserMock {
+    parse_initialization_args_results: RefCell<Vec<CLIProgramEntering>>,
 }
 
 impl InitialArgsParser for InitialArgsParserMock {
@@ -355,8 +358,10 @@ impl InitialArgsParser for InitialArgsParserMock {
 }
 
 impl InitialArgsParserMock {
-    pub fn parse_initialization_args_result(self, result: CLIProgramEntering)->Self{
-        self.parse_initialization_args_results.borrow_mut().push(result);
+    pub fn parse_initialization_args_result(self, result: CLIProgramEntering) -> Self {
+        self.parse_initialization_args_results
+            .borrow_mut()
+            .push(result);
         self
     }
 }
@@ -1139,9 +1144,9 @@ impl AsyncTestStreamHandles {
         handle: &Either<AsyncByteArrayWriter, Arc<Mutex<Vec<String>>>>,
     ) -> Vec<String> {
         match handle {
-            Either::Left(async_byte_array) => async_byte_array
-                .drain_flushed_strings()
-                .as_simple_strings(),
+            Either::Left(async_byte_array) => {
+                async_byte_array.drain_flushed_strings().as_simple_strings()
+            }
             Either::Right(naked_string_containers) => {
                 naked_string_containers.lock().unwrap().drain(..).collect()
             }

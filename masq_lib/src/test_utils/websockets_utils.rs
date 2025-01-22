@@ -46,7 +46,9 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
         .map_err(|e| format!("Connecting to the websocket server failed: {}", e))
 }
 
-pub async fn websocket_utils_with_masq_handshake(port: u16) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
+pub async fn websocket_utils_with_masq_handshake(
+    port: u16,
+) -> (WebSocket, Sender<(Message, Ack)>, Receiver<Message>) {
     let ws = establish_ws_conn_with_handshake(port).await;
     arrange_utils(ws)
 }

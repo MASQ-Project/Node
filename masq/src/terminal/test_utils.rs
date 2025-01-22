@@ -75,7 +75,9 @@ pub async fn test_writing_streams_of_particular_terminal<'test>(
                 InteractiveInterfaceByUse::RWPrimeInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
-                InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => (term_interface.stdout(), term_interface.stderr()),
+                InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => {
+                    (term_interface.stdout(), term_interface.stderr())
+                }
                 InteractiveInterfaceByUse::WOnlyBackgroundInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
@@ -232,12 +234,12 @@ impl StringAssertionMethods for LisoFlushedAssertableStrings {
             .join("")
     }
     fn drain_flushed_strings(&self) -> FlushedStrings {
-            self.flushes
-                .lock()
-                .unwrap()
-                .drain(..)
-                .collect::<Vec<FlushedString>>()
-                .into()
+        self.flushes
+            .lock()
+            .unwrap()
+            .drain(..)
+            .collect::<Vec<FlushedString>>()
+            .into()
     }
 }
 

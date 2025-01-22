@@ -62,7 +62,9 @@ impl RWTermInterface for InteractiveRWTermInterface {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
             }),
             // They declared the enum as non-exhaustive. As to my knowledge, this is untestable
-            _ => Ok(ReadInput::Ignored {msg_opt: Some(UNIMPLEMENTED_INSTRUCTION.to_string())}),
+            _ => Ok(ReadInput::Ignored {
+                msg_opt: Some(UNIMPLEMENTED_INSTRUCTION.to_string()),
+            }),
         }
     }
 
@@ -178,7 +180,10 @@ impl FlushHandleInner for InteractiveFlushHandleInner {
 
 #[cfg(test)]
 mod tests {
-    use crate::terminal::interactive_terminal_interface::{InteractiveRWTermInterface, InteractiveWTermInterface, UNIMPLEMENTED_INSTRUCTION, UNINTERPRETABLE_COMMAND};
+    use crate::terminal::interactive_terminal_interface::{
+        InteractiveRWTermInterface, InteractiveWTermInterface, UNIMPLEMENTED_INSTRUCTION,
+        UNINTERPRETABLE_COMMAND,
+    };
     use crate::terminal::test_utils::{
         test_writing_streams_of_particular_terminal, InteractiveInterfaceByUse,
         LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,

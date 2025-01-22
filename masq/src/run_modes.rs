@@ -56,7 +56,8 @@ impl Main {
         let mut incidental_streams = std_streams_factory.make();
         let initialization_args = match self
             .initial_args_parser
-            .parse_initialization_args(args, &incidental_streams){
+            .parse_initialization_args(args, &incidental_streams)
+        {
             CLIProgramEntering::Enter(init_args) => init_args,
             CLIProgramEntering::Leave(exit_code) => todo!(),
         };
@@ -87,7 +88,9 @@ impl Main {
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         initial_subcommand_opt: Option<&[String]>,
     ) -> Result<(), ()> {
-        let mut command_processor = self.initialize_processor(ui_port, incidental_streams, term_interface).await?;
+        let mut command_processor = self
+            .initialize_processor(ui_port, incidental_streams, term_interface)
+            .await?;
 
         let result = command_processor
             .process_command_line(initial_subcommand_opt.as_deref())
@@ -103,7 +106,7 @@ impl Main {
         ui_port: u16,
         incidental_streams: &mut AsyncStdStreams,
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
-    ) -> Result<Box<dyn CommandProcessor>, ()>{
+    ) -> Result<Box<dyn CommandProcessor>, ()> {
         let command_context_factory = self.command_context_factory.as_ref();
         let execution_helper_factory = self.command_execution_helper_factory.as_ref();
         let command_factory = self
@@ -157,7 +160,7 @@ impl Main {
 #[derive(Debug)]
 pub enum CLIProgramEntering {
     Enter(InitializationArgs),
-    Leave(i32)
+    Leave(i32),
 }
 
 #[cfg(test)]
@@ -171,22 +174,20 @@ mod tests {
     use crate::commands::setup_command::SetupCommand;
     use crate::masq_short_writeln;
     use crate::run_modes::tests::StreamType::{Stderr, Stdout};
-    use crate::terminal::{
-        ReadError, ReadInput, WTermInterfaceDupAndSend,
-    };
+    use crate::terminal::{ReadError, ReadInput, WTermInterfaceDupAndSend};
     use crate::test_utils::mocks::{
-        make_async_std_streams, AsyncStdStreamsFactoryMock,
-        AsyncTestStreamHandles, CommandContextFactoryMock, CommandContextMock,
-        CommandExecutionHelperFactoryMock, CommandExecutionHelperMock, CommandFactoryMock,
-        InitialArgsParserMock, MockCommand, TermInterfaceMock, TerminalInterfaceFactoryMock,
+        make_async_std_streams, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles,
+        CommandContextFactoryMock, CommandContextMock, CommandExecutionHelperFactoryMock,
+        CommandExecutionHelperMock, CommandFactoryMock, InitialArgsParserMock, MockCommand,
+        TermInterfaceMock, TerminalInterfaceFactoryMock,
     };
+    use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest};
+    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::utils::find_free_port;
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
-    use masq_lib::constants::DEFAULT_UI_PORT;
-    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use masq_lib::utils::find_free_port;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -202,7 +203,10 @@ mod tests {
         let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -269,13 +273,15 @@ mod tests {
             BareStreamsFromStreamFactoryAssertionMatrix::assert_streams_not_used(
                 &processor_aspiring_std_stream_handles,
             ),
-            ProcessorTerminalInterfaceAssertionMatrix::assert_terminal_not_used(&term_interface_stream_handles),
+            ProcessorTerminalInterfaceAssertionMatrix::assert_terminal_not_used(
+                &term_interface_stream_handles,
+            ),
             BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_created(
                 broadcast_handle_term_interface_opt.as_ref(),
             ),
         )
-            .assert()
-            .await;
+        .assert()
+        .await;
         let c_make_params = make_command_params_arc.lock().unwrap();
         assert_eq!(
             *c_make_params,
@@ -319,7 +325,7 @@ mod tests {
                         stdout: vec!["MockCommand output"],
                         stderr: vec!["MockCommand error"],
                     }
-                        .into(),
+                    .into(),
                     read_attempts_opt: None,
                 },
             },
@@ -327,8 +333,8 @@ mod tests {
                 broadcast_handle_term_interface_opt.as_ref(),
             ),
         )
-            .assert()
-            .await;
+        .assert()
+        .await;
         let close_params = close_params_arc.lock().unwrap();
         assert_eq!(*close_params, vec![()]);
     }
@@ -338,9 +344,12 @@ mod tests {
         let make_std_streams_params_arc = Arc::new(Mutex::new(vec![]));
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
-        let make_command_params_arc = Arc::new(Mutex::new(vec![]));;
+        let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -356,7 +365,9 @@ mod tests {
             .make_result(Either::Left(Box::new(w_term_interface)));
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
-            .make_result(Err(UnrecognizedSubcommand{from_cml: "booga".to_string()}));
+            .make_result(Err(UnrecognizedSubcommand {
+                from_cml: "booga".to_string(),
+            }));
         let processor = CommandContextMock::default().close_params(&close_params_arc);
         let command_context_factory = CommandContextFactoryMock::default()
             .make_params(&make_command_context_params_arc)
@@ -420,7 +431,10 @@ mod tests {
     async fn go_works_when_command_execution_fails() {
         let make_command_context_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
         let command_factory =
             CommandFactoryMock::default().make_result(Ok(Box::new(command.clone())));
@@ -497,7 +511,10 @@ mod tests {
     #[tokio::test]
     async fn go_works_when_daemon_is_not_running() {
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -562,7 +579,10 @@ mod tests {
         let c_make_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let command_execution_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -721,7 +741,10 @@ mod tests {
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -817,7 +840,10 @@ mod tests {
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                DEFAULT_UI_PORT,
+            )));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -894,7 +920,10 @@ mod tests {
         let node_ui_port = find_free_port();
         let node = MockWebSocketsServer::new(node_ui_port);
         let server_handle = node.start().await;
-        let initial_args_parser_mock = InitialArgsParserMock::default().parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(node_ui_port)));
+        let initial_args_parser_mock = InitialArgsParserMock::default()
+            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+                node_ui_port,
+            )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -951,7 +980,7 @@ mod tests {
                         ],
                         stderr: vec![],
                     }
-                        .into(),
+                    .into(),
                     read_attempts_opt: Some(3),
                 },
             },
@@ -960,8 +989,8 @@ mod tests {
                 &background_term_interface_stream_handles,
             ),
         )
-            .assert()
-            .await;
+        .assert()
+        .await;
     }
 
     struct StdStreamsAssertionMatrix<'test> {
@@ -969,7 +998,8 @@ mod tests {
         processor_std_streams: BareStreamsFromStreamFactoryAssertionMatrix<'test>,
         processor_term_interface: ProcessorTerminalInterfaceAssertionMatrix<'test>,
         // None means we can't reach the needed structures to perform the assertion
-        broadcast_handler_term_interface_opt: Option<BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>>,
+        broadcast_handler_term_interface_opt:
+            Option<BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>>,
     }
 
     #[derive(Debug)]
@@ -1094,9 +1124,9 @@ mod tests {
         expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
     }
 
-    enum BroadcastHandlerTerminalInterfaceAssertionMatrixConstructor{
+    enum BroadcastHandlerTerminalInterfaceAssertionMatrixConstructor {
         AssertTerminalNotCreated,
-        Assert
+        Assert,
     }
 
     impl<'test> BroadcastHandlerTerminalInterfaceAssertionMatrix<'test> {
@@ -1140,13 +1170,16 @@ mod tests {
             processor_term_interface_assertion_matrix: ProcessorTerminalInterfaceAssertionMatrix<
                 'test,
             >,
-            broadcast_handler_term_interface_assertion_matrix_opt: Option<BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>>,
+            broadcast_handler_term_interface_assertion_matrix_opt: Option<
+                BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>,
+            >,
         ) -> Self {
             Self {
                 incidental_std_streams: incidental_std_streams_assertion_matrix,
                 processor_std_streams: processor_aspiring_std_streams_assertions_matrix,
                 processor_term_interface: processor_term_interface_assertion_matrix,
-                broadcast_handler_term_interface_opt: broadcast_handler_term_interface_assertion_matrix_opt,
+                broadcast_handler_term_interface_opt:
+                    broadcast_handler_term_interface_assertion_matrix_opt,
             }
         }
 

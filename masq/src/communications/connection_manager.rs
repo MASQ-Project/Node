@@ -131,9 +131,7 @@ impl CMBootstrapper {
         .await
         {
             Ok(ch) => ch,
-            Err(e) => {
-                return Err(ServicesDeploymentError::ClientListener(e))
-            }
+            Err(e) => return Err(ServicesDeploymentError::ClientListener(e)),
         };
 
         let standard_broadcast_handler = self
@@ -752,7 +750,8 @@ mod tests {
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
     use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake, WSHandshakeHandlerFactoryMock,
+        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake,
+        WSHandshakeHandlerFactoryMock,
     };
     use masq_lib::utils::{find_free_port, localhost, running_test};
     use masq_lib::websockets_handshake::MASQClientWSHandshakeHandler;

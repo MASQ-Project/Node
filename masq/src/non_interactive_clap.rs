@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::run_modes::CLIProgramEntering;
 use crate::schema::app;
 use crate::terminal::async_streams::AsyncStdStreams;
 use clap::error::ErrorKind;
 use masq_lib::shared_schema::InsecurePort;
-use crate::run_modes::CLIProgramEntering;
 
 pub trait InitialArgsParser {
     fn parse_initialization_args(
@@ -73,7 +73,7 @@ mod tests {
 
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
-            x => panic!("we expected Enter with init args but got {:?}", x)
+            x => panic!("we expected Enter with init args but got {:?}", x),
         };
         assert_eq!(init_args.ui_port, DEFAULT_UI_PORT);
         handles.assert_empty_stderr();
@@ -94,7 +94,7 @@ mod tests {
 
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
-            x => panic!("we expected Enter with init args but got {:?}", x)
+            x => panic!("we expected Enter with init args but got {:?}", x),
         };
         assert_eq!(init_args.ui_port, 10000);
         handles.assert_empty_stderr();

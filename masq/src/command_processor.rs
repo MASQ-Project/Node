@@ -73,7 +73,10 @@ impl CommandProcessorFactory {
 
 #[async_trait(?Send)]
 pub trait CommandProcessor: ProcessorProvidingCommonComponents {
-    async fn process_command_line(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()>;
+    async fn process_command_line(
+        &mut self,
+        initial_subcommand_opt: Option<&[String]>,
+    ) -> Result<(), ()>;
 
     async fn handle_command_common(&mut self, command_parts: &[String]) -> Result<(), ()> {
         let components = self.components();
@@ -144,9 +147,11 @@ pub struct CommandProcessorNonInteractive {
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorNonInteractive {
-    async fn process_command_line(&mut self, initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
-        let command_args =
-            initial_subcommand_opt.expect("Missing args in non-interactive mode");
+    async fn process_command_line(
+        &mut self,
+        initial_subcommand_opt: Option<&[String]>,
+    ) -> Result<(), ()> {
+        let command_args = initial_subcommand_opt.expect("Missing args in non-interactive mode");
         self.handle_command_common(command_args).await
     }
 
@@ -204,7 +209,10 @@ impl CommandProcessorInteractive {
 
 #[async_trait(?Send)]
 impl CommandProcessor for CommandProcessorInteractive {
-    async fn process_command_line(&mut self, _initial_subcommand_opt: Option<&[String]>) -> Result<(), ()> {
+    async fn process_command_line(
+        &mut self,
+        _initial_subcommand_opt: Option<&[String]>,
+    ) -> Result<(), ()> {
         loop {
             let args = match self.terminal_interface.read_line().await {
                 Ok(read_input) => match read_input {
@@ -213,9 +221,10 @@ impl CommandProcessor for CommandProcessorInteractive {
                     ReadInput::Ignored { .. } => todo!(),
                 },
                 Err(e) => {
-                    let (stderr, _stderr_flush_handle) = self.terminal_interface.write_only_ref().stderr();
+                    let (stderr, _stderr_flush_handle) =
+                        self.terminal_interface.write_only_ref().stderr();
                     masq_short_writeln!(stderr, "Terminal read error: {}", e);
-                    break Err(())
+                    break Err(());
                 }
             };
 

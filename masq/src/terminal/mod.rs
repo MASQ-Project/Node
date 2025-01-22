@@ -32,7 +32,7 @@ pub enum ReadError {
 impl Display for ReadError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReadError::TerminalOutputInputDisconnected => write!(f, "IO disconnected")
+            ReadError::TerminalOutputInputDisconnected => write!(f, "IO disconnected"),
         }
     }
 }
@@ -113,7 +113,7 @@ pub trait FlushHandleInner: Send + Sync {
         loop {
             match self.output_chunks_receiver_ref_mut().try_recv() {
                 Ok(output_fragment) => vec.push(output_fragment),
-                Err(_) => break
+                Err(_) => break,
             }
         }
         vec
@@ -264,7 +264,10 @@ mod tests {
     }
 
     #[test]
-    fn read_error_implements_display(){
-        assert_eq!(ReadError::TerminalOutputInputDisconnected.to_string(), "IO disconnected")
+    fn read_error_implements_display() {
+        assert_eq!(
+            ReadError::TerminalOutputInputDisconnected.to_string(),
+            "IO disconnected"
+        )
     }
 }

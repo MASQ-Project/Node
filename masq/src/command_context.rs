@@ -31,7 +31,9 @@ impl From<ClientError> for ContextError {
     fn from(client_error: ClientError) -> Self {
         match client_error {
             ClientError::ConnectionDropped => ContextError::ConnectionDropped(String::new()),
-            ClientError::ClosingStage => ContextError::ConnectionDropped("Close being executed".to_string()),
+            ClientError::ClosingStage => {
+                ContextError::ConnectionDropped("Close being executed".to_string())
+            }
             ClientError::Deserialization(_) => ContextError::PayloadError(
                 UNMARSHAL_ERROR,
                 "Node or Daemon sent corrupted packet".to_string(),
@@ -135,7 +137,6 @@ impl CommandContextReal {
 
 #[cfg(test)]
 mod tests {
-    use tokio_tungstenite::tungstenite::Message;
     use super::*;
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
@@ -151,6 +152,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
+    use tokio_tungstenite::tungstenite::Message;
 
     #[test]
     fn error_conversion_happy_path() {
@@ -220,9 +222,11 @@ mod tests {
         let server = MockWebSocketsServer::new(port).queue_response(expected_response.clone());
         let server_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, bootstrapper).await.unwrap();
+        let mut subject = CommandContextReal::new(port, None, bootstrapper)
+            .await
+            .unwrap();
 
-        let result = subject.transact(request.clone(),1000).await;
+        let result = subject.transact(request.clone(), 1000).await;
 
         assert_eq!(result, Ok(expected_response));
         let mut recorded = server_handle.retrieve_recorded_requests(Some(1)).await;
@@ -281,9 +285,7 @@ mod tests {
             .unwrap();
         server_handle.await_conn_established(None).await;
 
-        let response = subject
-            .transact(request.clone().tmb(1), 1000)
-            .await;
+        let response = subject.transact(request.clone().tmb(1), 1000).await;
 
         match response {
             Err(ConnectionDropped(_)) => (),
@@ -300,7 +302,9 @@ mod tests {
         let port = find_free_port();
         let server_handle = MockWebSocketsServer::new(port).start().await;
         let bootstrapper = CMBootstrapper::default();
-        let subject = CommandContextReal::new(port, None, bootstrapper).await.unwrap();
+        let subject = CommandContextReal::new(port, None, bootstrapper)
+            .await
+            .unwrap();
         let msg = UiCrashRequest {
             actor: "Dispatcher".to_string(),
             panic_message: "Message".to_string(),
