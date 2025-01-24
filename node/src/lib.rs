@@ -40,6 +40,7 @@ pub mod run_modes;
 pub mod run_modes_factories;
 pub mod server_initializer;
 pub mod stream_handler_pool;
+pub mod stream_handler_pool_new;
 mod stream_messages;
 mod stream_reader;
 mod stream_writer_sorted;

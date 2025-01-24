@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![allow(proc_macro_derive_resolution_fallback)]
-
+/*
 use crate::proxy_client::resolver_wrapper::{
     ResolverWrapper, ResolverWrapperFactory, ResolverWrapperFactoryReal,
 };
@@ -2454,3 +2454,4 @@ mod tests {
     //     assert_eq!(proxy_client_recording.len(), 0);
     // }
 }
+*/

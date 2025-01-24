@@ -5,13 +5,12 @@ mod local_test_utils;
 mod resolver_wrapper;
 mod stream_establisher;
 mod stream_handler_pool;
-pub mod stream_handler_pool_new;
 mod stream_reader;
 mod stream_writer;
 
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactoryReal;
-use crate::proxy_client::stream_handler_pool_new::StreamHandlerPool;
+use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactoryReal;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;

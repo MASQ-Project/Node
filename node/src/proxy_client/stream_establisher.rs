@@ -83,7 +83,7 @@ impl StreamEstablisher {
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) {
-        let stream_reader = StreamReader::new(
+        let mut stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
             read_stream,
@@ -91,7 +91,7 @@ impl StreamEstablisher {
             peer_addr,
         );
         debug!(self.logger, "Spawning StreamReader for {}", peer_addr);
-        tokio::spawn(stream_reader);
+        tokio::spawn(stream_reader.go());
     }
 }
 

@@ -34,7 +34,7 @@ impl ConfiguredByPrivilege for DnsSocketServer {
         Ok(())
     }
 
-    fn initialize_as_unprivileged(
+    async fn initialize_as_unprivileged(
         &mut self,
         _multi_config: &MultiConfig,
         _streams: &mut StdStreams<'_>,
@@ -202,13 +202,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn uses_standard_dns_port() {
+    #[tokio::test]
+    async fn uses_standard_dns_port() {
         let socket_wrapper = make_socket_wrapper_mock();
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
             .initialize_as_privileged(&make_simplified_multi_config([]))
+            .await
             .unwrap();
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
@@ -217,8 +218,8 @@ mod tests {
         assert_eq!(log[0], "bind ('127.0.0.1:53')")
     }
 
-    #[test]
-    fn serves_multiple_requests_then_short_circuits_on_error() {
+    #[tokio::test]
+    async fn serves_multiple_requests_then_short_circuits_on_error() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let (log, mut buf) = {
@@ -250,10 +251,10 @@ mod tests {
                     &make_simplified_multi_config([]),
                     &mut holder.streams(),
                 )
+                .await
                 .unwrap();
-            let future = subject.make_server_future();
 
-            make_rt().block_on(future).unwrap();
+            let _ = subject.make_server_future().await.unwrap();
 
             let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
             let borrowed_guts = unwrapped_guts.borrow();
@@ -285,8 +286,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn server_handles_error_receiving_from_udp_socket_wrapper() {
+    #[tokio::test]
+    async fn server_handles_error_receiving_from_udp_socket_wrapper() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
@@ -298,10 +299,10 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
+            .await
             .unwrap();
-        let future = subject.make_server_future();
 
-        let result = make_rt().block_on(future);
+        let result = subject.make_server_future().await;
 
         assert!(result.is_err());
         TestLogHandler::new().await_log_containing(
@@ -327,6 +328,7 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
+            .await
             .unwrap();
 
         let result = subject.make_server_future().await;

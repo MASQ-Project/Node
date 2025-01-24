@@ -45,7 +45,7 @@ impl StreamReader {
     }
 
     const BUF_LEN: usize = 16384;
-    async fn go(&mut self) -> io::Result<()> {
+    pub async fn go(mut self) -> io::Result<()> {
         let mut buf: [u8; Self::BUF_LEN] = [0; Self::BUF_LEN];
         loop {
             let prev_buf_len = Self::BUF_LEN;
