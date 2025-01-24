@@ -16,10 +16,7 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
-    UiSetExitLocationRequest, UiSetExitLocationResponse,
-};
+use masq_lib::messages::{ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
@@ -29,7 +26,7 @@ use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::string::ToString;
-
+use serde_json::json;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -55,7 +52,7 @@ use crate::sub_lib::neighborhood::{ConfigChangeMsg, RouteQueryMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::{ExitLocation, UpdateNodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{ExitLocationSet, RouteQueryResponse};
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
@@ -76,9 +73,11 @@ use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::EXIT_COUNTRY_ERROR;
+//use masq_lib::constants::EXIT_COUNTRY_ERROR;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::MessagePath::Conversation;
+//use masq_lib::ui_gateway::MessagePath::Conversation;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
@@ -1714,7 +1713,9 @@ impl Neighborhood {
             ExitPreference::ExitCountryWithFallback => "Fallback Routing is set.",
             ExitPreference::ExitCountryNoFallback => "Fallback Routing NOT set.",
         };
-        self.set_exit_locations_opt(&exit_locations_by_priority);
+        if !message.show_countries {
+            self.set_exit_locations_opt(&exit_locations_by_priority);
+        }
         match self.neighborhood_database.keys().len() > 1 {
             true => {
                 self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
@@ -1758,49 +1759,43 @@ impl Neighborhood {
         &self,
         client_id: u64,
         context_id: u64,
-        missing_locations: Vec<String>,
-        show_countries: bool,
+        missing_countries: Vec<String>,
+        show_countries_flag: bool,
     ) -> NodeToUiMessage {
-        let errmessage = match show_countries {
-            true => match &missing_locations.is_empty() {
-                true => {
-                    format!(
-                        "Exit Countries: {:?}",
-                        self.user_exit_preferences.db_countries
-                    )
-                }
-                false => {
-                    format!(
-                                "Exit Countries: {:?}\nExit Location: following desired countries are missing in Neighborhood {:?}",
-                                self.user_exit_preferences.db_countries,
-                                missing_locations
-                            )
-                }
-            },
-            false => match &missing_locations.is_empty() {
-                true => "".to_string(),
-                false => {
-                    format!(
-                                "Exit Location: following desired countries are missing in Neighborhood {:?}",
-                                missing_locations
-                            )
-                }
-            },
+        let fallback_routing = match &self.user_exit_preferences.location_preference {
+            ExitPreference::Nothing => true,
+            ExitPreference::ExitCountryWithFallback => true,
+            ExitPreference::ExitCountryNoFallback => false,
         };
-        match &errmessage.is_empty() {
-            false => NodeToUiMessage {
+        let exit_locations = self.user_exit_preferences.locations_opt.clone().unwrap_or(vec![]);
+        let show_countries = self.user_exit_preferences.db_countries.clone();
+        if missing_countries.is_empty() {
+            NodeToUiMessage {
+                target: MessageTarget::ClientId(client_id),
+                body: UiSetExitLocationResponse {
+                    fallback_routing,
+                    exit_locations,
+                    show_countries_flag,
+                    show_countries,
+                    missing_countries,
+                }.tmb(context_id)
+            }
+        } else {
+            NodeToUiMessage {
                 target: MessageTarget::ClientId(client_id),
                 body: MessageBody {
-                    opcode: "exit_location".to_string(),
+                    opcode: "exitLocation".to_string(),
                     path: Conversation(context_id),
-                    payload: Err((EXIT_COUNTRY_ERROR, errmessage)),
+                    payload: Err((EXIT_COUNTRY_ERROR, json!(
+                        {
+                            "exit_locations": exit_locations,
+                            "missing_countries": missing_countries,
+                        }
+                    ).to_string())),
                 },
-            },
-            true => NodeToUiMessage {
-                target: MessageTarget::ClientId(client_id),
-                body: UiSetExitLocationResponse {}.tmb(context_id),
-            },
+            }
         }
+
     }
 
     fn set_exit_locations_opt(&mut self, exit_locations_by_priority: &[ExitLocation]) {
@@ -2182,7 +2177,6 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::ui_gateway::MessageTarget::ClientId;
 
     impl NeighborhoodDatabase {
         pub fn set_root_key(&mut self, key: &PublicKey) {
@@ -3755,7 +3749,7 @@ mod tests {
                 country_codes: vec!["CZ".to_string(), "SK".to_string(), "IN".to_string()],
                 priority: 1,
             }],
-            show_countries: true,
+            show_countries: false,
         };
         let message = NodeFromUiMessage {
             client_id: 0,
@@ -3914,7 +3908,7 @@ mod tests {
             exit_handler_response,
             Err((
                 9223372036854775816,
-                "Exit Countries: [\"AT\", \"DE\", \"PL\", \"US\"]\nExit Location: following desired countries are missing in Neighborhood [\"CZ\", \"SK\", \"IN\"]".to_string(),
+                "{\"exit_locations\":[{\"country_codes\":[\"CZ\",\"SK\",\"IN\"],\"priority\":1}],\"missing_countries\":[\"CZ\",\"SK\",\"IN\"]}".to_string(),
             ))
         );
         log_handler.assert_logs_contain_in_order(vec![
@@ -4125,24 +4119,35 @@ mod tests {
         let record_two: &NodeToUiMessage = ui_gateway_recording.get_record(1);
 
         assert_eq!(ui_gateway_recording.len(), 2);
+        //vec![ExitLocation { country_codes: vec!["CZ".to_string()], priority: 1 }, ExitLocation { country_codes: vec!["FR".to_string()], priority: 2 }]
+        //missing_countries: vec!["CZ".to_string()],
+        //&NodeToUiMessage {
+        //                 target: MessageTarget::ClientId(8765),
+        //                 body: UiSetExitLocationResponse {
+        //                     fallback_routing: false,
+        //                     exit_locations: ,
+        //                     show_countries_flag: false,
+        //
+        //                 }.tmb(1234),
+        //             }
         assert_eq!(
-            record_one,
-            &NodeToUiMessage {
-                target: ClientId(8765),
-                body: MessageBody {
-                    opcode: "exit_location".to_string(),
-                    path: Conversation(1234),
-                    payload: Err(
-                        (9223372036854775816, "Exit Location: following desired countries are missing in Neighborhood [\"CZ\"]".to_string())
-                    )
-                }
-            }
+            record_one.body.payload,
+            Err((9223372036854775816,
+                 "{\"exit_locations\":[{\"country_codes\":[\"CZ\"],\"priority\":1},{\"country_codes\":[\"FR\"],\"priority\":2}],\"missing_countries\":[\"CZ\"]}".to_string()
+            ))
         );
+
         assert_eq!(
             record_two,
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(6543),
-                body: UiSetExitLocationResponse {}.tmb(7894),
+                body: UiSetExitLocationResponse {
+                    fallback_routing: true,
+                    exit_locations: vec![],
+                    show_countries_flag: false,
+                    show_countries: vec!["FR".to_string()],
+                    missing_countries: vec![],
+                }.tmb(7894),
             }
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![

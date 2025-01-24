@@ -3,9 +3,10 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::as_any_ref_in_trait_impl;
+use masq_lib::{short_writeln};
 use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::shared_schema::common_validators;
+use crate::commands::commands_common::CommandError::Payload;
 
 const EXIT_LOCATION_ABOUT: &str =
     "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
@@ -85,13 +86,39 @@ impl Command for SetExitLocationCommand {
             fallback_routing: self.fallback_routing,
             show_countries: self.show_countries,
         };
-        let _: UiSetExitLocationResponse =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
-        //TODO rename _ to output and implement NodeToUiMessage handler
+        let output: Result<UiSetExitLocationResponse, CommandError> =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+        match output {
+            Ok(exit_location_reponse) => {
+                match exit_location_reponse.show_countries_flag {
+                    true => short_writeln!(
+                        context.stdout(),
+                        "Countries available for exit-location: {:?}",
+                        exit_location_reponse.show_countries
+                    ),
+                    false => {},
+                }
+                match !exit_location_reponse.exit_locations.is_empty() {
+                    true => short_writeln!(
+                        context.stdout(),
+                        "Exit location set: {:?}",
+                        exit_location_reponse.exit_locations
+                    ),
+                    false => {},
+                }
+
+            }
+            Err(Payload(code, message)) => {
+                println!("code: {}\nmessage: {}", code, message);
+            }
+            Err(err) => {
+                println!("Error: {}", err);
+            }
+        }
         Ok(())
     }
 
-    as_any_ref_in_trait_impl!();
+    // as_any_ref_in_trait_impl!();
 }
 
 pub fn set_exit_location_subcommand() -> App<'static, 'static> {
@@ -128,17 +155,37 @@ pub mod tests {
     use crate::commands::commands_common::{Command, STANDARD_COMMAND_TIMEOUT_MILLIS};
     use crate::commands::exit_location_command::SetExitLocationCommand;
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::messages::{
-        CountryCodes, ToMessageBody, UiSetExitLocationRequest, UiSetExitLocationResponse,
-    };
+    use masq_lib::messages::{CountryCodes, ToMessageBody, UiSetExitLocationRequest, UiSetExitLocationResponse};
     use std::sync::{Arc, Mutex};
+    use masq_lib::constants::EXIT_COUNTRY_ERROR;
+    use crate::command_context::ContextError;
+    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+
+    #[test]
+    fn testing_command_factory_here() {
+        let factory = CommandFactoryReal::new();
+        let mut context = CommandContextMock::new().transact_result(Err(
+            ContextError::PayloadError(EXIT_COUNTRY_ERROR, "irrelevant".to_string()),
+        ));
+        let subject = factory.make(&["exit-location".to_string()]).unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+    }
 
     #[test]
     fn can_deserialize_ui_set_exit_location() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
+            .transact_result(Ok(UiSetExitLocationResponse {
+                fallback_routing: false,
+                exit_locations: vec![],
+                show_countries_flag: false,
+                show_countries: vec![],
+                missing_countries: vec![],
+            }.tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
@@ -184,7 +231,13 @@ pub mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
+            .transact_result(Ok(UiSetExitLocationResponse {
+                fallback_routing: false,
+                exit_locations: vec![],
+                show_countries_flag: false,
+                show_countries: vec![],
+                missing_countries: vec![],
+            }.tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
@@ -219,7 +272,13 @@ pub mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
+            .transact_result(Ok(UiSetExitLocationResponse {
+                fallback_routing: false,
+                exit_locations: vec![],
+                show_countries_flag: false,
+                show_countries: vec![],
+                missing_countries: vec![],
+            }.tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&["exit-location".to_string()]).unwrap();
 
@@ -246,7 +305,13 @@ pub mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiSetExitLocationResponse {}.tmb(0)));
+            .transact_result(Ok(UiSetExitLocationResponse {
+                fallback_routing: false,
+                exit_locations: vec![],
+                show_countries_flag: false,
+                show_countries: vec![],
+                missing_countries: vec![],
+            }.tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),

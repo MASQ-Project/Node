@@ -31,6 +31,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use masq_lib::messages::ExitLocation;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -379,24 +380,8 @@ pub enum Hops {
     SixHops = 6,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ExitLocation {
-    pub country_codes: Vec<String>,
-    pub priority: usize,
-}
-
 pub struct ExitLocationSet {
     pub locations: Vec<ExitLocation>,
-}
-
-impl Display for ExitLocation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Country Codes: {:?}, Priority: {};",
-            self.country_codes, self.priority
-        )
-    }
 }
 
 impl Display for ExitLocationSet {

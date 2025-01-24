@@ -5,6 +5,8 @@ use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::utils::to_string;
+use core::fmt::Display;
+use core::fmt::Formatter;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -876,12 +878,37 @@ pub struct UiSetExitLocationRequest {
     #[serde(rename = "showCountries")]
     pub show_countries: bool,
 }
-
 conversation_message!(UiSetExitLocationRequest, "exitLocation");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct UiSetExitLocationResponse {}
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct ExitLocation {
+    pub country_codes: Vec<String>,
+    pub priority: usize,
+}
 
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_codes, self.priority
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationResponse {
+    #[serde(rename = "fallbackRouting")]
+    pub fallback_routing: bool,
+    #[serde(rename = "exitLocations")]
+    pub exit_locations: Vec<ExitLocation>,
+    #[serde(rename = "showCountriesFlag")]
+    pub show_countries_flag: bool,
+    #[serde(rename = "showCountries")]
+    pub show_countries: Vec<String>,
+    #[serde(rename = "missingCountries")]
+    pub missing_countries: Vec<String>,
+}
 conversation_message!(UiSetExitLocationResponse, "exitLocation");
 
 #[cfg(test)]

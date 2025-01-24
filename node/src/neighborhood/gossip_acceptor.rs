@@ -1414,7 +1414,7 @@ mod tests {
     };
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{
-        ConnectionProgressEvent, ConnectionProgressMessage, ExitLocation,
+        ConnectionProgressEvent, ConnectionProgressMessage,
     };
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
@@ -1432,6 +1432,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use masq_lib::messages::ExitLocation;
 
     #[test]
     fn constants_have_correct_values() {
