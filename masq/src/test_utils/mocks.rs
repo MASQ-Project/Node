@@ -353,7 +353,9 @@ impl InitialArgsParser for InitialArgsParserMock {
         _args: &[String],
         _std_streams: &AsyncStdStreams,
     ) -> CLIProgramEntering {
-        CLIProgramEntering::Enter(InitializationArgs::new(DEFAULT_UI_PORT))
+        self.parse_initialization_args_results
+            .borrow_mut()
+            .remove(0)
     }
 }
 

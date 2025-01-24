@@ -6,6 +6,7 @@ use itertools::Either;
 use nix::libc::SCTP_PARTIAL_DELIVERY_POINT;
 use std::fmt::Debug;
 
+#[derive(Default)]
 pub struct StdStreamsAssertionMatrix<'test> {
     incidental_std_streams_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     processor_std_streams_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
@@ -19,24 +20,24 @@ pub struct StdStreamsAssertionMatrix<'test> {
 impl<'test> StdStreamsAssertionMatrix<'test> {
     pub fn incidental_std_streams(
         mut self,
-        assert: Assert<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
+        assert: Assert<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     ) -> Self {
-        self.incidental_std_streams_opt = Some(assert.into());
+        self.incidental_std_streams_opt = Some(IntoFulfillingRustRules::into(assert));
         self
     }
     pub fn processor_aspiring_std_streams(
         mut self,
-        assert: Assert<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
+        assert: Assert<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     ) -> Self {
-        self.processor_std_streams_opt = Some(assert.into());
+        self.processor_std_streams_opt = Some(IntoFulfillingRustRules::into(assert));
         self
     }
 
     pub fn processor_term_interface(
         mut self,
-        assert: Assert<ProcessorTerminalInterfaceAssertionMatrix<'test>>,
+        assert: Assert<'test, ProcessorTerminalInterfaceAssertionMatrix<'test>>,
     ) -> Self {
-        self.processor_term_interface_opt = Some(assert.into());
+        self.processor_term_interface_opt = Some(IntoFulfillingRustRules::into(assert));
         self
     }
 
@@ -55,14 +56,20 @@ trait AssertableAsNotUsed<'test> {
         Self: Sized;
 }
 
-enum Assert<'test, Matrix: AssertableAsNotUsed> {
+pub enum Assert<'test, Matrix: AssertableAsNotUsed<'test>> {
     Expected(Matrix),
     NotUsed(&'test AsyncTestStreamHandles),
 }
 
-impl<Matrix: AssertableAsNotUsed> From<Assert<Matrix>> for Matrix {
-    fn from(assert: Assert<Matrix>) -> Self {
-        match assert {
+trait IntoFulfillingRustRules<SomeType> {
+    fn into(self) -> SomeType;
+}
+
+impl<'test, Matrix: AssertableAsNotUsed<'test>> IntoFulfillingRustRules<Matrix>
+    for Assert<'test, Matrix>
+{
+    fn into(self) -> Matrix {
+        match self {
             Assert::Expected(fully_defined) => fully_defined,
             Assert::NotUsed(stream_handles) => {
                 Matrix::compose_assertion_matrix_for_not_used(stream_handles)
@@ -71,14 +78,14 @@ impl<Matrix: AssertableAsNotUsed> From<Assert<Matrix>> for Matrix {
     }
 }
 
-enum AssertBroadcastHandler<'test> {
+pub enum AssertBroadcastHandler<'test> {
     Expected(BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>),
     NotUsed {
         intercepted_broadcast_handler_term_interface_opt:
-            Option<&'test dyn WTermInterfaceDupAndSend>,
+            Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
         stream_handles: &'test AsyncTestStreamHandles,
     },
-    MissingAsItIsNonInteractiveMode(Option<&'test dyn WTermInterfaceDupAndSend>),
+    MissingAsItIsNonInteractiveMode(Option<&'test Box<dyn WTermInterfaceDupAndSend>>),
 }
 
 impl<'test> From<AssertBroadcastHandler<'test>>
@@ -109,7 +116,7 @@ pub struct BareStreamsFromStreamFactoryAssertionMatrix<'test> {
     // Reading should be forbidden in these streams
 }
 
-impl<'test> AssertableAsNotUsed for BareStreamsFromStreamFactoryAssertionMatrix<'test> {
+impl<'test> AssertableAsNotUsed<'test> for BareStreamsFromStreamFactoryAssertionMatrix<'test> {
     fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self
     where
         Self: Sized,
@@ -138,7 +145,7 @@ pub struct ProcessorTerminalInterfaceAssertionMatrix<'test> {
     pub standard_assertions: TerminalInterfaceAssertionMatrix<'test>,
 }
 
-impl<'test> AssertableAsNotUsed for ProcessorTerminalInterfaceAssertionMatrix<'test> {
+impl<'test> AssertableAsNotUsed<'test> for ProcessorTerminalInterfaceAssertionMatrix<'test> {
     fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self
     where
         Self: Sized,
@@ -348,7 +355,7 @@ async fn assert_broadcast_term_interface_outputs<'test>(
             let reads_opt = expected_usage.term_interface_stream_handles.reads_opt();
             assert_eq!(reads_opt, None)
         }
-        (None, None) => (),
+        (None, None)  => (),
         (actual_opt, expected_opt) => panic!("Interactive mode was expected: {}. But broadcast terminal interface was created and supplied: {}. (Non-interactive mode is not supposed to have one)", expected_opt.is_some(), actual_opt.is_some())
     }
 }
@@ -417,8 +424,8 @@ async fn assert_single_write_stream<ExpectedValue, Fn1, Fn2, AssertionValues>(
     AssertionValues: AssertionValuesWithTestableExpectedStreamOutputEmptiness,
 {
     let is_emptiness_expected = match std_stream {
-        Stdout => preliminarily_examinable_assertion.is_empty_stdout_output_expected(),
-        Stderr => preliminarily_examinable_assertion.is_empty_stderr_output_expected(),
+        StreamType::Stdout => preliminarily_examinable_assertion.is_empty_stdout_output_expected(),
+        StreamType::Stderr => preliminarily_examinable_assertion.is_empty_stderr_output_expected(),
     };
 
     match is_emptiness_expected {
@@ -468,7 +475,7 @@ fn assert_stream_reads(
             "Expected read attempts {} don't match the actual {}",
             expected, actual
         ),
-        (None, None) => (),
+        (None, None) | (Some(0), None) => (),
         (actual_opt, expected_opt) => panic!(
             "Expected {:?} doesn't match the actual {:?}",
             expected_opt, actual_opt

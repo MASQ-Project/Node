@@ -12,16 +12,6 @@ use masq_lib::constants::MASQ_PROMPT;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-// //most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
-// #[derive(Debug, PartialEq, Eq, Clone)]
-// pub enum TerminalEvent {
-//     CommandLine(Vec<String>),
-//     Error(Option<String>), //'None' when already processed by printing out
-//     Continue,              //as ignore
-//     Break,
-//     EoF,
-// }
-
 pub struct InteractiveRWTermInterface {
     read_liso: Box<dyn LisoInputWrapper>,
     write_terminal: Box<dyn WTermInterfaceDupAndSend>,
@@ -49,11 +39,15 @@ impl RWTermInterface for InteractiveRWTermInterface {
             Response::Input(line) => Ok(ReadInput::Line(line)),
             Response::Dead => Err(ReadError::TerminalOutputInputDisconnected),
             Response::Quit => Ok(ReadInput::Quit),
-            Response::Discarded(_unfinished) => Ok(ReadInput::Quit),
+            Response::Discarded(unfinished) => Ok(ReadInput::Ignored {
+                msg_opt: Some(format!("Discarded: {}", unfinished)),
+            }),
             Response::Finish => Ok(ReadInput::Ignored { msg_opt: None }),
             Response::Info => Ok(ReadInput::Ignored { msg_opt: None }),
-            Response::Break => Ok(ReadInput::Quit),
-            Response::Escape => Ok(ReadInput::Ignored { msg_opt: None }),
+            Response::Break => Ok(ReadInput::Ignored { msg_opt: None }),
+            Response::Escape => Ok(ReadInput::Ignored {
+                msg_opt: Some("Type \"exit\" or press Ctrl-C to quit".to_string()),
+            }),
             Response::Swap => Ok(ReadInput::Ignored { msg_opt: None }),
             Response::Custom(_) => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
@@ -323,12 +317,19 @@ mod tests {
             (Response::Quit, Ok(ReadInput::Quit)),
             (
                 Response::Discarded("Unfinished command".to_string()),
-                Ok(ReadInput::Quit),
+                Ok(ReadInput::Ignored {
+                    msg_opt: Some("Discarded: Unfinished command".to_string()),
+                }),
             ),
             (Response::Finish, Ok(ReadInput::Ignored { msg_opt: None })),
             (Response::Info, Ok(ReadInput::Ignored { msg_opt: None })),
-            (Response::Break, Ok(ReadInput::Quit)),
-            (Response::Escape, Ok(ReadInput::Ignored { msg_opt: None })),
+            (Response::Break, Ok(ReadInput::Ignored { msg_opt: None })),
+            (
+                Response::Escape,
+                Ok(ReadInput::Ignored {
+                    msg_opt: Some("Type \"exit\" or press Ctrl-C to quit".to_string()),
+                }),
+            ),
             (Response::Swap, Ok(ReadInput::Ignored { msg_opt: None })),
             (
                 Response::Custom(Box::new(Some(vec![std::io::Empty::default()]))),
