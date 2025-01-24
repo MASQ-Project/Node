@@ -20,7 +20,7 @@ pub struct DnsSocketServer {
     buf: [u8; 65536],
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl ConfiguredByPrivilege for DnsSocketServer {
     async fn initialize_as_privileged(
         &mut self,

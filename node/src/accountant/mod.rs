@@ -49,7 +49,7 @@ use crate::sub_lib::blockchain_bridge::{
     ConsumingWalletBalances, ReportAccountsPayable, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Actor, Supervised, System};
 use actix::Addr;
@@ -107,15 +107,11 @@ impl Actor for Accountant {
     type Context = Context<Self>;
 }
 
-/// TODO SPIKE
 impl Supervised for Accountant {
     fn restarting(&mut self, _ctx: &mut Self::Context) {
-        if panicking() {
-            System::current().stop()
-        }
+        supervisor_restarting();
     }
 }
-/// TODO SPIKE
 
 impl Drop for Accountant {
     fn drop(&mut self) {

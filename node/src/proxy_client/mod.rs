@@ -28,10 +28,10 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Actor, System};
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -69,6 +69,12 @@ pub struct ProxyClient {
 
 impl Actor for ProxyClient {
     type Context = Context<Self>;
+}
+
+impl Supervised for ProxyClient {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Drop for ProxyClient {

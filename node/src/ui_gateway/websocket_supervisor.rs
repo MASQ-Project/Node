@@ -26,7 +26,7 @@ use workflow_websocket::server::{
     WebSocketSink,
 };
 
-pub trait WebSocketSupervisor {
+pub trait WebSocketSupervisor: Send {
     fn send_msg(&self, msg: NodeToUiMessage);
 }
 

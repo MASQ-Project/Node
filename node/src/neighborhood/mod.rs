@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::thread::panicking;
-use actix::Context;
+use actix::{Context, Supervised};
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
@@ -63,9 +63,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::{
-    db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY,
-};
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use gossip_acceptor::GossipAcceptor;
@@ -112,11 +110,9 @@ impl Actor for Neighborhood {
     type Context = Context<Self>;
 }
 
-impl Drop for Neighborhood {
-    fn drop(&mut self) {
-        if panicking() {
-            System::current().stop_with_code(1);
-        }
+impl Supervised for Neighborhood {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
     }
 }
 

@@ -9,11 +9,11 @@ use crate::daemon::DaemonBindMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::{
     WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
-use actix::{Actor, System};
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -115,6 +115,12 @@ impl UiGateway {
 
 impl Actor for UiGateway {
     type Context = Context<Self>;
+}
+
+impl Supervised for UiGateway {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Drop for UiGateway {

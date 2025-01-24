@@ -20,9 +20,9 @@ use crate::sub_lib::blockchain_bridge::{
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Actor, System};
+use actix::{Actor, Supervised, System};
 use actix::Context;
 use actix::Handler;
 use actix::Message;
@@ -63,6 +63,12 @@ struct TransactionConfirmationTools {
 
 impl Actor for BlockchainBridge {
     type Context = Context<Self>;
+}
+
+impl Supervised for BlockchainBridge {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl<T: Transport> Drop for BlockchainBridge<T> {

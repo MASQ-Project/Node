@@ -73,8 +73,8 @@ pub trait DumpConfigRunner {
     declare_as_any!();
 }
 
-#[async_trait]
-pub trait ServerInitializer: Send {
+#[async_trait(?Send)]
+pub trait ServerInitializer {
     async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>>;
     declare_as_any!();
@@ -418,7 +418,7 @@ pub mod mocks {
         }
     }
 
-    #[async_trait]
+    #[async_trait(?Send)]
     impl ServerInitializer for ServerInitializerMock {
         async fn go(&mut self, _streams: &mut StdStreams, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());

@@ -31,7 +31,7 @@ pub struct ServerInitializerReal {
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl ServerInitializer for ServerInitializerReal {
     async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult {
         let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
@@ -420,7 +420,7 @@ pub mod tests {
     use async_trait::async_trait;
     use itertools::Itertools;
 
-    #[async_trait]
+    #[async_trait(?Send)]
     impl<C: Send> ConfiguredByPrivilege for CrashTestDummy<C> {
         async fn initialize_as_privileged(
             &mut self,
@@ -467,7 +467,7 @@ pub mod tests {
         };
     }
 
-    #[async_trait]
+    #[async_trait(?Send)]
     impl ConfiguredByPrivilege for ConfiguredByPrivilegeMock {
         async fn initialize_as_privileged(
             &mut self,

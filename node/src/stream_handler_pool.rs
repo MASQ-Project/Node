@@ -26,8 +26,8 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
-use actix::{Addr};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, MessageScheduler, NODE_MAILBOX_CAPACITY};
+use actix::{Addr, Supervised};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -119,6 +119,12 @@ pub struct StreamHandlerPool {
 
 impl Actor for StreamHandlerPool {
     type Context = Context<Self>;
+}
+
+impl Supervised for StreamHandlerPool {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Handler<AddStreamMsg> for StreamHandlerPool {

@@ -37,9 +37,9 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Addr, System};
+use actix::{Addr, Supervised, System};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -90,11 +90,9 @@ impl Actor for ProxyServer {
     type Context = Context<Self>;
 }
 
-impl Drop for ProxyServer {
-    fn drop(&mut self) {
-        if panicking() {
-            System::current().stop_with_code(1);
-        }
+impl Supervised for ProxyServer {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
     }
 }
 

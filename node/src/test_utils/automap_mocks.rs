@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 #[allow(clippy::type_complexity)]
 pub struct AutomapControlFactoryMock {
     make_params: Arc<Mutex<Vec<(Option<AutomapProtocol>, ChangeHandler)>>>,
-    make_results: RefCell<Vec<Box<dyn AutomapControl>>>,
+    make_results: Arc<Mutex<Vec<Box<dyn AutomapControl>>>>,
 }
 
 impl AutomapControlFactory for AutomapControlFactoryMock {
@@ -24,7 +24,7 @@ impl AutomapControlFactory for AutomapControlFactoryMock {
             .lock()
             .unwrap()
             .push((usual_protocol_opt, change_handler));
-        self.make_results.borrow_mut().remove(0)
+        self.make_results.lock().unwrap().remove(0)
     }
 }
 
@@ -38,7 +38,7 @@ impl AutomapControlFactoryMock {
     pub fn new() -> Self {
         Self {
             make_params: Arc::new(Mutex::new(vec![])),
-            make_results: RefCell::new(vec![]),
+            make_results: Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -52,7 +52,7 @@ impl AutomapControlFactoryMock {
     }
 
     pub fn make_result(self, result: Box<dyn AutomapControl>) -> Self {
-        self.make_results.borrow_mut().push(result);
+        self.make_results.lock().unwrap().push(result);
         self
     }
 }

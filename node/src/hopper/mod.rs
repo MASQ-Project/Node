@@ -12,8 +12,8 @@ use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{HopperConfig, NoLookupIncipientCoresPackage};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use actix::{Actor, System};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -40,11 +40,9 @@ impl Actor for Hopper {
     type Context = Context<Self>;
 }
 
-impl Drop for Hopper {
-    fn drop(&mut self) {
-        if panicking() {
-            System::current().stop_with_code(1);
-        }
+impl Supervised for Hopper {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
     }
 }
 

@@ -448,7 +448,7 @@ pub struct Bootstrapper {
     config: BootstrapperConfig,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl ConfiguredByPrivilege for Bootstrapper {
     async fn initialize_as_privileged(
         &mut self,

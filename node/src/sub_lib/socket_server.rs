@@ -4,8 +4,8 @@ use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 
-#[async_trait]
-pub trait ConfiguredByPrivilege: Send {
+#[async_trait(?Send)]
+pub trait ConfiguredByPrivilege {
     async fn initialize_as_privileged(
         &mut self,
         multi_config: &MultiConfig,
@@ -19,6 +19,6 @@ pub trait ConfiguredByPrivilege: Send {
 }
 
 #[async_trait]
-pub trait SpawnableConfiguredByPrivilege: ConfiguredByPrivilege {
+pub trait SpawnableConfiguredByPrivilege: ConfiguredByPrivilege + Send {
     async fn make_server_future(&mut self) -> std::io::Result<()>;
 }
