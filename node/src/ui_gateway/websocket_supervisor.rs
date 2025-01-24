@@ -626,7 +626,7 @@ mod tests {
 
     async fn wait_for_client(port: u16, protocol: &str) -> WebSocket {
         wait_for(100, 1000, || {
-            match make_client(port, protocol) {
+            match make_client(port, protocol).await {
                 Ok(client) => Some(client),
                 Err(e) => {
                     println!("Couldn't make client yet: {}", e);

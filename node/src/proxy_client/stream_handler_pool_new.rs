@@ -1188,7 +1188,7 @@ mod tests {
         let tlh = TestLogHandler {};
         tlh.exists_log_containing(&format!("{} DEBUG Exiting request: Stream key '{}', {}-byte packet {}{}, target {}:{}, protocol {:?}, from {} by {}",
             test_name, stream_key, data_len, sequence_number, if last_data {" (final)"} else {""},
-            if let Some(name) = target_hostname.ref() {name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
+            if let Some(name) = target_hostname.as_ref() {name} else {"<no host>"}, target_port, proxy_protocol, paying_wallet,
             originator_public_key));
         tlh.exists_log_containing(&format!(
             "{} DEBUG Stream key '{}' unknown; creating new stream",

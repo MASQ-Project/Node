@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[tokio::test]
-    fn poll_handles_error_sending_to_udp_socket_wrapper() {
+    async fn poll_handles_error_sending_to_udp_socket_wrapper() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
@@ -328,9 +328,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
             .unwrap();
-        let future = subject.make_server_future();
 
-        let result = make_rt().block_on(future);
+        let result = subject.make_server_future().await;
 
         assert!(result.is_err());
         TestLogHandler::new().await_log_containing(

@@ -11,7 +11,7 @@ mod stream_writer;
 
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactoryReal;
-use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
+use crate::proxy_client::stream_handler_pool_new::StreamHandlerPool;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
 use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactoryReal;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -45,8 +45,6 @@ use std::net::SocketAddr;
 use std::thread::panicking;
 use std::time::SystemTime;
 use tokio::runtime::Runtime;
-use masq_lib::test_utils::utils::make_rt;
-use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -355,7 +353,6 @@ mod tests {
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
-    use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
     use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::cryptde::CryptData;

@@ -66,11 +66,6 @@ impl TokioListenerWrapper for TokioListenerWrapperReal {
     async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
         self.delegate().accept().await
     }
-
-    fn poll_accept(&self, cx: &mut Context<'_>) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
-        todo!("See if we can get rid of this");
-        self.delegate().poll_accept(cx)
-    }
 }
 
 #[async_trait]
