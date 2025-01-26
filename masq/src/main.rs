@@ -4,12 +4,6 @@ use masq_cli_lib::run_modes::Main;
 use std::io;
 
 fn main() {
-    // let mut streams: StdStreams<'_> = StdStreams {
-    //     stdin: &mut io::stdin(),
-    //     stdout: &mut io::stdout(),
-    //     stderr: &mut io::stderr(),
-    // };
-
     let args: Vec<String> = std::env::args().collect();
 
     let rt = tokio::runtime::Builder::new_multi_thread()

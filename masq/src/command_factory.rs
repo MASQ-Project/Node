@@ -31,7 +31,7 @@ impl Display for CommandFactoryError {
         match self {
             CommandFactoryError::CommandSyntax(msg) => write!(f, "Command syntax error: {}", msg),
             CommandFactoryError::UnrecognizedSubcommand { from_cml } => {
-                write!(f, "Unrecognized command: '{}'", from_cml)
+                write!(f, "Unrecognized command: \"{}\"", from_cml)
             }
         }
     }
@@ -444,7 +444,7 @@ mod tests {
                 from_cml: "Can you spell it for me?".to_string()
             }
             .to_string(),
-            "Unrecognized command: Can you spell it for me?"
+            "Unrecognized command: \"Can you spell it for me?\""
         )
     }
 }

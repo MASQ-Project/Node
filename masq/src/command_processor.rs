@@ -8,7 +8,7 @@ use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::CMBootstrapper;
 use crate::masq_short_writeln;
 use crate::terminal::{
-    FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
+    FlushHandle, FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
 };
 use async_trait::async_trait;
 use itertools::Either;
@@ -106,9 +106,9 @@ pub trait CommandProcessor: ProcessorProvidingCommonComponents {
 
     fn write_only_term_interface(&self) -> &dyn WTermInterface;
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
+    fn stdout(&self) -> (TerminalWriter, FlushHandle);
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>);
+    fn stderr(&self) -> (TerminalWriter, FlushHandle);
 
     async fn close(&mut self);
 }
@@ -156,12 +156,12 @@ impl CommandProcessor for CommandProcessorNonInteractive {
         self.terminal_interface.as_ref()
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
-        todo!()
+    fn stdout(&self) -> (TerminalWriter, FlushHandle) {
+        self.terminal_interface.stdout()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
-        todo!()
+    fn stderr(&self) -> (TerminalWriter, FlushHandle) {
+        self.terminal_interface.stderr()
     }
 
     async fn close(&mut self) {
@@ -263,12 +263,12 @@ impl CommandProcessor for CommandProcessorInteractive {
         self.terminal_interface.write_only_ref()
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
-        todo!()
+    fn stdout(&self) -> (TerminalWriter, FlushHandle) {
+        self.write_only_term_interface().stdout()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
-        todo!()
+    fn stderr(&self) -> (TerminalWriter, FlushHandle) {
+        self.write_only_term_interface().stderr()
     }
 
     async fn close(&mut self) {
@@ -357,7 +357,8 @@ mod tests {
     use crate::command_factory::CommandFactoryReal;
     use crate::terminal::test_utils::allow_writtings_to_finish;
     use crate::test_utils::mocks::{
-        CommandContextMock, CommandExecutionHelperMock, TermInterfaceMock,
+        make_async_std_streams, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles,
+        CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock, TermInterfaceMock,
     };
     use async_trait::async_trait;
     use futures::FutureExt;
@@ -581,50 +582,51 @@ mod tests {
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(
             stream_handles.stderr_all_in_one(),
-            "Unrecognized command: 'bluh'\n"
+            "Unrecognized command: \"bluh\"\n"
         )
     }
 
-    // TODO delete this crap if you don't find any use
-    #[derive(Debug)]
-    struct TameCommand {
-        stdout_writer: UnboundedSender<String>,
+    fn make_command_processor_common() -> CommandProcessorCommon {
+        CommandProcessorCommon::new(
+            Box::new(CommandContextMock::default()),
+            Box::new(CommandFactoryMock::default()),
+            Box::new(CommandExecutionHelperMock::default()),
+        )
     }
 
-    impl<'a> TameCommand {
-        const MESSAGE_IN_PIECES: &'a [&'a str] = &[
-            "This is a message ",
-            "which must be delivered in one piece; ",
-            "we'll do all possible for that. ",
-            "If only we have enough strength and spirit ",
-            "and determination and support and... snacks. ",
-            "Roger.",
-        ];
+    #[tokio::test]
+    async fn write_streams_work_fine_for_non_interactive_terminal() {
+        let (interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let subject = CommandProcessorNonInteractive::new(
+            make_command_processor_common(),
+            Box::new(interface),
+        );
 
-        fn send_small_piece_of_message(&self, piece: &str) {
-            self.stdout_writer.send(piece.to_string()).unwrap();
-            thread::sleep(Duration::from_millis(1));
-        }
-
-        fn whole_message() -> String {
-            TameCommand::MESSAGE_IN_PIECES
-                .iter()
-                .map(|str| str.to_string())
-                .collect()
-        }
+        test_write_streams_work_fine_for_command_processor(&subject, stream_handles).await
     }
 
-    #[async_trait(?Send)]
-    impl Command for TameCommand {
-        async fn execute(
-            self: Box<Self>,
-            _context: &dyn CommandContext,
-            term_interface: &dyn WTermInterface,
-        ) -> Result<(), CommandError> {
-            Self::MESSAGE_IN_PIECES
-                .iter()
-                .for_each(|piece| self.send_small_piece_of_message(piece));
-            Ok(())
-        }
+    #[tokio::test]
+    async fn write_streams_work_fine_for_interactive_terminal() {
+        let (interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![]);
+        let subject =
+            CommandProcessorInteractive::new(make_command_processor_common(), Box::new(interface));
+
+        test_write_streams_work_fine_for_command_processor(&subject, stream_handles).await
+    }
+
+    async fn test_write_streams_work_fine_for_command_processor(
+        subject: &dyn CommandProcessor,
+        stream_handles: AsyncTestStreamHandles,
+    ) {
+        let (stdout, stdout_flush_handle) = subject.stdout();
+        stdout.writeln("a1b2c3").await;
+        let (stderr, stderr_flush_handle) = subject.stderr();
+        stderr.writeln("3a2b1c").await;
+
+        drop(stdout_flush_handle);
+        drop(stderr_flush_handle);
+        allow_writtings_to_finish().await;
+        assert_eq!(stream_handles.stdout_all_in_one(), "a1b2c3\n");
+        assert_eq!(stream_handles.stderr_all_in_one(), "3a2b1c\n")
     }
 }

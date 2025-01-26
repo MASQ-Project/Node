@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::clap_behind_entrance::{InitialArgsParser, InitializationArgs};
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
@@ -17,7 +18,6 @@ use crate::communications::client_listener_thread::WSClientHandle;
 use crate::communications::connection_manager::{
     BroadcastReceiver, CMBootstrapper, ClosingStageDetector, RedirectOrder,
 };
-use crate::non_interactive_clap::{InitialArgsParser, InitializationArgs};
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
@@ -206,11 +206,11 @@ impl CommandProcessor for CommandProcessorMock {
         todo!()
     }
 
-    fn stdout(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
+    fn stdout(&self) -> (TerminalWriter, FlushHandle) {
         todo!()
     }
 
-    fn stderr(&self) -> (&TerminalWriter, Arc<dyn FlushHandleInner>) {
+    fn stderr(&self) -> (TerminalWriter, FlushHandle) {
         todo!()
     }
 
@@ -347,11 +347,12 @@ pub struct InitialArgsParserMock {
     parse_initialization_args_results: RefCell<Vec<CLIProgramEntering>>,
 }
 
+#[async_trait(?Send)]
 impl InitialArgsParser for InitialArgsParserMock {
-    fn parse_initialization_args(
+    async fn parse_initialization_args(
         &self,
         _args: &[String],
-        _std_streams: &AsyncStdStreams,
+        _std_streams: &mut AsyncStdStreams,
     ) -> CLIProgramEntering {
         self.parse_initialization_args_results
             .borrow_mut()
@@ -905,11 +906,11 @@ impl WTermInterface for TermInterfaceMock {
 
 impl WTermInterfaceDupAndSend for TermInterfaceMock {
     fn write_ref(&self) -> &dyn WTermInterface {
-        todo!()
+        unimplemented!("not needed")
     }
 
     fn dup(&self) -> Box<dyn WTermInterfaceDupAndSend> {
-        todo!()
+        unimplemented!("not needed")
     }
 }
 

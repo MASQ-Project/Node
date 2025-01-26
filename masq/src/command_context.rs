@@ -2,9 +2,7 @@
 
 use crate::command_context::ContextError::ConnectionRefused;
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::connection_manager::{
-    CMBootstrapper, ConnectionManager, REDIRECT_TIMEOUT_MILLIS,
-};
+use crate::communications::connection_manager::{CMBootstrapper, ConnectionManager};
 use crate::communications::node_conversation::ClientError;
 use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
@@ -14,9 +12,7 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::io::{Read, Write};
-use tokio::runtime::Runtime;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {

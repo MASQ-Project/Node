@@ -1,5 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::clap_behind_entrance::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
 use crate::command_context_factory::{CommandContextFactory, CommandContextFactoryReal};
 use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
 use crate::command_factory::{CommandFactory, CommandFactoryReal};
@@ -9,7 +10,6 @@ use crate::command_processor::{
 };
 use crate::commands::commands_common::CommandError;
 use crate::communications::broadcast_handlers::{BroadcastHandle, BroadcastHandler};
-use crate::non_interactive_clap::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
 use crate::terminal::async_streams::{
     AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal,
 };
@@ -56,7 +56,8 @@ impl Main {
         let mut incidental_streams = std_streams_factory.make();
         let initialization_args = match self
             .initial_args_parser
-            .parse_initialization_args(args, &incidental_streams)
+            .parse_initialization_args(args, &mut incidental_streams)
+            .await
         {
             CLIProgramEntering::Enter(init_args) => init_args,
             CLIProgramEntering::Leave(exit_code) => todo!(),
@@ -173,6 +174,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
     use crate::masq_short_writeln;
+    use crate::terminal::test_utils::allow_writtings_to_finish;
     use crate::terminal::{ReadError, ReadInput, WTermInterfaceDupAndSend};
     use crate::test_utils::mocks::{
         make_async_std_streams, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles,
@@ -188,8 +190,8 @@ mod tests {
     };
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::messages::{
-        ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiShutdownRequest,
-        UiShutdownResponse, UiStartResponse,
+        ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse,
+        UiShutdownRequest, UiShutdownResponse, UiStartResponse,
     };
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
@@ -407,7 +409,7 @@ mod tests {
                         term_interface_stream_handles: &term_interface_stream_handles,
                         expected_writes: OnePieceWriteStreamsAssertion {
                             stdout_opt: None,
-                            stderr_opt: Some("Unrecognized command: 'booga'\n"),
+                            stderr_opt: Some("Unrecognized command: \"booga\"\n"),
                         }
                         .into(),
                         read_attempts_opt: None,
@@ -903,10 +905,15 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_is_received_from_node() {
+        // This test is hacky, we admit that, but its focus should be on the broadcast side and that
+        // one is exercised well this way.
+        // We send a start request just to unclog the broadcast to come here from the server.
+        // We look away that the following sequence then doesn't include the Node's shutdown phase
+        // for looking realistic. The reason why we don't is we simply cannot present it so clean:
+        // even if we configure the server to send a UiShutdownResponse, MASQ will deny a success
+        // because it will sense an ongoing connection on its 'active port'. The mock server, though,
+        // cannot be make abruptly break up.
         let node_ui_port = find_free_port();
-        // This is a little hack. Of course, normally, we wouldn't be told to connect to the same
-        // port number for the Node as we had been using for the Daemon. However, this is marginal
-        // towards the goal of this test and is therefore reduced to some simplification.
         let start_response = UiStartResponse {
             new_process_id: 1234,
             redirect_ui_port: node_ui_port,
@@ -916,11 +923,14 @@ mod tests {
             stage: UiConnectionStage::RouteFound,
         }
         .tmb(0);
-        let shutdown_response = UiShutdownResponse {}.tmb(2);
+        let descriptor_response = UiDescriptorResponse {
+            node_descriptor_opt: Some("perfect-masq-node-descriptor".to_string()),
+        }
+        .tmb(2);
         let node = MockWebSocketsServer::new(node_ui_port)
             .queue_response(start_response)
             .queue_response(broadcast)
-            .queue_response(shutdown_response);
+            .queue_response(descriptor_response);
         let server_handle = node.start().await;
         let initial_args_parser_mock = InitialArgsParserMock::default()
             .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
@@ -935,7 +945,7 @@ mod tests {
             .make_result(processor_aspiring_std_streams);
         let stdin_read_line_results = vec![
             Ok(ReadInput::Line("start".to_string())),
-            Ok(ReadInput::Line("shutdown".to_string())),
+            Ok(ReadInput::Line("descriptor".to_string())),
             Ok(ReadInput::Line("exit".to_string())),
         ];
         let (
@@ -957,8 +967,7 @@ mod tests {
 
         let result = subject.go(&["masq".to_string()]).await;
 
-        panic!("bluh");
-        //  assert_eq!(result, 0);
+        allow_writtings_to_finish().await;
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
@@ -966,12 +975,19 @@ mod tests {
                 ProcessorTerminalInterfaceAssertionMatrix {
                     standard_assertions: TerminalInterfaceAssertionMatrix {
                         term_interface_stream_handles: &prime_term_interface_stream_handles,
-                        expected_writes: OnePieceWriteStreamsAssertion {
-                            stdout_opt: Some("bluh"),
-                            stderr_opt: None,
+                        expected_writes: FlushesWriteStreamsAssertion {
+                            stdout: vec![
+                                &format!(
+                                    "MASQNode successfully started in process 1234 on port {}\n",
+                                    node_ui_port
+                                ),
+                                "perfect-masq-node-descriptor\n",
+                                "MASQ is terminating...\n",
+                            ],
+                            stderr: vec![],
                         }
                         .into(),
-                        read_attempts_opt: Some(1),
+                        read_attempts_opt: Some(3),
                     },
                 },
             ))
@@ -980,7 +996,8 @@ mod tests {
         background_term_interface_stream_handles.assert_empty_stderr();
         assert_eq!(
             background_term_interface_stream_handles.stdout_flushed_strings(),
-            vec!["bluh".to_string()]
-        )
+            vec!["\nRouteFound: You can now relay data over the network.\n\n".to_string()]
+        );
+        assert_eq!(result, 0);
     }
 }
