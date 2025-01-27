@@ -41,7 +41,6 @@ pub struct FinancialsCommand {
     gwei_precision: bool,
     top_records_opt: Option<TopRecordsConfig>,
     custom_queries_opt: Option<CustomQueries>,
-    // custom_queries_opt: Option<CustomQueryInput>,
 }
 
 #[async_trait(?Send)]
@@ -74,20 +73,6 @@ impl Command for FinancialsCommand {
     }
 }
 
-//$(<var>:<type>),+ means that the parameter can be supplied multiple times and is delimited by commas
-//here there is use of the advantage twice right away, assuming that both sets have the same number of entries
-macro_rules! dump_statistics_lines {
- ($stats: expr, $($parameter_name: literal),+, $($gwei: ident),+; $gwei_flag: expr, $stdout: ident) => {
-       $(dump_parameter_line(
-                $stdout,
-                $parameter_name,
-                None,
-                &process_gwei_into_requested_format($stats.$gwei, $gwei_flag),
-            )
-       );+
-    }
-}
-
 impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
         let matches = match financials_subcommand().try_get_matches_from(pieces) {
@@ -114,6 +99,7 @@ impl FinancialsCommand {
     ) -> Result<(), CommandError> {
         if let Some(ref stats) = response.stats_opt {
             self.process_financial_statistics(stdout, stats, self.gwei_precision)
+                .await
         };
         if let Some(results) = response.query_results_opt {
             self.process_queried_records(
@@ -128,26 +114,44 @@ impl FinancialsCommand {
         Ok(())
     }
 
-    fn process_financial_statistics(
+    async fn process_financial_statistics(
         &self,
         stdout: &TerminalWriter,
         stats: &UiFinancialStatistics,
         gwei_flag: bool,
     ) {
-        financial_status_totals_title(stdout, gwei_flag);
-        dump_statistics_lines!(
-            stats,
+        financial_status_totals_title(stdout, gwei_flag).await;
+        dump_parameter_line(
+            stdout,
             "Unpaid and pending payable:",
+            None,
+            &process_gwei_into_requested_format(
+                stats.total_unpaid_and_pending_payable_gwei,
+                gwei_flag,
+            ),
+        )
+        .await;
+        dump_parameter_line(
+            stdout,
             "Paid payable:",
+            None,
+            &process_gwei_into_requested_format(stats.total_paid_payable_gwei, gwei_flag),
+        )
+        .await;
+        dump_parameter_line(
+            stdout,
             "Unpaid receivable:",
+            None,
+            &process_gwei_into_requested_format(stats.total_unpaid_receivable_gwei, gwei_flag),
+        )
+        .await;
+        dump_parameter_line(
+            stdout,
             "Paid receivable:",
-            total_unpaid_and_pending_payable_gwei,
-            total_paid_payable_gwei,
-            total_unpaid_receivable_gwei,
-            total_paid_receivable_gwei;
-            gwei_flag,
-            stdout
-        );
+            None,
+            &process_gwei_into_requested_format(stats.total_paid_receivable_gwei, gwei_flag),
+        )
+        .await;
     }
 
     async fn process_queried_records(
@@ -168,7 +172,8 @@ impl FinancialsCommand {
             stdout,
             payable_metadata,
             Self::flat_map_option(&queries_opt, |q| q.payable_opt.clone()),
-        );
+        )
+        .await;
         if is_both_sets {
             triple_or_single_blank_line(stdout, false).await
         }
@@ -177,7 +182,8 @@ impl FinancialsCommand {
             stdout,
             receivable_metadata,
             Self::flat_map_option(&queries_opt, |q| q.receivable_opt.clone()),
-        );
+        )
+        .await;
     }
 
     fn flat_map_option<A, B, F>(input: &Option<A>, closure: F) -> Option<B>
@@ -290,7 +296,8 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
@@ -317,7 +324,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory.make(&["financials".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -345,7 +352,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -383,7 +390,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -421,7 +428,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -638,7 +645,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -679,7 +686,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -729,7 +736,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -844,7 +851,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
@@ -852,6 +859,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -880,64 +888,64 @@ mod tests {
         stream_handles.assert_empty_stderr();
     }
 
-    // #[test]
-    // fn are_both_sets_to_be_displayed_works_for_top_records() {
-    //     //top records always print as a pair so it always consists of both sets
-    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-    //         "financials",
-    //         "--top",
-    //         "20",
-    //     ]))
-    //     .unwrap();
-    //
-    //     let result = subject.are_both_sets_to_be_displayed();
-    //
-    //     assert_eq!(result, true)
-    // }
+    #[test]
+    fn are_both_sets_to_be_displayed_works_for_top_records() {
+        //top records always print as a pair so it always consists of both sets
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--top",
+            "20",
+        ]))
+        .unwrap();
 
-    // #[test]
-    // fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_payable() {
-    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-    //         "financials",
-    //         "--payable",
-    //         "20-40|60-120",
-    //     ]))
-    //     .unwrap();
-    //
-    //     let result = subject.are_both_sets_to_be_displayed();
-    //
-    //     assert_eq!(result, false)
-    // }
+        let result = subject.are_both_sets_to_be_displayed();
 
-    // #[test]
-    // fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_receivable() {
-    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-    //         "financials",
-    //         "--receivable",
-    //         "20-40|-50-120",
-    //     ]))
-    //     .unwrap();
-    //
-    //     let result = subject.are_both_sets_to_be_displayed();
-    //
-    //     assert_eq!(result, false)
-    // }
+        assert_eq!(result, true)
+    }
 
-    // #[test]
-    // fn are_both_sets_to_be_displayed_works_for_custom_query_with_both_parts() {
-    //     let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
-    //         "financials",
-    //         "--receivable",
-    //         "20-40|-50-120",
-    //         "--payable",
-    //         "15-55|667-800",
-    //     ]))
-    //     .unwrap();
-    //
-    //     let result = subject.are_both_sets_to_be_displayed();
-    //
-    //     assert_eq!(result, true)
-    // }
+    #[test]
+    fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_payable() {
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--payable",
+            "20-40|60-120",
+        ]))
+        .unwrap();
+
+        let result = subject.are_both_sets_to_be_displayed();
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_receivable() {
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--receivable",
+            "20-40|-50-120",
+        ]))
+        .unwrap();
+
+        let result = subject.are_both_sets_to_be_displayed();
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn are_both_sets_to_be_displayed_works_for_custom_query_with_both_parts() {
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--receivable",
+            "20-40|-50-120",
+            "--payable",
+            "15-55|667-800",
+        ]))
+        .unwrap();
+
+        let result = subject.are_both_sets_to_be_displayed();
+
+        assert_eq!(result, true)
+    }
 
     fn response_with_stats_and_either_top_records_or_top_queries(
         for_top_records: bool,
@@ -1006,13 +1014,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1074,13 +1083,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1144,13 +1154,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1196,7 +1207,10 @@ mod tests {
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
                 2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"]
         );
-        assert_eq!(stream_handles.stderr_flushed_strings(), vec![String::new()]);
+        assert_eq!(
+            stream_handles.stderr_flushed_strings(),
+            Vec::<String>::new()
+        );
     }
 
     #[tokio::test]
@@ -1214,13 +1228,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1306,13 +1321,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1376,13 +1392,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1460,13 +1477,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1568,13 +1586,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1655,13 +1674,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1733,13 +1753,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1781,7 +1802,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
@@ -1789,6 +1810,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writtings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

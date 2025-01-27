@@ -17,12 +17,24 @@ use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 use crate::commands::wallet_addresses_command::WalletAddressesCommand;
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommandFactoryError {
-    UnrecognizedSubcommand(String),
+    UnrecognizedSubcommand { from_cml: String },
     CommandSyntax(String),
+}
+
+impl Display for CommandFactoryError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommandFactoryError::CommandSyntax(msg) => write!(f, "Command syntax error: {}", msg),
+            CommandFactoryError::UnrecognizedSubcommand { from_cml } => {
+                write!(f, "Unrecognized command: '{}'", from_cml)
+            }
+        }
+    }
 }
 
 pub trait CommandFactory {
@@ -87,7 +99,11 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
-            unrecognized => return Err(UnrecognizedSubcommand(unrecognized.to_string())),
+            unrecognized => {
+                return Err(UnrecognizedSubcommand {
+                    from_cml: unrecognized.to_string(),
+                })
+            }
         };
         Ok(boxed_command)
     }
@@ -113,7 +129,12 @@ mod tests {
             .err()
             .unwrap();
 
-        assert_eq!(result, UnrecognizedSubcommand("booga".to_string()));
+        assert_eq!(
+            result,
+            UnrecognizedSubcommand {
+                from_cml: "booga".to_string()
+            }
+        );
     }
 
     #[test]
@@ -275,7 +296,6 @@ mod tests {
 
     #[test]
     fn complains_about_setup_command_with_bad_syntax() {
-        todo!("could I make the help messages more illuminating?");
         let subject = CommandFactoryReal::new();
 
         let result = subject
@@ -411,5 +431,20 @@ mod tests {
             }
             x => panic!("Expected CommandSyntax error, got {:?}", x),
         }
+    }
+
+    #[test]
+    fn command_factory_error_implements_display() {
+        assert_eq!(
+            CommandFactoryError::CommandSyntax("This is a mess".to_string()).to_string(),
+            "Command syntax error: This is a mess"
+        );
+        assert_eq!(
+            CommandFactoryError::UnrecognizedSubcommand {
+                from_cml: "Can you spell it for me?".to_string()
+            }
+            .to_string(),
+            "Unrecognized command: Can you spell it for me?"
+        )
     }
 }

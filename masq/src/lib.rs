@@ -3,11 +3,10 @@
 pub mod command_context;
 pub mod command_context_factory;
 pub mod command_factory;
-pub mod command_factory_factory;
 pub mod command_processor;
 pub mod commands;
 pub mod communications;
-pub mod interactive_mode;
+pub mod interactive_mode_obsolete;
 pub mod non_interactive_clap;
 mod notifications;
 pub mod run_modes;

@@ -8,9 +8,9 @@ use crate::masq_short_writeln;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use futures::future::join_all;
-use masq_lib::{declare_as_any, intentionally_blank};
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
+use masq_lib::{declare_as_any, intentionally_blank};
 use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -121,8 +121,8 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
@@ -138,7 +138,7 @@ mod tests {
     async fn two_way_transaction_passes_dropped_connection_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -153,7 +153,7 @@ mod tests {
     async fn two_way_transaction_passes_payload_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::PayloadError(10, "booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -169,7 +169,7 @@ mod tests {
     async fn two_way_transaction_passes_other_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, mut flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
@@ -189,14 +189,14 @@ mod tests {
             payload: Ok("unparseable".to_string()),
         };
         let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

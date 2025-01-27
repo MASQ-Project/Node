@@ -1,17 +1,19 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::command_context::CommandContext;
+use crate::command_context::{CommandContext, CommandContextReal};
 use crate::command_processor::CommandProcessor;
 use crate::commands::commands_common::CommandError;
-use crate::terminal::{WTermInterface, WTermInterfaceImplementingSend};
+use crate::communications::connection_manager::CMBootstrapper;
+use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
+use futures::FutureExt;
 
 #[async_trait(?Send)]
 pub trait CommandContextFactory {
     async fn make(
         &self,
         ui_port: u16,
-        term_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        term_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
     ) -> Result<Box<dyn CommandContext>, CommandError>;
 }
 
@@ -19,7 +21,7 @@ pub struct CommandContextFactoryReal {}
 
 impl Default for CommandContextFactoryReal {
     fn default() -> Self {
-        todo!()
+        Self {}
     }
 }
 
@@ -28,8 +30,12 @@ impl CommandContextFactory for CommandContextFactoryReal {
     async fn make(
         &self,
         ui_port: u16,
-        term_interface_opt: Option<Box<dyn WTermInterfaceImplementingSend>>,
+        term_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
     ) -> Result<Box<dyn CommandContext>, CommandError> {
-        todo!()
+        match CommandContextReal::new(ui_port, term_interface_opt, CMBootstrapper::default()).await
+        {
+            Ok(cc) => Ok(Box::new(cc) as Box<dyn CommandContext>),
+            Err(e) => Err(e.into()),
+        }
     }
 }

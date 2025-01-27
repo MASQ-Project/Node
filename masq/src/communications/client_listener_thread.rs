@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::communications::connection_manager::CloseSignalling;
+use crate::communications::connection_manager::ClosingStageDetector;
 use async_channel::Receiver as WSReceiver;
 use async_trait::async_trait;
 use masq_lib::ui_gateway::MessageBody;
@@ -48,19 +48,23 @@ impl ClientListener {
         close_sig: BroadcastReceiver<()>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     ) -> Box<dyn WSClientHandle> {
-        let listener_half = self.websocket.receiver_rx().clone();
-        let event_loop = ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig);
-        let task_handle = event_loop.spawn();
-        Box::new(WSClientHandleReal::new(
-            self.websocket,
-            task_handle.abort_handle(),
-        ))
+        let ws_receiver = self.websocket.receiver_rx().clone();
+        let spawner = ClientListenerEventLoopSpawner::new(ws_receiver, message_body_tx, close_sig);
+        let abort_handle = spawner.spawn().abort_handle();
+        let client_listener = WSClientHandleReal::new(self.websocket, abort_handle);
+        Box::new(client_listener)
     }
 }
 
 #[async_trait]
 pub trait WSClientHandle: Send {
     async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>>;
+    // This is unfortunate as we cannot get the library we're using to send a graceful Close msg.
+    // Without us to understand, they implemented a panic to unwind upon this message's arrival (on
+    // the server side - which also is built from the same library). All they provide is this
+    // disconnection which, however, results in a connection reset considered an error on
+    // the server's side. I'll have to leave it this way for timely reasons but a redesign should
+    // take place someday.
     async fn disconnect(&self) -> ClientResult<()>;
     fn close_talker_half(&self) -> bool;
     fn dismiss_event_loop(&self);
@@ -83,7 +87,7 @@ impl Drop for WSClientHandleReal {
 
 #[async_trait]
 impl WSClientHandle for WSClientHandleReal {
-    async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
+    async fn send(&self, msg: Message) -> Result<(), Arc<Error>> {
         self.websocket.send(msg).await.map(|_| ())
     }
 
@@ -119,13 +123,13 @@ impl WSClientHandleReal {
     }
 }
 
-struct ClientListenerEventLoop {
+struct ClientListenerEventLoopSpawner {
     listener_half: WSReceiver<Message>,
     message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     close_sig: BroadcastReceiver<()>,
 }
 
-impl ClientListenerEventLoop {
+impl ClientListenerEventLoopSpawner {
     pub fn new(
         listener_half: WSReceiver<Message>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
@@ -145,12 +149,12 @@ impl ClientListenerEventLoop {
     async fn loop_guts(mut self) {
         loop {
             let ws_msg_rcv = self.listener_half.recv();
-            let close_sig = self.close_sig.recv();
+            let close_sig_rcv = self.close_sig.recv();
 
             tokio::select! {
                 biased;
 
-                _ = close_sig => {
+                _ = close_sig_rcv => {
                     break
                 }
 
@@ -206,12 +210,14 @@ mod tests {
     use async_channel::{unbounded, Sender};
     use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
     use masq_lib::messages::{
-        FromMessageBody, ToMessageBody, UiCheckPasswordResponse, UiDescriptorResponse,
+        FromMessageBody, ToMessageBody, UiCheckPasswordResponse, UiDescriptorRequest,
+        UiDescriptorResponse,
     };
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils, websocket_utils_without_handshake,
+        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake,
+        websocket_utils_without_handshake,
     };
     use masq_lib::utils::{find_free_port, localhost};
     use std::net::SocketAddr;
@@ -222,9 +228,9 @@ mod tests {
     use tokio::task::JoinError;
     use tokio::time::Instant;
     use tokio_tungstenite::tungstenite::protocol::Role;
-    use tokio_tungstenite::{accept_async, accept_async_with_config};
+    use tokio_tungstenite::{accept_async, accept_async_with_config, tungstenite};
     use workflow_websocket::client::{Ack, Message as ClientMessage};
-    use workflow_websocket::server::Message as ServerMessage;
+    use workflow_websocket::server::{Message as ServerMessage, WebSocketConfig};
 
     async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
         let message = Message::Text(UiTrafficConverter::new_marshal(
@@ -240,10 +246,9 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let stop_handle = server.start().await;
-        //let websocket = establish_ws_conn_with_handshake(port);
-        let (websocket, talker_half, _) = websocket_utils(port).await;
+        let (websocket, talker_half, _) = websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
+        let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
@@ -260,32 +265,33 @@ mod tests {
     #[tokio::test]
     async fn processes_incoming_close_correctly() {
         let port = find_free_port();
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let server_join_handle = tokio::task::spawn(async move {
-            let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
-                .await
-                .unwrap();
-            tx.send(()).unwrap();
-            let (tcp, _) = listener.accept().await.unwrap();
-            let (mut write, read) = accept_async(tcp).await.unwrap().split();
-            write
-                .send(tokio_tungstenite::tungstenite::Message::Close(None))
-                .await
-                .unwrap();
-        });
-        rx.recv().await.unwrap();
-        let (websocket, listener_half, talker_half) = websocket_utils_without_handshake(port).await;
+        let server_handle = MockWebSocketsServer::new(port)
+            .queue_owned_message(ServerMessage::Close(None))
+            .start()
+            .await;
+        let (websocket, listener_half, talker_half) =
+            websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
+        let (close_signaler, close_detector) = ClosingStageDetector::make_for_test();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
-            .start(close_sig.dup_receiver(), message_body_tx)
+            .start(close_detector.dup_receiver(), message_body_tx)
             .await;
 
+        let server_response_trigger = ClientMessage::Text(UiTrafficConverter::new_marshal(
+            UiDescriptorRequest {}.tmb(1),
+        ));
+        client_listener_handle
+            .send(server_response_trigger)
+            .await
+            .unwrap();
         let conn_closed_announcement = message_body_rx.recv().await.unwrap();
-        let probe =
-            ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(1)));
-        let send_error = client_listener_handle.send(probe).await.unwrap_err();
+        let disconnection_probe =
+            ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(2)));
+        let send_error = client_listener_handle
+            .send(disconnection_probe)
+            .await
+            .unwrap_err();
 
         assert_eq!(conn_closed_announcement, Err(ClientListenerError::Closed));
         match send_error.as_ref() {
@@ -294,7 +300,8 @@ mod tests {
         };
         let is_spinning = client_listener_handle.is_event_loop_spinning();
         assert_eq!(is_spinning, false);
-        server_join_handle.await.unwrap();
+        // Because not ordered from our side
+        assert_eq!(close_signaler.is_closing(), false)
     }
 
     #[tokio::test]
@@ -302,10 +309,11 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (websocket, listener_half, talker_half) = websocket_utils(port).await;
+        let (websocket, listener_half, talker_half) =
+            websocket_utils_with_masq_handshake(port).await;
         let listener_half_clone = listener_half.clone();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
+        let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
@@ -328,7 +336,7 @@ mod tests {
         let stop_handle = server.start().await;
         let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
+        let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
@@ -349,7 +357,7 @@ mod tests {
         let stop_handle = server.start().await;
         let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (_close_tx, close_sig) = CloseSignalling::make_for_test();
+        let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let mut subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
@@ -368,7 +376,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (websocket, _, _) = websocket_utils(port).await;
+        let (websocket, _, _) = websocket_utils_with_masq_handshake(port).await;
         let ref_counting_object = Arc::new(123);
         let cloned = ref_counting_object.clone();
         let join_handle = tokio::task::spawn(async move {
@@ -400,11 +408,15 @@ mod tests {
             )
             .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
         let stop_handle = server.start().await;
-        let (websocket, talker_half, listener_half) = websocket_utils(port).await;
+        let (websocket, talker_half, listener_half) =
+            websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
-        let (close_signaler, close_sig) = CloseSignalling::make_for_test();
-        let subject =
-            ClientListenerEventLoop::new(listener_half, message_body_tx, close_sig.dup_receiver());
+        let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
+        let subject = ClientListenerEventLoopSpawner::new(
+            listener_half,
+            message_body_tx,
+            close_sig.dup_receiver(),
+        );
         let mut join_handle = tokio::task::spawn(async { subject.loop_guts().await });
         let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
         stimulate_queued_response_from_server(&client_handle).await;

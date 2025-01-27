@@ -55,11 +55,8 @@ impl ArbitraryIdStamp {
 macro_rules! arbitrary_id_stamp_in_trait {
     () => {
         #[cfg(test)]
-        fn arbitrary_id_stamp(&self) -> masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp {
-            // No necessity to implement this method for all impls,
-            // basically you want to do that just for the mock version
-
-            masq_lib::intentionally_blank!()
+        fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+            intentionally_blank!()
         }
     };
 }

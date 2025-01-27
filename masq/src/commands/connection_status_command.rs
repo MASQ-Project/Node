@@ -92,8 +92,8 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::commands::commands_common::CommandError::ConnectionProblem;
-    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
@@ -126,14 +126,14 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(NODE_NOT_RUNNING_ERROR, "irrelevant".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -184,14 +184,14 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -217,7 +217,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = ConnectionStatusCommand::new();
 
         let result = Box::new(subject)

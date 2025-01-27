@@ -9,6 +9,8 @@ pub(in crate::commands::financials_command) mod restricted {
     use crate::masq_short_writeln;
     use crate::terminal::TerminalWriter;
     use futures::future::join_all;
+    use futures::stream::FuturesUnordered;
+    use futures::StreamExt;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use std::fmt::{Debug, Display};
@@ -83,11 +85,11 @@ pub(in crate::commands::financials_command) mod restricted {
             .collect::<Vec<_>>();
         let optimal_widths = width_precise_calculation(headings, preformatted_subset);
         let headings_and_widths = &zip_them(headings.words.as_slice(), &optimal_widths);
-        write_column_formatted(stdout, headings_and_widths);
-        preformatted_subset.iter().for_each(|account| {
+        write_column_formatted(stdout, headings_and_widths).await;
+        for account in preformatted_subset.iter() {
             let zipped_inputs = zip_them(account, &optimal_widths);
-            write_column_formatted(stdout, &zipped_inputs);
-        });
+            write_column_formatted(stdout, &zipped_inputs).await
+        }
     }
 
     pub fn process_gwei_into_requested_format<N>(gwei: N, should_stay_gwei: bool) -> String
@@ -116,7 +118,7 @@ pub(in crate::commands::financials_command) mod restricted {
     pub async fn no_records_found(stdout: &TerminalWriter, headings: &[String]) {
         let mut headings_widths = widths_of_str_values(headings);
         headings_widths[1] = WALLET_ADDRESS_LENGTH;
-        write_column_formatted(stdout, &zip_them(headings, &headings_widths));
+        write_column_formatted(stdout, &zip_them(headings, &headings_widths)).await;
         masq_short_writeln!(stdout, "\nNo records found",)
     }
 

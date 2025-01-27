@@ -6,7 +6,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
-    WTermInterfaceDup, WriteResult, WriteStreamType,
+    WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
 };
 use crate::test_utils::mocks::TerminalWriterTestReceiver;
 use async_trait::async_trait;
@@ -32,14 +32,15 @@ pub struct NonInteractiveStreamsAssertionHandles {
 
 pub enum WritingTestInputByTermInterfaces<'test> {
     NonInteractive(
-        WritingTestInput<&'test dyn WTermInterfaceDup, NonInteractiveStreamsAssertionHandles>,
+        WritingTestInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>,
     ),
-    Interactive(WritingTestInput<InteractiveInterfaceByModes<'test>, LisoFlushedAssertableStrings>),
+    Interactive(WritingTestInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
 }
 
-pub enum InteractiveInterfaceByModes<'test> {
-    ReadWrite(&'test dyn WTermInterface),
-    Write(&'test dyn WTermInterfaceDup),
+pub enum InteractiveInterfaceByUse<'test> {
+    RWPrimeInterface(&'test dyn WTermInterface),
+    WOnlyPrimeInterface(&'test dyn WTermInterface),
+    WOnlyBackgroundInterface(&'test dyn WTermInterfaceDupAndSend),
 }
 
 pub async fn test_writing_streams_of_particular_terminal<'test>(
@@ -71,10 +72,13 @@ pub async fn test_writing_streams_of_particular_terminal<'test>(
             streams_assertion_handles,
         }) => {
             let (stdout_components, stderr_components) = match term_interface {
-                InteractiveInterfaceByModes::ReadWrite(term_interface) => {
+                InteractiveInterfaceByUse::RWPrimeInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
-                InteractiveInterfaceByModes::Write(term_interface) => {
+                InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => {
+                    (term_interface.stdout(), term_interface.stderr())
+                }
+                InteractiveInterfaceByUse::WOnlyBackgroundInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
             };
@@ -101,7 +105,7 @@ async fn assert_proper_writing<'test>(
     tested_case: &'test str,
 ) {
     writer.write("Word.").await;
-    writer.writeln("This seems like a sentence.").await;
+    writer.writeln("This is a sentence.").await;
     let stream_output_first_check = test_output_handle.get_string();
     let life_checker = flush_handle.life_checking_reference();
     let references_at_start = Arc::strong_count(&flush_handle.life_checking_reference());
@@ -115,11 +119,10 @@ async fn assert_proper_writing<'test>(
         "In {}: initial check of output emptiness failed",
         tested_case
     );
-    let mut stream_output_after_check = test_output_handle.drain_flushed_strings().unwrap();
-    eprintln!("{:?}", stream_output_after_check);
+    let mut stream_output_after_check = test_output_handle.drain_flushed_strings();
     assert_eq!(
         stream_output_after_check.next_flush().unwrap().output(),
-        "Word.This seems like a sentence.\n",
+        "Word.This is a sentence.\n",
         "In {}: expected output doesn't match",
         tested_case
     );
@@ -230,15 +233,13 @@ impl StringAssertionMethods for LisoFlushedAssertableStrings {
             .map(|flushed_str| flushed_str.output())
             .join("")
     }
-    fn drain_flushed_strings(&self) -> Option<FlushedStrings> {
-        Some(
-            self.flushes
-                .lock()
-                .unwrap()
-                .drain(..)
-                .collect::<Vec<FlushedString>>()
-                .into(),
-        )
+    fn drain_flushed_strings(&self) -> FlushedStrings {
+        self.flushes
+            .lock()
+            .unwrap()
+            .drain(..)
+            .collect::<Vec<FlushedString>>()
+            .into()
     }
 }
 
@@ -325,10 +326,11 @@ impl FlushHandleInnerMock {
         receiver_from_terminal_writer: UnboundedReceiver<String>,
         reference_for_assertions_on_flushes: Arc<Mutex<Vec<String>>>,
     ) -> Self {
+        let output_receiver = TerminalWriterTestReceiver {
+            receiver_from_terminal_writer,
+        };
         let utils = TerminalWriterLinkToFlushHandleInnerMock {
-            output_receiver: TerminalWriterTestReceiver {
-                receiver_from_terminal_writer,
-            },
+            output_receiver,
             flushed_strings: reference_for_assertions_on_flushes,
         };
         self.terminal_writer_connection_opt = Some(utils);
@@ -336,6 +338,6 @@ impl FlushHandleInnerMock {
     }
 }
 
-pub async fn allow_in_test_spawned_task_to_finish() {
+pub async fn allow_writtings_to_finish() {
     tokio::time::sleep(Duration::from_millis(1)).await
 }

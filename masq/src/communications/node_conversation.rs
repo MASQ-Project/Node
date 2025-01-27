@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::communications::connection_manager::OutgoingMessageType;
+use crate::communications::connection_manager::{OutgoingMessageType, SyncCloseFlag};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
@@ -13,6 +13,7 @@ use tokio::time::Instant;
 pub enum ClientError {
     // TODO: Perhaps this can be combined with NodeConversationTermination
     NoServer(u16, String),
+    ClosingStage,
     ConnectionDropped,
     FallbackFailed(String),
     PacketType(String),
@@ -32,7 +33,7 @@ pub struct NodeConversation {
     context_id: u64,
     conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
     manager_to_conversation_rx: ManagerToConversationReceiver,
-    closing_stage: Arc<AtomicBool>,
+    closing_stage: SyncCloseFlag,
 }
 
 impl Drop for NodeConversation {
@@ -60,7 +61,7 @@ impl NodeConversation {
         context_id: u64,
         conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
         manager_to_conversation_rx: ManagerToConversationReceiver,
-        closing_stage: Arc<AtomicBool>,
+        closing_stage: SyncCloseFlag,
     ) -> Self {
         Self {
             context_id,
@@ -79,8 +80,8 @@ impl NodeConversation {
             panic! ("Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead.")
         }
 
-        if self.closing_stage.load(Ordering::Relaxed) {
-            return Err(ClientError::ConnectionDropped);
+        if self.closing_stage.masq_is_closing() {
+            return Err(ClientError::ClosingStage);
         }
 
         match self
@@ -114,8 +115,8 @@ impl NodeConversation {
             panic! ("Cannot use NodeConversation::transact() to send message with MessagePath::FireAndForget. Use NodeConversation::send() instead.")
         }
 
-        if self.closing_stage.load(Ordering::Relaxed) {
-            return Err(ClientError::ConnectionDropped);
+        if self.closing_stage.masq_is_closing() {
+            return Err(ClientError::ClosingStage);
         }
 
         outgoing_msg.path = MessagePath::Conversation(self.context_id());
@@ -195,7 +196,7 @@ mod tests {
             42,
             message_body_send_tx,
             message_body_receive_rx,
-            Arc::new(AtomicBool::new(false)),
+            SyncCloseFlag::default(),
         );
         (subject, message_body_receive_tx, message_body_send_rx)
     }
@@ -326,7 +327,7 @@ mod tests {
             42,
             message_body_send_tx,
             message_body_receive_rx,
-            Arc::new(AtomicBool::new(false)),
+            SyncCloseFlag::default(),
         );
 
         let result = subject

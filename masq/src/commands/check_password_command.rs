@@ -84,8 +84,8 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
-    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
     use std::sync::{Arc, Mutex};
 
@@ -143,7 +143,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: true }.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&["check-password".to_string(), "bonkers".to_string()])
@@ -151,7 +151,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         assert_eq!(stream_handles.stdout_all_in_one(), "Password is correct\n");
         stream_handles.assert_empty_stderr();
@@ -174,13 +174,13 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: false }.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["check-password".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         assert_eq!(
             stream_handles.stdout_all_in_one(),
@@ -205,7 +205,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject =
             CheckPasswordCommand::new(&["check-password".to_string(), "bonkers".to_string()])
                 .unwrap();

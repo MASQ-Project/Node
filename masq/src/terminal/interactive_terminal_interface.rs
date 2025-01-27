@@ -4,7 +4,7 @@ use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDup, WriteResult, WriteStreamType,
+    WTermInterface, WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
 use liso::Response;
@@ -12,19 +12,9 @@ use masq_lib::constants::MASQ_PROMPT;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-// //most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
-// #[derive(Debug, PartialEq, Eq, Clone)]
-// pub enum TerminalEvent {
-//     CommandLine(Vec<String>),
-//     Error(Option<String>), //'None' when already processed by printing out
-//     Continue,              //as ignore
-//     Break,
-//     EoF,
-// }
-
 pub struct InteractiveRWTermInterface {
     read_liso: Box<dyn LisoInputWrapper>,
-    write_terminal: Box<dyn WTermInterfaceDup>,
+    write_terminal: Box<dyn WTermInterfaceDupAndSend>,
 }
 
 impl InteractiveRWTermInterface {
@@ -40,6 +30,7 @@ impl InteractiveRWTermInterface {
 }
 
 pub const UNINTERPRETABLE_COMMAND: &str = "Uninterpretable command: Ignored";
+pub const UNIMPLEMENTED_INSTRUCTION: &str = "Unimplemented new instruction";
 
 #[async_trait(?Send)]
 impl RWTermInterface for InteractiveRWTermInterface {
@@ -48,11 +39,15 @@ impl RWTermInterface for InteractiveRWTermInterface {
             Response::Input(line) => Ok(ReadInput::Line(line)),
             Response::Dead => Err(ReadError::TerminalOutputInputDisconnected),
             Response::Quit => Ok(ReadInput::Quit),
-            Response::Discarded(_unfinished) => Ok(ReadInput::Quit),
+            Response::Discarded(unfinished) => Ok(ReadInput::Ignored {
+                msg_opt: Some(format!("Discarded: {}", unfinished)),
+            }),
             Response::Finish => Ok(ReadInput::Ignored { msg_opt: None }),
             Response::Info => Ok(ReadInput::Ignored { msg_opt: None }),
-            Response::Break => Ok(ReadInput::Quit),
-            Response::Escape => Ok(ReadInput::Ignored { msg_opt: None }),
+            Response::Break => Ok(ReadInput::Ignored { msg_opt: None }),
+            Response::Escape => Ok(ReadInput::Ignored {
+                msg_opt: Some("Type \"exit\" or press Ctrl-C to quit".to_string()),
+            }),
             Response::Swap => Ok(ReadInput::Ignored { msg_opt: None }),
             Response::Custom(_) => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
@@ -60,17 +55,19 @@ impl RWTermInterface for InteractiveRWTermInterface {
             Response::Unknown(_) => Ok(ReadInput::Ignored {
                 msg_opt: Some(UNINTERPRETABLE_COMMAND.to_string()),
             }),
-            // As to my knowledge, this is untestable
-            _ => Err(ReadError::UnexpectedNewValueFromLibrary),
+            // They declared the enum as non-exhaustive. As to my knowledge, this is untestable
+            _ => Ok(ReadInput::Ignored {
+                msg_opt: Some(UNIMPLEMENTED_INSTRUCTION.to_string()),
+            }),
         }
     }
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDup {
-        self.write_terminal.as_ref()
+    fn write_only_ref(&self) -> &dyn WTermInterface {
+        self.write_terminal.write_ref()
     }
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>> {
-        Some(self.write_terminal.dup())
+    fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend> {
+        self.write_terminal.dup()
     }
 }
 
@@ -92,6 +89,18 @@ pub struct InteractiveWTermInterface {
     stderr_utils: WritingUtils,
 }
 
+impl WTermInterfaceDupAndSend for InteractiveWTermInterface {
+    fn write_ref(&self) -> &dyn WTermInterface {
+        self
+    }
+
+    fn dup(&self) -> Box<dyn WTermInterfaceDupAndSend> {
+        Box::new(InteractiveWTermInterface::new(
+            self.write_liso_arc.clone_output(),
+        ))
+    }
+}
+
 impl WTermInterface for InteractiveWTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle) {
         self.stdout_utils.get_utils()
@@ -99,14 +108,6 @@ impl WTermInterface for InteractiveWTermInterface {
 
     fn stderr(&self) -> (TerminalWriter, FlushHandle) {
         self.stderr_utils.get_utils()
-    }
-}
-
-impl WTermInterfaceDup for InteractiveWTermInterface {
-    fn dup(&self) -> Box<dyn WTermInterfaceDup> {
-        Box::new(InteractiveWTermInterface::new(
-            self.write_liso_arc.clone_output(),
-        ))
     }
 }
 
@@ -174,10 +175,11 @@ impl FlushHandleInner for InteractiveFlushHandleInner {
 #[cfg(test)]
 mod tests {
     use crate::terminal::interactive_terminal_interface::{
-        InteractiveRWTermInterface, InteractiveWTermInterface, UNINTERPRETABLE_COMMAND,
+        InteractiveRWTermInterface, InteractiveWTermInterface, UNIMPLEMENTED_INSTRUCTION,
+        UNINTERPRETABLE_COMMAND,
     };
     use crate::terminal::test_utils::{
-        test_writing_streams_of_particular_terminal, InteractiveInterfaceByModes,
+        test_writing_streams_of_particular_terminal, InteractiveInterfaceByUse,
         LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
         WritingTestInput, WritingTestInputByTermInterfaces,
     };
@@ -188,7 +190,8 @@ mod tests {
 
     #[test]
     fn constants_are_correct() {
-        assert_eq!(UNINTERPRETABLE_COMMAND, "Uninterpretable command: Ignored")
+        assert_eq!(UNINTERPRETABLE_COMMAND, "Uninterpretable command: Ignored");
+        assert_eq!(UNIMPLEMENTED_INSTRUCTION, "Unimplemented new instruction")
     }
 
     #[test]
@@ -210,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn masq_prompt_is_set_upon_both_initialization_and_for_each_clone_too() {
+    fn masq_prompt_is_set_upon_initialization_as_well_as_for_each_clone() {
         let initial_terminal_prompt_params_arc = Arc::new(Mutex::new(vec![]));
         let cloned_terminal_prompt_params_arc = Arc::new(Mutex::new(vec![]));
         let r_liso_wrapper = LisoInputWrapperMock::default();
@@ -240,7 +243,7 @@ mod tests {
         drop(initial_terminal_prompt_params);
         drop(cloned_terminal_prompt_params);
 
-        rw_subject.write_only_clone_opt().unwrap();
+        rw_subject.write_only_clone();
 
         let cloned_terminal_prompt_params = cloned_terminal_prompt_params_arc.lock().unwrap();
         assert_eq!(
@@ -266,13 +269,13 @@ mod tests {
         let rw_subject =
             InteractiveRWTermInterface::new(Box::new(r_liso_wrapper), Box::new(w_liso_wrapper));
 
-        let w_only_clone = rw_subject.write_only_clone_opt().unwrap();
+        let w_only_clone = rw_subject.write_only_clone();
 
         let w_only_ref = rw_subject.write_only_ref();
 
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByModes::ReadWrite(&rw_subject),
+                term_interface: InteractiveInterfaceByUse::RWPrimeInterface(&rw_subject),
                 streams_assertion_handles: rw_liso_println_params.clone(),
             }),
             "read-write subject",
@@ -280,7 +283,9 @@ mod tests {
         .await;
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByModes::Write(w_only_clone.as_ref()),
+                term_interface: InteractiveInterfaceByUse::WOnlyBackgroundInterface(
+                    w_only_clone.as_ref(),
+                ),
                 streams_assertion_handles: w_liso_println_params,
             }),
             "write only clone",
@@ -290,7 +295,7 @@ mod tests {
         assert!(rw_liso_println_params.is_empty());
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByModes::Write(w_only_ref),
+                term_interface: InteractiveInterfaceByUse::WOnlyPrimeInterface(w_only_ref),
                 streams_assertion_handles: rw_liso_println_params,
             }),
             "write only ref",
@@ -312,12 +317,19 @@ mod tests {
             (Response::Quit, Ok(ReadInput::Quit)),
             (
                 Response::Discarded("Unfinished command".to_string()),
-                Ok(ReadInput::Quit),
+                Ok(ReadInput::Ignored {
+                    msg_opt: Some("Discarded: Unfinished command".to_string()),
+                }),
             ),
             (Response::Finish, Ok(ReadInput::Ignored { msg_opt: None })),
             (Response::Info, Ok(ReadInput::Ignored { msg_opt: None })),
-            (Response::Break, Ok(ReadInput::Quit)),
-            (Response::Escape, Ok(ReadInput::Ignored { msg_opt: None })),
+            (Response::Break, Ok(ReadInput::Ignored { msg_opt: None })),
+            (
+                Response::Escape,
+                Ok(ReadInput::Ignored {
+                    msg_opt: Some("Type \"exit\" or press Ctrl-C to quit".to_string()),
+                }),
+            ),
             (Response::Swap, Ok(ReadInput::Ignored { msg_opt: None })),
             (
                 Response::Custom(Box::new(Some(vec![std::io::Empty::default()]))),

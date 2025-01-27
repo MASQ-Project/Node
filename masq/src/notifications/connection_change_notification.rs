@@ -11,7 +11,7 @@ impl ConnectionChangeNotification {
     pub async fn handle_broadcast(
         response: UiConnectionChangeBroadcast,
         stdout: &TerminalWriter,
-        stderr: &TerminalWriter,
+        _stderr: &TerminalWriter,
     ) {
         let output_string = match response.stage {
             UiConnectionStage::NotConnected => {

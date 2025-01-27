@@ -38,7 +38,7 @@ struct NodeUiProtocolWebSocketHandler {
 
 #[async_trait]
 impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
-    type Context = ();
+    type Context = SocketAddr;
 
     fn accept(&self, _peer: &SocketAddr) -> bool {
         self.check_connection_not_restarted()
@@ -49,11 +49,7 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         _peer: &SocketAddr,
     ) -> workflow_websocket::server::Result<()> {
         if let Some(object) = self.panicking_conn_obj_opt.as_ref() {
-            let _open_mutex = object
-                .mutex_to_sense_panic
-                .lock()
-                .expect("Mutex already poisoned");
-            panic!("Testing internal panic")
+            object.test_server_reliability()
         }
         Ok(())
     }
@@ -68,14 +64,14 @@ impl WebSocketHandler for NodeUiProtocolWebSocketHandler {
         self.logger
             .log(format!("Awaiting handshake msg from {}", peer).as_str());
 
-        node_server_greeting(Duration::from_millis(5_000), *peer, sender, receiver).await?;
+        node_server_greeting(Duration::from_millis(3_000), *peer, sender, receiver).await?;
 
         self.logger
             .log("Checking for exposed, initial fire-and-forget messages to push them off");
 
         self.handle_opening_broadcasts(sink);
 
-        Ok(())
+        Ok(*peer)
     }
 
     async fn message(
@@ -353,8 +349,8 @@ impl MockWebSocketsServer {
         self
     }
 
-    // Marked async so it's obvious that it must be called inside a runtime context
-    // due to the spawned background task
+    // I marked it async to make obvious that it must be called inside a runtime context due to its
+    // reliance on spawning a background task
     pub async fn start(self) -> MockWebSocketsServerHandle {
         let logger = MWSSLogger::new(self.do_log);
         let requests_arc = Arc::new(Mutex::new(vec![]));
@@ -487,8 +483,8 @@ pub type ServerJoinHandle = JoinHandle<workflow_websocket::server::result::Resul
 pub struct MockWebSocketsServerHandle {
     logger: MWSSLogger,
     requests_arc: Arc<Mutex<Vec<MockWSServerRecordedRequest>>>,
-    // A use of this join handle should be well-thought. Most of the time, all you need to do is
-    // letting the test go to its end which will deconstruct the server as the async runtime dies.
+    // A use of this join handle ought to be well-thought. Most of the time, all you need to do is
+    // to have the test go to its end which will deconstruct the server as the async runtime dies.
     server_background_thread_join_handle: ServerJoinHandle,
     counters: Arc<WebSocketCounters>,
     server_port: u16,
@@ -540,19 +536,32 @@ impl MockWebSocketsServerHandle {
         let condition = |counters: &Arc<WebSocketCounters>| {
             (counters.active_connections.load(Ordering::Relaxed) - allowed_parallel_conn) > 0
         };
-        self.await_loop(condition).await
+        self.await_loop(condition, "connection establishment", 1000, 50)
+            .await
     }
 
     pub async fn await_conn_disconnected(&self, biased_by_other_connections_opt: Option<usize>) {
         let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
         let condition = |counters: &Arc<WebSocketCounters>| {
-            counters.active_connections.load(Ordering::Relaxed) == (0 + allowed_parallel_conn)
+            eprintln!(
+                "total: {}, active {}",
+                counters.total_connections.load(Ordering::Relaxed),
+                counters.active_connections.load(Ordering::Relaxed)
+            );
+            counters.total_connections.load(Ordering::Relaxed) == 1 + allowed_parallel_conn
+                && counters.active_connections.load(Ordering::Relaxed)
+                    == (0 + allowed_parallel_conn)
         };
-        self.await_loop(condition).await
+        self.await_loop(condition, "disconnection", 7000, 50).await
     }
 
-    async fn await_loop<F>(&self, test_desired_condition: F)
-    where
+    async fn await_loop<F>(
+        &self,
+        test_desired_condition: F,
+        awaiting_what: &str,
+        global_timeout_ms: u64,
+        intermittent_sleep_period_ms: u64,
+    ) where
         F: Fn(&Arc<WebSocketCounters>) -> bool,
     {
         let fut = async {
@@ -560,18 +569,30 @@ impl MockWebSocketsServerHandle {
                 if test_desired_condition(&self.counters) {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await
+                tokio::time::sleep(Duration::from_millis(intermittent_sleep_period_ms)).await
             }
         };
-        tokio::time::timeout(Duration::from_millis(5_000), fut)
+        tokio::time::timeout(Duration::from_millis(global_timeout_ms), fut)
             .await
-            .expect("Timed out waiting for server connection's status change")
+            .unwrap_or_else(|_| {
+                panic!("Timed out after waiting {global_timeout_ms} for server's {awaiting_what}")
+            })
     }
 }
 
 struct PanickingConn {
-    // Deliberate poisoning a Mutex by a panic
     mutex_to_sense_panic: Arc<Mutex<()>>,
+}
+
+impl PanickingConn {
+    fn test_server_reliability(&self) {
+        // This mutex signalizes towards outside the server that the panic occurred
+        let _open_mutex = self
+            .mutex_to_sense_panic
+            .lock()
+            .expect("Signalling Mutex already poisoned");
+        panic!("Testing server's internal panic on its connection")
+    }
 }
 
 #[derive(Clone)]

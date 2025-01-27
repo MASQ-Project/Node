@@ -20,37 +20,37 @@ pub struct ByteArrayWriter {
 }
 
 pub struct ByteArrayWriterInner {
-    byte_array: Vec<u8>,
-    flush_separated_writes_opt: Option<Vec<FlushableByteOutput>>,
+    captured_writes: Either<Vec<u8>, Vec<FlushableByteOutput>>,
     next_error_opt: Option<std::io::Error>,
 }
 
 impl ByteArrayWriterInner {
     fn new(flush_cautious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
+        let captured_writes = match flush_conscious_mode {
+            false => Either::Left(vec![]),
+            true => Either::Right(vec![]),
+        };
         ByteArrayWriterInner {
-            byte_array: vec![],
-            flush_separated_writes_opt: flush_cautious_mode.then_some(vec![]),
+            captured_writes,
             next_error_opt,
         }
     }
 
     pub fn get_bytes(&self) -> Vec<u8> {
-        if let Some(flushables) = self.flush_separated_writes_opt.as_ref() {
-            flushables
+        match self.captured_writes.as_ref() {
+            Either::Left(bytes) => bytes.clone(),
+            Either::Right(flushables) => flushables
                 .iter()
                 .take_while(|flushable| flushable.already_flushed_opt.is_some())
                 .flat_map(|flushable| flushable.byte_array.clone())
-                .collect()
-        } else {
-            self.byte_array.clone()
+                .collect(),
         }
     }
 
     pub fn get_string(&self) -> Option<String> {
-        if self.flush_separated_writes_opt.is_none() {
-            Some(String::from_utf8(self.byte_array.clone()).unwrap())
-        } else {
-            None
+        match self.captured_writes.as_ref() {
+            Either::Left(bytes) => Some(String::from_utf8(bytes.clone()).unwrap()),
+            _ => None,
         }
     }
 
@@ -62,26 +62,38 @@ impl ByteArrayWriterInner {
 impl ByteArrayWriter {
     pub fn new(flush_cautious_mode: bool) -> Self {
         Self {
-            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner {
-                byte_array: vec![],
-                flush_separated_writes_opt: flush_cautious_mode.then_some(vec![]),
-                next_error_opt: None,
-            })),
+            inner_arc: Arc::new(Mutex::new(ByteArrayWriterInner::new(
+                flush_cautious_mode,
+                None,
+            ))),
         }
     }
     pub fn inner_arc(&self) -> Arc<Mutex<ByteArrayWriterInner>> {
         self.inner_arc.clone()
     }
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc.lock().unwrap().byte_array.clone()
+        self.inner_arc
+            .lock()
+            .unwrap()
+            .captured_writes
+            .as_ref()
+            .left()
+            .unwrap()
+            .clone()
     }
     pub fn get_string(&self) -> String {
         String::from_utf8(self.get_bytes()).unwrap()
     }
-    pub fn drain_flushed_strings(&self) -> Option<FlushedStrings> {
+    pub fn drain_flushed_strings(&self) -> FlushedStrings {
         let mut arc = self.inner_arc.lock().unwrap();
-        let outputs = arc.flush_separated_writes_opt.take();
-        drain_flushes(outputs).map(FlushedStrings::from)
+        let outputs = arc
+            .captured_writes
+            .as_mut()
+            .right()
+            .unwrap()
+            .drain(..)
+            .collect();
+        FlushedStrings::from(drain_flushes(outputs))
     }
     pub fn reject_next_write(&mut self, error: Error) {
         self.inner_arc.lock().unwrap().next_error_opt = Some(error);
@@ -94,22 +106,21 @@ impl ByteArrayWriter {
     }
 }
 
-fn drain_flushes(outputs: Option<Vec<FlushableByteOutput>>) -> Option<Vec<FlushedString>> {
-    outputs.map(|vec| {
-        vec.into_iter()
-            .flat_map(|output| {
-                if let Some(flush_timestamp) = output.already_flushed_opt {
-                    let flushed = FlushedString {
-                        string: String::from_utf8(output.byte_array).unwrap(),
-                        flushed_at: flush_timestamp,
-                    };
-                    Some(flushed)
-                } else {
-                    None
-                }
-            })
-            .collect_vec()
-    })
+fn drain_flushes(outputs: Vec<FlushableByteOutput>) -> Vec<FlushedString> {
+    outputs
+        .into_iter()
+        .flat_map(|output| {
+            if let Some(flush_timestamp) = output.already_flushed_opt {
+                let flushed = FlushedString {
+                    string: String::from_utf8(output.byte_array).unwrap(),
+                    flushed_at: flush_timestamp,
+                };
+                Some(flushed)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 impl Default for ByteArrayWriter {
@@ -123,7 +134,7 @@ impl Write for ByteArrayWriter {
         let mut inner = self.inner_arc.lock().unwrap();
         if let Some(next_error) = inner.next_error_opt.take() {
             Err(next_error)
-        } else if let Some(container_with_buffers) = inner.flush_separated_writes_opt.as_mut() {
+        } else if let Either::Right(container_with_buffers) = inner.captured_writes.as_mut() {
             let mut flushable = if let Some(last_flushable_output) = container_with_buffers.last() {
                 if last_flushable_output.already_flushed_opt.is_some() {
                     FlushableByteOutput::default()
@@ -137,18 +148,15 @@ impl Write for ByteArrayWriter {
             container_with_buffers.push(flushable);
             Ok(buf.len())
         } else {
-            Self::fill_container(&mut inner.byte_array, buf);
+            let bytes = inner.captured_writes.as_mut().left().unwrap();
+            Self::fill_container(bytes, buf);
             Ok(buf.len())
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if let Some(container_with_buffers) = self
-            .inner_arc
-            .lock()
-            .unwrap()
-            .flush_separated_writes_opt
-            .as_mut()
+        if let Either::Right(container_with_buffers) =
+            self.inner_arc.lock().unwrap().captured_writes.as_mut()
         {
             container_with_buffers
                 .last_mut()
@@ -196,25 +204,7 @@ impl Read for ByteArrayReader {
     }
 }
 
-// impl BufRead for ByteArrayReader {
-//     fn fill_buf(&mut self) -> io::Result<&[u8]> {
-//         match self.next_error.take() {
-//             Some(error) => Err(error),
-//             None => Ok(&self.byte_array[self.position..]),
-//         }
-//     }
-//
-//     fn consume(&mut self, amt: usize) {
-//         let result = self.position + amt;
-//         self.position = if result < self.byte_array.len() {
-//             result
-//         } else {
-//             self.byte_array.len()
-//         }
-//     }
-// }
-
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct FlushableByteOutput {
     byte_array: Vec<u8>,
     already_flushed_opt: Option<SystemTime>,
@@ -258,21 +248,21 @@ pub struct FlushedStrings {
 }
 
 impl FlushedStrings {
-    // This may be useful when there are doubts about the sequance of flushed writes collected that
+    // This may be useful when there are doubts about the sequence of flushed writes collected that
     // are collected during a test from multiple sources as it may be otherwise more convenient
-    // in a test to keep distinct writers separate without any hassel with cloning.
+    // in a test to keep distinct writers separate without any hassle with cloning.
 
     // Above all, this should allow even using standard synchronous Mutexes in the mocks even for
-    // async code, as long as we are cereful using the locks only after the testing part itself
+    // async code, as long as we are careful using the locks only after the act-executing test part
     // is over.
 
-    // Not using async Mutexes, if some light rules are sustained, can greatly simplify mantining
-    // test utils
+    // Not using async Mutexes, if certain light rules are sustained, can greatly simplify
+    // maintenance of our test utils
     fn provide_iterator(&mut self) -> &mut IntoIter<FlushedString> {
         if let Either::Left(vec_opt_mut_ref) = self.flushes.as_mut() {
             let vec_opt = vec_opt_mut_ref.take();
             let iterator = vec_opt.unwrap().into_iter();
-            mem::replace(&mut self.flushes, Either::Right(iterator));
+            let _ = mem::replace(&mut self.flushes, Either::Right(iterator));
         }
 
         self.flushes.as_mut().right().unwrap()
@@ -313,7 +303,7 @@ impl Default for AsyncByteArrayWriter {
 impl AsyncWrite for AsyncByteArrayWriter {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        _cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
         let mut inner = self.inner_arc.lock().unwrap();
@@ -321,11 +311,12 @@ impl AsyncWrite for AsyncByteArrayWriter {
             Poll::Ready(Err(next_error))
         } else {
             let buf_size = buf.len();
-            if let Some(vec) = inner.flush_separated_writes_opt.as_mut() {
-                let flushable_output = FlushableByteOutput::new(buf);
-                vec.push(flushable_output)
-            } else {
-                inner.byte_array.extend_from_slice(buf);
+            match inner.captured_writes.as_mut() {
+                Either::Right(flushes_container) => {
+                    let flushable_output = FlushableByteOutput::new(buf);
+                    flushes_container.push(flushable_output)
+                }
+                Either::Left(byte_array) => byte_array.extend_from_slice(buf),
             }
             Poll::Ready(Ok(buf_size))
         }
@@ -346,7 +337,7 @@ impl AsyncWrite for AsyncByteArrayWriter {
 
 pub trait StringAssertionMethods {
     fn get_string(&self) -> String;
-    fn drain_flushed_strings(&self) -> Option<FlushedStrings>;
+    fn drain_flushed_strings(&self) -> FlushedStrings;
 }
 
 impl AsyncByteArrayWriter {
@@ -363,13 +354,20 @@ impl AsyncByteArrayWriter {
     }
     pub fn is_empty(&self) -> bool {
         let lock = self.inner_arc.lock().unwrap();
-        match lock.flush_separated_writes_opt.as_ref() {
-            Some(flushes) => flushes.is_empty(),
-            None => lock.byte_array.is_empty(),
+        match lock.captured_writes.as_ref() {
+            Either::Right(flushes) => flushes.is_empty(),
+            Either::Left(byte_array) => byte_array.is_empty(),
         }
     }
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc.lock().unwrap().byte_array.clone()
+        self.inner_arc
+            .lock()
+            .unwrap()
+            .captured_writes
+            .as_ref()
+            .left()
+            .unwrap()
+            .clone()
     }
     pub fn reject_next_write(&mut self, error: Error) {
         self.inner_arc.lock().unwrap().next_error_opt = Some(error);
@@ -378,12 +376,24 @@ impl AsyncByteArrayWriter {
 
 impl StringAssertionMethods for AsyncByteArrayWriter {
     fn get_string(&self) -> String {
-        String::from_utf8(self.get_bytes()).unwrap()
+        match self.inner_arc.lock().unwrap().captured_writes.as_ref() {
+            Either::Left(bytes) => String::from_utf8(bytes.clone()).unwrap(),
+            Either::Right(flushes) => {
+                let drained = drain_flushes((*flushes).clone());
+                drained.iter().map(|flushed| &flushed.string).join("")
+            }
+        }
     }
-    fn drain_flushed_strings(&self) -> Option<FlushedStrings> {
+    fn drain_flushed_strings(&self) -> FlushedStrings {
         let mut arc = self.inner_arc.lock().unwrap();
-        let outputs = arc.flush_separated_writes_opt.take();
-        drain_flushes(outputs).map(FlushedStrings::from)
+        let outputs = arc
+            .captured_writes
+            .as_mut()
+            .right()
+            .unwrap()
+            .drain(..)
+            .collect();
+        FlushedStrings::from(drain_flushes(outputs))
     }
 }
 
@@ -438,15 +448,70 @@ impl AsyncByteArrayReader {
 pub struct ByteArrayReaderInner {
     byte_arrays: Vec<Vec<u8>>,
     position: usize,
+    // TODO is it ever used somewhat well?
     next_error: Option<Error>,
+    results_initially: usize,
+}
+
+impl HandleToCountReads for ByteArrayReaderInner {
+    fn count_reads(&self) -> usize {
+        self.results_initially - self.byte_arrays.len()
+    }
 }
 
 impl ByteArrayReaderInner {
-    pub fn new(read_inputs: Vec<Vec<u8>>) -> Self {
+    pub fn new(byte_arrays: Vec<Vec<u8>>) -> Self {
+        let results_initially = byte_arrays.len();
         Self {
-            byte_arrays: read_inputs,
-            ..Default::default()
+            byte_arrays,
+            position: 0,
+            next_error: None,
+            results_initially,
         }
+    }
+}
+
+pub struct StdinReadCounter {
+    inner: ReadCounterInner,
+}
+
+impl StdinReadCounter {
+    pub fn new(stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>) -> Self {
+        Self {
+            inner: ReadCounterInner::ReadsEnabled { stdin_access_point },
+        }
+    }
+
+    pub fn reading_not_available() -> Self {
+        Self {
+            inner: ReadCounterInner::ReadingNotAvailable,
+        }
+    }
+
+    pub fn reads_opt(&self) -> Option<usize> {
+        match &self.inner {
+            ReadCounterInner::ReadsEnabled { stdin_access_point } => {
+                Some(stdin_access_point.lock().unwrap().count_reads())
+            }
+            ReadCounterInner::ReadingNotAvailable => None,
+        }
+    }
+}
+
+enum ReadCounterInner {
+    ReadsEnabled {
+        stdin_access_point: Arc<Mutex<dyn HandleToCountReads>>,
+    },
+    ReadingNotAvailable,
+}
+
+pub trait HandleToCountReads {
+    fn count_reads(&self) -> usize;
+}
+
+impl From<&AsyncByteArrayReader> for StdinReadCounter {
+    fn from(value: &AsyncByteArrayReader) -> Self {
+        StdinReadCounter::new(value.byte_array_reader_inner.clone())
     }
 }
 

@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use async_trait::async_trait;
 use itertools::Itertools;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::intentionally_blank;
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use std::fmt::{Display, Formatter};
 use std::io::Error;
 use std::sync::Arc;
@@ -26,9 +26,15 @@ pub enum WriteResult {
 
 #[derive(Debug, PartialEq)]
 pub enum ReadError {
-    ConnectionRefused,
     TerminalOutputInputDisconnected,
-    UnexpectedNewValueFromLibrary,
+}
+
+impl Display for ReadError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadError::TerminalOutputInputDisconnected => write!(f, "IO disconnected"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -65,7 +71,10 @@ impl TerminalWriter {
     }
 }
 
-pub trait WTermInterfaceImplementingSend: WTermInterface + Send {}
+pub trait WTermInterfaceDupAndSend: WTermInterface + Send {
+    fn write_ref(&self) -> &dyn WTermInterface;
+    fn dup(&self) -> Box<dyn WTermInterfaceDupAndSend>;
+}
 
 pub trait WTermInterface {
     fn stdout(&self) -> (TerminalWriter, FlushHandle);
@@ -73,17 +82,13 @@ pub trait WTermInterface {
     arbitrary_id_stamp_in_trait!();
 }
 
-pub trait WTermInterfaceDup: WTermInterface {
-    fn dup(&self) -> Box<dyn WTermInterfaceDup>;
-}
-
 #[async_trait(?Send)]
 pub trait RWTermInterface {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError>;
 
-    fn write_only_ref(&self) -> &dyn WTermInterfaceDup;
+    fn write_only_ref(&self) -> &dyn WTermInterface;
 
-    fn write_only_clone_opt(&self) -> Option<Box<dyn WTermInterfaceDup>>;
+    fn write_only_clone(&self) -> Box<dyn WTermInterfaceDupAndSend>;
 }
 
 #[async_trait]
@@ -95,22 +100,20 @@ pub trait FlushHandleInner: Send + Sync {
     fn stream_type(&self) -> WriteStreamType;
 
     async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
-        let output = self
-            .buffered_strings()
+        let entire_output = self
+            .buffered_distinct_strings()
             .await
             .into_iter()
             .collect::<String>();
-        self.write_internal(output).await
+        self.write_internal(entire_output).await
     }
 
-    async fn buffered_strings(&mut self) -> Vec<String> {
+    async fn buffered_distinct_strings(&mut self) -> Vec<String> {
         let mut vec = vec![];
         loop {
             match self.output_chunks_receiver_ref_mut().try_recv() {
                 Ok(output_fragment) => vec.push(output_fragment),
-                // TODO maybe you want to write something like: "incompletely flushed: {:?}", e....
-                // mainly because some err is okay some bad ...
-                Err(e) => break todo!(),
+                Err(_) => break,
             }
         }
         vec
@@ -184,7 +187,7 @@ impl Drop for FlushHandle {
 mod tests {
     use crate::terminal::test_utils::FlushHandleInnerMock;
     use crate::terminal::writing_utils::ArcMutexFlushHandleInner;
-    use crate::terminal::{FlushHandle, TerminalWriter, WriteResult, WriteStreamType};
+    use crate::terminal::{FlushHandle, ReadError, TerminalWriter, WriteResult, WriteStreamType};
     use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -257,6 +260,14 @@ mod tests {
         assert_eq!(
             panic_msg,
             "Flushing Stderr stream failed due to: OSError(Kind(Other))"
+        )
+    }
+
+    #[test]
+    fn read_error_implements_display() {
+        assert_eq!(
+            ReadError::TerminalOutputInputDisconnected.to_string(),
+            "IO disconnected"
         )
     }
 }

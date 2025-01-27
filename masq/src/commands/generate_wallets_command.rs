@@ -356,10 +356,8 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::terminal::test_utils::{
-        allow_in_test_spawned_task_to_finish, wait_for_write_to_finish,
-    };
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::{allow_writtings_to_finish, wait_for_write_to_finish};
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
     };
@@ -846,7 +844,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -890,7 +888,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -923,7 +921,7 @@ mod tests {
     #[tokio::test]
     async fn response_with_mnemonic_phrase_is_processed() {
         let mut context = CommandContextMock::new();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, mut stdout_flush_handle) = term_interface.stdout();
         let (stderr, mut stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
@@ -942,7 +940,7 @@ mod tests {
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_flushed_strings(),
@@ -961,7 +959,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
     #[tokio::test]
     async fn response_without_mnemonic_phrase_is_processed() {
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
@@ -976,7 +974,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_all_in_one(),
@@ -1007,7 +1005,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
             }
             .tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -1023,7 +1021,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

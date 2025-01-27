@@ -96,8 +96,8 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
     };
@@ -136,7 +136,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = SetConfigurationCommand {
             name: "start-block".to_string(),
             value: "123456".to_string(),
@@ -146,7 +146,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

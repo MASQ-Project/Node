@@ -191,8 +191,10 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::terminal::test_utils::allow_in_test_spawned_task_to_finish;
-    use crate::test_utils::mocks::{make_terminal_writer, CommandContextMock, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::test_utils::mocks::{
+        make_terminal_writer, CommandContextMock, MockTerminalMode, TermInterfaceMock,
+    };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{
@@ -242,7 +244,7 @@ mod tests {
                 errors: vec![],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -261,7 +263,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -312,7 +314,7 @@ scans                         off                                               
                 errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new(None);
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -329,7 +331,7 @@ scans                         off                                               
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_in_test_spawned_task_to_finish().await;
+        allow_writtings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

@@ -22,6 +22,8 @@ use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use url::Url;
+#[cfg(test)]
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {
