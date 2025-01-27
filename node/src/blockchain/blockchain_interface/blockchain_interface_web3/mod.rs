@@ -214,7 +214,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                 response.clone(),
                                 hash
                             );
-                            return match response {
+                            match response {
                                 Ok(result) => {
                                     match serde_json::from_value::<TransactionReceipt>(result) {
                                         Ok(receipt) => {
@@ -233,7 +233,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                                     }
                                 }
                                 Err(e) => TransactionReceiptResult::LocalError(e.to_string()),
-                            };
+                            }
                         })
                         .collect::<Vec<TransactionReceiptResult>>())
                 }),
