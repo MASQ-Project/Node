@@ -1,6 +1,6 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::clap_behind_entrance::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
+use crate::clap_before_entrance::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
 use crate::command_context_factory::{CommandContextFactory, CommandContextFactoryReal};
 use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
 use crate::command_factory::{CommandFactory, CommandFactoryReal};
@@ -17,7 +17,7 @@ use crate::terminal::terminal_interface_factory::{
     TerminalInterfaceFactory, TerminalInterfaceFactoryReal,
 };
 use crate::terminal::{RWTermInterface, WTermInterface};
-use crate::write_async_stream_and_flush;
+use crate::{masq_short_writeln, write_async_stream_and_flush};
 use async_trait::async_trait;
 use itertools::Either;
 use std::io::Write;
@@ -60,7 +60,13 @@ impl Main {
             .await
         {
             CLIProgramEntering::Enter(init_args) => init_args,
-            CLIProgramEntering::Leave(exit_code) => todo!(),
+            CLIProgramEntering::Leave(exit_code) => {
+                write_async_stream_and_flush!(
+                    incidental_streams.stderr,
+                    "Incorrect arguments for MASQ, it is terminating...\n"
+                );
+                return exit_code;
+            }
         };
         let initial_subcommand_opt = Self::extract_subcommand(args);
         let term_interface = self.term_interface_factory.make(
@@ -161,7 +167,7 @@ impl Main {
 #[derive(Debug)]
 pub enum CLIProgramEntering {
     Enter(InitializationArgs),
-    Leave(i32),
+    Leave(u8),
 }
 
 #[cfg(test)]
@@ -650,6 +656,42 @@ mod tests {
             SetupCommand { values: vec![] }
         );
         assert!(command_execution_params.is_empty())
+    }
+
+    #[tokio::test]
+    async fn masq_terminates_because_wrong_initial_args_cause_immediate_halt() {
+        let (incidental_std_streams, incidental_std_stream_handles) =
+            make_async_std_streams(vec![]);
+        let std_streams_factory =
+            AsyncStdStreamsFactoryMock::default().make_result(incidental_std_streams);
+        let mut subject = Main {
+            std_streams_factory: Box::new(std_streams_factory),
+            initial_args_parser: Box::new(InitialArgsParserReal::default()),
+            term_interface_factory: Box::new(TerminalInterfaceFactoryMock::default()),
+            command_factory_opt: Some(Box::new(CommandFactoryMock::default())),
+            command_context_factory: Box::new(CommandContextFactoryMock::default()),
+            command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryMock::default()),
+            command_processor_factory: Default::default(),
+        };
+
+        let result = subject
+            .go(&[
+                "masq".to_string(),
+                "--ui-puerto-rico".to_string(),
+                "10000".to_string(),
+            ])
+            .await;
+
+        assert_eq!(result, 1);
+        incidental_std_stream_handles.assert_empty_stdout();
+        let mut stderr_flushes = incidental_std_stream_handles.stderr_flushed_strings();
+        let first_msg = stderr_flushes.remove(0);
+        assert!(first_msg.contains("unexpected argument '--ui-puerto-rico' found"));
+        let second_msg = stderr_flushes.remove(0);
+        assert_eq!(
+            second_msg,
+            "Incorrect arguments for MASQ, it is terminating...\n"
+        )
     }
 
     #[test]

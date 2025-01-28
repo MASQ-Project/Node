@@ -119,7 +119,7 @@ impl CommandContextReal {
         bootstrapper: CMBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = bootstrapper
-            .establish_connection_manager(daemon_ui_port, terminal_interface_opt, 5000)
+            .establish_connection_manager(daemon_ui_port, terminal_interface_opt)
             .await;
 
         let connection = match result {
@@ -137,7 +137,7 @@ mod tests {
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
-    use crate::communications::broadcast_handlers::BroadcastHandleInactive;
+    use crate::communications::broadcast_handlers::StandardBroadcastHandleInactive;
     use crate::test_utils::mocks::StandardBroadcastHandlerFactoryMock;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};

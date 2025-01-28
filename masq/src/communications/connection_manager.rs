@@ -2,7 +2,6 @@
 
 use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, BroadcastHandles, RedirectBroadcastHandle,
-    RedirectBroadcastHandleFactory, RedirectBroadcastHandleFactoryReal,
     StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::client_listener_thread::{
@@ -39,7 +38,7 @@ use workflow_websocket::client::{
 };
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
-pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
+pub const STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS: u64 = 1000;
 pub const FALLBACK_TIMEOUT_MILLIS: u64 = 5000; //used to be 1000; but we have suspicion that Actions doesn't make it and needs more
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,7 +79,6 @@ pub enum ServicesDeploymentError {
 
 pub struct CMBootstrapper {
     pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-    pub redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
     pub ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
 }
 
@@ -88,7 +86,6 @@ impl Default for CMBootstrapper {
     fn default() -> Self {
         Self::new(
             Box::new(StandardBroadcastHandlerFactoryReal::default()),
-            Box::new(RedirectBroadcastHandleFactoryReal::default()),
             Arc::new(WSHandshakeHandlerFactoryReal::default()),
         )
     }
@@ -97,12 +94,10 @@ impl Default for CMBootstrapper {
 impl CMBootstrapper {
     fn new(
         standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-        redirect_broadcast_handle_factory: Box<dyn RedirectBroadcastHandleFactory>,
         ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
     ) -> Self {
         Self {
             standard_broadcast_handler_factory,
-            redirect_broadcast_handle_factory,
             ws_handshake_handler_factory_arc,
         }
     }
@@ -111,22 +106,20 @@ impl CMBootstrapper {
         self,
         port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
-        timeout_millis: u64,
     ) -> Result<ConnectionManager, ServicesDeploymentError> {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let close_sync_flag = SyncCloseFlag::default();
         let (async_close_signal_tx, async_close_signal_rx) = tokio::sync::broadcast::channel(10);
         let close_sig = ClosingStageDetector::new(async_close_signal_rx, close_sync_flag.clone());
         let close_sig_client_listener = close_sig.dup_receiver();
-        //TODO how should I test that all these channels are interconnected?
         let close_sig_standard_broadcast_handler = close_sig.dup_receiver();
 
-        let ws_client_handle = match spawn_client_listener(
+        let ws_client_handle = match establish_client_listener(
             port,
             listener_to_manager_tx,
             close_sig_client_listener,
             self.ws_handshake_handler_factory_arc.clone(),
-            timeout_millis,
+            STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS,
         )
         .await
         {
@@ -151,7 +144,7 @@ impl CMBootstrapper {
         let broadcast_handles =
             BroadcastHandles::new(standard_broadcast_handler, redirect_broadcast_handle);
 
-        let inner = CMDepartment {
+        let inner = ConnectionDepartment {
             active_port_opt: Some(port),
             daemon_port: port,
             node_port_opt: None,
@@ -233,6 +226,7 @@ pub struct ConnectionManager {
     internal_communications: CMChannelsToSubordinates,
     closing_signaler: CloseSignaler,
     central_even_loop_join_handle: JoinHandle<()>,
+    timeouts: Timeouts,
 }
 
 impl ConnectionManager {
@@ -245,6 +239,7 @@ impl ConnectionManager {
             internal_communications,
             closing_signaler,
             central_even_loop_join_handle,
+            timeouts: Timeouts::default(),
         }
     }
 
@@ -255,21 +250,15 @@ impl ConnectionManager {
             .expect("ConnectionManagerThread is dead");
         let mut receivers = self.internal_communications.receivers_mut();
         let request_fut = receivers.active_port_response_rx.recv();
-        // (Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS))
-        // {
-        //     Ok(ui_port_opt) => ui_port_opt,
-        // Err(RecvTimeoutError::Timeout) => panic!("ConnectionManager is not responding"),
-        //     // None => panic!("ConnectionManager is disconnected"),
-        // };
-        match tokio::time::timeout(
-            Duration::from_millis(COMPONENT_RESPONSE_TIMEOUT_MILLIS),
-            request_fut,
-        )
-        .await
-        {
+        let timeout = self.timeouts.component_response_millis;
+
+        match tokio::time::timeout(Duration::from_millis(timeout), request_fut).await {
             Ok(Some(active_port_opt)) => active_port_opt,
-            Ok(None) => todo!(),
-            Err(elapsed) => todo!(),
+            Ok(None) => panic!("active_ui_port(): ConnectionManager is disconnected"),
+            Err(_) => panic!(
+                "active_ui_port(): ConnectionManager is not responding after {} ms",
+                timeout
+            ),
         }
     }
 
@@ -295,20 +284,19 @@ impl ConnectionManager {
     }
 }
 
-async fn spawn_client_listener(
+async fn establish_client_listener(
     port: u16,
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     close_sig_rx: BroadcastReceiver<()>,
     ws_handshake_handler_factory: Arc<dyn WSHandshakeHandlerFactory>,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
-    let connection_initiator =
+    let conn_initiator =
         WSClientConnectionInitiator::new(port, timeout_millis, ws_handshake_handler_factory);
 
-    let ws = match connection_initiator.connect_with_timeout().await {
+    let ws = match conn_initiator.connect_with_timeout().await {
         Ok(ws) => ws,
-        Err(Error::NotConnected) => todo!(), //return Err(ClientListenerError::Closed),
-        Err(Error::ConnectionTimeout) => todo!(), // return Err(ClientListenerError::Timeout),
+        Err(Error::ConnectionTimeout) => todo!(), // (format!("WS connect: Client reached global timeout after {} ms", self.global_timeout.as_millis()))),
         Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
 
@@ -320,7 +308,7 @@ async fn spawn_client_listener(
     Ok(talker_half)
 }
 
-struct CMDepartment {
+struct ConnectionDepartment {
     active_port_opt: Option<u16>,
     daemon_port: u16,
     node_port_opt: Option<u16>,
@@ -345,7 +333,7 @@ struct CMDepartment {
 pub struct CentralEventLoop {}
 
 impl CentralEventLoop {
-    fn spawn(mut inner: CMDepartment) -> JoinHandle<()> {
+    fn spawn(mut inner: ConnectionDepartment) -> JoinHandle<()> {
         tokio::task::spawn(async move {
             loop {
                 match inner.active_port_opt {
@@ -362,7 +350,7 @@ impl CentralEventLoop {
         })
     }
 
-    async fn loop_guts(mut inner: CMDepartment) -> Option<CMDepartment> {
+    async fn loop_guts(mut inner: ConnectionDepartment) -> Option<ConnectionDepartment> {
         tokio::select! {
             demand_result = inner.demand_rx.recv() => Self::handle_demand (inner, demand_result).await,
             message_body_result_result = inner.conversations_to_manager_rx.recv() => Some(Self::handle_outgoing_message_body (inner, message_body_result_result).await),
@@ -372,9 +360,9 @@ impl CentralEventLoop {
     }
 
     async fn handle_demand(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         demand_opt: Option<Demand>,
-    ) -> Option<CMDepartment> {
+    ) -> Option<ConnectionDepartment> {
         match demand_opt {
             Some(Demand::Conversation) => Some(Self::handle_conversation_trigger(inner)),
             Some(Demand::ActivePort) => Some(Self::handle_active_port_request(inner)),
@@ -389,7 +377,7 @@ impl CentralEventLoop {
         }
     }
 
-    fn handle_conversation_trigger(mut inner: CMDepartment) -> CMDepartment {
+    fn handle_conversation_trigger(mut inner: ConnectionDepartment) -> ConnectionDepartment {
         let (manager_to_conversation_tx, manager_to_conversation_rx) = async_channel::unbounded();
         let context_id = inner.next_context_id;
         inner.next_context_id += 1;
@@ -412,9 +400,9 @@ impl CentralEventLoop {
     }
 
     async fn handle_incoming_message_body(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         msg_result_opt: Option<Result<MessageBody, ClientListenerError>>,
-    ) -> CMDepartment {
+    ) -> ConnectionDepartment {
         match msg_result_opt {
             Some(msg_result) => match msg_result {
                 Ok(message_body) => match message_body.path {
@@ -459,11 +447,11 @@ impl CentralEventLoop {
     }
 
     async fn handle_outgoing_message_body(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         msg_opt: Result<OutgoingMessageType, RecvError>,
-    ) -> CMDepartment {
+    ) -> ConnectionDepartment {
         match msg_opt {
-            Err(e) => todo!(),
+            Err(_) => panic!("Conversations to manager channel died unexpectedly"),
             Ok(OutgoingMessageType::ConversationMessage (message_body)) => match message_body.path {
                 MessagePath::Conversation(context_id) => {
                     if let Some(_) = inner.conversations.get(&context_id){
@@ -477,7 +465,8 @@ impl CentralEventLoop {
                             },
                         }
                     }
-                // TODO we shouldn't probably only ignore that we did not find a conversation that definitely should've been triggered elsewhere
+                // TODO we probably shouldn't only ignore that we didn't find a conversation that
+                // must've been triggered somehow; however, we don't have logging in here
                 },
                 MessagePath::FireAndForget => panic!("NodeConversation should have prevented sending a FireAndForget message with transact()"),
             },
@@ -509,15 +498,15 @@ impl CentralEventLoop {
     }
 
     async fn handle_redirect_order(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         redirect_order_opt: Option<RedirectOrder>,
-    ) -> CMDepartment {
+    ) -> ConnectionDepartment {
         let redirect_order = match redirect_order_opt {
             Some(ro) => ro,
             None => return inner, // Sender died; ignore
         };
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let talker_half = match spawn_client_listener(
+        let talker_half = match establish_client_listener(
             redirect_order.port,
             listener_to_manager_tx,
             inner.close_sig.async_signal.resubscribe(),
@@ -560,7 +549,7 @@ impl CentralEventLoop {
         inner
     }
 
-    fn handle_active_port_request(inner: CMDepartment) -> CMDepartment {
+    fn handle_active_port_request(inner: ConnectionDepartment) -> ConnectionDepartment {
         inner
             .active_port_response_tx
             .send(inner.active_port_opt)
@@ -568,15 +557,15 @@ impl CentralEventLoop {
         inner
     }
 
-    async fn handle_close(mut inner: CMDepartment) {
+    async fn handle_close(mut inner: ConnectionDepartment) {
         let _ = inner.ws_client_handle.disconnect().await;
         let _ = inner.ws_client_handle.close_talker_half();
     }
 
     async fn fallback(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         termination: NodeConversationTermination,
-    ) -> CMDepartment {
+    ) -> ConnectionDepartment {
         inner.node_port_opt = None;
         match &inner.active_port_opt {
             None => {
@@ -592,7 +581,7 @@ impl CentralEventLoop {
         }
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         inner.listener_to_manager_rx = listener_to_manager_rx;
-        match spawn_client_listener(
+        match establish_client_listener(
             inner.active_port_opt.expect("Active port disappeared!"),
             listener_to_manager_tx,
             inner.close_sig.dup_receiver(),
@@ -610,9 +599,9 @@ impl CentralEventLoop {
     }
 
     async fn disappoint_waiting_conversations(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         error: NodeConversationTermination,
-    ) -> CMDepartment {
+    ) -> ConnectionDepartment {
         join_all(inner.conversations_waiting.iter().map(|context_id| {
             inner
                 .conversations
@@ -626,9 +615,9 @@ impl CentralEventLoop {
     }
 
     async fn disappoint_all_conversations(
-        mut inner: CMDepartment,
+        mut inner: ConnectionDepartment,
         error: NodeConversationTermination,
-    ) -> CMDepartment {
+    ) -> ConnectionDepartment {
         join_all(
             inner
                 .conversations
@@ -641,7 +630,7 @@ impl CentralEventLoop {
         inner
     }
 
-    fn send_daemon_crashed(inner: &CMDepartment) {
+    fn send_daemon_crashed(inner: &ConnectionDepartment) {
         let crash_msg = UiNodeCrashedBroadcast {
             process_id: 0,
             crash_reason: CrashReason::DaemonCrashed,
@@ -723,21 +712,28 @@ impl SyncCloseFlag {
     }
 }
 
+struct Timeouts {
+    component_response_millis: u64,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            component_response_millis: COMPONENT_RESPONSE_TIMEOUT_MILLIS,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communications::client_listener_thread::WSClientHandleReal;
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
-    use crate::test_utils::mocks::{
-        RedirectBroadcastHandleFactoryMock, StandardBroadcastHandlerFactoryMock,
-        StandardBroadcastHandlerMock, WSClientHandleMock, WSClientHandshakeAlwaysAcceptingHandler,
-    };
+    use crate::test_utils::mocks::WSClientHandleMock;
     use async_channel::TryRecvError;
-    use futures::stream::FusedStream;
-    use futures::{SinkExt, Stream, StreamExt};
+    use futures::SinkExt;
     use masq_lib::messages::{
-        CrashReason, FromMessageBody, ToMessageBody, UiDescriptorRequest, UiFinancialStatistics,
-        UiNodeCrashedBroadcast, UiSetupBroadcast,
+        CrashReason, FromMessageBody, ToMessageBody, UiFinancialStatistics, UiNodeCrashedBroadcast,
+        UiSetupBroadcast,
     };
     use masq_lib::messages::{
         UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest, UiSetupResponse,
@@ -754,20 +750,14 @@ mod tests {
         WSHandshakeHandlerFactoryMock,
     };
     use masq_lib::utils::{find_free_port, localhost, running_test};
-    use masq_lib::websockets_handshake::MASQClientWSHandshakeHandler;
     use std::hash::Hash;
     use std::net::SocketAddr;
-    use std::process::Termination;
     use std::sync::{Arc, Mutex};
-    use std::thread;
     use std::thread::spawn;
     use std::time::{Duration, SystemTime};
     use tokio::net::TcpListener;
-    use tokio::runtime::Runtime;
-    use tokio::select;
-    use tokio::sync::mpsc::error::TryRecvError as TokioTryRecvError;
     use tokio::task::JoinError;
-    use tokio_tungstenite::{client_async, tungstenite};
+    use tokio_tungstenite::accept_async;
 
     impl ConnectionManager {
         pub fn is_closing(&self) -> bool {
@@ -801,7 +791,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(COMPONENT_RESPONSE_TIMEOUT_MILLIS, 100);
-        assert_eq!(REDIRECT_TIMEOUT_MILLIS, 500);
+        assert_eq!(STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS, 1000);
         assert_eq!(FALLBACK_TIMEOUT_MILLIS, 5000);
     }
 
@@ -824,7 +814,7 @@ mod tests {
         }
 
         async fn wait_to_finish(&self) -> Result<(), JoinError> {
-            todo!()
+            unimplemented!("not needed")
         }
     }
 
@@ -841,10 +831,19 @@ mod tests {
         let port = server.port();
         let stop_handle = server.start().await;
         let subject = CMBootstrapper::default()
-            .establish_connection_manager(port, None, 1000)
+            .establish_connection_manager(port, None)
             .await
             .unwrap();
         (subject, stop_handle)
+    }
+
+    #[tokio::test]
+    async fn connection_manager_attributes_are_properly_set_up() {
+        let server = MockWebSocketsServer::new(find_free_port());
+
+        let (manager, _) = make_subject(server).await;
+
+        assert_eq!(manager.timeouts.component_response_millis, 100)
     }
 
     #[tokio::test]
@@ -973,7 +972,7 @@ mod tests {
         let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = spawn_client_listener(
+        let client_listener_handle = establish_client_listener(
             port,
             listener_to_manager_tx.clone(),
             close_sig.async_signal,
@@ -1002,7 +1001,7 @@ mod tests {
         inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let conversation2 = conversation_return_rx.try_recv().unwrap();
         let (conversation2_tx, mut conversation2_rx) = conversation2.tx_rx();
-        let get_existing_keys = |inner: &CMDepartment| {
+        let get_existing_keys = |inner: &ConnectionDepartment| {
             inner
                 .conversations
                 .iter()
@@ -1255,7 +1254,7 @@ mod tests {
         .await;
 
         wait_on_establishing_connection(inner.ws_client_handle.as_ref()).await;
-        let get_existing_keys = |inner: &CMDepartment| {
+        let get_existing_keys = |inner: &ConnectionDepartment| {
             inner
                 .conversations
                 .iter()
@@ -1444,8 +1443,9 @@ mod tests {
         //         BroadcastHandleMock::default().send_params(&send_params_arc),
         //     )),
         // );
+        todo!("this test needs to be fixed...here a terminal interface should be given");
         let mut subject = bootstrapper
-            .establish_connection_manager(daemon_port, None, 1000)
+            .establish_connection_manager(daemon_port, None)
             .await
             .unwrap();
         daemon_stop_handle.await_conn_established(None).await;
@@ -1542,7 +1542,7 @@ mod tests {
         let stop_handle = server.start().await;
         let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = spawn_client_listener(
+        let client_listener_handle = establish_client_listener(
             port,
             listener_to_manager_tx.clone(),
             close_sig.async_signal,
@@ -1730,7 +1730,7 @@ mod tests {
         let server_handle = server.start().await;
         let mut bootstrapper = CMBootstrapper::default();
         let mut subject = bootstrapper
-            .establish_connection_manager(port, None, 1500)
+            .establish_connection_manager(port, None)
             .await
             .unwrap();
         server_handle.await_conn_established(None).await;
@@ -1758,12 +1758,99 @@ mod tests {
         subject.central_even_loop_join_handle.await.unwrap();
     }
 
-    async fn make_inner() -> CMDepartment {
+    #[tokio::test]
+    async fn establish_client_listener_times_out() {
+        let port = find_free_port();
+        let (tx, rx) = unbounded_channel();
+        let (close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+        let timeout_ms = 10;
+        todo!("fix this...why don't we disconnect, but it's hanging???");
+        let _server = tokio::task::spawn(async move {
+            let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
+                .await
+                .unwrap();
+            let (tcp, _) = listener.accept().await.unwrap();
+            accept_async(tcp).await.unwrap()
+        });
+
+        let result = establish_client_listener(
+            port,
+            tx,
+            close_rx,
+            Arc::new(WSHandshakeHandlerFactoryReal::default()),
+            timeout_ms,
+        )
+        .await;
+
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("We expected an error but got ok"),
+        };
+        assert_eq!(err, ClientListenerError::Timeout { elapsed_ms: 1 })
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Conversations to manager channel died unexpectedly")]
+    async fn handle_outgoing_message_body_detects_dead_channel() {
+        let inner = make_inner().await;
+
+        let _ = CentralEventLoop::handle_outgoing_message_body(inner, Err(RecvError)).await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "active_ui_port(): ConnectionManager is disconnected")]
+    async fn active_ui_port_in_connection_manager_senses_dead_channel() {
+        let (demand_tx, _demand_rx) = unbounded_channel();
+        let mut connection_manager = make_disconnected_subject();
+        connection_manager.internal_communications.demand_tx = demand_tx;
+
+        let _ = connection_manager.active_ui_port().await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "active_ui_port(): ConnectionManager is not responding after 10 ms")]
+    async fn active_ui_port_demand_times_out() {
+        let (demand_tx, _demand_rx) = unbounded_channel();
+        let (_active_port_response_tx, active_port_response_rx) = unbounded_channel();
+        let mut connection_manager = make_disconnected_subject();
+        connection_manager.internal_communications.demand_tx = demand_tx;
+        connection_manager
+            .internal_communications
+            .response_receivers
+            .borrow_mut()
+            .active_port_response_rx = active_port_response_rx;
+        connection_manager.timeouts.component_response_millis = 10;
+
+        let _ = connection_manager.active_ui_port().await;
+    }
+
+    fn make_disconnected_subject() -> ConnectionManager {
+        let (demand_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (_, conversation_return_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_, redirect_response_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (_, active_port_response_rx) = tokio::sync::mpsc::unbounded_channel();
+        let internal_communications = CMChannelsToSubordinates::new(
+            demand_tx,
+            conversation_return_rx,
+            redirect_response_rx,
+            active_port_response_rx,
+        );
+        let meaningless_spawn_handle = tokio::spawn(async {});
+        let (close_signaler, _) = ClosingStageDetector::make_for_test();
+
+        ConnectionManager::new(
+            internal_communications,
+            close_signaler,
+            meaningless_spawn_handle,
+        )
+    }
+
+    async fn make_inner() -> ConnectionDepartment {
         let broadcast_handles = BroadcastHandles::new(
             Box::new(BroadcastHandleMock::default()),
             Box::new(BroadcastHandleMock::default()),
         );
-        CMDepartment {
+        ConnectionDepartment {
             active_port_opt: Some(0),
             daemon_port: 0,
             node_port_opt: None,
@@ -1803,40 +1890,6 @@ mod tests {
             }
         }
     }
-
-    // async fn make_broken_talker_half() -> WSClientHandle {
-    //     let port = find_free_port();
-    //     let server = MockWebSocketsServer::new(port);
-    //     let stop_handle = server.start().await;
-    //     let client_listener_handle =
-    //         spawn_client_listener_handler_with_meaningless_event_loop_handle(port).await;
-    //     while !client_listener_handle.is_connection_open() {
-    //         tokio::time::sleep(Duration::from_millis(1)).await
-    //     }
-    //     let _ = stop_handle.kill(None).await;
-    //     while client_listener_handle
-    //         .send(Message::Text(UiTrafficConverter::new_marshal(
-    //             UiDescriptorRequest {}.tmb(12),
-    //         )))
-    //         .await
-    //         .is_ok()
-    //     {
-    //         tokio::time::sleep(Duration::from_millis(50)).await
-    //     }
-    //     client_listener_handle
-    // }
-
-    // async fn spawn_client_listener_handler_with_meaningless_event_loop_handle(
-    //     port: u16,
-    // ) -> WSClientHandle {
-    //     let (websocket, talker_half, _) = websocket_utils_with_masq_handshake(port).await;
-    //     let meaningless_spawn_handle = tokio::task::spawn(async {
-    //         loop {
-    //             tokio::time::sleep(Duration::from_millis(1000)).await;
-    //         }
-    //     });
-    //     WSClientHandle::new(websocket, meaningless_spawn_handle)
-    // }
 
     fn vec_to_set<T>(vec: Vec<T>) -> HashSet<T>
     where

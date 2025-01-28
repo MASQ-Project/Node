@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::clap_behind_entrance::{InitialArgsParser, InitializationArgs};
+use crate::clap_before_entrance::{InitialArgsParser, InitializationArgs};
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
@@ -11,8 +11,7 @@ use crate::command_processor::{
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::{
-    BroadcastHandle, BroadcastHandler, RedirectBroadcastHandleFactory,
-    StandardBroadcastHandlerFactory,
+    BroadcastHandle, BroadcastHandler, StandardBroadcastHandlerFactory,
 };
 use crate::communications::client_listener_thread::WSClientHandle;
 use crate::communications::connection_manager::{
@@ -698,28 +697,6 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryMock {
 
 impl StandardBroadcastHandlerFactoryMock {
     pub fn make_result(self, result: Box<dyn BroadcastHandler<MessageBody>>) -> Self {
-        self.make_results.lock().unwrap().push(result);
-        self
-    }
-}
-
-#[derive(Default)]
-pub struct RedirectBroadcastHandleFactoryMock {
-    make_params: Arc<Mutex<Vec<UnboundedSender<RedirectOrder>>>>,
-    make_results: Arc<Mutex<Vec<Box<dyn BroadcastHandle<RedirectOrder>>>>>,
-}
-
-impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryMock {
-    fn make(
-        &self,
-        redirect_order_tx: UnboundedSender<RedirectOrder>,
-    ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
-        self.make_results.lock().unwrap().remove(0)
-    }
-}
-
-impl RedirectBroadcastHandleFactoryMock {
-    pub fn make_result(self, result: Box<dyn BroadcastHandle<RedirectOrder>>) -> Self {
         self.make_results.lock().unwrap().push(result);
         self
     }

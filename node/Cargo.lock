@@ -2508,9 +2508,9 @@ checksum = "969488b55f8ac402214f3f5fd243ebb7206cf82de60d3172994707a4bcc2b829"
 
 [[package]]
 name = "liso"
-version = "1.2.1"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75d50ed3d0cf00a27948ce99d3ebb15e600952e258250660098d4f91a2dc7a67"
+checksum = "656a1b35cfb4d9b7996aece009ba655d0c7f7d48be11d4eef57f6d4fa9d7d2c6"
 dependencies = [
  "bitflags 2.5.0",
  "crossterm",
