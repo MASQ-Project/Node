@@ -133,7 +133,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         match Self::handle_transaction_logs(logs_result, &logger) {
                             Err(e) => Err(e),
                             Ok(transactions) => {
-                                let new_start_block = Self::find_new_start_block(&transactions, start_block_marker, end_block_marker, &logger);
+                                let new_start_block = Self::find_new_start_block(&transactions, start_block_marker, &logger);
 
                                 Ok(RetrievedBlockchainTransactions {
                                     new_start_block,
@@ -333,28 +333,22 @@ impl BlockchainInterfaceWeb3 {
     fn find_new_start_block(
         transactions: &[BlockchainTransaction],
         start_block_marker: BlockMarker,
-        end_block_marker: BlockMarker,
         logger: &Logger,
     ) -> u64 {
-        match end_block_marker {
-            BlockMarker::Value(end_block_number) => end_block_number + 1,
-            BlockMarker::Uninitialized => {
-                match Self::find_highest_block_marker_from_txs(transactions) {
-                    BlockMarker::Value(block_number) => {
-                        debug!(
-                            logger,
-                            "Discovered new start block number from transaction logs: {:?}",
-                            block_number + 1
-                        );
+        match Self::find_highest_block_marker_from_txs(transactions) {
+            BlockMarker::Value(block_number) => {
+                debug!(
+                    logger,
+                    "Discovered new start block number from transaction logs: {:?}",
+                    block_number + 1
+                );
 
-                        block_number + 1
-                    }
-                    BlockMarker::Uninitialized => match start_block_marker {
-                        BlockMarker::Value(start_block) => start_block + 1,
-                        BlockMarker::Uninitialized => FRESH_START_BLOCK,
-                    },
-                }
+                block_number + 1
             }
+            BlockMarker::Uninitialized => match start_block_marker {
+                BlockMarker::Value(start_block) => start_block,
+                BlockMarker::Uninitialized => FRESH_START_BLOCK,
+            },
         }
     }
 
@@ -570,7 +564,7 @@ mod tests {
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 42 + 1000 + 1,
+                new_start_block: 49,
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 46,
@@ -611,7 +605,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1543664,
+                new_start_block: 42,
                 transactions: vec![]
             })
         );
@@ -689,7 +683,6 @@ mod tests {
         )
         .unwrap();
 
-        let end_block_nbr = 1025u64;
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
@@ -706,7 +699,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: end_block_nbr,
+                new_start_block: 42,
                 transactions: vec![]
             })
         );
@@ -738,7 +731,7 @@ mod tests {
             )
             .wait();
 
-        let expected_start_block = fallback_number + 1u64;
+        let expected_start_block = fallback_number;
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
@@ -1136,43 +1129,23 @@ mod tests {
 
         // Case 1: end_block_marker is Value
         assert_eq!(
-            Subject::find_new_start_block(
-                &[],
-                BlockMarker::Uninitialized,
-                BlockMarker::Value(100),
-                &logger
-            ),
-            101
+            Subject::find_new_start_block(&[], BlockMarker::Uninitialized, &logger),
+            FRESH_START_BLOCK
         );
-        // Case 2: end_block_marker is Uninitialized, highest block in transactions is Value
+        // Case 2: Highest block in transactions is Uninitialized, start_block_marker is Value
         assert_eq!(
-            Subject::find_new_start_block(
-                &transactions,
-                BlockMarker::Uninitialized,
-                BlockMarker::Uninitialized,
-                &logger
-            ),
+            Subject::find_new_start_block(&[], BlockMarker::Value(1), &logger),
+            1
+        );
+        // Case 3: start_block_marker is Uninitialized, highest block in transactions is Value
+        assert_eq!(
+            Subject::find_new_start_block(&transactions, BlockMarker::Uninitialized, &logger),
             61
         );
-        // Case 3: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Value
+        // Case 4: start_block_marker is set, highest block in transactions is Value
         assert_eq!(
-            Subject::find_new_start_block(
-                &[],
-                BlockMarker::Value(50),
-                BlockMarker::Uninitialized,
-                &logger
-            ),
-            51
-        );
-        // Case 4: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Uninitialized
-        assert_eq!(
-            Subject::find_new_start_block(
-                &[],
-                BlockMarker::Uninitialized,
-                BlockMarker::Uninitialized,
-                &logger
-            ),
-            FRESH_START_BLOCK
+            Subject::find_new_start_block(&transactions, BlockMarker::Value(1), &logger),
+            61
         );
     }
 }
