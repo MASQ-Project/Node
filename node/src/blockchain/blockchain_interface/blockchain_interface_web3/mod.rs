@@ -200,9 +200,18 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         transaction_hashes: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
         let logger = self.logger.clone();
+        trace!(
+            logger,
+            "Process Transaction Receipts - transaction_hashes: {:?}",
+            transaction_hashes
+        );
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(transaction_hashes.clone())
+                .map_err(move |e| {
+                    debug!(logger, "Process Transaction Receipts - error: {:?}", e);
+                    e
+                })
                 .and_then(move |batch_response| {
                     Ok(batch_response
                         .into_iter()

@@ -82,6 +82,7 @@ pub enum BlockMarker {
     Value(u64),
 }
 
+// TODO: Look into this regarding the start_block - BlockNumber::Latest could be unwise for the start_block?
 impl From<BlockMarker> for BlockNumber {
     fn from(marker: BlockMarker) -> Self {
         match marker {
