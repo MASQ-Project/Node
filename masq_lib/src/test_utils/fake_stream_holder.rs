@@ -26,7 +26,7 @@ pub struct ByteArrayWriterInner {
 
 impl ByteArrayWriterInner {
     fn new(flush_cautious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
-        let captured_writes = match flush_conscious_mode {
+        let captured_writes = match flush_cautious_mode {
             false => Either::Left(vec![]),
             true => Either::Right(vec![]),
         };

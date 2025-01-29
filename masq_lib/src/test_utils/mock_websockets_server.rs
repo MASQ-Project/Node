@@ -629,7 +629,18 @@ mod tests {
         UiNewPasswordBroadcast, UiNodeCrashedBroadcast, NODE_UI_PROTOCOL,
     };
     use crate::test_utils::ui_connection::UiConnection;
+    use crate::test_utils::utils::make_rt;
     use crate::utils::find_free_port;
+
+    #[tokio::test]
+    async fn not_really_a_test() {
+        let port = 8080;
+        let stop_handle = MockWebSocketsServer::new(port)
+            .queue_string("Now is the time for all good men to come to the aid of their country.")
+            .start()
+            .await;
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+    }
 
     #[tokio::test]
     async fn conversational_communication_happy_path_with_full_assertion() {

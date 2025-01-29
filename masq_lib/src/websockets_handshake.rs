@@ -9,8 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
 use workflow_websocket::client::result::Result as ClientResult;
-use workflow_websocket::client::ConnectStrategy::Fallback;
-use workflow_websocket::client::Message as ClientMessage;
+use workflow_websocket::client::{ConnectStrategy, Message as ClientMessage};
 use workflow_websocket::client::{ConnectOptions, Handshake, WebSocket};
 use workflow_websocket::client::{Error as ClientError, WebSocketConfig};
 use workflow_websocket::server::result::Result as ServerResult;
@@ -129,6 +128,7 @@ pub async fn node_server_greeting<'ws>(
 ) -> ServerResult<()> {
     let fut = async {
         let msg = receiver.next().fuse().await;
+panic!("Received from WebSockets client: {:?}", msg);
         let matches = if let Some(Ok(ServerMessage::Text(text))) = msg {
             if text == NODE_UI_PROTOCOL {
                 true
@@ -157,8 +157,10 @@ async fn respond_to_handshake_request(
     sender: &mut WebSocketSender,
 ) -> ServerResult<()> {
     if protocol_matches {
+        let msg = ServerMessage::Text(format!("Node -> client {}", peer_addr));
+eprintln!("Sending to WebSockets client: {:?}", msg);
         match sender
-            .send(ServerMessage::Text(format!("Node -> client {}", peer_addr)))
+            .send(msg)
             .await
         {
             Ok(()) => Ok(()),
@@ -253,7 +255,7 @@ impl WSClientConnectionInitiator {
 
         let mut connect_options = ConnectOptions::default();
         connect_options.block_async_connect = true;
-        connect_options.strategy = Fallback;
+        connect_options.strategy = ConnectStrategy::Fallback;
         connect_options.connect_timeout = Some(self.connect_timeout);
 
         let delay = tokio::time::sleep(self.global_timeout);
@@ -555,7 +557,7 @@ mod tests {
 
         WSClientConnectionInitiator::disconnect(ws).await;
 
-        server_handle.await_conn_disconnected().await
+        server_handle.await_conn_disconnected(None).await
     }
 
     #[derive(Default)]
@@ -574,10 +576,9 @@ mod tests {
             receiver: &async_channel::Receiver<ClientMessage>,
         ) -> ClientResult<()> {
             self.do_handshake_params
-                .lock()
-                .unwrap()
+                .lock()?
                 .push((timeout, protocol.to_string()));
-            self.do_handshake_results.lock().unwrap().remove(0)
+            self.do_handshake_results.lock()?.remove(0)
         }
     }
 
