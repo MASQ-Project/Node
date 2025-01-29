@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use core::any::Any;
-use liso::Response;
+use liso::{InputOutput, Response};
 use std::sync::Arc;
 
 #[async_trait(?Send)]
@@ -16,25 +16,19 @@ pub trait LisoOutputWrapper: Send + Sync {
     fn clone_output(&self) -> Box<dyn LisoOutputWrapper>;
 }
 
-pub struct LisoInputOutputWrapperReal {}
+pub struct LisoInputWrapperReal {
+    handle: InputOutput,
+}
 
-#[async_trait(?Send)]
-impl LisoInputWrapper for LisoInputOutputWrapperReal {
-    async fn read_async(&mut self) -> Response {
+impl LisoInputWrapperReal {
+    fn new() -> Self {
         todo!()
     }
 }
 
-impl LisoOutputWrapper for LisoInputOutputWrapperReal {
-    fn println(&self, formatted_text: &str) {
-        todo!()
-    }
-
-    fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
-        todo!()
-    }
-
-    fn clone_output(&self) -> Box<dyn LisoOutputWrapper> {
+#[async_trait(?Send)]
+impl LisoInputWrapper for LisoInputWrapperReal {
+    async fn read_async(&mut self) -> Response {
         todo!()
     }
 }

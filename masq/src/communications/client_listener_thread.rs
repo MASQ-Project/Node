@@ -19,7 +19,7 @@ use workflow_websocket::client::{Message, WebSocket};
 pub enum ClientListenerError {
     Closed,
     Broken(String),
-    Timeout,
+    Timeout { elapsed_ms: u64 },
     UnexpectedPacket,
 }
 
@@ -28,7 +28,7 @@ impl ClientListenerError {
         match self {
             ClientListenerError::Closed => true,
             ClientListenerError::Broken(_) => true,
-            ClientListenerError::Timeout => true,
+            ClientListenerError::Timeout { .. } => true,
             ClientListenerError::UnexpectedPacket => false,
         }
     }
@@ -477,7 +477,10 @@ mod tests {
     fn client_listener_errors_know_their_own_fatality() {
         assert_eq!(ClientListenerError::Closed.is_fatal(), true);
         assert_eq!(ClientListenerError::Broken("".to_string()).is_fatal(), true);
-        assert_eq!(ClientListenerError::Timeout.is_fatal(), true);
+        assert_eq!(
+            ClientListenerError::Timeout { elapsed_ms: 1000 }.is_fatal(),
+            true
+        );
         assert_eq!(ClientListenerError::UnexpectedPacket.is_fatal(), false);
     }
 

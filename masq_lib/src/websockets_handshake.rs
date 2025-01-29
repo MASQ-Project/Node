@@ -272,7 +272,7 @@ impl WSClientConnectionInitiator {
 
             _ = delay => {
                 Self::disconnect(ws).await;
-                Err(ClientError::Custom(format!("WS connect: Client reached global timeout after {} ms", self.global_timeout.as_millis())))
+                Err(ClientError::ConnectionTimeout)
             }
         }
     }
@@ -413,7 +413,7 @@ mod tests {
             }
         });
         // This should work as an ultimate constraint
-        let global_timeout_ms = 20;
+        let global_timeout_ms = 10;
         let mut connector = WSClientConnectionInitiator::new(
             port,
             global_timeout_ms,
@@ -427,8 +427,7 @@ mod tests {
 
         let after = Instant::now();
         match result {
-            Err(ClientError::Custom(msg))
-                if msg.contains("WS connect: Client reached global timeout after 20 ms") => {}
+            Err(ClientError::ConnectionTimeout) => {}
             Err(e) => panic!(
                 "Expected ClientError::Custom with connection timeout msg but got: {:?}",
                 e
@@ -436,7 +435,7 @@ mod tests {
             Ok(_) => panic!("Expected connect timeout but got Ok()"),
         }
         let elapsed = after.checked_duration_since(before).unwrap();
-        assert!(Duration::from_millis(100) > elapsed)
+        assert!(Duration::from_millis(50) > elapsed)
     }
 
     #[tokio::test]

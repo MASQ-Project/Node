@@ -36,7 +36,13 @@ pub const UNIMPLEMENTED_INSTRUCTION: &str = "Unimplemented new instruction";
 impl RWTermInterface for InteractiveRWTermInterface {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError> {
         match self.read_liso.read_async().await {
-            Response::Input(line) => Ok(ReadInput::Line(line)),
+            Response::Input(line) => {
+                // TODO ??? History can probably be set by:
+                // let mut current = swap_history(History::default());
+                // current.add_line(line);
+                // swap_history(current)
+                Ok(ReadInput::Line(line))
+            }
             Response::Dead => Err(ReadError::TerminalOutputInputDisconnected),
             Response::Quit => Ok(ReadInput::Quit),
             Response::Discarded(unfinished) => Ok(ReadInput::Ignored {

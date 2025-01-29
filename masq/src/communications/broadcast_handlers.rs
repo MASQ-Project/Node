@@ -3,7 +3,7 @@
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::communications::connection_manager::{
-    BroadcastReceiver, ClosingStageDetector, RedirectOrder, REDIRECT_TIMEOUT_MILLIS,
+    BroadcastReceiver, ClosingStageDetector, RedirectOrder,
 };
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
@@ -29,6 +29,8 @@ use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::task::{JoinError, JoinHandle};
+
+pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
 
 pub struct BroadcastHandles {
     pub standard: Box<dyn BroadcastHandle<MessageBody>>,
@@ -71,21 +73,18 @@ impl BroadcastHandles {
 pub trait BroadcastHandle<Message>: Send {
     fn send(&self, message: Message);
     async fn wait_to_finish(&self) -> Result<(), JoinError>;
-    declare_as_any!();
 }
 
 #[derive(Default)]
-pub struct BroadcastHandleInactive;
+pub struct StandardBroadcastHandleInactive {}
 
 #[async_trait(?Send)]
-impl BroadcastHandle<MessageBody> for BroadcastHandleInactive {
+impl BroadcastHandle<MessageBody> for StandardBroadcastHandleInactive {
     fn send(&self, _message_body: MessageBody) {}
 
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
-        todo!()
+        Ok(())
     }
-
-    implement_as_any!();
 }
 
 pub struct StandardBroadcastHandle {
@@ -138,10 +137,13 @@ impl StandardBroadcastHandlerFactory for StandardBroadcastHandlerFactoryReal {
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
         close_sig: BroadcastReceiver<()>,
     ) -> Box<dyn BroadcastHandler<MessageBody>> {
-        Box::new(StandardBroadcastHandlerReal::new(
-            terminal_interface_opt,
-            close_sig,
-        ))
+        match terminal_interface_opt {
+            Some(background_term_interface) => Box::new(StandardBroadcastHandlerReal::new(
+                background_term_interface,
+                close_sig,
+            )),
+            None => Box::new(StandardBroadcastHandlerInactive::default()),
+        }
     }
 }
 
@@ -184,18 +186,18 @@ impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerReal {
                     spawn_join_handle_opt: RefCell::new(Some(spawn_join_handle)),
                 })
             }
-            None => Box::new(BroadcastHandleInactive::default()),
+            None => Box::new(StandardBroadcastHandleInactive::default()),
         }
     }
 }
 
 impl StandardBroadcastHandlerReal {
     pub fn new(
-        interactive_mode_dependencies_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
+        interactive_mode_dependencies: Box<dyn WTermInterfaceDupAndSend>,
         close_sig: BroadcastReceiver<()>,
     ) -> Self {
         Self {
-            interactive_mode_dependencies_opt,
+            interactive_mode_dependencies_opt: Some(interactive_mode_dependencies),
             close_sig,
         }
     }
@@ -207,8 +209,7 @@ impl StandardBroadcastHandlerReal {
         let (stdout, _stdout_flush_handle) = terminal_interface.stdout();
         let (stderr, _stderr_flush_handle) = terminal_interface.stderr();
         match message_body_result {
-            //TODO Closing stage flag instead??
-            None => todo!("this should be a panic now..... or ignoring perhaps"), // Receiver died; masq is going down
+            None => panic!("Broadcasts channel died for other reason than closing the app"),
             Some(message_body) => {
                 if let Ok((body, _)) = UiLogBroadcast::fmb(message_body.clone()) {
                     handle_ui_log_broadcast(body, &stdout, &stderr).await
@@ -234,11 +235,11 @@ impl StandardBroadcastHandlerReal {
 }
 
 #[derive(Default)]
-pub struct BroadcastHandlerInactive {}
+pub struct StandardBroadcastHandlerInactive {}
 
-impl BroadcastHandler<MessageBody> for BroadcastHandlerInactive {
+impl BroadcastHandler<MessageBody> for StandardBroadcastHandlerInactive {
     fn spawn(&mut self) -> Box<dyn BroadcastHandle<MessageBody>> {
-        todo!() // Box<dyn BroadcastHandleNull>
+        Box::new(StandardBroadcastHandleInactive::default())
     }
 }
 
@@ -296,51 +297,6 @@ impl RedirectBroadcastHandle {
         Self { redirect_order_tx }
     }
 }
-//
-// pub struct RedirectBroadcastHandler {
-//     redirect_order_tx_opt: Option<UnboundedSender<RedirectOrder>>,
-// }
-//
-// impl BroadcastHandler<RedirectOrder> for RedirectBroadcastHandler {
-//     fn spawn(
-//         &mut self,
-//         _stream_factory: Box<dyn StreamFactory>,
-//     ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
-//         Box::new(BroadcastHandleRedirect {
-//             redirect_order_tx: self
-//                 .redirect_order_tx_opt
-//                 .take()
-//                 .expect("Sender is missing"),
-//         })
-//     }
-// }
-//
-// impl RedirectBroadcastHandler {
-//     pub fn new(redirect_order_tx: UnboundedSender<RedirectOrder>) -> Self {
-//         Self {
-//             redirect_order_tx_opt: Some(redirect_order_tx),
-//         }
-//     }
-// }
-
-pub trait RedirectBroadcastHandleFactory: Send + Sync {
-    fn make(
-        &self,
-        redirect_order_tx: UnboundedSender<RedirectOrder>,
-    ) -> Box<dyn BroadcastHandle<RedirectOrder>>;
-}
-
-#[derive(Default)]
-pub struct RedirectBroadcastHandleFactoryReal {}
-
-impl RedirectBroadcastHandleFactory for RedirectBroadcastHandleFactoryReal {
-    fn make(
-        &self,
-        redirect_order_tx: UnboundedSender<RedirectOrder>,
-    ) -> Box<dyn BroadcastHandle<RedirectOrder>> {
-        todo!()
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -355,19 +311,24 @@ mod tests {
         UiConnectionStage, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
+    use masq_lib::test_utils::utils::make_rt;
     use masq_lib::ui_gateway::MessagePath;
     use std::default::Default;
     use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn constants_are_correct() {
+        assert_eq!(REDIRECT_TIMEOUT_MILLIS, 500);
+    }
 
     #[tokio::test]
     async fn broadcast_of_setup_triggers_correct_handler() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let message = UiSetupBroadcast {
             running: true,
             values: vec![
@@ -404,11 +365,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_ui_log_was_successful() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let message = masq_lib::messages::UiLogBroadcast {
             msg: "Empty. No Nodes to report to; continuing".to_string(),
             log_level: SerializableLogLevel::Info,
@@ -430,11 +389,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_crashed_triggers_correct_handler() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let message = UiNodeCrashedBroadcast {
             process_id: 1234,
             crash_reason: CrashReason::Unrecognized("Unknown crash reason".to_string()),
@@ -457,11 +414,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_new_password_triggers_correct_handler() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let message = UiNewPasswordBroadcast {}.tmb(0);
 
         subject.send(message);
@@ -480,11 +435,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_of_undelivered_ff_message_triggers_correct_handler() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let message = UiUndeliveredFireAndForget {
             opcode: "uninventedMessage".to_string(),
         }
@@ -505,11 +458,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn ui_connection_change_broadcast_is_handled_properly() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let message = UiConnectionChangeBroadcast {
             stage: UiConnectionStage::ConnectedToNeighbor,
         }
@@ -530,11 +481,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let subject =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let bad_message = MessageBody {
             opcode: "unrecognized".to_string(),
             path: MessagePath::FireAndForget,
@@ -582,11 +531,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     async fn broadcast_handler_event_loop_terminates_immediately_at_close() {
         let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let broadcast_handle = StandardBroadcastHandlerReal::new(
-            Some(Box::new(term_interface)),
-            close_sig.dup_receiver(),
-        )
-        .spawn();
+        let broadcast_handle =
+            StandardBroadcastHandlerReal::new(Box::new(term_interface), close_sig.dup_receiver())
+                .spawn();
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
         broadcast_handle.send(example_broadcast);
         stream_handles.await_stdout_is_not_empty().await;
@@ -607,6 +554,48 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
             "\nThe Node's database password has changed.\n\n",
         );
         stream_handles.assert_empty_stderr()
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Broadcasts channel died for other reason than closing the app")]
+    async fn handle_message_body_panics_if_its_channel_dies_too_early() {
+        let (mut terminal_interface, _) = TermInterfaceMock::new_non_interactive();
+
+        let _ =
+            StandardBroadcastHandlerReal::handle_message_body(None, &mut terminal_interface).await;
+    }
+
+    #[test]
+    fn standard_broadcast_handle_real_or_inactive_depends_on_optionality_of_terminal_interface() {
+        let subject = StandardBroadcastHandlerFactoryReal::default();
+        let (tx, rx) = tokio::sync::broadcast::channel(10);
+        let (term_interface, _) = TermInterfaceMock::new_non_interactive();
+        let rt = make_rt();
+        let _runtime_context_guard = rt.enter();
+        let metrics = rt.metrics();
+        let tasks_before_for_real_one = metrics.num_alive_tasks();
+
+        let standard_broadcast_handler_real = subject
+            .make(Some(Box::new(term_interface)), rx.resubscribe())
+            .spawn();
+
+        rt.block_on(tokio::time::sleep(Duration::from_millis(1)));
+        let tasks_after_for_real_one = metrics.num_alive_tasks();
+        tx.send(()).unwrap();
+        rt.block_on(standard_broadcast_handler_real.wait_to_finish())
+            .unwrap();
+        let tasks_before_for_the_inactive_one = metrics.num_alive_tasks();
+
+        let standard_broadcast_handler_inactive = subject.make(None, rx).spawn();
+
+        rt.block_on(tokio::time::sleep(Duration::from_millis(1)));
+        let tasks_after_for_the_inactive_one = metrics.num_alive_tasks();
+        rt.block_on(standard_broadcast_handler_inactive.wait_to_finish())
+            .unwrap();
+        assert_eq!(tasks_before_for_real_one, 0);
+        assert_eq!(tasks_after_for_real_one, 1);
+        assert_eq!(tasks_before_for_the_inactive_one, 0);
+        assert_eq!(tasks_after_for_the_inactive_one, 0)
     }
 
     fn assert_homogeneous_output_made_via_single_flush(

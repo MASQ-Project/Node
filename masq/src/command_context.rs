@@ -2,9 +2,7 @@
 
 use crate::command_context::ContextError::ConnectionRefused;
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::connection_manager::{
-    CMBootstrapper, ConnectionManager, REDIRECT_TIMEOUT_MILLIS,
-};
+use crate::communications::connection_manager::{CMBootstrapper, ConnectionManager};
 use crate::communications::node_conversation::ClientError;
 use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
@@ -14,9 +12,7 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
-use std::io;
 use std::io::{Read, Write};
-use tokio::runtime::Runtime;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -123,7 +119,7 @@ impl CommandContextReal {
         bootstrapper: CMBootstrapper,
     ) -> Result<Self, ContextError> {
         let result = bootstrapper
-            .establish_connection_manager(daemon_ui_port, terminal_interface_opt, 5000)
+            .establish_connection_manager(daemon_ui_port, terminal_interface_opt)
             .await;
 
         let connection = match result {
@@ -141,7 +137,7 @@ mod tests {
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
-    use crate::communications::broadcast_handlers::BroadcastHandleInactive;
+    use crate::communications::broadcast_handlers::StandardBroadcastHandleInactive;
     use crate::test_utils::mocks::StandardBroadcastHandlerFactoryMock;
     use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
     use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
