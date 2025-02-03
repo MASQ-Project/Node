@@ -7,7 +7,6 @@ use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchai
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_json::Value;
-use web3::api::Namespace;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -123,13 +122,12 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
         &self,
         hash_vec: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<Result<Value, Error>>, Error = BlockchainError>> {
-        let _ = hash_vec.into_iter().map(|hash| {
+        hash_vec.into_iter().for_each(|hash| {
             self.web3_batch.eth().transaction_receipt(hash);
         });
 
         Box::new(
             self.web3_batch
-                .eth()
                 .transport()
                 .submit_batch()
                 .map_err(|e| QueryFailed(e.to_string())),

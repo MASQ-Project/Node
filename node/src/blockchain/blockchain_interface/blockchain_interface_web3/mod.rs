@@ -199,53 +199,33 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         &self,
         transaction_hashes: Vec<H256>,
     ) -> Box<dyn Future<Item = Vec<TransactionReceiptResult>, Error = BlockchainError>> {
-        let logger = self.logger.clone();
-        let logger2 = self.logger.clone();
-        let logger3 = self.logger.clone();
-
-        trace!(
-            logger2,
-            "Process Transaction Receipts - transaction_hashes: {:?}",
-            transaction_hashes
-        );
         Box::new(
             self.lower_interface()
                 .get_transaction_receipt_in_batch(transaction_hashes.clone())
-                .map_err(move |e| {
-                    debug!(logger3, "Process Transaction Receipts - error: {:?}", e);
-                    e
-                })
+                .map_err(move |e| e)
                 .and_then(move |batch_response| {
                     Ok(batch_response
                         .into_iter()
                         .zip(transaction_hashes)
-                        .map(|(response, hash)| {
-                            trace!(
-                                logger,
-                                "Process Transaction Receipts - response: {:?},  hash: {:?}",
-                                response.clone(),
-                                hash
-                            );
-                            match response {
-                                Ok(result) => {
-                                    match serde_json::from_value::<TransactionReceipt>(result) {
-                                        Ok(receipt) => {
-                                            TransactionReceiptResult::RpcResponse(receipt.into())
-                                        }
-                                        Err(e) => {
-                                            if e.to_string().contains("invalid type: null") {
-                                                TransactionReceiptResult::RpcResponse(TxReceipt {
-                                                    transaction_hash: hash,
-                                                    status: TxStatus::Pending,
-                                                })
-                                            } else {
-                                                TransactionReceiptResult::LocalError(e.to_string())
-                                            }
+                        .map(|(response, hash)| match response {
+                            Ok(result) => {
+                                match serde_json::from_value::<TransactionReceipt>(result) {
+                                    Ok(receipt) => {
+                                        TransactionReceiptResult::RpcResponse(receipt.into())
+                                    }
+                                    Err(e) => {
+                                        if e.to_string().contains("invalid type: null") {
+                                            TransactionReceiptResult::RpcResponse(TxReceipt {
+                                                transaction_hash: hash,
+                                                status: TxStatus::Pending,
+                                            })
+                                        } else {
+                                            TransactionReceiptResult::LocalError(e.to_string())
                                         }
                                     }
                                 }
-                                Err(e) => TransactionReceiptResult::LocalError(e.to_string()),
                             }
+                            Err(e) => TransactionReceiptResult::LocalError(e.to_string()),
                         })
                         .collect::<Vec<TransactionReceiptResult>>())
                 }),

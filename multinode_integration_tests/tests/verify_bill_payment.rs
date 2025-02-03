@@ -3,6 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
+use masq_lib::messages::{ScanType, ToMessageBody, UiScanRequest};
 use masq_lib::test_utils::utils::UrlHolder;
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
@@ -36,7 +37,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-use masq_lib::messages::{ScanType, ToMessageBody, UiScanRequest};
 
 #[test]
 fn verify_bill_payment() {
@@ -308,11 +308,8 @@ fn verify_bill_payment() {
     });
 }
 
-
-
-
 #[test]
-fn verify_blockchain_payments() {
+fn verify_pending_payables() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let blockchain_server = BlockchainServer {
         name: "ganache-cli",
@@ -377,9 +374,9 @@ fn verify_blockchain_payments() {
         "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
     );
 
-    let (serving_node_1_wallet, _) = make_node_wallet(&seed,  derivation_path(0, 1).as_str());
-    let (serving_node_2_wallet, _) = make_node_wallet(&seed,  derivation_path(0, 2).as_str());
-    let (serving_node_3_wallet, _) = make_node_wallet(&seed,  derivation_path(0, 3).as_str());
+    let (serving_node_1_wallet, _) = make_node_wallet(&seed, derivation_path(0, 1).as_str());
+    let (serving_node_2_wallet, _) = make_node_wallet(&seed, derivation_path(0, 2).as_str());
+    let (serving_node_3_wallet, _) = make_node_wallet(&seed, derivation_path(0, 3).as_str());
     let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_IN_GWEI as u128;
     let now = SystemTime::now();
     consuming_payable_dao
@@ -418,21 +415,18 @@ fn verify_blockchain_payments() {
         "99995231980000000000",
         "471999999700000000000000000",
     );
-
     assert_balances(
         &serving_node_1_wallet,
         &blockchain_interface,
         "100000000000000000000",
         amount.to_string().as_str(),
     );
-
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         "100000000000000000000",
         amount.to_string().as_str(),
     );
-
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
@@ -441,14 +435,12 @@ fn verify_blockchain_payments() {
     );
 
     let ui_client = real_consuming_node.make_ui(ui_port);
-    ui_client.send_request(UiScanRequest{ scan_type: ScanType::PendingPayables }.tmb(0) );
-    let response = ui_client.wait_for_response(0, Duration::from_secs(10));
-
-    eprintln!("response: {:?}", response);
-
-
-    // Found 3 pending payables to process
-    // Transaction Receipts Results: []
+    ui_client.send_request(
+        UiScanRequest {
+            scan_type: ScanType::PendingPayables,
+        }
+        .tmb(0),
+    );
 
     MASQNodeUtils::wrote_log_containing(
         real_consuming_node.name(),
@@ -458,17 +450,26 @@ fn verify_blockchain_payments() {
 
     MASQNodeUtils::wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction Receipts Results: \\[\\]",
+        "Scan results: Successful: 3, Pending: 0, Failed: 0",
         Duration::from_secs(5),
     );
 
-
-
-
-
+    MASQNodeUtils::wrote_log_containing(
+        real_consuming_node.name(),
+        "Transaction 0x75a8f185b7fb3ac0c4d1ee6b402a46940c9ae0477c0c7378a1308fb4bf539c5c has been added to the blockchain;",
+        Duration::from_secs(5),
+    );
+    MASQNodeUtils::wrote_log_containing(
+        real_consuming_node.name(),
+        "Transaction 0x384a3bb5bbd9718a97322be2878fa88c7cacacb2ac3416f521a621ca1946ddfc has been added to the blockchain;",
+        Duration::from_secs(5),
+    );
+    MASQNodeUtils::wrote_log_containing(
+        real_consuming_node.name(),
+        "Transaction 0x6bc98d5db61ddd7676de1f25cb537156b3d9e066cec414fef8dbe9c695908215 has been added to the blockchain;",
+        Duration::from_secs(5),
+    );
 }
-
-
 
 fn make_init_config(chain: Chain) -> DbInitializationConfig {
     DbInitializationConfig::create_or_migrate(ExternalData::new(
