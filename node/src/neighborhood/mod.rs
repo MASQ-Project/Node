@@ -16,7 +16,7 @@ use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
 use itertools::Itertools;
-use masq_lib::messages::{ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
+use masq_lib::messages::{ExitLocation, ExitLocationSet, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
@@ -26,7 +26,6 @@ use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::string::ToString;
-use serde_json::json;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -53,7 +52,7 @@ use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
-use crate::sub_lib::neighborhood::{ExitLocationSet, RouteQueryResponse};
+use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
@@ -72,7 +71,7 @@ use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::EXIT_COUNTRY_ERROR;
+use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
 //use masq_lib::constants::EXIT_COUNTRY_ERROR;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -95,7 +94,7 @@ pub struct ExitLocationsRoutes<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ExitPreference {
+pub enum FallbackPreference {
     Nothing,
     ExitCountryWithFallback,
     ExitCountryNoFallback,
@@ -104,7 +103,7 @@ pub enum ExitPreference {
 #[derive(Clone, Debug)]
 pub struct UserExitPreferences {
     exit_countries: Vec<String>, //if we cross number of countries used in one workflow, we want to change this member to HashSet<String>
-    location_preference: ExitPreference,
+    fallback_preference: FallbackPreference,
     locations_opt: Option<Vec<ExitLocation>>,
     db_countries: Vec<String>,
 }
@@ -113,7 +112,7 @@ impl UserExitPreferences {
     fn new() -> UserExitPreferences {
         UserExitPreferences {
             exit_countries: vec![],
-            location_preference: ExitPreference::Nothing,
+            fallback_preference: FallbackPreference::Nothing,
             locations_opt: None,
             db_countries: vec![],
         }
@@ -136,7 +135,7 @@ impl UserExitPreferences {
                                 (exit_location.priority - 1) as u32,
                             );
                     }
-                    if (self.location_preference == ExitPreference::ExitCountryWithFallback
+                    if (self.fallback_preference == FallbackPreference::ExitCountryWithFallback
                         && !self.exit_countries.contains(&country_code))
                         || country_code == ZZ_COUNTRY_CODE_STRING
                     {
@@ -1313,9 +1312,9 @@ impl Neighborhood {
         research_neighborhood: bool,
         direction: RouteDirection,
     ) -> bool {
-        if self.user_exit_preferences.location_preference == ExitPreference::Nothing
-            || (self.user_exit_preferences.location_preference
-                == ExitPreference::ExitCountryWithFallback
+        if self.user_exit_preferences.fallback_preference == FallbackPreference::Nothing
+            || (self.user_exit_preferences.fallback_preference
+                == FallbackPreference::ExitCountryWithFallback
                 && self.validate_fallback_country_exit_codes(first_node_key))
             || research_neighborhood
             || direction == RouteDirection::Back
@@ -1540,7 +1539,7 @@ impl Neighborhood {
                 )
             }
         } else if ((hops_remaining == 0) && target_opt.is_none() && !research_neighborhood)
-            && (self.user_exit_preferences.location_preference == ExitPreference::Nothing
+            && (self.user_exit_preferences.fallback_preference == FallbackPreference::Nothing
                 || self.user_exit_preferences.exit_countries.is_empty())
         {
             // in case we do not investigate neighborhood for country codes, or we do not looking for particular country exit:
@@ -1699,20 +1698,23 @@ impl Neighborhood {
     ) {
         let (exit_locations_by_priority, missing_locations) =
             self.extract_exit_locations_from_message(&message);
-        self.user_exit_preferences.location_preference = match (
+
+        self.user_exit_preferences.fallback_preference = match (
             message.fallback_routing,
             exit_locations_by_priority.is_empty(),
         ) {
-            (true, true) => ExitPreference::Nothing,
-            (true, false) => ExitPreference::ExitCountryWithFallback,
-            (false, false) => ExitPreference::ExitCountryNoFallback,
-            (false, true) => ExitPreference::Nothing,
+            (true, true) => FallbackPreference::Nothing,
+            (true, false) => FallbackPreference::ExitCountryWithFallback,
+            (false, false) => FallbackPreference::ExitCountryNoFallback,
+            (false, true) => FallbackPreference::Nothing,
         };
-        let fallback_status = match self.user_exit_preferences.location_preference {
-            ExitPreference::Nothing => "Fallback Routing is set.",
-            ExitPreference::ExitCountryWithFallback => "Fallback Routing is set.",
-            ExitPreference::ExitCountryNoFallback => "Fallback Routing NOT set.",
+
+        let fallback_status = match self.user_exit_preferences.fallback_preference {
+            FallbackPreference::Nothing => "Fallback Routing is set.",
+            FallbackPreference::ExitCountryWithFallback => "Fallback Routing is set.",
+            FallbackPreference::ExitCountryNoFallback => "Fallback Routing NOT set.",
         };
+
         if !message.show_countries {
             self.set_exit_locations_opt(&exit_locations_by_priority);
         }
@@ -1755,6 +1757,24 @@ impl Neighborhood {
             .expect("UiGateway is dead");
     }
 
+    fn error_message_indicates(&self, missing_countries: &mut Vec<String>) -> bool {
+        let mut desired_countries: Vec<String> = vec![];
+        for exit in self.user_exit_preferences.locations_opt.as_ref() {
+           for location in exit {
+               let mut to_appedn = location.country_codes.clone();
+               desired_countries.append(&mut to_appedn)
+           }
+        };
+        if desired_countries.is_empty() && missing_countries.is_empty() {
+            return false
+        }
+        missing_countries.sort();
+        desired_countries.sort();
+        let comp_missing_countries = missing_countries.clone();
+        let comp_exit_countries = desired_countries;
+        comp_missing_countries.eq(&comp_exit_countries)
+    }
+
     fn create_exit_location_response(
         &self,
         client_id: u64,
@@ -1762,36 +1782,35 @@ impl Neighborhood {
         missing_countries: Vec<String>,
         show_countries_flag: bool,
     ) -> NodeToUiMessage {
-        let fallback_routing = match &self.user_exit_preferences.location_preference {
-            ExitPreference::Nothing => true,
-            ExitPreference::ExitCountryWithFallback => true,
-            ExitPreference::ExitCountryNoFallback => false,
+        let fallback_routing = match &self.user_exit_preferences.fallback_preference {
+            FallbackPreference::Nothing => true,
+            FallbackPreference::ExitCountryWithFallback => true,
+            FallbackPreference::ExitCountryNoFallback => false,
         };
         let exit_locations = self.user_exit_preferences.locations_opt.clone().unwrap_or(vec![]);
-        let show_countries = self.user_exit_preferences.db_countries.clone();
-        if missing_countries.is_empty() {
+        let show_countries = match show_countries_flag {
+            true => Some(self.user_exit_preferences.db_countries.clone()),
+            false => None,
+        };
+
+        if !self.error_message_indicates(&mut missing_countries.clone()) {
             NodeToUiMessage {
                 target: MessageTarget::ClientId(client_id),
                 body: UiSetExitLocationResponse {
                     fallback_routing,
                     exit_locations,
-                    show_countries_flag,
-                    show_countries,
+                    exit_countries: show_countries,
                     missing_countries,
                 }.tmb(context_id)
             }
         } else {
+            let missing_message: String = missing_countries.join(", ");
             NodeToUiMessage {
                 target: MessageTarget::ClientId(client_id),
                 body: MessageBody {
                     opcode: "exitLocation".to_string(),
                     path: Conversation(context_id),
-                    payload: Err((EXIT_COUNTRY_ERROR, json!(
-                        {
-                            "exit_locations": exit_locations,
-                            "missing_countries": missing_countries,
-                        }
-                    ).to_string())),
+                    payload: Err((EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, format!("{:?}", missing_message))),
                 },
             }
         }
@@ -1802,8 +1821,8 @@ impl Neighborhood {
         self.user_exit_preferences.locations_opt =
             match self.user_exit_preferences.exit_countries.is_empty() {
                 false => Some(exit_locations_by_priority.to_owned()),
-                true => match self.user_exit_preferences.location_preference {
-                    ExitPreference::ExitCountryNoFallback => None,
+                true => match self.user_exit_preferences.fallback_preference {
+                    FallbackPreference::ExitCountryNoFallback => None,
                     _ => Some(exit_locations_by_priority.to_owned()),
                 },
             };
@@ -1844,12 +1863,12 @@ impl Neighborhood {
                 .map(|cc| {
                     for code in &cc.country_codes {
                         if self.user_exit_preferences.db_countries.contains(code)
-                            || self.user_exit_preferences.location_preference
-                                == ExitPreference::ExitCountryWithFallback
+                            || self.user_exit_preferences.fallback_preference
+                                == FallbackPreference::ExitCountryWithFallback
                         {
                             self.user_exit_preferences.exit_countries.push(code.clone());
-                            if self.user_exit_preferences.location_preference
-                                == ExitPreference::ExitCountryWithFallback
+                            if self.user_exit_preferences.fallback_preference
+                                == FallbackPreference::ExitCountryWithFallback
                             {
                                 countries_lack_in_neighborhood.push(code.clone());
                             }
@@ -3652,8 +3671,8 @@ mod tests {
                     vec!["SK".to_string(), "AT".to_string(), "PL".to_string(),]
                 );
                 assert_eq!(
-                    neighborhood.user_exit_preferences.location_preference,
-                    ExitPreference::ExitCountryWithFallback
+                    neighborhood.user_exit_preferences.fallback_preference,
+                    FallbackPreference::ExitCountryWithFallback
                 );
                 assert_eq!(
                     neighborhood
@@ -3817,8 +3836,8 @@ mod tests {
                     ]
                 );
                 assert_eq!(
-                    neighborhood.user_exit_preferences.location_preference,
-                    ExitPreference::ExitCountryWithFallback
+                    neighborhood.user_exit_preferences.fallback_preference,
+                    FallbackPreference::ExitCountryWithFallback
                 );
                 assert_eq!(
                     neighborhood
@@ -3907,8 +3926,8 @@ mod tests {
         assert_eq!(
             exit_handler_response,
             Err((
-                9223372036854775816,
-                "{\"exit_locations\":[{\"country_codes\":[\"CZ\",\"SK\",\"IN\"],\"priority\":1}],\"missing_countries\":[\"CZ\",\"SK\",\"IN\"]}".to_string(),
+                9223372036854775817,
+                "\"CZ, SK, IN\"".to_string(),
             ))
         );
         log_handler.assert_logs_contain_in_order(vec![
@@ -4028,8 +4047,8 @@ mod tests {
                     vec!["FR".to_string()]
                 );
                 assert_eq!(
-                    neighborhood.user_exit_preferences.location_preference,
-                    ExitPreference::ExitCountryNoFallback
+                    neighborhood.user_exit_preferences.fallback_preference,
+                    FallbackPreference::ExitCountryNoFallback
                 );
             }),
         };
@@ -4093,8 +4112,8 @@ mod tests {
                     true
                 );
                 assert_eq!(
-                    neighborhood.user_exit_preferences.location_preference,
-                    ExitPreference::Nothing
+                    neighborhood.user_exit_preferences.fallback_preference,
+                    FallbackPreference::Nothing
                 )
             }),
         };
@@ -4119,24 +4138,16 @@ mod tests {
         let record_two: &NodeToUiMessage = ui_gateway_recording.get_record(1);
 
         assert_eq!(ui_gateway_recording.len(), 2);
-        //vec![ExitLocation { country_codes: vec!["CZ".to_string()], priority: 1 }, ExitLocation { country_codes: vec!["FR".to_string()], priority: 2 }]
-        //missing_countries: vec!["CZ".to_string()],
-        //&NodeToUiMessage {
-        //                 target: MessageTarget::ClientId(8765),
-        //                 body: UiSetExitLocationResponse {
-        //                     fallback_routing: false,
-        //                     exit_locations: ,
-        //                     show_countries_flag: false,
-        //
-        //                 }.tmb(1234),
-        //             }
         assert_eq!(
-            record_one.body.payload,
-            Err((9223372036854775816,
-                 "{\"exit_locations\":[{\"country_codes\":[\"CZ\"],\"priority\":1},{\"country_codes\":[\"FR\"],\"priority\":2}],\"missing_countries\":[\"CZ\"]}".to_string()
-            ))
+            record_one.body,
+            UiSetExitLocationResponse {
+                fallback_routing: false,
+                exit_locations: vec![ExitLocation { country_codes: vec!["CZ".to_string()], priority: 1 }, ExitLocation { country_codes: vec!["FR".to_string()], priority: 2 }],
+                show_countries_flag: false,
+                show_countries: vec![],
+                missing_countries: vec!["CZ".to_string()],
+            }.tmb(1234)
         );
-
         assert_eq!(
             record_two,
             &NodeToUiMessage {
@@ -4145,7 +4156,7 @@ mod tests {
                     fallback_routing: true,
                     exit_locations: vec![],
                     show_countries_flag: false,
-                    show_countries: vec!["FR".to_string()],
+                    show_countries: vec![],
                     missing_countries: vec![],
                 }.tmb(7894),
             }
@@ -4714,7 +4725,7 @@ mod tests {
         let mut subject = make_standard_subject();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
-        subject.user_exit_preferences.location_preference = ExitPreference::ExitCountryWithFallback;
+        subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryWithFallback;
         let message = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![CountryCodes {

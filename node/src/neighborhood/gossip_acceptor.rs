@@ -2072,7 +2072,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
-            location_preference: ExitPreference::ExitCountryNoFallback,
+            fallback_preference: ExitPreference::ExitCountryNoFallback,
             locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["FR".to_string()],
                 priority: 2,
@@ -2469,7 +2469,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
-            location_preference: ExitPreference::ExitCountryWithFallback,
+            fallback_preference: ExitPreference::ExitCountryWithFallback,
             locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
@@ -3067,7 +3067,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["CZ".to_string()],
-            location_preference: ExitPreference::ExitCountryWithFallback,
+            fallback_preference: ExitPreference::ExitCountryWithFallback,
             locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,

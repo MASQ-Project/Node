@@ -380,23 +380,6 @@ pub enum Hops {
     SixHops = 6,
 }
 
-pub struct ExitLocationSet {
-    pub locations: Vec<ExitLocation>,
-}
-
-impl Display for ExitLocationSet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for exit_location in self.locations.iter() {
-            write!(
-                f,
-                "Country Codes: {:?} - Priority: {}; ",
-                exit_location.country_codes, exit_location.priority
-            )?;
-        }
-        Ok(())
-    }
-}
-
 impl FromStr for Hops {
     type Err = String;
 
