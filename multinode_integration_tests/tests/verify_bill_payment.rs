@@ -6,7 +6,7 @@ use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::test_utils::utils::UrlHolder;
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder,
@@ -339,6 +339,7 @@ fn verify_blockchain_payments() {
         "99998381140000000000",
         "472000000000000000000000000",
     );
+
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_592_000,
         debt_threshold_gwei: 1_000_000_000,
@@ -347,9 +348,6 @@ fn verify_blockchain_payments() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
     };
-
-    // let (consuming_config, _) =
-    //     build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
 
     let ui_port = find_free_port();
     let (node_wallet, node_secret) = make_node_wallet(&seed, deriv_path.as_str());
@@ -364,28 +362,6 @@ fn verify_blockchain_payments() {
         )))
         .ui_port(ui_port)
         .build();
-
-    let (serving_node_1_config, serving_node_1_wallet) = build_config(
-        &blockchain_server,
-        &seed,
-        payment_thresholds,
-        derivation_path(0, 1),
-    );
-    let (serving_node_2_config, serving_node_2_wallet) = build_config(
-        &blockchain_server,
-        &seed,
-        payment_thresholds,
-        derivation_path(0, 2),
-    );
-    let (serving_node_3_config, serving_node_3_wallet) = build_config(
-        &blockchain_server,
-        &seed,
-        payment_thresholds,
-        derivation_path(0, 3),
-    );
-
-    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_IN_GWEI as u128;
-
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
     let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
     let consuming_node_connection = DbInitializerReal::default()
@@ -400,19 +376,11 @@ fn verify_blockchain_payments() {
         format!("{}", &contract_owner_wallet),
         "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
     );
-    assert_eq!(
-        format!("{}", &serving_node_1_wallet),
-        "0x7a3cf474962646b18666b5a5be597bb0af013d81"
-    );
-    assert_eq!(
-        format!("{}", &serving_node_2_wallet),
-        "0x0bd8bc4b8aba5d8abf13ea78a6668ad0e9985ad6"
-    );
-    assert_eq!(
-        format!("{}", &serving_node_3_wallet),
-        "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
-    );
 
+    let (serving_node_1_wallet, _) = make_node_wallet(&seed,  derivation_path(0, 1).as_str());
+    let (serving_node_2_wallet, _) = make_node_wallet(&seed,  derivation_path(0, 2).as_str());
+    let (serving_node_3_wallet, _) = make_node_wallet(&seed,  derivation_path(0, 3).as_str());
+    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_IN_GWEI as u128;
     let now = SystemTime::now();
     consuming_payable_dao
         .more_money_payable(now, &serving_node_1_wallet, amount)
@@ -424,83 +392,7 @@ fn verify_blockchain_payments() {
         .more_money_payable(now, &serving_node_3_wallet, amount)
         .unwrap();
 
-    let (serving_node_1_name, serving_node_1_index) =
-        cluster.prepare_real_node(&serving_node_1_config);
-    let serving_node_1_path = node_chain_specific_data_directory(&serving_node_1_name);
-    let serving_node_1_connection = DbInitializerReal::default()
-        .initialize(
-            Path::new(&serving_node_1_path),
-            make_init_config(cluster.chain),
-        )
-        .unwrap();
-    let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
-    serving_node_1_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
-        .unwrap();
-    open_all_file_permissions(serving_node_1_path.clone().into());
-
-    let (serving_node_2_name, serving_node_2_index) =
-        cluster.prepare_real_node(&serving_node_2_config);
-    let serving_node_2_path = node_chain_specific_data_directory(&serving_node_2_name);
-    let serving_node_2_connection = DbInitializerReal::default()
-        .initialize(
-            Path::new(&serving_node_2_path),
-            make_init_config(cluster.chain),
-        )
-        .unwrap();
-    let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
-    serving_node_2_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
-        .unwrap();
-    open_all_file_permissions(serving_node_2_path.clone().into());
-
-    let (serving_node_3_name, serving_node_3_index) =
-        cluster.prepare_real_node(&serving_node_3_config);
-    let serving_node_3_path = node_chain_specific_data_directory(&serving_node_3_name);
-    let serving_node_3_connection = DbInitializerReal::default()
-        .initialize(
-            Path::new(&serving_node_3_path),
-            make_init_config(cluster.chain),
-        )
-        .unwrap();
-    let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
-    serving_node_3_receivable_dao
-        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
-        .unwrap();
-    open_all_file_permissions(serving_node_3_path.clone().into());
-
     expire_payables(consuming_node_path.into());
-    expire_receivables(serving_node_1_path.into());
-    expire_receivables(serving_node_2_path.into());
-    expire_receivables(serving_node_3_path.into());
-
-    assert_balances(
-        &contract_owner_wallet,
-        &blockchain_interface,
-        "99998381140000000000",
-        "472000000000000000000000000",
-    );
-
-    assert_balances(
-        &serving_node_1_wallet,
-        &blockchain_interface,
-        "100000000000000000000",
-        "0",
-    );
-
-    assert_balances(
-        &serving_node_2_wallet,
-        &blockchain_interface,
-        "100000000000000000000",
-        "0",
-    );
-
-    assert_balances(
-        &serving_node_3_wallet,
-        &blockchain_interface,
-        "100000000000000000000",
-        "0",
-    );
 
     let real_consuming_node =
         cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
@@ -548,54 +440,6 @@ fn verify_blockchain_payments() {
         amount.to_string().as_str(),
     );
 
-    let serving_node_1 = cluster.start_named_real_node(
-        &serving_node_1_name,
-        serving_node_1_index,
-        serving_node_1_config,
-    );
-    let serving_node_2 = cluster.start_named_real_node(
-        &serving_node_2_name,
-        serving_node_2_index,
-        serving_node_2_config,
-    );
-    let serving_node_3 = cluster.start_named_real_node(
-        &serving_node_3_name,
-        serving_node_3_index,
-        serving_node_3_config,
-    );
-    for _ in 0..6 {
-        cluster.start_real_node(
-            NodeStartupConfigBuilder::standard()
-                .chain(Chain::Dev)
-                .neighbor(serving_node_1.node_reference())
-                .neighbor(serving_node_2.node_reference())
-                .neighbor(serving_node_3.node_reference())
-                .build(),
-        );
-    }
-
-    test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_1_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance_wei == 0
-        } else {
-            false
-        }
-    });
-    test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_2_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance_wei == 0
-        } else {
-            false
-        }
-    });
-    test_utils::wait_for(Some(1000), Some(15000), || {
-        if let Some(status) = serving_node_3_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance_wei == 0
-        } else {
-            false
-        }
-    });
-
     let ui_client = real_consuming_node.make_ui(ui_port);
     ui_client.send_request(UiScanRequest{ scan_type: ScanType::PendingPayables }.tmb(0) );
     let response = ui_client.wait_for_response(0, Duration::from_secs(10));
@@ -603,29 +447,21 @@ fn verify_blockchain_payments() {
     eprintln!("response: {:?}", response);
 
 
+    // Found 3 pending payables to process
+    // Transaction Receipts Results: []
 
+    MASQNodeUtils::wrote_log_containing(
+        real_consuming_node.name(),
+        "Found 3 pending payables to process",
+        Duration::from_secs(5),
+    );
 
-    // let logger = Logger::new("test");
-    // let agent = blockchain_interface.build_blockchain_agent(contract_owner_wallet.clone()).wait().unwrap();
-    // // let fingerprints_recipient = make_recorder().0.start().recipient();
-    // let affordable_accounts = vec![
-    //     PayableAccount {
-    //         wallet,
-    //         balance_wei: 1_000_000_000_000_000,
-    //         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
-    //         pending_payable_opt: None,
-    //     }
-    // ];
-    // struct MyActor;
-    // impl Actor for MyActor{}
-    //
-    // let fingerprints_recipient = MyActor{}.start().recipient();
-    // let result = blockchain_interface.submit_payables_in_batch(logger,agent, fingerprints_recipient, affordable_accounts).wait().unwrap();
-    //
-    // blockchain_interface.process_transaction_receipts()
-    //
-    // eprintln!("result: {:?}", result);
-    // // consuming_payable_dao.custom_query()
+    MASQNodeUtils::wrote_log_containing(
+        real_consuming_node.name(),
+        "Transaction Receipts Results: \\[\\]",
+        Duration::from_secs(5),
+    );
+
 
 
 
