@@ -44,8 +44,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
-use ethereum_types::U64;
-use web3::types::{BlockNumber, H256};
+use web3::types::H256;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -80,16 +79,6 @@ pub enum BlockScanRange {
 pub enum BlockMarker {
     Uninitialized,
     Value(u64),
-}
-
-// TODO: Look into this regarding the start_block - BlockNumber::Latest could be unwise for the start_block?
-impl From<BlockMarker> for BlockNumber {
-    fn from(marker: BlockMarker) -> Self {
-        match marker {
-            BlockMarker::Uninitialized => BlockNumber::Latest,
-            BlockMarker::Value(number) => BlockNumber::Number(U64::from(number)),
-        }
-    }
 }
 
 impl Actor for BlockchainBridge {
