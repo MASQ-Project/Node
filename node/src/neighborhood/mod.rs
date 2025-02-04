@@ -9,23 +9,6 @@ pub mod node_location;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use actix::Context;
-use actix::Handler;
-use actix::MessageResult;
-use actix::Recipient;
-use actix::{Actor, System};
-use actix::{Addr, AsyncContext};
-use itertools::Itertools;
-use masq_lib::messages::{ExitLocation, ExitLocationSet, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
-use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
-use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
-use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-use std::string::ToString;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -45,14 +28,14 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConfigChange, RemoveNeighborMessage};
 use crate::sub_lib::neighborhood::{ConfigChangeMsg, RouteQueryMessage};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
-use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
-use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
@@ -66,12 +49,32 @@ use crate::sub_lib::utils::{
 };
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
+use actix::Context;
+use actix::Handler;
+use actix::MessageResult;
+use actix::Recipient;
+use actix::{Actor, System};
+use actix::{Addr, AsyncContext};
 use gossip_acceptor::GossipAcceptor;
 use gossip_acceptor::GossipAcceptorReal;
 use gossip_producer::GossipProducer;
 use gossip_producer::GossipProducerReal;
+use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
+use masq_lib::constants::EXIT_COUNTRY_MISSING_COUNTRIES_ERROR;
+use masq_lib::messages::{
+    ExitLocation, ExitLocationSet, FromMessageBody, ToMessageBody, UiConnectionStage,
+    UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse,
+};
+use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
+use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
+use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
+use std::fmt::Debug;
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+use std::string::ToString;
 //use masq_lib::constants::EXIT_COUNTRY_ERROR;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -1759,14 +1762,15 @@ impl Neighborhood {
 
     fn error_message_indicates(&self, missing_countries: &mut Vec<String>) -> bool {
         let mut desired_countries: Vec<String> = vec![];
-        for exit in self.user_exit_preferences.locations_opt.as_ref() {
-           for location in exit {
-               let mut to_appedn = location.country_codes.clone();
-               desired_countries.append(&mut to_appedn)
-           }
-        };
+        if let Some(exit_vec) = self.user_exit_preferences.locations_opt.as_ref() {
+            for location in exit_vec {
+                let mut to_appedn = location.country_codes.clone();
+                desired_countries.append(&mut to_appedn)
+            }
+        }
+
         if desired_countries.is_empty() && missing_countries.is_empty() {
-            return false
+            return false;
         }
         missing_countries.sort();
         desired_countries.sort();
@@ -1787,7 +1791,11 @@ impl Neighborhood {
             FallbackPreference::ExitCountryWithFallback => true,
             FallbackPreference::ExitCountryNoFallback => false,
         };
-        let exit_locations = self.user_exit_preferences.locations_opt.clone().unwrap_or(vec![]);
+        let exit_locations = self
+            .user_exit_preferences
+            .locations_opt
+            .clone()
+            .unwrap_or_default();
         let show_countries = match show_countries_flag {
             true => Some(self.user_exit_preferences.db_countries.clone()),
             false => None,
@@ -1801,7 +1809,8 @@ impl Neighborhood {
                     exit_locations,
                     exit_countries: show_countries,
                     missing_countries,
-                }.tmb(context_id)
+                }
+                .tmb(context_id),
             }
         } else {
             let missing_message: String = missing_countries.join(", ");
@@ -1810,11 +1819,13 @@ impl Neighborhood {
                 body: MessageBody {
                     opcode: "exitLocation".to_string(),
                     path: Conversation(context_id),
-                    payload: Err((EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, format!("{:?}", missing_message))),
+                    payload: Err((
+                        EXIT_COUNTRY_MISSING_COUNTRIES_ERROR,
+                        format!("{:?}", missing_message),
+                    )),
                 },
             }
         }
-
     }
 
     fn set_exit_locations_opt(&mut self, exit_locations_by_priority: &[ExitLocation]) {
@@ -3925,10 +3936,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         assert_eq!(
             exit_handler_response,
-            Err((
-                9223372036854775817,
-                "\"CZ, SK, IN\"".to_string(),
-            ))
+            Err((9223372036854775817, "\"CZ, SK, IN\"".to_string(),))
         );
         log_handler.assert_logs_contain_in_order(vec![
             &format!(
@@ -4142,11 +4150,20 @@ mod tests {
             record_one.body,
             UiSetExitLocationResponse {
                 fallback_routing: false,
-                exit_locations: vec![ExitLocation { country_codes: vec!["CZ".to_string()], priority: 1 }, ExitLocation { country_codes: vec!["FR".to_string()], priority: 2 }],
-                show_countries_flag: false,
-                show_countries: vec![],
+                exit_locations: vec![
+                    ExitLocation {
+                        country_codes: vec!["CZ".to_string()],
+                        priority: 1
+                    },
+                    ExitLocation {
+                        country_codes: vec!["FR".to_string()],
+                        priority: 2
+                    }
+                ],
+                exit_countries: None,
                 missing_countries: vec!["CZ".to_string()],
-            }.tmb(1234)
+            }
+            .tmb(1234)
         );
         assert_eq!(
             record_two,
@@ -4155,10 +4172,10 @@ mod tests {
                 body: UiSetExitLocationResponse {
                     fallback_routing: true,
                     exit_locations: vec![],
-                    show_countries_flag: false,
-                    show_countries: vec![],
+                    exit_countries: None,
                     missing_countries: vec![],
-                }.tmb(7894),
+                }
+                .tmb(7894),
             }
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
@@ -4725,7 +4742,8 @@ mod tests {
         let mut subject = make_standard_subject();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
-        subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryWithFallback;
+        subject.user_exit_preferences.fallback_preference =
+            FallbackPreference::ExitCountryWithFallback;
         let message = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![CountryCodes {

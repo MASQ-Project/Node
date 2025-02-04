@@ -1,14 +1,16 @@
-use std::fmt::Debug;
 use crate::command_context::CommandContext;
+use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::{short_writeln};
 use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
-use masq_lib::messages::{CountryCodes, ExitLocationSet, UiSetExitLocationRequest, UiSetExitLocationResponse};
+use masq_lib::messages::{
+    CountryCodes, ExitLocationSet, UiSetExitLocationRequest, UiSetExitLocationResponse,
+};
 use masq_lib::shared_schema::common_validators;
-use crate::commands::commands_common::CommandError::Payload;
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
+use std::fmt::Debug;
 
 const EXIT_LOCATION_ABOUT: &str =
     "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
@@ -102,56 +104,52 @@ impl Command for SetExitLocationCommand {
                         false => short_writeln!(
                             context.stderr(),
                             "No countries available for exit-location!"
-                        )
+                        ),
                     }
                 }
                 match exit_location_response.fallback_routing {
-                    true => short_writeln!(
-                        context.stdout(),
-                        "Fallback Routing is set.",
-                    ),
-                    false => short_writeln!(
-                        context.stdout(),
-                        "Fallback Routing NOT set.",
-                    ),
+                    true => short_writeln!(context.stdout(), "Fallback Routing is set.",),
+                    false => short_writeln!(context.stdout(), "Fallback Routing NOT set.",),
                 }
                 if !exit_location_response.exit_locations.is_empty() {
                     let location_set = ExitLocationSet {
                         locations: exit_location_response.exit_locations,
                     };
                     if !exit_location_response.missing_countries.is_empty() {
-                        short_writeln!(context.stderr(),
-                            "code: {}\nmessage: {:?}", EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, exit_location_response.missing_countries);
+                        short_writeln!(
+                            context.stderr(),
+                            "code: {}\nmessage: {:?}",
+                            EXIT_COUNTRY_MISSING_COUNTRIES_ERROR,
+                            exit_location_response.missing_countries
+                        );
                     }
-                    short_writeln!(
-                        context.stdout(),
-                        "Exit location set: {}",
-                        location_set
-                    );
+                    short_writeln!(context.stdout(), "Exit location set: {}", location_set);
                 }
                 Ok(())
             }
             Err(Payload(code, message)) if code == EXIT_COUNTRY_ERROR => {
-                short_writeln!(context.stderr(),
-                    "Error: Something went wrong!");
+                short_writeln!(context.stderr(), "Error: Something went wrong!");
                 Err(Payload(code, message))
-            },
+            }
             Err(Payload(code, message)) => {
-                short_writeln!(context.stderr(),
-                    "code: {}\nmessage: {}", code, message);
+                short_writeln!(context.stderr(), "code: {}\nmessage: {}", code, message);
                 if code == EXIT_COUNTRY_MISSING_COUNTRIES_ERROR {
-                    short_writeln!(context.stdout(),
-                    "All requested countries are missing in Database: {}", message);
+                    short_writeln!(
+                        context.stdout(),
+                        "All requested countries are missing in Database: {}",
+                        message
+                    );
                 }
                 Err(Payload(code, message))
             }
             Err(err) => {
-                short_writeln!(context.stderr(),
-                    "Error: {}", err);
+                short_writeln!(context.stderr(), "Error: {}", err);
                 Err(err)
             }
         }
     }
+
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn set_exit_location_subcommand() -> App<'static, 'static> {
@@ -185,64 +183,103 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::commands::commands_common::{Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS};
-    use crate::commands::exit_location_command::SetExitLocationCommand;
-    use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::messages::{CountryCodes, ExitLocation, ToMessageBody, UiSetExitLocationRequest, UiSetExitLocationResponse};
-    use std::sync::{Arc, Mutex};
-    use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::commands::commands_common::{
+        Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+    };
+    use crate::commands::exit_location_command::SetExitLocationCommand;
+    use crate::test_utils::mocks::CommandContextMock;
+    use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
+    use masq_lib::messages::{
+        CountryCodes, ExitLocation, ToMessageBody, UiSetExitLocationRequest,
+        UiSetExitLocationResponse,
+    };
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn testing_missing_location_error() {
         let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new().transact_result(
-            Err(ContextError::PayloadError(EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, "\"CZ, SK, IN\"".to_string())));
+        let mut context =
+            CommandContextMock::new().transact_result(Err(ContextError::PayloadError(
+                EXIT_COUNTRY_MISSING_COUNTRIES_ERROR,
+                "\"CZ, SK, IN\"".to_string(),
+            )));
         let subject = factory.make(&["exit-location".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
-        assert_eq!(stdout.lock().unwrap().get_string(), "All requested countries are missing in Database: \"CZ, SK, IN\"\n");
-        assert_eq!(stderr.lock().unwrap().get_string(), "code: 9223372036854775817\nmessage: \"CZ, SK, IN\"\n".to_string());
-        assert_eq!(result, Err(CommandError::Payload(9223372036854775817, "\"CZ, SK, IN\"".to_string())));
+        assert_eq!(
+            stdout.lock().unwrap().get_string(),
+            "All requested countries are missing in Database: \"CZ, SK, IN\"\n"
+        );
+        assert_eq!(
+            stderr.lock().unwrap().get_string(),
+            "code: 9223372036854775817\nmessage: \"CZ, SK, IN\"\n".to_string()
+        );
+        assert_eq!(
+            result,
+            Err(CommandError::Payload(
+                9223372036854775817,
+                "\"CZ, SK, IN\"".to_string()
+            ))
+        );
     }
 
     #[test]
     fn testing_exit_location_gemeral_error() {
         let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new().transact_result(
-            Err(ContextError::PayloadError(EXIT_COUNTRY_ERROR, "".to_string())));
+        let mut context = CommandContextMock::new().transact_result(Err(
+            ContextError::PayloadError(EXIT_COUNTRY_ERROR, "".to_string()),
+        ));
         let subject = factory.make(&["exit-location".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
         assert!(stdout.lock().unwrap().get_string().is_empty());
-        assert_eq!(stderr.lock().unwrap().get_string(), "Error: Something went wrong!\n".to_string());
-        assert_eq!(result, Err(CommandError::Payload(9223372036854775816, "".to_string())));
+        assert_eq!(
+            stderr.lock().unwrap().get_string(),
+            "Error: Something went wrong!\n".to_string()
+        );
+        assert_eq!(
+            result,
+            Err(CommandError::Payload(9223372036854775816, "".to_string()))
+        );
     }
 
     #[test]
     fn testing_handler_for_exit_location_responose() {
         let message_body = Ok(UiSetExitLocationResponse {
             fallback_routing: false,
-            exit_locations: vec![ExitLocation { country_codes: vec!["CZ".to_string()], priority: 1 }, ExitLocation { country_codes: vec!["FR".to_string()], priority: 2 }],
+            exit_locations: vec![
+                ExitLocation {
+                    country_codes: vec!["CZ".to_string()],
+                    priority: 1,
+                },
+                ExitLocation {
+                    country_codes: vec!["FR".to_string()],
+                    priority: 2,
+                },
+            ],
             exit_countries: Some(vec!["FR".to_string()]),
             missing_countries: vec!["CZ".to_string()],
-        }.tmb(1234));
+        }
+        .tmb(1234));
 
         let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new().transact_result(
-            message_body);
+        let mut context = CommandContextMock::new().transact_result(message_body);
         let subject = factory.make(&["exit-location".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
         assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
-        assert_eq!(stderr.lock().unwrap().get_string(), "code: 9223372036854775817\nmessage: [\"CZ\"]\n".to_string());
+        assert_eq!(
+            stderr.lock().unwrap().get_string(),
+            "code: 9223372036854775817\nmessage: [\"CZ\"]\n".to_string()
+        );
         assert_eq!(result, Ok(()));
     }
 
@@ -256,7 +293,8 @@ pub mod tests {
                 exit_locations: vec![],
                 exit_countries: None,
                 missing_countries: vec![],
-            }.tmb(0)));
+            }
+            .tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
@@ -307,7 +345,8 @@ pub mod tests {
                 exit_locations: vec![],
                 exit_countries: None,
                 missing_countries: vec![],
-            }.tmb(0)));
+            }
+            .tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
@@ -347,7 +386,8 @@ pub mod tests {
                 exit_locations: vec![],
                 exit_countries: None,
                 missing_countries: vec![],
-            }.tmb(0)));
+            }
+            .tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&["exit-location".to_string()]).unwrap();
 
@@ -379,7 +419,8 @@ pub mod tests {
                 exit_locations: vec![],
                 exit_countries: None,
                 missing_countries: vec![],
-            }.tmb(0)));
+            }
+            .tmb(0)));
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),

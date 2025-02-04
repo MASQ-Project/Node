@@ -1409,13 +1409,11 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::neighborhood::{
-        ExitPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
+        FallbackPreference, UserExitPreferences, COUNTRY_UNDESIRABILITY_FACTOR,
         UNREACHABLE_COUNTRY_PENALTY,
     };
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{
-        ConnectionProgressEvent, ConnectionProgressMessage,
-    };
+    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
@@ -1425,6 +1423,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
+    use masq_lib::messages::ExitLocation;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
@@ -1432,7 +1431,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use masq_lib::messages::ExitLocation;
 
     #[test]
     fn constants_have_correct_values() {
@@ -2072,7 +2070,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
-            fallback_preference: ExitPreference::ExitCountryNoFallback,
+            fallback_preference: FallbackPreference::ExitCountryNoFallback,
             locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["FR".to_string()],
                 priority: 2,
@@ -2469,7 +2467,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["FR".to_string()],
-            fallback_preference: ExitPreference::ExitCountryWithFallback,
+            fallback_preference: FallbackPreference::ExitCountryWithFallback,
             locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
@@ -3067,7 +3065,7 @@ mod tests {
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["CZ".to_string()],
-            fallback_preference: ExitPreference::ExitCountryWithFallback,
+            fallback_preference: FallbackPreference::ExitCountryWithFallback,
             locations_opt: Some(vec![ExitLocation {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,

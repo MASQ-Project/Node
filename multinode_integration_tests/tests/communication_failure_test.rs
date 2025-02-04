@@ -177,7 +177,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node.socket_addr(PortSelector::First),
-            None
+            None,
         )
         .unwrap();
     let dns_fail_pkg = make_package_for_client(
@@ -200,7 +200,7 @@ fn dns_resolution_failure_first_automatic_retry_succeeds() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node.socket_addr(PortSelector::First),
-            None
+            None,
         )
         .unwrap();
     let sequenced_packet = SequencedPacket::new(EXAMPLE_HTML_RESPONSE.as_bytes().to_vec(), 0, true);
@@ -368,7 +368,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             .wait_for_specific_package(
                 MessageTypeLite::ClientRequest,
                 originating_node_socket_address,
-                None
+                None,
             )
             .unwrap();
         let dns_fail_pkg = make_package_for_client(
@@ -411,7 +411,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             originating_node_socket_address,
-            None
+            None,
         )
         .unwrap();
     assert_eq!(

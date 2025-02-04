@@ -3,7 +3,9 @@
 use std::thread;
 use std::time::Duration;
 
-use masq_lib::messages::{CountryCodes, ToMessageBody, UiSetConfigurationRequest, UiSetExitLocationRequest};
+use masq_lib::messages::{
+    CountryCodes, ToMessageBody, UiSetConfigurationRequest, UiSetExitLocationRequest,
+};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use multinode_integration_tests_lib::masq_node::{MASQNode, PortSelector};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
@@ -45,20 +47,14 @@ fn http_end_to_end_routing_test_with_exit_location() {
             first_neighbor.public_key(),
         );
         dest_db.add_node(exit_fr.clone()).unwrap();
-        dest_db.add_arbitrary_full_neighbor(
-            first_neighbor.public_key(),
-            exit_fr.public_key()
-        );
+        dest_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), exit_fr.public_key());
         dest_db.add_node(exit_de.clone()).unwrap();
-        dest_db.add_arbitrary_full_neighbor(
-            first_neighbor.public_key(),
-            exit_de.public_key()
-        );
+        dest_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), exit_de.public_key());
         dest_db
     };
 
     let (_, subject_real_node, mut mock_nodes) =
-        construct_neighborhood(&mut cluster, dest_db, vec![], |config_builder|{
+        construct_neighborhood(&mut cluster, dest_db, vec![], |config_builder| {
             config_builder.ui_port(51883).build()
         });
 
@@ -66,10 +62,11 @@ fn http_end_to_end_routing_test_with_exit_location() {
 
     let ui = subject_real_node.make_ui(51883);
     ui.send_request(
-      UiSetConfigurationRequest {
-          name: "min-hops".to_string(),
-          value: "2".to_string(),
-      }.tmb(0)
+        UiSetConfigurationRequest {
+            name: "min-hops".to_string(),
+            value: "2".to_string(),
+        }
+        .tmb(0),
     );
     ui.send_request(
         UiSetExitLocationRequest {
@@ -91,10 +88,20 @@ fn http_end_to_end_routing_test_with_exit_location() {
         .wait_for_specific_package(
             MessageTypeLite::ClientRequest,
             subject_real_node.socket_addr(PortSelector::First),
-            Some(CryptDENull::from(exit_fr.public_key(), TEST_DEFAULT_MULTINODE_CHAIN))
-        ).unwrap();
+            Some(CryptDENull::from(
+                exit_fr.public_key(),
+                TEST_DEFAULT_MULTINODE_CHAIN,
+            )),
+        )
+        .unwrap();
 
-    let last_hop = expired_cores_package.remaining_route.shift(&CryptDENull::from(neighbor_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN)).unwrap();
+    let last_hop = expired_cores_package
+        .remaining_route
+        .shift(&CryptDENull::from(
+            neighbor_mock.main_public_key(),
+            TEST_DEFAULT_MULTINODE_CHAIN,
+        ))
+        .unwrap();
     assert_eq!(last_hop.public_key, exit_fr.inner.public_key)
     //println!("{:#?}", last_hop.public_key);
 }
