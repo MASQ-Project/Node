@@ -18,6 +18,7 @@ pub mod blockchains;
 pub mod command;
 #[macro_use]
 pub mod constants;
+pub mod async_streams;
 pub mod crash_point;
 pub mod data_version;
 pub mod node_addr;

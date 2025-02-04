@@ -1,8 +1,8 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::{RWTermInterface, WTermInterface};
 use itertools::Either;
+use masq_lib::async_streams::AsyncStdStreamsFactory;
 
 pub trait TerminalInterfaceFactory {
     fn make(

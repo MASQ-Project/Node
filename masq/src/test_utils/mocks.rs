@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::clap_before_entrance::{InitialArgsParser, InitializationArgs};
+use crate::clap_before_entrance::InitialArgsParser;
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{
     CommandExecutionHelper, CommandExecutionHelperFactory, CommandProcessor,
-    CommandProcessorCommon, CommandProcessorFactory, ProcessorProvidingCommonComponents,
+    CommandProcessorCommon, ProcessorProvidingCommonComponents,
 };
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
@@ -14,58 +14,41 @@ use crate::communications::broadcast_handlers::{
     BroadcastHandle, BroadcastHandler, StandardBroadcastHandlerFactory,
 };
 use crate::communications::client_listener_thread::WSClientHandle;
-use crate::communications::connection_manager::{
-    BroadcastReceiver, CMBootstrapper, ClosingStageDetector, RedirectOrder,
-};
+use crate::communications::connection_manager::BroadcastReceiver;
 use crate::run_modes::CLIProgramEntering;
-use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
 use crate::terminal::{
-    FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
-    WTermInterface, WTermInterfaceDupAndSend, WriteStreamType,
+    FlushHandle, RWTermInterface, ReadError, ReadInput, TerminalWriter, WTermInterface,
+    WTermInterfaceDupAndSend, WriteStreamType,
 };
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
-use ctrlc::Error::System;
 use itertools::Either;
-use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_UI_PORT;
-use masq_lib::shared_schema::VecU64;
+use masq_lib::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::test_utils::fake_stream_holder::{
-    AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayReaderInner, ByteArrayWriter,
-    ByteArrayWriterInner, HandleToCountReads, StdinReadCounter, StringAssertionMethods,
+    AsyncByteArrayReader, AsyncByteArrayWriter, HandleToCountReads, StdinReadCounter,
+    StringAssertableStdHandle,
 };
-use masq_lib::test_utils::websockets_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::utils::localhost;
-use masq_lib::websockets_handshake::{
-    HandshakeResultRx, HandshakeResultTx, WSHandshakeHandlerFactory,
-};
+use masq_lib::websockets_handshake::HandshakeResultTx;
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, intentionally_blank,
     set_arbitrary_id_stamp_in_mock_impl,
 };
 use std::any::Any;
 use std::cell::RefCell;
-use std::fmt::Arguments;
-use std::future::Future;
-use std::io::{stdout, Read, Write};
-use std::ops::{Deref, Not};
+use std::io;
+use std::io::{Read, Write};
+use std::ops::Deref;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
-use std::{io, thread};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use workflow_websocket::client::{
-    Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, Result as ClientResult,
-    WebSocket, WebSocketConfig,
-};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use workflow_websocket::client::{Error, Handshake, Message, Result as ClientResult};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -975,18 +958,6 @@ impl HandleToCountReads for ReadLineResults {
     }
 }
 
-impl From<&InteractiveModeInfrastructure> for StdinReadCounter {
-    fn from(infrastructure: &InteractiveModeInfrastructure) -> Self {
-        StdinReadCounter::new(infrastructure.stdin_read_results.clone())
-    }
-}
-
-pub struct InteractiveModeInfrastructure {
-    stdin_read_results: Arc<Mutex<ReadLineResults>>,
-    // Optional so that it can be pulled out
-    background_terminal_interface_arc_opt: Arc<Mutex<Option<TermInterfaceMock>>>,
-}
-
 struct ReadLineResults {
     stdin_read_results: Vec<Result<ReadInput, ReadError>>,
     results_initially: usize,
@@ -1207,7 +1178,6 @@ pub fn make_async_std_streams_with_further_setup(
 pub struct AsyncStdStreamsFactoryMock {
     make_params: Arc<Mutex<Vec<()>>>,
     make_results: RefCell<Vec<AsyncStdStreams>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryMock {
@@ -1215,7 +1185,6 @@ impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryMock {
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }
-    arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl AsyncStdStreamsFactoryMock {
@@ -1227,13 +1196,11 @@ impl AsyncStdStreamsFactoryMock {
         self.make_results.borrow_mut().push(result);
         self
     }
-
-    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 #[derive(Default)]
 pub struct TerminalInterfaceFactoryMock {
-    make_params: Arc<Mutex<Vec<(bool, ArbitraryIdStamp)>>>,
+    make_params: Arc<Mutex<Vec<bool>>>,
     make_results: RefCell<Vec<Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>>>,
 }
 
@@ -1241,18 +1208,15 @@ impl TerminalInterfaceFactory for TerminalInterfaceFactoryMock {
     fn make(
         &self,
         is_interactive: bool,
-        streams_factory: &dyn AsyncStdStreamsFactory,
+        _streams_factory: &dyn AsyncStdStreamsFactory,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
-        self.make_params
-            .lock()
-            .unwrap()
-            .push((is_interactive, streams_factory.arbitrary_id_stamp()));
+        self.make_params.lock().unwrap().push(is_interactive);
         self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl TerminalInterfaceFactoryMock {
-    pub fn make_params(mut self, params: &Arc<Mutex<Vec<(bool, ArbitraryIdStamp)>>>) -> Self {
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<bool>>>) -> Self {
         self.make_params = params.clone();
         self
     }

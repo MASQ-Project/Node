@@ -1,22 +1,17 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::async_streams::AsyncStdStreamsFactory;
 use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
+use masq_lib::async_streams::AsyncStdStreamsFactory;
+use std::sync::Arc;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-pub struct NonInteractiveFlushHandle {}
-
-pub struct InteractiveFlushHandle {}
-
 pub struct NonInteractiveWTermInterface {
-    stream_factory: Arc<dyn AsyncStdStreamsFactory>,
     stdout_utils: WritingUtils,
     stderr_utils: WritingUtils,
 }
@@ -37,7 +32,6 @@ impl NonInteractiveWTermInterface {
         let stdout_utils = Self::prepare_utils(streams.stdout, WriteStreamType::Stdout);
         let stderr_utils = Self::prepare_utils(streams.stderr, WriteStreamType::Stderr);
         Self {
-            stream_factory,
             stdout_utils,
             stderr_utils,
         }
@@ -47,7 +41,7 @@ impl NonInteractiveWTermInterface {
         stream: Box<dyn AsyncWrite + Send + Sync + Unpin>,
         stream_type: WriteStreamType,
     ) -> WritingUtils {
-        let flush_handle_inner_constructor = |output_chunks_receiver, stream_type| {
+        let construct_flush_handle_inner = |output_chunks_receiver, stream_type| {
             let inner = NonInteractiveFlushHandleInner::new(
                 stream_type,
                 Arc::from(tokio::sync::Mutex::from(stream)),
@@ -55,7 +49,7 @@ impl NonInteractiveWTermInterface {
             );
             Arc::new(tokio::sync::Mutex::new(inner)) as ArcMutexFlushHandleInner
         };
-        WritingUtils::new(flush_handle_inner_constructor, stream_type)
+        WritingUtils::new(construct_flush_handle_inner, stream_type)
     }
 }
 
@@ -116,11 +110,8 @@ mod tests {
         AsyncStdStreamsFactoryMock,
     };
     use itertools::Either;
-    use masq_lib::test_utils::utils::make_rt;
     use std::io::ErrorKind;
     use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     #[should_panic(expected = "Another Stdout FLushHandle not permitted, already referencing 1")]

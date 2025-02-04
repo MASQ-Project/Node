@@ -92,8 +92,8 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::commands::commands_common::CommandError::ConnectionProblem;
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{
         ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
@@ -133,7 +133,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -148,34 +148,31 @@ mod tests {
         stream_handles.assert_empty_stdout();
     }
 
-    #[test]
-    fn connection_status_command_happy_path_for_not_connected() {
+    #[tokio::test]
+    async fn connection_status_command_happy_path_for_not_connected() {
         assert_on_connection_status_response(
             UiConnectionStage::NotConnected,
-            (
-                "\nNotConnected: No external neighbor is connected to us.\n\n",
-                "",
-            ),
-        );
+            "\nNotConnected: No external neighbor is connected to us.\n\n",
+        )
+        .await;
     }
 
-    #[test]
-    fn connection_status_command_happy_path_for_connected_to_neighbor() {
+    #[tokio::test]
+    async fn connection_status_command_happy_path_for_connected_to_neighbor() {
         assert_on_connection_status_response(
             UiConnectionStage::ConnectedToNeighbor,
-            (
-                "\nConnectedToNeighbor: External neighbor(s) are connected to us.\n\n",
-                "",
-            ),
-        );
+            "\nConnectedToNeighbor: External neighbor(s) are connected to us.\n\n",
+        )
+        .await;
     }
 
-    #[test]
-    fn connection_status_command_happy_path_for_three_hops_route_found() {
+    #[tokio::test]
+    async fn connection_status_command_happy_path_for_three_hops_route_found() {
         assert_on_connection_status_response(
             UiConnectionStage::RouteFound,
-            ("\nRouteFound: You can relay data over the network.\n\n", ""),
-        );
+            "\nRouteFound: You can relay data over the network.\n\n",
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -191,7 +188,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -208,10 +205,7 @@ mod tests {
         );
     }
 
-    async fn assert_on_connection_status_response(
-        stage: UiConnectionStage,
-        response: (&str, &str),
-    ) {
+    async fn assert_on_connection_status_response(stage: UiConnectionStage, expected_stdout: &str) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConnectionStatusResponse { stage };
         let mut context = CommandContextMock::new()
@@ -224,11 +218,10 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap().clone();
         let stdout = stream_handles.stdout_flushed_strings();
-        let stderr = stream_handles.stderr_flushed_strings();
-        let (stdout_expected, stderr_expected) = response;
         assert_eq!(
             transact_params,
             vec![(
@@ -236,7 +229,7 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS,
             )]
         );
-        assert_eq!(stdout, &[stdout_expected]);
-        assert_eq!(stderr, &[stderr_expected]);
+        assert_eq!(stdout, &[expected_stdout]);
+        stream_handles.assert_empty_stderr()
     }
 }

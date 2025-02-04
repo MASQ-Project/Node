@@ -121,12 +121,11 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
-    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -196,7 +195,7 @@ mod tests {
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

@@ -121,7 +121,7 @@ impl InteractiveWTermInterface {
     pub fn new(write_liso_box: Box<dyn LisoOutputWrapper>) -> Self {
         write_liso_box.prompt(MASQ_PROMPT, true, false);
         let write_liso_arc: Arc<dyn LisoOutputWrapper> = Arc::from(write_liso_box);
-        let flush_handle_inner_constructor = |output_chunks_receiver, stream_type| {
+        let construct_flush_handle_inner = |output_chunks_receiver, stream_type| {
             Arc::new(tokio::sync::Mutex::new(InteractiveFlushHandleInner::new(
                 stream_type,
                 write_liso_arc.clone(),
@@ -129,11 +129,10 @@ impl InteractiveWTermInterface {
             ))) as ArcMutexFlushHandleInner
         };
         let stdout_utils = WritingUtils::new(
-            flush_handle_inner_constructor.clone(),
+            construct_flush_handle_inner.clone(),
             WriteStreamType::Stdout,
         );
-        let stderr_utils =
-            WritingUtils::new(flush_handle_inner_constructor, WriteStreamType::Stderr);
+        let stderr_utils = WritingUtils::new(construct_flush_handle_inner, WriteStreamType::Stderr);
         Self {
             write_liso_arc,
             stdout_utils,
@@ -289,7 +288,7 @@ mod tests {
         .await;
         test_writing_streams_of_particular_terminal(
             WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByUse::WOnlyBackgroundInterface(
+                term_interface: InteractiveInterfaceByUse::WOnlyBroadcastsInterface(
                     w_only_clone.as_ref(),
                 ),
                 streams_assertion_handles: w_liso_println_params,

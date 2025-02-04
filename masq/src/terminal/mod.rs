@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::thread::panicking;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-pub mod async_streams;
 pub mod interactive_terminal_interface;
 mod liso_wrappers;
 pub mod non_interactive_terminal_interface;
@@ -136,8 +135,13 @@ impl Display for WriteStreamType {
 }
 
 pub struct FlushHandle {
-    // Strictly private!
     inner_arc_opt: Option<Arc<tokio::sync::Mutex<dyn FlushHandleInner>>>,
+}
+
+impl Drop for FlushHandle {
+    fn drop(&mut self) {
+        let _ = self.flush_whole_buffer();
+    }
 }
 
 impl FlushHandle {
@@ -151,8 +155,9 @@ impl FlushHandle {
         if !panicking() {
             let mut inner_arc_opt = self.inner_arc_opt.take();
             let handle = tokio::task::spawn(async move {
-                // Spawning seems neat as we're escaping the drop impl and can eventually handle
-                // a panic outside
+                // Spawn come across as neat as it allows to leave the drop impl and handle
+                // an eventual panic outside
+
                 let inner_arc = inner_arc_opt.expect("Flush handle with missing guts!");
 
                 let mut flush_inner = inner_arc.lock().await;
@@ -177,21 +182,13 @@ impl FlushHandle {
     }
 }
 
-impl Drop for FlushHandle {
-    fn drop(&mut self) {
-        let _ = self.flush_whole_buffer();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::terminal::test_utils::FlushHandleInnerMock;
-    use crate::terminal::writing_utils::ArcMutexFlushHandleInner;
     use crate::terminal::{FlushHandle, ReadError, TerminalWriter, WriteResult, WriteStreamType};
     use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
     use tokio::sync::mpsc::unbounded_channel;
 
     #[tokio::test]

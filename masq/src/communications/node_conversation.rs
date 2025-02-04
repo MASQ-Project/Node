@@ -4,8 +4,6 @@ use crate::communications::connection_manager::{OutgoingMessageType, SyncCloseFl
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -182,8 +180,6 @@ mod tests {
     use masq_lib::messages::FromMessageBody;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, UiUnmarshalError};
-    use masq_lib::test_utils::utils::make_rt;
-    use tokio::sync::mpsc::unbounded_channel;
 
     fn make_subject() -> (
         NodeConversation,
@@ -354,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_successful_transmission() {
-        let (mut subject, message_body_send_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_send_tx, mut message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -384,7 +380,7 @@ mod tests {
         expected = "Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead."
     )]
     async fn send_rejects_conversation_message() {
-        let (mut subject, _, _) = make_subject();
+        let (subject, _, _) = make_subject();
         let message = UiShutdownRequest {};
 
         let _ = subject.send(message.tmb(0)).await;
@@ -392,7 +388,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_graceful() {
-        let (mut subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -409,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_resend() {
-        let (mut subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -430,7 +426,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_fatal() {
-        let (mut subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),

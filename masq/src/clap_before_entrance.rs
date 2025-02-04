@@ -2,11 +2,11 @@
 
 use crate::run_modes::CLIProgramEntering;
 use crate::schema::app;
-use crate::terminal::async_streams::AsyncStdStreams;
-use crate::write_async_stream_and_flush;
 use async_trait::async_trait;
 use clap::error::ErrorKind;
+use masq_lib::async_streams::AsyncStdStreams;
 use masq_lib::shared_schema::InsecurePort;
+use masq_lib::write_async_stream_and_flush;
 use tokio::io::AsyncWriteExt;
 
 #[async_trait(?Send)]

@@ -1,6 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::interactive_terminal_interface::InteractiveFlushHandleInner;
 use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter, WriteStreamType};
 use std::sync::Arc;
@@ -15,22 +14,20 @@ pub struct WritingUtils {
 pub type ArcMutexFlushHandleInner = Arc<tokio::sync::Mutex<dyn FlushHandleInner>>;
 
 impl WritingUtils {
-    pub fn new<FlushHandleInnerConstructor>(
-        flush_handle_inner_constructor: FlushHandleInnerConstructor,
+    pub fn new<ConstructFlushHandleInner>(
+        construct_flush_handle_inner: ConstructFlushHandleInner,
         stream_type: WriteStreamType,
     ) -> Self
     where
-        FlushHandleInnerConstructor: FnOnce(
+        ConstructFlushHandleInner: FnOnce(
             UnboundedReceiver<String>,
             WriteStreamType,
-        )
-            -> Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
+        ) -> Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
     {
         let (output_chunks_sender, output_chunks_receiver) = unbounded_channel();
         let terminal_writer_strict_provider =
             TerminalWriterStrictProvider::new(output_chunks_sender);
-        let flush_handle_inner =
-            flush_handle_inner_constructor(output_chunks_receiver, stream_type);
+        let flush_handle_inner = construct_flush_handle_inner(output_chunks_receiver, stream_type);
         Self {
             stream_type,
             terminal_writer_strict_provider,
@@ -38,24 +35,22 @@ impl WritingUtils {
         }
     }
 
-    fn establish_util_pair(
-        &self,
-        terminal_writer: TerminalWriter,
-    ) -> (TerminalWriter, FlushHandle) {
-        let flush_handle = FlushHandle::new(self.flush_handle_inner.clone());
-        (terminal_writer, flush_handle)
-    }
-
     pub fn get_utils(&self) -> (TerminalWriter, FlushHandle) {
-        self.terminal_writer_strict_provider
+        match self
+            .terminal_writer_strict_provider
             .provide_if_not_already_in_use()
-            .map(|terminal_writer| self.establish_util_pair(terminal_writer))
-            .unwrap_or_else(|count| {
+        {
+            Ok(terminal_writer) => {
+                let flush_handle = FlushHandle::new(self.flush_handle_inner.clone());
+                (terminal_writer, flush_handle)
+            }
+            Err(count) => {
                 let stream_type = self.stream_type;
                 panic!(
                     "Another {stream_type} FLushHandle not permitted, already referencing {count}"
                 )
-            })
+            }
+        }
     }
 }
 
@@ -118,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn terminal_strict_provider_is_being_strict() {
-        let (tx, mut rx) = unbounded_channel();
+        let (tx, _rx) = unbounded_channel();
         let subject = TerminalWriterStrictProvider::new(tx);
         let writer = subject.provide_if_not_already_in_use().unwrap();
 

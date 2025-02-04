@@ -10,17 +10,16 @@ use crate::communications::client_listener_thread::{
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
-use async_channel::{RecvError, Sender as WSSender};
+use async_channel::RecvError;
 use async_trait::async_trait;
-use futures::future::{join_all, try_maybe_done};
+use futures::future::join_all;
 use futures::FutureExt;
+use masq_lib::messages::UiRedirect;
 use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast};
-use masq_lib::messages::{UiRedirect, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::websockets_handshake::{
-    HandshakeResultTx, WSClientConnectionInitiator, WSHandshakeHandlerFactory,
-    WSHandshakeHandlerFactoryReal,
+    WSClientConnectionInitiator, WSHandshakeHandlerFactory, WSHandshakeHandlerFactoryReal,
 };
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
@@ -33,9 +32,7 @@ use std::time::Duration;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use workflow_websocket::client::{
-    Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, WebSocket, WebSocketConfig,
-};
+use workflow_websocket::client::{Error, Handshake, Message};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS: u64 = 1000;
@@ -186,7 +183,7 @@ impl CMBootstrapper {
     }
 }
 
-pub struct CMChannelsToSubordinates {
+struct CMChannelsToSubordinates {
     demand_tx: UnboundedSender<Demand>,
     response_receivers: RefCell<CMReceivers>,
 }
@@ -199,7 +196,7 @@ struct CMReceivers {
 }
 
 impl CMChannelsToSubordinates {
-    pub fn new(
+    fn new(
         demand_tx: UnboundedSender<Demand>,
         conversation_return_rx: UnboundedReceiver<NodeConversation>,
         redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
@@ -230,7 +227,7 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub fn new(
+    fn new(
         internal_communications: CMChannelsToSubordinates,
         closing_signaler: CloseSignaler,
         central_even_loop_join_handle: JoinHandle<()>,
@@ -296,7 +293,11 @@ async fn establish_client_listener(
 
     let ws = match conn_initiator.connect_with_timeout().await {
         Ok(ws) => ws,
-        Err(Error::ConnectionTimeout) => todo!(), // (format!("WS connect: Client reached global timeout after {} ms", self.global_timeout.as_millis()))),
+        Err(Error::ConnectionTimeout) => {
+            return Err(ClientListenerError::Timeout {
+                elapsed_ms: timeout_millis,
+            })
+        }
         Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
 
@@ -744,20 +745,18 @@ mod tests {
     };
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
-    use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
-    use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake,
-        WSHandshakeHandlerFactoryMock,
-    };
     use masq_lib::utils::{find_free_port, localhost, running_test};
     use std::hash::Hash;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use std::thread::spawn;
+    use std::thread;
     use std::time::{Duration, SystemTime};
     use tokio::net::TcpListener;
     use tokio::task::JoinError;
-    use tokio_tungstenite::accept_async;
+    use tokio_tungstenite::accept_hdr_async;
+    use tokio_tungstenite::tungstenite::handshake::server::{
+        Callback, ErrorResponse, Request, Response,
+    };
 
     impl ConnectionManager {
         pub fn is_closing(&self) -> bool {
@@ -1419,10 +1418,7 @@ mod tests {
         );
         let node_stop_handle = node_server.start().await;
         let daemon_port = find_free_port();
-        let (release_opening_broadcast_msg_tx, release_opening_broadcast_msg_rx) =
-            tokio::sync::oneshot::channel();
         let daemon_server = MockWebSocketsServer::new (daemon_port)
-            .inject_opening_broadcasts_signal_receiver(release_opening_broadcast_msg_rx)
             .queue_response (UiRedirect {
                 port: node_port,
                 opcode: "financials".to_string(),
@@ -1436,20 +1432,13 @@ mod tests {
             custom_queries_opt: None,
         }
         .tmb(1);
-        // let send_params_arc = Arc::new(Mutex::new(vec![]));
         let mut bootstrapper = CMBootstrapper::default();
-        // bootstrapper.redirect_broadcast_handle_factory = Box::new(
-        //     RedirectBroadcastHandleFactoryMock::default().make_result(Box::new(
-        //         BroadcastHandleMock::default().send_params(&send_params_arc),
-        //     )),
-        // );
-        todo!("this test needs to be fixed...here a terminal interface should be given");
         let mut subject = bootstrapper
             .establish_connection_manager(daemon_port, None)
             .await
             .unwrap();
+        let active_ui_port_before_redirect = subject.active_ui_port().await.unwrap();
         daemon_stop_handle.await_conn_established(None).await;
-        release_opening_broadcast_msg_tx.send(()).unwrap();
         let mut conversation = subject.start_conversation().await;
 
         let result = conversation.transact(request, 1000).await.unwrap();
@@ -1472,8 +1461,9 @@ mod tests {
             }
         );
         assert_eq!(context_id, 1);
-        // let send_params = send_params_arc.lock().unwrap();
-        // assert_eq!(*send_params, vec![]);
+        let active_ui_port_after_redirect = subject.active_ui_port().await.unwrap();
+        assert_eq!(active_ui_port_before_redirect, daemon_port);
+        assert_eq!(active_ui_port_after_redirect, node_port)
     }
 
     #[tokio::test]
@@ -1588,9 +1578,9 @@ mod tests {
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new(daemon_port);
         let daemon_stop_handle = daemon_server.start().await;
-        let (conversation1_tx, mut conversation1_rx) = async_channel::unbounded();
-        let (conversation2_tx, mut conversation2_rx) = async_channel::unbounded();
-        let (conversation3_tx, mut conversation3_rx) = async_channel::unbounded();
+        let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
+        let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
+        let (conversation3_tx, conversation3_rx) = async_channel::unbounded();
         let conversations = vec![
             (1, conversation1_tx),
             (2, conversation2_tx),
@@ -1655,9 +1645,9 @@ mod tests {
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new(daemon_port);
         let daemon_stop_handle = daemon_server.start().await;
-        let (conversation1_tx, mut conversation1_rx) = async_channel::unbounded();
-        let (conversation2_tx, mut conversation2_rx) = async_channel::unbounded();
-        let (conversation3_tx, mut conversation3_rx) = async_channel::unbounded();
+        let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
+        let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
+        let (conversation3_tx, conversation3_rx) = async_channel::unbounded();
         let conversations = vec![
             (1, conversation1_tx),
             (2, conversation2_tx),
@@ -1758,19 +1748,33 @@ mod tests {
         subject.central_even_loop_join_handle.await.unwrap();
     }
 
+    struct LanguishingHandshakeCallback {}
+
+    impl Callback for LanguishingHandshakeCallback {
+        fn on_request(
+            self,
+            request: &Request,
+            response: Response,
+        ) -> Result<Response, ErrorResponse> {
+            thread::sleep(Duration::from_millis(10));
+            panic!("We shouldn't get to see this panic")
+        }
+    }
+
     #[tokio::test]
     async fn establish_client_listener_times_out() {
         let port = find_free_port();
         let (tx, rx) = unbounded_channel();
         let (close_tx, close_rx) = tokio::sync::broadcast::channel(10);
-        let timeout_ms = 10;
-        todo!("fix this...why don't we disconnect, but it's hanging???");
+        let timeout_ms = 1;
         let _server = tokio::task::spawn(async move {
             let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
                 .await
                 .unwrap();
             let (tcp, _) = listener.accept().await.unwrap();
-            accept_async(tcp).await.unwrap()
+            accept_hdr_async(tcp, LanguishingHandshakeCallback {})
+                .await
+                .unwrap()
         });
 
         let result = establish_client_listener(

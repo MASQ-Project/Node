@@ -3,7 +3,6 @@
 use crate::terminal::WTermInterfaceDupAndSend;
 use crate::test_utils::mocks::AsyncTestStreamHandles;
 use itertools::Either;
-use nix::libc::SCTP_PARTIAL_DELIVERY_POINT;
 use std::fmt::Debug;
 
 #[derive(Default)]
@@ -50,7 +49,7 @@ impl<'test> StdStreamsAssertionMatrix<'test> {
     }
 }
 
-trait AssertableAsNotUsed<'test> {
+pub trait AssertableAsNotUsed<'test> {
     fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self
     where
         Self: Sized;
@@ -341,13 +340,13 @@ async fn assert_broadcast_term_interface_outputs<'test>(
         (Some(w_terminal), Some(expected_usage)) => {
             assert_stream_writes(expected_usage.term_interface_stream_handles, expected_usage.expected_writes).await;
             assert_terminal_output_stream_and_its_stream_handle_are_connected!(
-                    term_interface_opt.as_ref().unwrap().stdout(),
+                    w_terminal.stdout(),
                     expected_usage.term_interface_stream_handles.await_stdout_is_not_empty(),
                     expected_usage.term_interface_stream_handles.stdout_all_in_one(),
                     "AbCdEfG"
                 );
             assert_terminal_output_stream_and_its_stream_handle_are_connected!(
-                    term_interface_opt.as_ref().unwrap().stderr(),
+                    w_terminal.stderr(),
                     expected_usage.term_interface_stream_handles.await_stderr_is_not_empty(),
                     expected_usage.term_interface_stream_handles.stderr_all_in_one(),
                     "1a2b3c4"

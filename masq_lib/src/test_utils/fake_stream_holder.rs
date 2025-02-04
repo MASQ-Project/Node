@@ -337,7 +337,7 @@ impl AsyncWrite for AsyncByteArrayWriter {
     }
 }
 
-pub trait StringAssertionMethods {
+pub trait StringAssertableStdHandle {
     fn get_string(&self) -> String;
     fn drain_flushed_strings(&self) -> FlushedStrings;
 }
@@ -376,7 +376,7 @@ impl AsyncByteArrayWriter {
     }
 }
 
-impl StringAssertionMethods for AsyncByteArrayWriter {
+impl StringAssertableStdHandle for AsyncByteArrayWriter {
     fn get_string(&self) -> String {
         match self.inner_arc.lock().unwrap().captured_writes.as_ref() {
             Either::Left(bytes) => String::from_utf8(bytes.clone()).unwrap(),

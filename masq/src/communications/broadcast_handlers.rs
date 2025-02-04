@@ -23,10 +23,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::task::{JoinError, JoinHandle};
 
@@ -72,6 +69,7 @@ impl BroadcastHandles {
 #[async_trait(?Send)]
 pub trait BroadcastHandle<Message>: Send {
     fn send(&self, message: Message);
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError>;
 }
 
@@ -82,6 +80,7 @@ pub struct StandardBroadcastHandleInactive {}
 impl BroadcastHandle<MessageBody> for StandardBroadcastHandleInactive {
     fn send(&self, _message_body: MessageBody) {}
 
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
         Ok(())
     }
@@ -100,6 +99,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
             .expect("Message send failed")
     }
 
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
         self.spawn_join_handle_opt
             .borrow_mut()
@@ -287,8 +287,9 @@ impl BroadcastHandle<RedirectOrder> for RedirectBroadcastHandle {
             .expect("Connection manager is dead");
     }
 
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
-        todo!()
+        unimplemented!("not yet needed")
     }
 }
 
@@ -304,7 +305,7 @@ mod tests {
     use crate::communications::broadcast_handlers::tests::StreamTypeAndTestHandles::{
         Stderr, Stdout,
     };
-    use crate::test_utils::mocks::{AsyncTestStreamHandles, MockTerminalMode, TermInterfaceMock};
+    use crate::test_utils::mocks::{AsyncTestStreamHandles, TermInterfaceMock};
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,

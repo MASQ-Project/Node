@@ -80,7 +80,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiScanRequest};
     use std::sync::{Arc, Mutex};
 
@@ -110,11 +110,11 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
-    #[test]
-    fn scan_command_works() {
-        scan_command_for_name("payables", ScanType::Payables);
-        scan_command_for_name("receivables", ScanType::Receivables);
-        scan_command_for_name("pendingpayables", ScanType::PendingPayables);
+    #[tokio::test]
+    async fn scan_command_works() {
+        scan_command_for_name("payables", ScanType::Payables).await;
+        scan_command_for_name("receivables", ScanType::Receivables).await;
+        scan_command_for_name("pendingpayables", ScanType::PendingPayables).await;
     }
 
     async fn scan_command_for_name(name: &str, scan_type: ScanType) {

@@ -7,7 +7,6 @@ use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::utils::exit_process;
 #[cfg(not(target_os = "windows"))]
 use masq_lib::utils::exit_process_with_sigterm;
-use std::fmt::format;
 use std::io::Write;
 
 pub struct CrashNotifier {}

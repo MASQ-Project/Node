@@ -1,11 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::command_context::{CommandContext, ContextError};
+use crate::command_context::CommandContext;
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::CommandFactory;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::connection_manager::CMBootstrapper;
 use crate::masq_short_writeln;
 use crate::terminal::{
     FlushHandle, FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
@@ -14,12 +13,9 @@ use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::utils::{exit_process, ExpectValue};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::io::AsyncWrite;
 
-pub struct CommandProcessorFactory {
-    bootstrapper: CMBootstrapper,
-}
+pub struct CommandProcessorFactory {}
 
 impl CommandProcessorFactory {
     pub async fn make(
@@ -58,13 +54,13 @@ impl CommandProcessorFactory {
 
 impl Default for CommandProcessorFactory {
     fn default() -> Self {
-        Self::new(Default::default())
+        Self::new()
     }
 }
 
 impl CommandProcessorFactory {
-    pub fn new(bootstrapper: CMBootstrapper) -> Self {
-        Self { bootstrapper }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -355,7 +351,7 @@ mod tests {
     use crate::command_context::CommandContext;
     use crate::command_context_factory::CommandContextFactoryReal;
     use crate::command_factory::CommandFactoryReal;
-    use crate::terminal::test_utils::allow_writtings_to_finish;
+    use crate::terminal::test_utils::allow_writings_to_finish;
     use crate::test_utils::mocks::{
         make_async_std_streams, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles,
         CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock, TermInterfaceMock,
@@ -507,7 +503,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(stream_handles.stderr_all_in_one(), "MASQ interrupted\n");
         let exiting_msg = caught_fictional_panic.downcast_ref::<String>().unwrap();
@@ -555,7 +551,7 @@ mod tests {
 
         let result = subject.process_command_line(None).await;
 
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(stream_handles.stdout_all_in_one(), expected_stdout_msg);
         assert_eq!(stream_handles.stderr_all_in_one(), "");
         assert_eq!(result, Ok(()))
@@ -577,7 +573,7 @@ mod tests {
 
         let result = subject.process_command_line(None).await;
 
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(result, Err(()));
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(
@@ -625,7 +621,7 @@ mod tests {
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         assert_eq!(stream_handles.stdout_all_in_one(), "a1b2c3\n");
         assert_eq!(stream_handles.stderr_all_in_one(), "3a2b1c\n")
     }

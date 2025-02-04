@@ -10,16 +10,17 @@ use crate::command_processor::{
 };
 use crate::commands::commands_common::CommandError;
 use crate::communications::broadcast_handlers::{BroadcastHandle, BroadcastHandler};
-use crate::terminal::async_streams::{
-    AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal,
-};
+use crate::masq_short_writeln;
 use crate::terminal::terminal_interface_factory::{
     TerminalInterfaceFactory, TerminalInterfaceFactoryReal,
 };
 use crate::terminal::{RWTermInterface, WTermInterface};
-use crate::{masq_short_writeln, write_async_stream_and_flush};
 use async_trait::async_trait;
 use itertools::Either;
+use masq_lib::async_streams::{
+    AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal,
+};
+use masq_lib::write_async_stream_and_flush;
 use std::io::Write;
 use std::ops::Not;
 use std::sync::Arc;
@@ -180,13 +181,13 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
     use crate::masq_short_writeln;
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::terminal::{ReadError, ReadInput, WTermInterfaceDupAndSend};
+    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::{ReadError, ReadInput};
     use crate::test_utils::mocks::{
-        make_async_std_streams, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles,
-        CommandContextFactoryMock, CommandContextMock, CommandExecutionHelperFactoryMock,
-        CommandExecutionHelperMock, CommandFactoryMock, InitialArgsParserMock, MockCommand,
-        TermInterfaceMock, TerminalInterfaceFactoryMock,
+        make_async_std_streams, AsyncStdStreamsFactoryMock, CommandContextFactoryMock,
+        CommandContextMock, CommandExecutionHelperFactoryMock, CommandExecutionHelperMock,
+        CommandFactoryMock, InitialArgsParserMock, MockCommand, TermInterfaceMock,
+        TerminalInterfaceFactoryMock,
     };
     use crate::test_utils::run_modes_utils::{
         Assert, AssertBroadcastHandler, BareStreamsFromStreamFactoryAssertionMatrix,
@@ -197,7 +198,7 @@ mod tests {
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::messages::{
         ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse,
-        UiShutdownRequest, UiShutdownResponse, UiStartResponse,
+        UiShutdownRequest, UiStartResponse,
     };
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
@@ -827,7 +828,7 @@ mod tests {
 
         assert_eq!(result, 0);
         let mut make_term_interface_params = make_term_interface_params_arc.lock().unwrap();
-        let (is_interactive, passed_streams) = make_term_interface_params.remove(0);
+        let is_interactive = make_term_interface_params.remove(0);
         assert_eq!(is_interactive, true);
         let mut make_command_context_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) =
@@ -912,12 +913,13 @@ mod tests {
 
         assert_eq!(result, 1);
         let mut make_term_interface_params = make_term_interface_params_arc.lock().unwrap();
-        let (is_interactive, passed_streams) = make_term_interface_params.remove(0);
+        let is_interactive = make_term_interface_params.remove(0);
         assert_eq!(is_interactive, true);
         assert!(make_term_interface_params.is_empty());
         let mut make_command_context_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
+        assert_eq!(ui_port, 5333);
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
@@ -1009,7 +1011,7 @@ mod tests {
 
         let result = subject.go(&["masq".to_string()]).await;
 
-        allow_writtings_to_finish().await;
+        allow_writings_to_finish().await;
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
