@@ -434,23 +434,11 @@ impl BlockchainBridge {
             .iter()
             .map(|finger_print| finger_print.hash)
             .collect::<Vec<Hash>>();
-
-        trace!(
-            &logger,
-            "Transaction Receipts Hashes: {:?}",
-            transaction_hashes
-        );
-
         Box::new(
             self.blockchain_interface
                 .process_transaction_receipts(transaction_hashes)
                 .map_err(move |e| e.to_string())
                 .and_then(move |transaction_receipts_results| {
-                    trace!(
-                        &logger,
-                        "Transaction Receipts Results: {:?}",
-                        transaction_receipts_results
-                    );
                     Self::log_status_of_tx_receipts(&logger, &transaction_receipts_results);
 
                     let pairs = transaction_receipts_results
