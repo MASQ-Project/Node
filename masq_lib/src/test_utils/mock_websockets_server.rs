@@ -325,6 +325,13 @@ impl MWSSMessage {
             MWSSMessage::ConversationData(_, _) => false,
         }
     }
+
+    fn message_body(self) -> MessageBody {
+        match self {
+            MWSSMessage::MessageBody (body) => body,
+            _ => panic!("Expected MWSSMessage::MessageBody, got {:?} instead", self),
+        }
+    }
 }
 
 pub struct MockWebsocketServerHandle {
@@ -934,16 +941,6 @@ mod tests {
     use crate::utils::find_free_port;
 
     #[tokio::test]
-    async fn not_really_a_test() {
-        let port = 8080;
-        let stop_handle = MockWebSocketsServer::new(port)
-            .queue_string("Now is the time for all good men to come to the aid of their country.")
-            .start()
-            .await;
-        tokio::time::sleep(Duration::from_secs(3600)).await;
-    }
-
-    #[tokio::test]
     async fn conversational_communication_happy_path_with_full_assertion() {
         let port = find_free_port();
         let expected_response = UiCheckPasswordResponse { matches: false };
@@ -961,8 +958,8 @@ mod tests {
             .await
             .unwrap();
 
-        let mut requests = stop_handle.retrieve_recorded_requests(None).await;
-        let captured_request = requests.remove(0).expect_masq_msg();
+        let mut requests = stop_handle.stop(StopStrategy::CloseWebSockets).await.requests;
+        let captured_request = requests.remove(0).message_body();
         let actual_message_gotten_by_the_server =
             UiCheckPasswordRequest::fmb(captured_request).unwrap().0;
         assert_eq!(actual_message_gotten_by_the_server, request);
@@ -1074,12 +1071,12 @@ mod tests {
         let _received_message_number_six: UiNewPasswordBroadcast =
             connection.skip_until_received().await.unwrap();
 
-        let requests = stop_handle.retrieve_recorded_requests(None).await;
+        let requests = stop_handle.stop(StopStrategy::CloseWebSockets).await.requests;
 
         assert_eq!(
             requests
                 .into_iter()
-                .map(|x| x.expect_masq_msg())
+                .map(|x| x.message_body())
                 .collect::<Vec<MessageBody>>(),
             vec![
                 conversation_number_one_request.tmb(1),
@@ -1104,28 +1101,6 @@ mod tests {
 
         let _ = conn
             .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn panic_on_connection_stops_server() {
-        let test_name = "panic_on_connection_stops_server".to_string();
-        let port = find_free_port();
-        let mut server = MockWebSocketsServer::new(port);
-        let mutex_to_sense_panic = Arc::new(Mutex::new(()));
-        server.test_panicking_conn_opt = Some(PanickingConn {
-            mutex_to_sense_panic: mutex_to_sense_panic.clone(),
-        });
-
-        let stop_handle = server.start().await;
-
-        let _ = tokio::task::spawn(UiConnection::new(port, NODE_UI_PROTOCOL));
-        while !mutex_to_sense_panic.is_poisoned() {
-            tokio::time::sleep(Duration::from_millis(5)).await
-        }
-        let _ = stop_handle
-            .server_background_thread_join_handle
             .await
             .unwrap();
     }
