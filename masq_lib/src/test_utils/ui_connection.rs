@@ -2,7 +2,7 @@
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
-use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_protocol;
+// use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_protocol;
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::NodeToUiMessage;
