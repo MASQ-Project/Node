@@ -32,7 +32,12 @@ fn debtors_are_credited_once_but_not_twice() {
     // Create and initialize mock blockchain client: prepare a receivable at block 2000
     eprintln!("Setting up mock blockchain client");
     let blockchain_client_server = MBCSBuilder::new(mbcs_port)
-        .ok_response("0x9C4", 1) // eth_blockNumber 2500
+        .err_response(
+            429,
+            "The requests per second (RPS) of your requests are higher than your plan allows."
+                .to_string(),
+            7,
+        )
         .ok_response(
             vec![LogObject {
                 removed: false,
@@ -144,7 +149,7 @@ fn debtors_are_credited_once_but_not_twice() {
         let config_dao = config_dao(&node_name);
         assert_eq!(
             config_dao.get("start_block").unwrap().value_opt.unwrap(),
-            "2501"
+            "2001"
         );
     }
 }
@@ -160,7 +165,7 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
             .build(),
     );
 
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         subject.name(),
         "DEBUG: BlockchainBridge: Received BindMessage",
         Duration::from_millis(1000),

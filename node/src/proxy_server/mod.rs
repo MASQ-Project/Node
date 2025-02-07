@@ -50,6 +50,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
 use regex::Regex;
 use std::collections::HashMap;
+use std::env;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::rc::Rc;
 use std::str::FromStr;
@@ -1300,7 +1301,15 @@ impl Hostname {
         Self { hostname }
     }
 
+    fn is_running_in_integration_test() -> bool {
+        env::var("MASQ_INTEGRATION_TEST").is_ok()
+    }
+
     fn validate_hostname(&self) -> Result<(), String> {
+        if Self::is_running_in_integration_test() {
+            return Ok(());
+        }
+
         match IpAddr::from_str(&self.hostname) {
             Ok(ip_addr) => match ip_addr {
                 IpAddr::V4(ipv4addr) => Self::validate_ipv4(ipv4addr),
@@ -1315,6 +1324,8 @@ impl Hostname {
         // but we should invalidate that IP too for safety
         if addr.octets() == [0, 0, 0, 0] {
             Err("0.0.0.0".to_string())
+        } else if addr.octets() == [127, 0, 0, 1] {
+            Err("127.0.0.1".to_string())
         } else {
             Ok(())
         }

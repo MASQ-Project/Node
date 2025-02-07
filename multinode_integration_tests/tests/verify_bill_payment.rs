@@ -336,7 +336,6 @@ fn verify_pending_payables() {
         "99998381140000000000",
         "472000000000000000000000000",
     );
-
     let payment_thresholds = PaymentThresholds {
         threshold_interval_sec: 2_592_000,
         debt_threshold_gwei: 1_000_000_000,
@@ -345,7 +344,6 @@ fn verify_pending_payables() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
     };
-
     let ui_port = find_free_port();
     let (node_wallet, node_secret) = make_node_wallet(&seed, deriv_path.as_str());
     let consuming_config = NodeStartupConfigBuilder::standard()
@@ -393,14 +391,13 @@ fn verify_pending_payables() {
 
     let real_consuming_node =
         cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
-    for _ in 0..6 {
-        cluster.start_real_node(
-            NodeStartupConfigBuilder::standard()
-                .chain(Chain::Dev)
-                .neighbor(real_consuming_node.node_reference())
-                .build(),
-        );
-    }
+    let ui_client = real_consuming_node.make_ui(ui_port);
+    ui_client.send_request(
+        UiScanRequest {
+            scan_type: ScanType::Payables,
+        }
+        .tmb(0),
+    );
 
     let now = Instant::now();
     while !consuming_payable_dao.non_pending_payables().is_empty()
@@ -433,8 +430,6 @@ fn verify_pending_payables() {
         "100000000000000000000",
         amount.to_string().as_str(),
     );
-
-    let ui_client = real_consuming_node.make_ui(ui_port);
     ui_client.send_request(
         UiScanRequest {
             scan_type: ScanType::PendingPayables,
@@ -442,29 +437,28 @@ fn verify_pending_payables() {
         .tmb(0),
     );
 
-    MASQNodeUtils::wrote_log_containing(
+    assert!(consuming_payable_dao.non_pending_payables().is_empty());
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
         "Found 3 pending payables to process",
         Duration::from_secs(5),
     );
-
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
         "Scan results: Successful: 3, Pending: 0, Failed: 0",
         Duration::from_secs(5),
     );
-
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
         "Transaction 0x75a8f185b7fb3ac0c4d1ee6b402a46940c9ae0477c0c7378a1308fb4bf539c5c has been added to the blockchain;",
         Duration::from_secs(5),
     );
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
         "Transaction 0x384a3bb5bbd9718a97322be2878fa88c7cacacb2ac3416f521a621ca1946ddfc has been added to the blockchain;",
         Duration::from_secs(5),
     );
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
         "Transaction 0x6bc98d5db61ddd7676de1f25cb537156b3d9e066cec414fef8dbe9c695908215 has been added to the blockchain;",
         Duration::from_secs(5),

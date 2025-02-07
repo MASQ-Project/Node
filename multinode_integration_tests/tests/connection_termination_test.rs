@@ -548,7 +548,7 @@ fn ensure_no_further_traffic(mock_node: &MASQMockNode, masquerader: &dyn Masquer
 fn wait_for_client_shutdown(real_node: &MASQRealNode) {
     // This is a jury-rigged way to wait for a shutdown, since client.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_node.name(),
         "Shutting down stream to client at 127.0.0.1",
         Duration::from_secs(1),
@@ -558,7 +558,7 @@ fn wait_for_client_shutdown(real_node: &MASQRealNode) {
 fn wait_for_server_shutdown(real_node: &MASQRealNode, local_addr: SocketAddr) {
     // This is a jury-rigged way to wait for a shutdown, since server.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_node.name(),
         &format!(
             "Shutting down stream to server at {} in response to client-drop report",

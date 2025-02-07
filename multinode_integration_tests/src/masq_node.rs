@@ -249,7 +249,7 @@ impl MASQNodeUtils {
         SocketAddr::new(node_addr.ip_addr(), port_list[idx])
     }
 
-    pub fn wrote_log_containing(name: &str, pattern: &str, timeout: Duration) {
+    pub fn assert_node_wrote_log_containing(name: &str, pattern: &str, timeout: Duration) {
         let time_limit = Instant::now() + timeout;
         let mut entire_log = String::new();
         while Instant::now() < time_limit {

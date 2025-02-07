@@ -524,6 +524,7 @@ mod tests {
             block_response,
             expected_new_start_block,
             expected_log,
+            "all_values_are_present",
         );
 
         let start_block_marker = BlockMarker::Uninitialized;
@@ -540,6 +541,7 @@ mod tests {
             block_response,
             expected_new_start_block,
             expected_log,
+            "start_block_is_missing",
         );
 
         let start_block_marker = BlockMarker::Value(42);
@@ -553,6 +555,7 @@ mod tests {
             block_response,
             expected_new_start_block,
             expected_log,
+            "scan_limit_is_missing",
         );
 
         let start_block_marker = BlockMarker::Value(42);
@@ -566,6 +569,7 @@ mod tests {
             block_response,
             expected_new_start_block,
             expected_log,
+            "scan_limit_and_blockchain_response_is_unavailable",
         );
     }
 
@@ -575,9 +579,10 @@ mod tests {
         block_response: &str,
         expected_new_start_block: u64,
         expected_log: &str,
+        test_name: &str,
     ) {
         init_test_logging();
-        let test_name = "blockchain_interface_web3_retrieves_transactions";
+        // let test_name = "blockchain_interface_web3_retrieves_transactions";
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
         #[rustfmt::skip]
@@ -1150,6 +1155,7 @@ mod tests {
 
     #[test]
     fn find_new_start_block_works() {
+        type Subject = BlockchainInterfaceWeb3;
         let logger = Logger::new("find_new_start_block_works");
         let transactions = vec![
             BlockchainTransaction {
@@ -1163,8 +1169,6 @@ mod tests {
                 wei_amount: 500,
             },
         ];
-
-        type Subject = BlockchainInterfaceWeb3;
 
         // Case 1: end_block_marker is Value
         assert_eq!(
