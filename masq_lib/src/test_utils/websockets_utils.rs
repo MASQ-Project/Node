@@ -1,5 +1,7 @@
-// // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-//
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use std::net::SocketAddr;
+use futures_util::io::{BufReader, BufWriter};
+use soketto::handshake;
 // use crate::messages::NODE_UI_PROTOCOL;
 // use async_channel::{Receiver, Sender};
 // use futures_util::TryFutureExt;
@@ -8,37 +10,42 @@
 // use tokio::sync::mpsc::unbounded_channel;
 // use workflow_websocket::client::{Ack, Message, WebSocket};
 // use workflow_websocket::client::{ConnectOptions, Handshake, WebSocketConfig};
+use soketto::handshake::{Client, ServerResponse};
+use tokio::net::TcpStream;
+use tokio_util::compat::TokioAsyncReadCompatExt;
+use crate::utils::localhost;
+use crate::websockets_handshake::{WSReceiver, WSSender};
 //
 // pub async fn establish_ws_conn_with_handshake(port: u16) -> WebSocket {
 //     establish_ws_conn_with_arbitrary_protocol(port, NODE_UI_PROTOCOL)
 //         .await
 //         .unwrap()
 // }
-//
-// pub async fn establish_ws_conn_with_arbitrary_protocol(
-//     port: u16,
-//     protocol: &'static str,
-// ) -> Result<WebSocket, String> {
-//     let (tx, rx) = unbounded_channel();
-//     let handshake_handler = Arc::new(MASQClientWSHandshakeHandler::new(
-//         Duration::from_millis(500),
-//         protocol,
-//         tx,
-//     ));
-//     let set_global_timeout = Duration::from_millis(4_000);
-//     let connect_timeout = Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS);
-//     let mut connector = WSClientConnectionInitiator::new_with_full_setup(
-//         port,
-//         handshake_handler,
-//         rx,
-//         set_global_timeout,
-//         connect_timeout,
-//     );
-//     connector
-//         .connect_with_timeout()
-//         .await
-//         .map_err(|e| format!("Connecting to the websocket server failed: {}", e))
-// }
+
+pub async fn establish_ws_conn_with_arbitrary_protocol(
+    port: u16,
+    protocol: &'static str,
+) -> Result<(WSSender, WSReceiver), String> {
+    let socket_addr = SocketAddr::new(localhost(), port);
+    let stream = TcpStream::connect(socket_addr)
+        .await
+        .map_err(|e| format!("Connecting a TCP stream to the websocket server failed: {}", e))?;
+    let host = socket_addr.to_string();
+    let mut client = handshake::Client::new(
+        BufReader::new(BufWriter::new(stream.compat())),
+        host.as_str(),
+        "/"
+    );
+    let handshake_response = client
+        .handshake()
+        .await
+        .map_err(|e| format!("Handshake with the websocket server failed: {}", e))?;
+    if ! matches!(&handshake_response, ServerResponse::Accepted { protocol: Some(protocol) }) {
+        return Err(format!("Websocket server did not accept protocol {}: {:?}", protocol, handshake_response));
+    }
+    let (sender, receiver) = client.into_builder().finish();
+    Ok((sender, receiver))
+}
 //
 // pub async fn websocket_utils_with_masq_handshake(
 //     port: u16,

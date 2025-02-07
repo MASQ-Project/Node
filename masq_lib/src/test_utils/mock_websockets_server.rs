@@ -4,6 +4,7 @@ use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
+use crate::websockets_handshake::{WSSender, WSReceiver};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use std::fmt::Debug;
@@ -27,9 +28,6 @@ use futures::io::{BufReader, BufWriter};
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
 }
-
-type MWSSSender = Sender<BufReader<BufWriter<Compat<TcpStream>>>>;
-type MWSSReceiver = Receiver<BufReader<BufWriter<Compat<TcpStream>>>>;
 
 
 // struct NodeUiProtocolWebSocketHandlerOld {
@@ -454,17 +452,11 @@ impl MockWebSocketsServer {
         }
     }
 
-    /*
-fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWriter<Compat<TcpStream>>>> {
-	handshake::Server::new(BufReader::new(BufWriter::new(socket.compat())))
-}
-     */
-
     async fn make_connection(
         tcp_listener: TcpListener,
         proposed_protocols_arc: Arc<Mutex<Vec<String>>>,
         accepted_protocol_opt: Option<String>,
-    ) -> (MWSSSender, MWSSReceiver) {
+    ) -> (WSSender, WSReceiver) {
         // TODO: Eventually add the capability to abort at any important stage along in here so that
         // we can test client code against misbehaving servers.
         let (stream, peer_addr) = tcp_listener.accept().await.expect("Error accepting incoming connection to MockWebsocketsServer");
@@ -486,7 +478,7 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWrite
     async fn process_data(
         data_type: &SokettoDataType,
         data: &[u8],
-        sender: &mut MWSSSender,
+        sender: &mut WSSender,
         requests_arc: Arc<Mutex<Vec<MWSSMessage>>>,
         responses: &mut Vec<MWSSMessage>,
     ) {
@@ -514,7 +506,7 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWrite
     }
 
     async fn send_faf_messages(
-        sender: &mut MWSSSender,
+        sender: &mut WSSender,
         responses: &mut Vec<MWSSMessage>,
     ) {
         while let Some(response) = responses.first() {
@@ -533,7 +525,7 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWrite
     }
 
     async fn send_next_message(
-        sender: &mut MWSSSender,
+        sender: &mut WSSender,
         responses: &mut Vec<MWSSMessage>,
     ) {
         if responses.is_empty() {return;}
@@ -545,7 +537,7 @@ fn new_server<'a>(socket: TcpStream) -> handshake::Server<'a, BufReader<BufWrite
         Self::send_data(sender, data_type, data).await;
     }
 
-    async fn send_data(sender: &mut MWSSSender, data_type: SokettoDataType, data: Vec<u8>) {
+    async fn send_data(sender: &mut WSSender, data_type: SokettoDataType, data: Vec<u8>) {
         match data_type {
             SokettoDataType::Text(len) => {
                 let text = std::str::from_utf8(&data).expect("Error converting data to text");
@@ -758,7 +750,7 @@ pub enum StopStrategy {
 }
 
 impl StopStrategy {
-    pub async fn apply (self, mut sender: MWSSSender) {
+    pub async fn apply (self, mut sender: WSSender) {
         match self {
             StopStrategy::CloseWebSockets => {Self::close_web_sockets(sender);},
             StopStrategy::FinTcp => {Self::fin_tcp(sender);},
@@ -766,16 +758,16 @@ impl StopStrategy {
         }
     }
 
-    async fn close_web_sockets(mut sender: MWSSSender) {
+    async fn close_web_sockets(mut sender: WSSender) {
         sender.close().await.expect("Error closing WebSocket connection");
     }
 
-    async fn fin_tcp(mut sender: MWSSSender) {
+    async fn fin_tcp(mut sender: WSSender) {
         todo!("You may have to preserve the TcpStream or equivalent that goes into the Server");
         // sender.writer.lock().await.close().expect("Error closing TCP connection");
     }
 
-    async fn abort(mut sender: MWSSSender) {
+    async fn abort(mut sender: WSSender) {
         drop (sender);
     }
 }
