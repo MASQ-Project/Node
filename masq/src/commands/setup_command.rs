@@ -19,9 +19,7 @@ use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTOR
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
-use std::io::Write;
 use std::iter::Iterator;
-use std::sync::Arc;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 

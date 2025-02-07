@@ -3,9 +3,7 @@
 use crate::messages::NODE_UI_PROTOCOL;
 use crate::utils::localhost;
 use async_trait::async_trait;
-use clap::builder::TypedValueParser;
 use futures_util::{FutureExt, SinkExt, StreamExt};
-use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -258,7 +256,7 @@ impl WSClientConnectionInitiator {
         connect_options.strategy = Fallback;
         connect_options.connect_timeout = Some(self.connect_timeout);
 
-        let mut delay = tokio::time::sleep(self.global_timeout);
+        let delay = tokio::time::sleep(self.global_timeout);
 
         tokio::select! {
             biased;

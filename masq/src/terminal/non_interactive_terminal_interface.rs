@@ -1,6 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult, WriteStreamType,
@@ -106,7 +105,7 @@ mod tests {
     };
     use crate::terminal::{WTermInterface, WriteResult};
     use crate::test_utils::mocks::{
-        make_async_std_streams, make_async_std_streams_with_further_setup,
+        make_async_std_streams, make_async_std_streams_with_error_setup,
         AsyncStdStreamsFactoryMock,
     };
     use itertools::Either;
@@ -160,7 +159,7 @@ mod tests {
 
     #[tokio::test]
     async fn error_flushing_through_non_interactive_flush_handle() {
-        let (std_streams, stream_handles) = make_async_std_streams_with_further_setup(
+        let (std_streams, stream_handles) = make_async_std_streams_with_error_setup(
             Either::Left(vec![]),
             Some(std::io::Error::from(ErrorKind::BrokenPipe)),
             None,

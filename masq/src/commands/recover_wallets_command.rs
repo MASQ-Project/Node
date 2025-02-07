@@ -14,7 +14,6 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 #[cfg(test)]
 use std::any::Any;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {

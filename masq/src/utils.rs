@@ -8,6 +8,6 @@ macro_rules! masq_short_writeln {
     ( $term_interface: expr, $($arg:tt)*) => {
          {
              $term_interface.writeln(&format!($($arg)*)).await
-         };
+         }
     };
 }

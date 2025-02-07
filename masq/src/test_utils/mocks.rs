@@ -40,7 +40,6 @@ use masq_lib::{
 use std::any::Any;
 use std::cell::RefCell;
 use std::io;
-use std::io::{Read, Write};
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -623,7 +622,7 @@ impl WSClientHandleMock {
         self
     }
 
-    pub fn send_result(mut self, result: std::result::Result<(), Arc<Error>>) -> Self {
+    pub fn send_result(self, result: std::result::Result<(), Arc<Error>>) -> Self {
         self.send_results.lock().unwrap().push(result);
         self
     }
@@ -762,12 +761,6 @@ enum TerminalInterfaceMockInner {
 }
 
 impl TerminalInterfaceMockInner {
-    fn writing_streams_for_non_interactive_mode(&self) -> &WritingStreamsContainers {
-        match self {
-            TerminalInterfaceMockInner::NonInteractive {writing_streams } => writing_streams,
-            TerminalInterfaceMockInner::Interactive { .. } => panic!("Trying to fetch simple writing utils from a mock not having been set up as non-interactive")
-        }
-    }
     fn write_only_terminal_for_interactive_mode(&self) -> &dyn WTermInterface {
         match self {
             TerminalInterfaceMockInner::NonInteractive { ..} => panic!("Trying to access an auxiliary write only terminal on a mock not having been set up as interactive"),
@@ -1143,15 +1136,15 @@ pub fn make_async_std_write_stream(
 pub fn make_async_std_streams(
     read_inputs: Vec<Vec<u8>>,
 ) -> (AsyncStdStreams, AsyncTestStreamHandles) {
-    make_async_std_streams_with_further_setup(Either::Left(read_inputs), None, None)
+    make_async_std_streams_with_error_setup(Either::Left(read_inputs), None, None)
 }
 
-pub fn make_async_std_streams_with_further_setup(
+pub fn make_async_std_streams_with_error_setup(
     stdin_either: Either<Vec<Vec<u8>>, StdinMock>,
     stdout_write_err_opt: Option<std::io::Error>,
     stderr_write_err_opt: Option<std::io::Error>,
 ) -> (AsyncStdStreams, AsyncTestStreamHandles) {
-    let mut stdin = match stdin_either {
+    let stdin = match stdin_either {
         Either::Left(read_inputs) => StdinMock::new(AsyncByteArrayReader::new(read_inputs), vec![]),
         Either::Right(ready_stdin) => ready_stdin,
     };

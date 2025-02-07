@@ -8,7 +8,7 @@ use crate::communications::connection_manager::{
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceDupAndSend};
+use crate::terminal::{TerminalWriter, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
@@ -16,14 +16,7 @@ use masq_lib::messages::{
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, intentionally_blank};
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
-use std::fmt::Debug;
-use std::io::Write;
-use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::task::{JoinError, JoinHandle};
 
@@ -617,11 +610,5 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     enum StreamTypeAndTestHandles<'handles> {
         Stdout(&'handles AsyncTestStreamHandles),
         Stderr(&'handles AsyncTestStreamHandles),
-    }
-
-    macro_rules! as_generic_broadcast {
-        ($broadcast_handler: expr) => {
-            |broadcast, stdout, stderr| Box::new($broadcast_handler(broadcast, stdout, stderr))
-        };
     }
 }

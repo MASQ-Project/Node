@@ -32,8 +32,6 @@ use masq_lib::messages::{
 };
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
-use std::io::{Stderr, Write};
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -297,7 +295,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
     use crate::terminal::test_utils::allow_writings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,

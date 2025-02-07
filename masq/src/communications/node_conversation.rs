@@ -199,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn transact_handles_successful_transaction() {
-        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Ok(UiShutdownResponse {}.tmb(42)))
             .await
@@ -255,7 +255,7 @@ mod tests {
 
     #[tokio::test]
     async fn transact_handles_resend_order() {
-        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Err(NodeConversationTermination::Resend))
             .await
@@ -286,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn transact_handles_broken_connection() {
-        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Err(NodeConversationTermination::Fatal))
             .await
@@ -350,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_successful_transmission() {
-        let (subject, message_body_send_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_send_tx, message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),

@@ -15,8 +15,6 @@ use masq_lib::utils::localhost;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpStream};
 use std::ops::Add;
-use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
@@ -210,7 +208,7 @@ mod tests {
             self
         }
 
-        pub fn wait_result(mut self, result: bool) -> Self {
+        pub fn wait_result(self, result: bool) -> Self {
             self.wait_results.lock().unwrap().push(result);
             self
         }

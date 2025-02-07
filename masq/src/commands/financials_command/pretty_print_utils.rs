@@ -9,12 +9,9 @@ pub(in crate::commands::financials_command) mod restricted {
     use crate::masq_short_writeln;
     use crate::terminal::TerminalWriter;
     use futures::future::join_all;
-    use futures::stream::FuturesUnordered;
-    use futures::StreamExt;
     use masq_lib::constants::WALLET_ADDRESS_LENGTH;
     use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
     use std::fmt::{Debug, Display};
-    use std::io::Write;
     use thousands::Separable;
 
     pub trait StringValuesFormattableAccount {

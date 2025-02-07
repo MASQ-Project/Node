@@ -12,7 +12,6 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 #[cfg(test)]
 use std::any::Any;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {

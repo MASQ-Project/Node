@@ -9,7 +9,6 @@ use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
-use std::sync::Arc;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 

@@ -7,7 +7,6 @@ use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::utils::exit_process;
 #[cfg(not(target_os = "windows"))]
 use masq_lib::utils::exit_process_with_sigterm;
-use std::io::Write;
 
 pub struct CrashNotifier {}
 
@@ -15,7 +14,7 @@ impl CrashNotifier {
     pub async fn handle_broadcast(
         response: UiNodeCrashedBroadcast,
         stdout: &TerminalWriter,
-        stderr: &TerminalWriter,
+        _stderr: &TerminalWriter,
     ) {
         if response.crash_reason == CrashReason::DaemonCrashed {
             #[cfg(target_os = "windows")]
@@ -60,9 +59,7 @@ impl CrashNotifier {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::make_terminal_writer;
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayWriter;
     use masq_lib::utils::running_test;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn handles_child_wait_failure() {

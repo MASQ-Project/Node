@@ -2,7 +2,6 @@
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
-use crate::test_utils::utils::make_rt;
 use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_protocol;
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
@@ -10,7 +9,7 @@ use crate::ui_gateway::NodeToUiMessage;
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use std::net::SocketAddr;
-use workflow_websocket::client::{ConnectOptions, Message, WebSocket};
+use workflow_websocket::client::{Message, WebSocket};
 
 pub struct UiConnection {
     context_id: u64,

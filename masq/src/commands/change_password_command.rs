@@ -14,9 +14,6 @@ use masq_lib::messages::{
 };
 #[cfg(test)]
 use std::any::Any;
-use std::io::Write;
-use std::pin::Pin;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {

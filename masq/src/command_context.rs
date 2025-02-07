@@ -1,10 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::ContextError::ConnectionRefused;
-use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::{CMBootstrapper, ConnectionManager};
 use crate::communications::node_conversation::ClientError;
-use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
+use crate::terminal::{WTermInterfaceDupAndSend};
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
@@ -12,7 +11,6 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
-use std::io::{Read, Write};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -81,7 +79,7 @@ impl CommandContext for CommandContextReal {
     }
 
     async fn send_one_way(&self, outgoing_message: MessageBody) -> Result<(), ContextError> {
-        let mut conversation = self.connection.start_conversation().await;
+        let conversation = self.connection.start_conversation().await;
         match conversation.send(outgoing_message).await {
             Ok(_) => Ok(()),
             Err(e) => Err(e.into()),
@@ -93,7 +91,7 @@ impl CommandContext for CommandContextReal {
         outgoing_message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError> {
-        let mut conversation = self.connection.start_conversation().await;
+        let conversation = self.connection.start_conversation().await;
         let incoming_message_result = conversation
             .transact(outgoing_message, timeout_millis)
             .await;
@@ -214,7 +212,7 @@ mod tests {
         let server = MockWebSocketsServer::new(port).queue_response(expected_response.clone());
         let server_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, bootstrapper)
+        let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
 
@@ -253,7 +251,7 @@ mod tests {
         });
         let stop_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, bootstrapper)
+        let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
 
@@ -272,7 +270,7 @@ mod tests {
         let server_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
         let request = UiSetupRequest { values: vec![] };
-        let mut subject = CommandContextReal::new(port, None, bootstrapper)
+        let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
         server_handle.await_conn_established(None).await;

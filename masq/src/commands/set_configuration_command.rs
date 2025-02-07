@@ -11,7 +11,6 @@ use masq_lib::shared_schema::{GasPrice, GAS_PRICE_HELP};
 use masq_lib::utils::{get_argument_value_as_string, ExpectValue};
 #[cfg(test)]
 use std::any::Any;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {

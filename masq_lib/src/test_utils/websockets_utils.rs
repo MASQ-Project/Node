@@ -1,14 +1,11 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::NODE_UI_PROTOCOL;
-use crate::utils::localhost;
 use crate::websockets_handshake::{
     ws_url, HandshakeResultTx, MASQClientWSHandshakeHandler, WSClientConnectionInitiator,
     WSHandshakeHandlerFactory, WS_CLIENT_CONNECT_TIMEOUT_MS,
 };
 use async_channel::{Receiver, Sender};
-use futures_util::TryFutureExt;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
@@ -33,7 +30,7 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
     ));
     let set_global_timeout = Duration::from_millis(4_000);
     let connect_timeout = Duration::from_millis(WS_CLIENT_CONNECT_TIMEOUT_MS);
-    let mut connector = WSClientConnectionInitiator::new_with_full_setup(
+    let connector = WSClientConnectionInitiator::new_with_full_setup(
         port,
         handshake_handler,
         rx,

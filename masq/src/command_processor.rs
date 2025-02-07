@@ -4,16 +4,14 @@ use crate::command_context::CommandContext;
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::CommandFactory;
 use crate::commands::commands_common::{Command, CommandError};
-use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::masq_short_writeln;
 use crate::terminal::{
-    FlushHandle, FlushHandleInner, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
+    FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
 };
 use async_trait::async_trait;
 use itertools::Either;
-use masq_lib::utils::{exit_process, ExpectValue};
+use masq_lib::utils::{exit_process};
 use std::sync::Arc;
-use tokio::io::AsyncWrite;
 
 pub struct CommandProcessorFactory {}
 
@@ -348,33 +346,34 @@ fn split_possibly_quoted_cml(input: String) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::CommandContext;
     use crate::command_context_factory::CommandContextFactoryReal;
     use crate::command_factory::CommandFactoryReal;
     use crate::terminal::test_utils::allow_writings_to_finish;
     use crate::test_utils::mocks::{
-        make_async_std_streams, AsyncStdStreamsFactoryMock, AsyncTestStreamHandles,
+        AsyncTestStreamHandles,
         CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock, TermInterfaceMock,
     };
-    use async_trait::async_trait;
     use futures::FutureExt;
     use masq_lib::utils::{find_free_port, running_test};
     use std::panic::AssertUnwindSafe;
-    use std::thread;
-    use std::time::Duration;
-    use tokio::sync::mpsc::UnboundedSender;
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactory::default();
-        let (term_interface, _) = TermInterfaceMock::new_non_interactive();
+        let terminal_interface_in_either = if !is_interactive {
+            let (term_interface, _) = TermInterfaceMock::new_non_interactive();
+            Either::Left(Box::new(term_interface) as Box<dyn WTermInterface>)
+        } else {
+            let (term_interface, _,_) = TermInterfaceMock::new_interactive(vec![]);
+            Either::Right(Box::new(term_interface) as Box<dyn RWTermInterface>)
+        };
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
         let command_factory = Box::new(CommandFactoryReal::default());
 
         let result = Arc::new(subject)
             .make(
-                Either::Left(Box::new(term_interface)),
+                terminal_interface_in_either,
                 &command_context_factory,
                 &command_execution_helper_factory,
                 command_factory,

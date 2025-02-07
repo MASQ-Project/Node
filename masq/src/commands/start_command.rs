@@ -9,7 +9,6 @@ use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use std::default::Default;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 const START_SUBCOMMAND_ABOUT: &str =

@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use async_trait::async_trait;
-use itertools::Itertools;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::intentionally_blank;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -153,7 +152,7 @@ impl FlushHandle {
 
     fn flush_whole_buffer(&mut self) -> Option<JoinHandle<()>> {
         if !panicking() {
-            let mut inner_arc_opt = self.inner_arc_opt.take();
+            let inner_arc_opt = self.inner_arc_opt.take();
             let handle = tokio::task::spawn(async move {
                 // Spawn come across as neat as it allows to leave the drop impl and handle
                 // an eventual panic outside
@@ -206,19 +205,18 @@ mod tests {
 
     #[test]
     fn does_not_flush_if_thread_is_panicking() {
-        // The standard drop procedure for this handle uses tokio::spawn so the runtime is important
-        // to be present. Because we didn't get a nested panic (panic beginning in an already
-        // unwinding panic (due to that missing runtime), which would've killed the test, we can
-        // conclude that the spawn call wasn't reached as it shouldn't when the thread is already
-        // panicking
+        // Because the drop impl for this handle uses tokio::spawn, the runtime is important
+        // to be present. The test doesn't contain one though. We make a hypothesis that if we don't
+        // kill the whole test we couldn't reach the spawn because it was observed as a cause of
+        // nested unwinding panics which, furthermore, would make cargo abort the test.
         let flush_during_drop_params_arc = Arc::new(Mutex::new(vec![]));
         let inner =
             FlushHandleInnerMock::default().flush_during_drop_params(&flush_during_drop_params_arc);
-        let mut flush_handle = FlushHandle::new(Arc::new(tokio::sync::Mutex::new(inner)));
+        let flush_handle = FlushHandle::new(Arc::new(tokio::sync::Mutex::new(inner)));
 
         let experiment_thread = thread::spawn(move || {
-            panic!("Intended panic");
             let _handle = flush_handle;
+            panic!("Intended panic");
         });
 
         experiment_thread.join().unwrap_err();

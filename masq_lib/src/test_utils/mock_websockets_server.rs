@@ -5,14 +5,11 @@ use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crate::websockets_handshake::node_server_greeting;
-use actix::dev::MessageResponse;
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::ops::Not;
-use std::ops::{Deref, DerefMut};
-use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -358,7 +355,7 @@ impl MockWebSocketsServer {
         let logger = MWSSLogger::new(self.do_log);
         let requests_arc = Arc::new(Mutex::new(vec![]));
         let counters_arc = Arc::new(WebSocketCounters::default());
-        let mut listener_stop_tx = Arc::new(Mutex::new(None));
+        let listener_stop_tx = Arc::new(Mutex::new(None));
 
         let handler = NodeUiProtocolWebSocketHandler {
             requests_arc: requests_arc.clone(),

@@ -12,7 +12,6 @@ use clap::Command as ClapCommand;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiDescriptorRequest, UiDescriptorResponse};
 use std::fmt::Debug;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct DescriptorCommand {}

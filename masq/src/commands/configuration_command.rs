@@ -19,8 +19,6 @@ use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::{Debug, Display};
-use std::io::Write;
-use std::sync::Arc;
 use thousands::Separable;
 
 #[derive(Debug, PartialEq, Eq)]

@@ -5,11 +5,8 @@ use async_channel::Receiver as WSReceiver;
 use async_trait::async_trait;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
-use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::{AbortHandle, JoinHandle};
 use workflow_websocket::client::{Error, Result as ClientResult};
@@ -207,7 +204,6 @@ impl ClientListenerEventLoopSpawner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::SinkExt;
     use masq_lib::messages::{
         FromMessageBody, ToMessageBody, UiCheckPasswordResponse, UiDescriptorRequest,
         UiDescriptorResponse,
@@ -242,7 +238,7 @@ mod tests {
         let (websocket, talker_half, _) = websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let mut subject = ClientListener::new(websocket);
+        let subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
@@ -266,7 +262,7 @@ mod tests {
             websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_detector) = ClosingStageDetector::make_for_test();
-        let mut subject = ClientListener::new(websocket);
+        let subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_detector.dup_receiver(), message_body_tx)
             .await;
@@ -307,7 +303,7 @@ mod tests {
         let listener_half_clone = listener_half.clone();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let mut subject = ClientListener::new(websocket);
+        let subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
@@ -330,7 +326,7 @@ mod tests {
         let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let mut subject = ClientListener::new(websocket);
+        let subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
@@ -351,7 +347,7 @@ mod tests {
         let websocket = establish_ws_conn_with_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let mut subject = ClientListener::new(websocket);
+        let subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
@@ -401,7 +397,7 @@ mod tests {
             )
             .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
         let stop_handle = server.start().await;
-        let (websocket, talker_half, listener_half) =
+        let (websocket, _talker_half, listener_half) =
             websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
@@ -410,7 +406,7 @@ mod tests {
             message_body_tx,
             close_sig.dup_receiver(),
         );
-        let mut join_handle = tokio::task::spawn(async { subject.loop_guts().await });
+        let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
         let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
         stimulate_queued_response_from_server(&client_handle).await;
         let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();

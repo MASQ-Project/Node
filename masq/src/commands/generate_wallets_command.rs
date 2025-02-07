@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use std::any::Any;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use std::sync::Arc;
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
@@ -920,10 +919,10 @@ mod tests {
 
     #[tokio::test]
     async fn response_with_mnemonic_phrase_is_processed() {
-        let mut context = CommandContextMock::new();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
-        let (stdout, mut stdout_flush_handle) = term_interface.stdout();
-        let (stderr, mut stderr_flush_handle) = term_interface.stderr();
+        let context = CommandContextMock::new();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {
             mnemonic_phrase_opt: Some(vec![
                 "taxation".to_string(),
@@ -959,7 +958,7 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
     #[tokio::test]
     async fn response_without_mnemonic_phrase_is_processed() {
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let response = UiGenerateWalletsResponse {

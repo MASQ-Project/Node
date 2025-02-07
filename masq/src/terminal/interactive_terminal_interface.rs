@@ -360,7 +360,7 @@ mod tests {
         let w_liso_wrapper = LisoOutputWrapperMock::default();
         let mut subject =
             InteractiveRWTermInterface::new(Box::new(r_liso_wrapper), Box::new(w_liso_wrapper));
-        let mut subject_ref = &mut subject;
+        let subject_ref = &mut subject;
 
         for expected in expected_translations {
             let result = subject_ref.read_line().await;

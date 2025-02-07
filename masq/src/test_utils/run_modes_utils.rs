@@ -328,7 +328,7 @@ async fn assert_broadcast_term_interface_outputs<'test>(
 ) {
     macro_rules! assert_terminal_output_stream_and_its_stream_handle_are_connected {
         ($fetch_write_utils: expr, $await_non_empty_output: expr, $fetch_written_data_all_in_one: expr, $literals_to_test_it_with: literal) => {
-            let (mut std_stream_writer, flush_handle) = $fetch_write_utils;
+            let (std_stream_writer, flush_handle) = $fetch_write_utils;
             std_stream_writer.write($literals_to_test_it_with).await;
             drop(flush_handle);
             $await_non_empty_output.await;

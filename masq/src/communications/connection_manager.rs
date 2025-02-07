@@ -1,21 +1,18 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::communications::broadcast_handlers::{
-    BroadcastHandle, BroadcastHandler, BroadcastHandles, RedirectBroadcastHandle,
+    BroadcastHandle, BroadcastHandles, RedirectBroadcastHandle,
     StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::client_listener_thread::{
     ClientListener, ClientListenerError, WSClientHandle,
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
-use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
+use crate::terminal::{WTermInterfaceDupAndSend};
 use async_channel::RecvError;
 use async_trait::async_trait;
 use futures::future::join_all;
-use futures::FutureExt;
-use masq_lib::messages::UiRedirect;
-use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast};
+use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::websockets_handshake::{
@@ -23,16 +20,13 @@ use masq_lib::websockets_handshake::{
 };
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
-use std::ops::DerefMut;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use workflow_websocket::client::{Error, Handshake, Message};
+use workflow_websocket::client::{Error, Message};
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS: u64 = 1000;
@@ -301,7 +295,7 @@ async fn establish_client_listener(
         Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
 
-    let mut client_listener = ClientListener::new(ws);
+    let client_listener = ClientListener::new(ws);
     let talker_half = client_listener
         .start(close_sig_rx, listener_to_manager_tx)
         .await;
@@ -461,7 +455,7 @@ impl CentralEventLoop {
                             Ok(_) => {
                                 inner.conversations_waiting.insert(context_id);
                             },
-                            Err(e) => {
+                            Err(_) => {
                                 inner = Self::fallback(inner, NodeConversationTermination::Fatal).await;
                             },
                         }
@@ -558,7 +552,7 @@ impl CentralEventLoop {
         inner
     }
 
-    async fn handle_close(mut inner: ConnectionDepartment) {
+    async fn handle_close(inner: ConnectionDepartment) {
         let _ = inner.ws_client_handle.disconnect().await;
         let _ = inner.ws_client_handle.close_talker_half();
     }
@@ -731,7 +725,6 @@ mod tests {
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
     use crate::test_utils::mocks::WSClientHandleMock;
     use async_channel::TryRecvError;
-    use futures::SinkExt;
     use masq_lib::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiFinancialStatistics, UiNodeCrashedBroadcast,
         UiSetupBroadcast,
@@ -880,10 +873,10 @@ mod tests {
                 }
                 .tmb(2),
             );
-        let (mut subject, stop_handle) = make_subject(server).await;
+        let (subject, stop_handle) = make_subject(server).await;
         stop_handle.await_conn_established(None).await;
-        let mut conversation1 = subject.start_conversation().await;
-        let mut conversation2 = subject.start_conversation().await;
+        let conversation1 = subject.start_conversation().await;
+        let conversation2 = subject.start_conversation().await;
 
         let conversation1_handle = tokio::task::spawn(async move {
             let response1 = conversation1
@@ -935,8 +928,8 @@ mod tests {
     #[tokio::test]
     async fn handles_sending_fire_and_forget_messages() {
         let server = MockWebSocketsServer::new(find_free_port());
-        let (mut subject, stop_handle) = make_subject(server).await;
-        let mut conversation = subject.start_conversation().await;
+        let (subject, stop_handle) = make_subject(server).await;
+        let conversation = subject.start_conversation().await;
         let message1 = UiUnmarshalError {
             message: "Message 1".to_string(),
             bad_data: "Data 1".to_string(),
@@ -995,11 +988,11 @@ mod tests {
         demand_tx.send(Demand::Conversation).unwrap();
         inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let conversation1 = conversation_return_rx.try_recv().unwrap();
-        let (conversation1_tx, mut conversation1_rx) = conversation1.tx_rx();
+        let (conversation1_tx, conversation1_rx) = conversation1.tx_rx();
         demand_tx.send(Demand::Conversation).unwrap();
         inner = CentralEventLoop::loop_guts(inner).await.unwrap();
         let conversation2 = conversation_return_rx.try_recv().unwrap();
-        let (conversation2_tx, mut conversation2_rx) = conversation2.tx_rx();
+        let (conversation2_tx, conversation2_rx) = conversation2.tx_rx();
         let get_existing_keys = |inner: &ConnectionDepartment| {
             inner
                 .conversations
@@ -1109,8 +1102,8 @@ mod tests {
         let daemon = MockWebSocketsServer::new(daemon_port);
         let stop_handle = daemon.start().await;
         let node_port = find_free_port();
-        let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
-        let (decoy_tx, mut decoy_rx) = async_channel::unbounded();
+        let (conversation_tx, conversation_rx) = async_channel::unbounded();
+        let (decoy_tx, decoy_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.active_port_opt = Some(node_port);
         inner.daemon_port = daemon_port;
@@ -1149,8 +1142,8 @@ mod tests {
     #[tokio::test]
     async fn doesnt_fall_back_from_daemon() {
         let unoccupied_port = find_free_port();
-        let (waiting_conversation_tx, mut waiting_conversation_rx) = async_channel::unbounded();
-        let (idle_conversation_tx, mut idle_conversation_rx) = async_channel::unbounded();
+        let (waiting_conversation_tx, waiting_conversation_rx) = async_channel::unbounded();
+        let (idle_conversation_tx, idle_conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.daemon_port = unoccupied_port;
         inner.active_port_opt = Some(unoccupied_port);
@@ -1179,8 +1172,8 @@ mod tests {
     #[tokio::test]
     async fn doesnt_fall_back_from_disconnected() {
         let unoccupied_port = find_free_port();
-        let (waiting_conversation_tx, mut waiting_conversation_rx) = async_channel::unbounded();
-        let (idle_conversation_tx, mut idle_conversation_rx) = async_channel::unbounded();
+        let (waiting_conversation_tx, waiting_conversation_rx) = async_channel::unbounded();
+        let (idle_conversation_tx, idle_conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.daemon_port = unoccupied_port;
         inner.active_port_opt = None;
@@ -1235,8 +1228,8 @@ mod tests {
         let server = MockWebSocketsServer::new(node_port);
         let server_stop_handle = server.start().await;
         let (redirect_response_tx, mut redirect_response_rx) = unbounded_channel();
-        let (conversation1_tx, mut conversation1_rx) = async_channel::unbounded();
-        let (conversation2_tx, mut conversation2_rx) = async_channel::unbounded();
+        let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
+        let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
         let conversations = vec![(1, conversation1_tx), (2, conversation2_tx)]
             .into_iter()
             .collect();
@@ -1276,8 +1269,8 @@ mod tests {
     #[tokio::test]
     async fn handles_listener_fallback_from_daemon() {
         let daemon_port = find_free_port();
-        let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
-        let (decoy_tx, mut decoy_rx) = async_channel::unbounded();
+        let (conversation_tx, conversation_rx) = async_channel::unbounded();
+        let (decoy_tx, decoy_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.active_port_opt = Some(daemon_port);
         inner.daemon_port = daemon_port;
@@ -1300,8 +1293,8 @@ mod tests {
         let daemon = MockWebSocketsServer::new(daemon_port);
         let stop_handle = daemon.start().await;
         let node_port = find_free_port();
-        let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
-        let (decoy_tx, mut decoy_rx) = async_channel::unbounded();
+        let (conversation_tx, conversation_rx) = async_channel::unbounded();
+        let (decoy_tx, decoy_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.active_port_opt = Some(node_port);
         inner.daemon_port = daemon_port;
@@ -1345,7 +1338,7 @@ mod tests {
     async fn handles_nonfatal_reception_failure() {
         let daemon_port = find_free_port();
         let node_port = find_free_port();
-        let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
+        let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.active_port_opt = Some(node_port);
         inner.daemon_port = daemon_port;
@@ -1374,7 +1367,7 @@ mod tests {
             errors: vec![],
         }
         .tmb(0);
-        let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
+        let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handler = BroadcastHandleMock::default().send_params(&send_params_arc);
         let mut inner = make_inner().await;
@@ -1432,14 +1425,14 @@ mod tests {
             custom_queries_opt: None,
         }
         .tmb(1);
-        let mut bootstrapper = CMBootstrapper::default();
-        let mut subject = bootstrapper
+        let bootstrapper = CMBootstrapper::default();
+        let subject = bootstrapper
             .establish_connection_manager(daemon_port, None)
             .await
             .unwrap();
         let active_ui_port_before_redirect = subject.active_ui_port().await.unwrap();
         daemon_stop_handle.await_conn_established(None).await;
-        let mut conversation = subject.start_conversation().await;
+        let conversation = subject.start_conversation().await;
 
         let result = conversation.transact(request, 1000).await.unwrap();
 
@@ -1474,7 +1467,7 @@ mod tests {
             errors: vec![],
         }
         .tmb(3);
-        let (conversation_tx, mut conversation_rx) = async_channel::unbounded();
+        let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let mut inner = make_inner().await;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
@@ -1718,14 +1711,14 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let server_handle = server.start().await;
-        let mut bootstrapper = CMBootstrapper::default();
-        let mut subject = bootstrapper
+        let bootstrapper = CMBootstrapper::default();
+        let subject = bootstrapper
             .establish_connection_manager(port, None)
             .await
             .unwrap();
         server_handle.await_conn_established(None).await;
-        let mut conversation1 = subject.start_conversation().await;
-        let mut conversation2 = subject.start_conversation().await;
+        let conversation1 = subject.start_conversation().await;
+        let conversation2 = subject.start_conversation().await;
 
         subject.close();
 

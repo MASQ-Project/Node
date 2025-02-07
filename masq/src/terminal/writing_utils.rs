@@ -1,6 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::{FlushHandle, FlushHandleInner, TerminalWriter, WriteStreamType};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
