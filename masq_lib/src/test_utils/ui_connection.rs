@@ -13,13 +13,13 @@ use std::{fmt, io};
 use workflow_websocket::client::{Error, Message, WebSocket};
 use std::fmt::{Debug, Formatter};
 use crate::websockets_handshake::{WSSender, WSReceiver};
+use soketto::Data as SokettoDataType;
 
 pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
     sender: WSSender,
     receiver: WSReceiver,
-    open_msg_received: bool,
 }
 
 impl Debug for UiConnection {
@@ -27,8 +27,8 @@ impl Debug for UiConnection {
         f.debug_struct("UiConnection")
             .field("context_id", &self.context_id)
             .field("local_addr", &self.local_addr)
-            .field("websocket", &"--unprintable--".to_string())
-            .field("open_msg_received", &self.open_msg_received)
+            .field("sender", &"--unprintable--".to_string())
+            .field("receiver", &"--unprintable--".to_string())
             .finish()
     }
 }
@@ -41,7 +41,6 @@ impl UiConnection {
             local_addr: SocketAddr::new(localhost(), port),
             sender,
             receiver,
-            open_msg_received: false,
         })
     }
     //
@@ -83,30 +82,24 @@ impl UiConnection {
     }
 
     pub async fn send_string(&mut self, string: String) {
-        self.send_message(Message::Text(string)).await
-    }
-
-    pub async fn send_message(&mut self, message: Message) {
-        self.websocket
-            .send(message.into())
-            .await
-            .expect("TestUiConnection: sending msg failed");
+        self.sender.send_text_owned(string).await.expect("Failed to send message");
     }
 
     async fn receive_main<T: FromMessageBody>(
         &mut self,
         context_id: Option<u64>,
     ) -> ReceiveResult<T> {
+        let mut message = Vec::new();
         let incoming_msg_json = loop {
-            match self.websocket.recv().await {
-                Ok(Message::Binary(bytes)) if bytes == b"EMPTY QUEUE" => {
+            message.clear();
+            match self.receiver.receive_data(&mut message).await {
+                Ok(SokettoDataType::Binary(n)) if message.as_slice() == b"EMPTY QUEUE" => {
                     panic!("The queue is empty; all messages are gone.")
                 }
-                Ok(Message::Text(json)) => break json,
-                Ok(Message::Open) if !self.open_msg_received => {
-                    self.open_msg_received = true;
-                    continue;
+                Ok(SokettoDataType::Text(n)) => {
+                    break String::from_utf8(message).expect("Failed to convert message to string");
                 }
+                Err(e) => panic!("Reception error: {}", e),
                 x => panic!(
                     "We received an unexpected message from the MockWebSocketServer: {:?}",
                     x
@@ -172,9 +165,8 @@ impl UiConnection {
         Self::standard_result_resolution(self.receive_main::<R>(Some(context_id)).await)
     }
 
-    pub async fn shutdown(&self) -> workflow_websocket::client::Result<()> {
-        todo!("Drive this in");
-        self.websocket.disconnect().await
+    pub async fn shutdown(&self) -> io::Result<()> {
+        todo!("Drive this in, if necessary");
     }
 
     fn standard_result_resolution<T>(

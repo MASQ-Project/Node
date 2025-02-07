@@ -405,15 +405,15 @@ impl MockWebSocketsServer {
             .await
             .unwrap_or_else(|e| panic!("Could not create listener for {}: {:?}", socket_addr, e));
 
-        let (mut sender, mut receiver) = Self::make_connection(
-            tcp_listener,
-            proposed_protocols_arc.clone(),
-            self.accepted_protocol_opt.clone(),
-        ).await;
-
+        let proposed_protocols_inner_arc = proposed_protocols_arc.clone();
         let requests_arc_inner = requests_arc.clone();
         let mut responses = self.responses;
         let connection_future = async move {
+            let (mut sender, mut receiver) = Self::make_connection(
+                tcp_listener,
+                proposed_protocols_inner_arc,
+                self.accepted_protocol_opt.clone(),
+            ).await;
             let mut data = Vec::new();
             Self::send_faf_messages(&mut sender, &mut responses).await;
             loop {
@@ -528,7 +528,10 @@ impl MockWebSocketsServer {
         sender: &mut WSSender,
         responses: &mut Vec<MWSSMessage>,
     ) {
-        if responses.is_empty() {return;}
+        if responses.is_empty() {
+            Self::send_data(sender, SokettoDataType::Binary(0), b"EMPTY QUEUE".to_vec()).await;
+            return;
+        }
         let (data_type, data) = match responses.remove(0) {
             MWSSMessage::MessageBody(body) => Self::sendable_message_body(body),
             MWSSMessage::ConversationData(data_type, data) => (data_type, data),
@@ -1084,8 +1087,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let conn_join_handle = tokio::spawn(UiConnection::new(port, NODE_UI_PROTOCOL));
-        let mut conn = conn_join_handle.await.unwrap().unwrap();
+        let mut conn = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let conversation_request = UiChangePasswordRequest {
             old_password_opt: None,
             new_password: "password".to_string(),
