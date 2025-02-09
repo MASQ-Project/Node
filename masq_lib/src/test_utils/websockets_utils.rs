@@ -37,6 +37,7 @@ pub async fn establish_ws_conn_with_arbitrary_protocol(
         "/"
     );
     let handshake_response = client
+        .add_protocol(protocol)
         .handshake()
         .await
         .map_err(|e| format!("Handshake with the websocket server failed: {}", e))?;
