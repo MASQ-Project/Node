@@ -92,7 +92,7 @@ pub struct ProxyServer {
     browser_proxy_sequence_offset: bool,
     inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
     stream_key_purge_delay: Duration,
-    pub is_running_in_integration_test: bool,
+    is_running_in_integration_test: bool,
 }
 
 impl Actor for ProxyServer {
@@ -1316,8 +1316,6 @@ impl Hostname {
     }
 
     fn validate_ipv4(addr: Ipv4Addr) -> Result<(), String> {
-        // TODO: 127.0.0.1 is being used in integration tests, that's why it's not here,
-        // but we should invalidate that IP too for safety
         if addr.octets() == [0, 0, 0, 0] {
             Err("0.0.0.0".to_string())
         } else if addr.octets() == [127, 0, 0, 1] {
