@@ -1,3 +1,4 @@
+use std::env;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
@@ -411,6 +412,7 @@ impl ActorFactory for ActorFactoryReal {
         cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
+        let is_running_in_integration_test = env::var("MASQ_INTEGRATION_TEST").is_ok();
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
         let consuming_wallet_balance = if config.consuming_wallet_opt.is_some() {
             Some(0) //TODO this is an old unfinished concept, repair or remove it...never used.
@@ -426,6 +428,7 @@ impl ActorFactory for ActorFactoryReal {
                 is_decentralized,
                 consuming_wallet_balance,
                 crashable,
+                is_running_in_integration_test,
             )
         });
         ProxyServer::make_subs_from(&addr)

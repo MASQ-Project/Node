@@ -579,10 +579,9 @@ mod tests {
         block_response: &str,
         expected_new_start_block: u64,
         expected_log: &str,
-        test_name: &str,
+        test_case: &str,
     ) {
         init_test_logging();
-        // let test_name = "blockchain_interface_web3_retrieves_transactions";
         let to = "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let port = find_free_port();
         #[rustfmt::skip]
@@ -628,7 +627,7 @@ mod tests {
             )
             .start();
         let mut subject = make_blockchain_interface_web3(port);
-        subject.logger = Logger::new(test_name);
+        subject.logger = Logger::new(test_case);
 
         let result = subject
             .retrieve_transactions(
@@ -659,7 +658,7 @@ mod tests {
                 ]
             }
         );
-        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_name}: Retrieving transactions {expected_log} for: 0x3f69…72fc chain_id: 137 contract: 0xee9a352f6aac4af1a5b9f467f6a93e0ffbe9dd35"));
+        TestLogHandler::new().exists_log_containing(&format!("DEBUG: {test_case}: Retrieving transactions {expected_log} for: 0x3f69…72fc chain_id: 137 contract: 0xee9a352f6aac4af1a5b9f467f6a93e0ffbe9dd35"));
     }
 
     #[test]
