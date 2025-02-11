@@ -26,9 +26,7 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::scanners::{BeginScanError, ScanSchedulers, Scanners};
-use crate::blockchain::blockchain_bridge::{
-    PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
-};
+use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::blockchain::blockchain_interface::data_structures::{
@@ -131,7 +129,7 @@ pub struct ReceivedPayments {
     // detects any upcoming delinquency later than the more accurate version would. Is this
     // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
-    pub new_start_block: u64,
+    pub new_start_block: BlockMarker,
     pub transactions: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -1402,7 +1400,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let received_payments = ReceivedPayments {
             timestamp: SystemTime::now(),
-            new_start_block: 0,
+            new_start_block: BlockMarker::Value(0),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -2052,7 +2050,7 @@ mod tests {
         subject
             .try_send(ReceivedPayments {
                 timestamp: now,
-                new_start_block: 123456789u64,
+                new_start_block: BlockMarker::Value(123456789u64),
                 response_skeleton_opt: None,
                 transactions: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
             })

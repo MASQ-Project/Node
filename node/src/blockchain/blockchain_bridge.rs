@@ -1541,7 +1541,7 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 42 + 9_000_000 + 1,
+            new_start_block: BlockMarker::Value(42 + 9_000_000 + 1),
             transactions: vec![
                 BlockchainTransaction {
                     block_number: 6040059,
@@ -1620,7 +1620,7 @@ mod tests {
         let recipient_wallet = make_wallet("recipient_wallet");
         let amount = 996000000;
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 8675309u64,
+            new_start_block: BlockMarker::Value(8675309u64),
             transactions: vec![BlockchainTransaction {
                 block_number: 8675308u64,
                 from: some_wallet.clone(),
@@ -1661,7 +1661,7 @@ mod tests {
             received_payments,
             &ReceivedPayments {
                 timestamp: received_payments.timestamp,
-                new_start_block: 8675309u64 + 1,
+                new_start_block: BlockMarker::Value(8675309u64 + 1),
                 transactions: expected_transactions.transactions,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1742,7 +1742,7 @@ mod tests {
         let received_payments_message = accountant_recording.get_record::<ReceivedPayments>(0);
         check_timestamp(before, received_payments_message.timestamp, after);
         let expected_transactions = RetrievedBlockchainTransactions {
-            new_start_block: 6 + 5000 + 1,
+            new_start_block: BlockMarker::Value(6 + 5000 + 1),
             transactions: vec![BlockchainTransaction {
                 block_number: 2000,
                 from: earning_wallet.clone(),

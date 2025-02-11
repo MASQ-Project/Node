@@ -3,6 +3,7 @@
 pub mod errors;
 
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
+use crate::blockchain::blockchain_bridge::BlockMarker;
 use crate::sub_lib::wallet::Wallet;
 use std::fmt;
 use std::fmt::Formatter;
@@ -28,7 +29,7 @@ impl fmt::Display for BlockchainTransaction {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RetrievedBlockchainTransactions {
-    pub new_start_block: u64,
+    pub new_start_block: BlockMarker,
     pub transactions: Vec<BlockchainTransaction>,
 }
 

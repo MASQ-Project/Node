@@ -103,13 +103,16 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let logger = self.logger.clone();
         let contract_address = lower_level_interface.get_contract_address();
         let num_chain_id = self.chain.rec().num_chain_id;
-        let start_block_number = match start_block_marker {
-            BlockMarker::Uninitialized => self.chain.rec().contract_creation_block,
-            BlockMarker::Value(number) => number,
-        };
         Box::new(
             lower_level_interface.get_block_number().then(move |response_block_number_result| {
-                let end_block_marker = Self::calculate_end_block_marker(start_block_number, scan_range, response_block_number_result, &logger);
+                let start_block_number = match start_block_marker {
+                    BlockMarker::Uninitialized => match response_block_number_result {
+                        Ok(latest_block) => { BlockNumber::Number(latest_block) }
+                        Err(_) => { BlockNumber::Latest }
+                    },
+                    BlockMarker::Value(number) => BlockNumber::Number(U64::from(number)),
+                };
+                let end_block_marker = Self::calculate_end_block_marker(start_block_marker, scan_range, response_block_number_result, &logger);
                 let end_block_number = match end_block_marker {
                     BlockMarker::Uninitialized => { BlockNumber::Latest }
                     BlockMarker::Value(number) => { BlockNumber::Number(U64::from(number)) }
@@ -125,7 +128,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 );
                 let filter = FilterBuilder::default()
                     .address(vec![contract_address])
-                    .from_block(BlockNumber::Number(U64::from(start_block_number)))
+                    .from_block(start_block_number)
                     .to_block(end_block_number)
                     .topics(
                         Some(vec![TRANSACTION_LITERAL]),
@@ -137,12 +140,10 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                 lower_level_interface.get_transaction_logs(filter)
                     .then(move |logs_result| {
                         trace!(logger, "Transaction logs retrieval completed: {:?}", logs_result);
-
                         match Self::handle_transaction_logs(logs_result, &logger) {
                             Err(e) => Err(e),
                             Ok(transactions) => {
                                 let new_start_block = Self::find_new_start_block(&transactions, start_block_marker, end_block_marker, &logger);
-
                                 Ok(RetrievedBlockchainTransactions {
                                     new_start_block,
                                     transactions,
@@ -335,9 +336,9 @@ impl BlockchainInterfaceWeb3 {
         start_block_marker: BlockMarker,
         end_block_marker: BlockMarker,
         logger: &Logger,
-    ) -> u64 {
+    ) -> BlockMarker {
         match end_block_marker {
-            BlockMarker::Value(end_block_number) => end_block_number + 1,
+            BlockMarker::Value(end_block_number) => BlockMarker::Value(end_block_number + 1),
             BlockMarker::Uninitialized => {
                 match Self::find_highest_block_marker_from_txs(transactions) {
                     BlockMarker::Value(block_number) => {
@@ -347,11 +348,11 @@ impl BlockchainInterfaceWeb3 {
                             block_number + 1
                         );
 
-                        block_number + 1
+                        BlockMarker::Value(block_number + 1)
                     }
                     BlockMarker::Uninitialized => match start_block_marker {
-                        BlockMarker::Value(start_block) => start_block + 1,
-                        BlockMarker::Uninitialized => FRESH_START_BLOCK,
+                        BlockMarker::Value(start_block) => BlockMarker::Value(start_block + 1),
+                        BlockMarker::Uninitialized => BlockMarker::Uninitialized,
                     },
                 }
             }
@@ -359,18 +360,17 @@ impl BlockchainInterfaceWeb3 {
     }
 
     fn calculate_end_block_marker(
-        start_block: u64,
+        start_block_marker: BlockMarker,
         scan_range: BlockScanRange,
         response_block_number_result: Result<U64, BlockchainError>,
         logger: &Logger,
     ) -> BlockMarker {
-        let local_end_block_marker = match scan_range {
-            BlockScanRange::NoLimit => BlockMarker::Uninitialized,
-            BlockScanRange::Range(scan_range_number) => {
+        let local_end_block_marker = match (start_block_marker, scan_range) {
+            (BlockMarker::Value(start_block), BlockScanRange::Range(scan_range_number)) => {
                 BlockMarker::Value(start_block + scan_range_number)
             }
+            (_, _) => BlockMarker::Uninitialized,
         };
-
         match response_block_number_result {
             Ok(response_block) => {
                 let response_block = response_block.as_u64();
@@ -459,7 +459,6 @@ mod tests {
     use std::str::FromStr;
     use web3::transports::Http;
     use web3::types::{H256, U256};
-    use masq_lib::constants::POLYGON_MAINNET_CONTRACT_CREATION_BLOCK;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
 
     #[test]
@@ -516,8 +515,8 @@ mod tests {
         let start_block_marker = BlockMarker::Value(42);
         let scan_range = BlockScanRange::Range(1000);
         let block_response = "0x7d0"; // 2_000
-        let expected_new_start_block = 42 + 1000 + 1;
-        let expected_log = "from start block: 42 to end block: Number(1042)";
+        let expected_new_start_block = BlockMarker::Value(42 + 1000 + 1);
+        let expected_log = "from start block: Number(42) to end block: Number(1042)";
         assert_on_retrieves_transactions(
             start_block_marker,
             scan_range,
@@ -530,11 +529,22 @@ mod tests {
         let start_block_marker = BlockMarker::Uninitialized;
         let scan_range = BlockScanRange::Range(1000);
         let block_response = "0xe2f432"; // 14_873_650
-        let expected_new_start_block = POLYGON_MAINNET_CONTRACT_CREATION_BLOCK + 1000 + 1;
-        let expected_log = &format!(
-            "from start block: {POLYGON_MAINNET_CONTRACT_CREATION_BLOCK} to end block: Number({})",
-            POLYGON_MAINNET_CONTRACT_CREATION_BLOCK + 1000
+        let expected_new_start_block = BlockMarker::Value(14_873_650 + 1);
+        let expected_log = "from start block: Number(14873650) to end block: Number(14873650)";
+        assert_on_retrieves_transactions(
+            start_block_marker,
+            scan_range,
+            block_response,
+            expected_new_start_block,
+            expected_log,
+            "start_block_is_missing",
         );
+
+        let start_block_marker = BlockMarker::Uninitialized;
+        let scan_range = BlockScanRange::Range(1000);
+        let block_response = "trash";
+        let expected_new_start_block = BlockMarker::Value(49);
+        let expected_log = "from start block: Latest to end block: Latest";
         assert_on_retrieves_transactions(
             start_block_marker,
             scan_range,
@@ -547,8 +557,8 @@ mod tests {
         let start_block_marker = BlockMarker::Value(42);
         let scan_range = BlockScanRange::NoLimit;
         let block_response = "0x7d0"; // 2_000
-        let expected_new_start_block = 2_000 + 1;
-        let expected_log = "from start block: 42 to end block: Number(2000)";
+        let expected_new_start_block = BlockMarker::Value(2_000 + 1);
+        let expected_log = "from start block: Number(42) to end block: Number(2000)";
         assert_on_retrieves_transactions(
             start_block_marker,
             scan_range,
@@ -561,8 +571,8 @@ mod tests {
         let start_block_marker = BlockMarker::Value(42);
         let scan_range = BlockScanRange::NoLimit;
         let block_response = "trash";
-        let expected_new_start_block = 49; // 48 was the highest number present in the transactions
-        let expected_log = "from start block: 42 to end block: Latest";
+        let expected_new_start_block = BlockMarker::Value(49); // 48 was the highest number present in the transactions
+        let expected_log = "from start block: Number(42) to end block: Latest";
         assert_on_retrieves_transactions(
             start_block_marker,
             scan_range,
@@ -577,7 +587,7 @@ mod tests {
         start_block_marker: BlockMarker,
         scan_range: BlockScanRange,
         block_response: &str,
-        expected_new_start_block: u64,
+        expected_new_start_block: BlockMarker,
         expected_log: &str,
         test_case: &str,
     ) {
@@ -683,7 +693,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 1543664,
+                new_start_block: BlockMarker::Value(1543664),
                 transactions: vec![]
             })
         );
@@ -761,7 +771,7 @@ mod tests {
         )
         .unwrap();
 
-        let end_block_nbr = 1025u64;
+        let end_block_nbr = BlockMarker::Value(1025u64);
         let subject =
             BlockchainInterfaceWeb3::new(transport, event_loop_handle, TEST_DEFAULT_CHAIN);
 
@@ -810,7 +820,7 @@ mod tests {
             )
             .wait();
 
-        let expected_start_block = fallback_number + 1u64;
+        let expected_start_block = BlockMarker::Value(fallback_number + 1u64);
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
@@ -1107,7 +1117,7 @@ mod tests {
 
         assert_eq!(
             Subject::calculate_end_block_marker(
-                50,
+                BlockMarker::Uninitialized,
                 BlockScanRange::NoLimit,
                 Err(BlockchainError::InvalidResponse),
                 &logger
@@ -1116,7 +1126,7 @@ mod tests {
         );
         assert_eq!(
             Subject::calculate_end_block_marker(
-                50,
+                BlockMarker::Uninitialized,
                 BlockScanRange::NoLimit,
                 Ok(1000.into()),
                 &logger
@@ -1125,16 +1135,16 @@ mod tests {
         );
         assert_eq!(
             Subject::calculate_end_block_marker(
-                50,
+                BlockMarker::Uninitialized,
                 BlockScanRange::Range(100),
                 Err(BlockchainError::InvalidResponse),
                 &logger
             ),
-            BlockMarker::Value(150)
+            BlockMarker::Uninitialized
         );
         assert_eq!(
             Subject::calculate_end_block_marker(
-                50,
+                BlockMarker::Uninitialized,
                 BlockScanRange::Range(100),
                 Ok(120.into()),
                 &logger
@@ -1143,7 +1153,43 @@ mod tests {
         );
         assert_eq!(
             Subject::calculate_end_block_marker(
-                50,
+                BlockMarker::Value(50),
+                BlockScanRange::NoLimit,
+                Err(BlockchainError::InvalidResponse),
+                &logger
+            ),
+            BlockMarker::Uninitialized
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::NoLimit,
+                Ok(1000.into()),
+                &logger
+            ),
+            BlockMarker::Value(1000)
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::Range(100),
+                Err(BlockchainError::InvalidResponse),
+                &logger
+            ),
+            BlockMarker::Value(150)
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
+                BlockScanRange::Range(100),
+                Ok(120.into()),
+                &logger
+            ),
+            BlockMarker::Value(120)
+        );
+        assert_eq!(
+            Subject::calculate_end_block_marker(
+                BlockMarker::Value(50),
                 BlockScanRange::Range(10),
                 Ok(120.into()),
                 &logger
@@ -1177,7 +1223,7 @@ mod tests {
                 BlockMarker::Value(100),
                 &logger
             ),
-            101
+            BlockMarker::Value(101)
         );
         // Case 2: end_block_marker is Uninitialized, highest block in transactions is Value
         assert_eq!(
@@ -1187,7 +1233,7 @@ mod tests {
                 BlockMarker::Uninitialized,
                 &logger
             ),
-            61
+            BlockMarker::Value(61)
         );
         // Case 3: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Value
         assert_eq!(
@@ -1197,7 +1243,7 @@ mod tests {
                 BlockMarker::Uninitialized,
                 &logger
             ),
-            51
+            BlockMarker::Value(51)
         );
         // Case 4: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Uninitialized
         assert_eq!(
@@ -1207,7 +1253,7 @@ mod tests {
                 BlockMarker::Uninitialized,
                 &logger
             ),
-            FRESH_START_BLOCK
+            BlockMarker::Uninitialized
         );
     }
 }

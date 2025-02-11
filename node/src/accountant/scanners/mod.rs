@@ -26,7 +26,7 @@ use crate::accountant::{
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
 use crate::accountant::db_access_objects::banned_dao::BannedDao;
-use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
+use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
@@ -856,15 +856,17 @@ impl ReceivableScanner {
                 "No newly received payments were detected during the scanning process."
             );
             let new_start_block = received_payments_msg.new_start_block;
-            match self
-                .persistent_configuration
-                .set_start_block(Some(new_start_block))
-            {
-                Ok(()) => debug!(logger, "Start block updated to {}", new_start_block),
-                Err(e) => panic!(
-                    "Attempt to set new start block to {} failed due to: {:?}",
-                    new_start_block, e
-                ),
+            if let BlockMarker::Value(start_block_number) = new_start_block {
+                match self
+                    .persistent_configuration
+                    .set_start_block(Some(start_block_number))
+                {
+                    Ok(()) => debug!(logger, "Start block updated to {}", start_block_number),
+                    Err(e) => panic!(
+                        "Attempt to set new start block to {} failed due to: {:?}",
+                        start_block_number, e
+                    ),
+                }
             }
         } else {
             let mut txn = self.receivable_dao.as_mut().more_money_received(
@@ -872,24 +874,24 @@ impl ReceivableScanner {
                 &received_payments_msg.transactions,
             );
             let new_start_block = received_payments_msg.new_start_block;
-            match self
-                .persistent_configuration
-                .set_start_block_from_txn(Some(new_start_block), &mut txn)
-            {
-                Ok(()) => (),
-                Err(e) => panic!(
-                    "Attempt to set new start block to {} failed due to: {:?}",
-                    new_start_block, e
-                ),
+            if let BlockMarker::Value(start_block_number) = new_start_block {
+                match self
+                    .persistent_configuration
+                    .set_start_block_from_txn(Some(start_block_number), &mut txn)
+                {
+                    Ok(()) => debug!(logger, "Start block updated to {}", start_block_number),
+                    Err(e) => panic!(
+                        "Attempt to set new start block to {} failed due to: {:?}",
+                        start_block_number, e
+                    ),
+                }
             }
-
             match txn.commit() {
                 Ok(_) => {
-                    debug!(logger, "Updated start block to: {}", new_start_block)
+                    debug!(logger, "Received payments have been commited to database");
                 }
                 Err(e) => panic!("Commit of received transactions failed: {:?}", e),
             }
-
             let total_newly_paid_receivable = received_payments_msg
                 .transactions
                 .iter()
@@ -1082,7 +1084,7 @@ mod tests {
         ReceivableDaoMock, ReceivableScannerBuilder,
     };
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
-    use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
+    use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{
         BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
@@ -3031,7 +3033,7 @@ mod tests {
         init_test_logging();
         let test_name = "receivable_scanner_handles_no_new_payments_found";
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let new_start_block = 4321;
+        let new_start_block = BlockMarker::Value(4321);
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(None))
             .set_start_block_params(&set_start_block_params_arc)
@@ -3064,7 +3066,7 @@ mod tests {
         let test_name = "no_transactions_received_but_start_block_setting_fails";
         let now = SystemTime::now();
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
-        let new_start_block = 6709u64;
+        let new_start_block = BlockMarker::Value(6709u64);
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(None))
             .set_start_block_params(&set_start_block_params_arc)
@@ -3129,7 +3131,7 @@ mod tests {
         ];
         let msg = ReceivedPayments {
             timestamp: now,
-            new_start_block: 7890123,
+            new_start_block: BlockMarker::Value(7890123),
             response_skeleton_opt: None,
             transactions: receivables.clone(),
         };
@@ -3184,7 +3186,7 @@ mod tests {
         }];
         let msg = ReceivedPayments {
             timestamp: now,
-            new_start_block: 7890123,
+            new_start_block: BlockMarker::Value(7890123),
             response_skeleton_opt: None,
             transactions: receivables,
         };
@@ -3228,7 +3230,7 @@ mod tests {
         }];
         let msg = ReceivedPayments {
             timestamp: now,
-            new_start_block: 0,
+            new_start_block: BlockMarker::Value(0),
             response_skeleton_opt: None,
             transactions: receivables,
         };
