@@ -2,7 +2,7 @@
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::test_utils::ui_connection::ReceiveResult::{Correct, MarshalError, TransactionError};
-use crate::test_utils::websockets_utils::establish_ws_conn_with_arbitrary_protocol;
+use crate::test_utils::websockets_utils::establish_ws_conn_with_protocols;
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::NodeToUiMessage;
@@ -35,7 +35,8 @@ impl Debug for UiConnection {
 
 impl UiConnection {
     pub async fn new(port: u16, protocol: &'static str) -> Result<UiConnection, String> {
-        let (sender, receiver) = establish_ws_conn_with_arbitrary_protocol(port, protocol).await?;
+        let (sender, receiver) = establish_ws_conn_with_protocols(port,
+   vec![protocol.to_string()]).await?;
         Ok(UiConnection {
             context_id: 0,
             local_addr: SocketAddr::new(localhost(), port),
@@ -43,27 +44,6 @@ impl UiConnection {
             receiver,
         })
     }
-    //
-    // fn make_initial_http_request(port: u16, protocol: &str) -> Request<()> {
-    //     let url = format!("ws://{}:{}", localhost(), port);
-    //     let websocket_key = (0..16)
-    //         .into_iter()
-    //         .map (|_| ((random::<u8>() % 95) + 32) as char)
-    //         .collect::<String>();
-    //     let mut websocket_key_encoded = String::new();
-    //     BASE64_STANDARD.encode_string(websocket_key, &mut websocket_key_encoded);
-    //     Builder::new()
-    //         .method(Method::GET)
-    //         .uri(url)
-    //         .version(Version::HTTP_11)
-    //         .header("Connection", "Upgrade")
-    //         .header("Upgrade", "websocket")
-    //         .header("Sec-Websocket-Key", websocket_key_encoded)
-    //         .header("Sec-Websocket-Protocol", protocol)
-    //         .header("Sec-Websocket-Version", "13")
-    //         .body(())
-    //         .unwrap()
-    // }
 
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
@@ -83,6 +63,7 @@ impl UiConnection {
 
     pub async fn send_string(&mut self, string: String) {
         self.sender.send_text_owned(string).await.expect("Failed to send message");
+        self.sender.flush().await.expect("Failed to flush message");
     }
 
     async fn receive_main<T: FromMessageBody>(
@@ -90,21 +71,27 @@ impl UiConnection {
         context_id: Option<u64>,
     ) -> ReceiveResult<T> {
         let mut message = Vec::new();
-        let incoming_msg_json = loop {
-            message.clear();
-            match self.receiver.receive_data(&mut message).await {
-                Ok(SokettoDataType::Binary(n)) if message.as_slice() == b"EMPTY QUEUE" => {
+        let receive_result = self.receiver.receive_data(&mut message).await;
+        eprintln! ("Client received something: {:?}", receive_result);
+        let incoming_msg_json = match receive_result {
+            Ok(SokettoDataType::Binary(n)) => {
+                eprintln! ("Binary message received: {:?} Expected: {:?}", message.as_slice(), b"EMPTY_QUEUE");
+                if message.as_slice() == b"EMPTY_QUEUE" {
                     panic!("The queue is empty; all messages are gone.")
                 }
-                Ok(SokettoDataType::Text(n)) => {
-                    break String::from_utf8(message).expect("Failed to convert message to string");
+                else {
+                    panic!(
+                        "We received an unexpected message from the MockWebSocketServer: {:?}",
+                        message
+                    )
                 }
-                Err(e) => panic!("Reception error: {}", e),
-                x => panic!(
-                    "We received an unexpected message from the MockWebSocketServer: {:?}",
-                    x
-                ),
             }
+            Ok(SokettoDataType::Text(n)) => {
+                String::from_utf8(message).expect("Failed to convert message to string")
+            }
+            Err(e) => {
+                panic!("Reception error: {}", e)
+            },
         };
 
         let incoming_msg = UiTrafficConverter::new_unmarshal_to_ui(&incoming_msg_json, ClientId(0))
@@ -153,7 +140,8 @@ impl UiConnection {
         payload: S,
     ) -> Result<R, (u64, String)> {
         self.send(payload).await;
-        Self::standard_result_resolution(self.receive_main::<R>(None).await)
+        let receive_result = self.receive_main::<R>(None).await;
+        Self::standard_result_resolution(receive_result)
     }
 
     pub async fn transact_with_context_id<S: ToMessageBody, R: FromMessageBody>(
@@ -176,6 +164,8 @@ impl UiConnection {
             Correct(msg) => Ok(msg),
             TransactionError(e) => Err(e),
             MarshalError((msg, e)) => {
+                // TODO: This msg is something that came in from outside; the rules say it's not
+                // allowed to panic us. We should probably log it and return an error.
                 panic!("Deserialization of {:?} ended up with err: {:?}", msg, e)
             }
         }

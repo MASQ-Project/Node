@@ -24,6 +24,7 @@ use soketto::{handshake::{Server, ClientRequest, server::Response}};
 use soketto::connection::{Sender, Receiver, Error};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use futures::io::{BufReader, BufWriter};
+use rustc_hex::ToHex;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -362,6 +363,11 @@ impl MockWebSocketsServer {
         self.port
     }
 
+    pub fn accepted_protocol(mut self, protocol_opt: Option<&str>) -> Self {
+        self.accepted_protocol_opt = protocol_opt.map(|p| p.to_string());
+        self
+    }
+
     pub fn queue_response(mut self, message: MessageBody) -> Self {
         self.responses.push(MWSSMessage::MessageBody(message));
         self
@@ -406,7 +412,7 @@ impl MockWebSocketsServer {
             .unwrap_or_else(|e| panic!("Could not create listener for {}: {:?}", socket_addr, e));
 
         let proposed_protocols_inner_arc = proposed_protocols_arc.clone();
-        let requests_arc_inner = requests_arc.clone();
+        let requests_inner_arc = requests_arc.clone();
         let mut responses = self.responses;
         let connection_future = async move {
             let (mut sender, mut receiver) = Self::make_connection(
@@ -420,12 +426,14 @@ impl MockWebSocketsServer {
                 data.clear();
                 let data_type = tokio::select! {
                     data_type_res = receiver.receive_data(&mut data) => {
+                        eprintln! ("Server received {:?} data: {:?}", data_type_res, data.to_hex::<String>());
                         match (data_type_res) {
                             Ok(data_type) => data_type,
                             Err(e) => panic!("Error receiving data from client: {}", e),
                         }
                     }
                     stop_strategy = &mut termination_rx => {
+                        eprintln! ("Received termination signal");
                         stop_strategy.expect("Error receiving termination signal").apply(sender).await;
                         break;
                     }
@@ -434,7 +442,7 @@ impl MockWebSocketsServer {
                     &data_type,
                     data.as_slice(),
                     &mut sender,
-                    requests_arc_inner.clone(),
+                    requests_inner_arc.clone(),
                     &mut responses,
                 ).await;
             }
@@ -461,7 +469,9 @@ impl MockWebSocketsServer {
         // we can test client code against misbehaving servers.
         let (stream, peer_addr) = tcp_listener.accept().await.expect("Error accepting incoming connection to MockWebsocketsServer");
         let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
-        // let mut server = Server::new(stream);
+        if let Some(protocol) = accepted_protocol_opt.as_ref() {
+            server.add_protocol(protocol.as_str());
+        }
         let websocket_key = {
             let req = server.receive_request().await.expect("Error receiving request from client");
             proposed_protocols_arc.lock().unwrap().extend(req.protocols().map(|p| p.to_string()));
@@ -483,8 +493,8 @@ impl MockWebSocketsServer {
         responses: &mut Vec<MWSSMessage>,
     ) {
         Self::parse_and_save_incoming_message(data_type, data, requests_arc);
-        Self::send_faf_messages(sender, responses).await;
         Self::send_next_message(sender, responses).await;
+        Self::send_faf_messages(sender, responses).await;
     }
 
     fn parse_and_save_incoming_message(
@@ -528,8 +538,12 @@ impl MockWebSocketsServer {
         sender: &mut WSSender,
         responses: &mut Vec<MWSSMessage>,
     ) {
+        eprintln! ("send_next_message");
         if responses.is_empty() {
-            Self::send_data(sender, SokettoDataType::Binary(0), b"EMPTY QUEUE".to_vec()).await;
+            eprintln! ("No more responses; sending EMPTY_QUEUE");
+            let msg = b"EMPTY_QUEUE".to_vec();
+            Self::send_data(sender, SokettoDataType::Binary(msg.len()), msg).await;
+            eprintln! ("Sent EMPTY_QUEUE");
             return;
         }
         let (data_type, data) = match responses.remove(0) {
@@ -545,9 +559,14 @@ impl MockWebSocketsServer {
             SokettoDataType::Text(len) => {
                 let text = std::str::from_utf8(&data).expect("Error converting data to text");
                 sender.send_text(text).await.expect("Error sending data to client");
+                sender.flush().await.expect("Error flushing text to client");
             },
             SokettoDataType::Binary(len) => {
+                eprintln! ("Calling send_binary ({})", len);
                 sender.send_binary(&data).await.expect("Error sending data to client");
+                eprintln! ("send_binary complete");
+                sender.flush().await.expect("Error flushing binary data to client");
+                eprintln! ("flush complete");
             },
         }
     }
@@ -558,194 +577,15 @@ impl MockWebSocketsServer {
     }
 }
 
-// pub struct MockWebSocketsServerOld {
-//     do_log: bool,
-//     port: u16,
-//     protocol: String,
-//     responses: Vec<Message>,
-//     //TODO remove this eventually
-//     opening_broadcast_signal_rx_opt: Option<tokio::sync::oneshot::Receiver<()>>,
-//     test_panicking_conn_opt: Option<PanickingConn>,
-// }
-//
-// impl MockWebSocketsServerOld {
-//     pub fn new(port: u16) -> Self {
-//         Self {
-//             do_log: false,
-//             port,
-//             protocol: NODE_UI_PROTOCOL.to_string(),
-//             responses: vec![],
-//             opening_broadcast_signal_rx_opt: None,
-//             test_panicking_conn_opt: None,
-//         }
-//     }
-//
-//     pub fn port(&self) -> u16 {
-//         self.port
-//     }
-//
-//     pub fn queue_response(self, message: MessageBody) -> Self {
-//         self.queue_string(&UiTrafficConverter::new_marshal(message))
-//     }
-//
-//     pub fn queue_string(self, string: &str) -> Self {
-//         self.queue_owned_message(Message::Text(string.to_string()))
-//     }
-//
-//     pub fn queue_owned_message(mut self, msg: Message) -> Self {
-//         self.responses.push(msg);
-//         self
-//     }
-//
-//     pub fn inject_opening_broadcasts_signal_receiver(
-//         mut self,
-//         receiver: tokio::sync::oneshot::Receiver<()>,
-//     ) -> Self {
-//         self.opening_broadcast_signal_rx_opt = Some(receiver);
-//         self
-//     }
-//
-//     pub fn write_logs(mut self) -> Self {
-//         self.do_log = true;
-//         self
-//     }
-//
-//     // I marked it async to make obvious that it must be called inside a runtime context due to its
-//     // reliance on spawning a background task
-//     pub async fn start(self) -> MockWebSocketsServerHandle {
-//         let logger = MWSSLogger::new(self.do_log);
-//         let requests_arc = Arc::new(Mutex::new(vec![]));
-//         let counters_arc = Arc::new(WebSocketCounters::default());
-//         let listener_stop_tx = Arc::new(Mutex::new(None));
-//
-//         let handler = NodeUiProtocolWebSocketHandlerOld {
-//             requests_arc: requests_arc.clone(),
-//             responses_arc: Arc::new(Mutex::new(self.responses)),
-//             opening_broadcasts_signal_rx_opt: Mutex::new(self.opening_broadcast_signal_rx_opt),
-//             counters: counters_arc.clone(),
-//             listener_stop_tx: listener_stop_tx.clone(),
-//             panicking_conn_obj_opt: self.test_panicking_conn_opt,
-//             logger: logger.clone(),
-//         };
-//
-//         let ws_server_handle = WebSocketServer::new(Arc::new(handler), Some(counters_arc.clone()));
-//
-//         listener_stop_tx
-//             .lock()
-//             .unwrap()
-//             .replace(ws_server_handle.stop.request.sender.clone());
-//
-//         let ws_server_handle_clone = ws_server_handle.clone();
-//         let socket_addr = SocketAddr::new(localhost(), self.port);
-//         let tcp_listener = TcpListener::bind(socket_addr)
-//             .await
-//             .unwrap_or_else(|e| panic!("Could not create listener for {}: {:?}", socket_addr, e));
-//         let server_task = ws_server_handle_clone.listen(tcp_listener, None);
-//
-//         let server_background_thread_join_handle = tokio::spawn(server_task);
-//
-//         logger.log(&format!("Started listening on: {}", socket_addr));
-//
-//         MockWebSocketsServerHandle {
-//             requests_arc,
-//             proposed_protocols_arc,
-//             termination_tx,
-//             join_handle,
-//         }
-//     }
-// }
-//
-// #[derive(Debug)]
-// enum IncomingMsgResolution {
-//     MASQProtocolMsg(MessageBody),
-//     UnrecognizedMsgErr(UnrecognizedMessageErr),
-//     ServerNativeInstruction(WebsocketServerError),
-// }
-//
-// #[derive(Debug)]
-// struct ProcessedIncomingMsg {
-//     resolution: IncomingMsgResolution,
-//     request_as_it_will_be_recorded: MockWSServerRecordedRequest,
-// }
-//
-// impl ProcessedIncomingMsg {
-//     fn new(
-//         resolution: IncomingMsgResolution,
-//         request_as_it_will_be_recorded: MockWSServerRecordedRequest,
-//     ) -> Self {
-//         Self {
-//             resolution,
-//             request_as_it_will_be_recorded,
-//         }
-//     }
-//
-//     fn received_data_is_wrong_and_fatal(&self) -> bool {
-//         matches!(
-//             self.resolution,
-//             IncomingMsgResolution::UnrecognizedMsgErr(..)
-//         )
-//     }
-// }
-//
-// #[derive(Debug)]
-// struct UnrecognizedMessageErr {
-//     err_msg: String,
-// }
-//
-// impl UnrecognizedMessageErr {
-//     fn new(err_msg: String) -> Self {
-//         Self { err_msg }
-//     }
-// }
-//
-// #[derive(Clone, Debug)]
-// pub enum MockWSServerRecordedRequest {
-//     WSNonTextual(Message),
-//     WSTextual { unexpected_string: String },
-//     MASQNodeUIv2Protocol(MessageBody),
-// }
-//
-// impl MockWSServerRecordedRequest {
-//     pub fn expect_masq_msg(self) -> MessageBody {
-//         if let Self::MASQNodeUIv2Protocol(unmarshal_result) = self {
-//             unmarshal_result
-//         } else {
-//             panic!(
-//                 "We expected a websocket message of our MASQNode-UIv2 but found {:?}",
-//                 self
-//             )
-//         }
-//     }
-//     pub fn expect_textual_msg(self) -> String {
-//         if let Self::WSTextual { unexpected_string } = self {
-//             unexpected_string
-//         } else {
-//             panic!(
-//                 "We expected a websocket message with string in an unrecognizable format but found {:?}",
-//                 self
-//             )
-//         }
-//     }
-//     pub fn expect_non_textual_msg(self) -> Message {
-//         if let Self::WSNonTextual(ws_msg) = self {
-//             ws_msg
-//         } else {
-//             panic!(
-//                 "We expected a generic websocket message but found {:?}",
-//                 self
-//             )
-//         }
-//     }
-// }
-
 pub type ServerJoinHandle = JoinHandle<workflow_websocket::server::result::Result<()>>;
 
+#[derive(Debug)]
 pub struct MockWebSocketsServerResult {
     pub requests: Vec<MWSSMessage>,
     pub proposed_protocols: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum StopStrategy {
     CloseWebSockets,
     FinTcp,
@@ -784,104 +624,19 @@ pub struct MockWebSocketsServerHandle {
 
 impl MockWebSocketsServerHandle {
     pub async fn stop(mut self, strategy: StopStrategy) -> MockWebSocketsServerResult {
-        self.termination_tx.send(strategy).expect("Failed to send stop signal; server already stopped");
+        match self.termination_tx.send(strategy) {
+            Ok(_) => {},
+            Err(e) => eprintln!("Failed to send {:?} stop signal ({:?}); assuming server already stopped", strategy, e),
+        }
+        eprintln! ("Beginning join");
         let _ = tokio::time::timeout(Duration::from_secs(10), self.join_handle).await;
+        eprintln! ("Join complete or timed out");
         MockWebSocketsServerResult {
             requests: (*(self.requests_arc.lock().unwrap())).clone(),
             proposed_protocols: (*(self.proposed_protocols_arc.lock().unwrap())).clone(),
         }
     }
 }
-
-
-    // pub async fn retrieve_recorded_requests(
-    //     &self,
-    //     required_msg_count_opt: Option<usize>,
-    // ) -> Vec<MockWSServerRecordedRequest> {
-    //     let recorded_requests_waiting_start = SystemTime::now();
-    //     let recorded_requests_waiting_hard_limit = Duration::from_millis(2500);
-    //     let obtain_guard = || {
-    //         self.requests_arc
-    //             .lock()
-    //             .unwrap_or_else(|poison_error| poison_error.into_inner())
-    //     };
-    //     loop {
-    //         if let Some(required_msg_count) = required_msg_count_opt {
-    //             let guard_len = obtain_guard().len();
-    //             if required_msg_count > guard_len {
-    //                 if recorded_requests_waiting_start
-    //                     .elapsed()
-    //                     .expect("travelling in time")
-    //                     >= recorded_requests_waiting_hard_limit
-    //                 {
-    //                     panic!("We waited for {} expected requests but the queue contained only {:?} after {} ms timeout", required_msg_count, *obtain_guard(), recorded_requests_waiting_hard_limit.as_millis())
-    //                 } else {
-    //                     let sleep_ms = 50;
-    //                     self.logger.log(&format!(
-    //                         "Sleeping {} ms before another attempt to fetch the expected requests",
-    //                         sleep_ms
-    //                     ));
-    //                     tokio::time::sleep(Duration::from_millis(50)).await;
-    //                     continue;
-    //                 }
-    //             }
-    //         }
-    //
-    //         self.logger
-    //             .log("Retrieving recorded requests by the server");
-    //
-    //         break obtain_guard().drain(..).collect();
-    //     }
-    // }
-    //
-    // pub async fn await_conn_established(&self, biased_by_other_connections_opt: Option<usize>) {
-    //     let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
-    //     let condition = |counters: &Arc<WebSocketCounters>| {
-    //         (counters.active_connections.load(Ordering::Relaxed) - allowed_parallel_conn) > 0
-    //     };
-    //     self.await_loop(condition, "connection establishment", 1000, 50)
-    //         .await
-    // }
-    //
-    // pub async fn await_conn_disconnected(&self, biased_by_other_connections_opt: Option<usize>) {
-    //     let allowed_parallel_conn = biased_by_other_connections_opt.unwrap_or(0);
-    //     let condition = |counters: &Arc<WebSocketCounters>| {
-    //         eprintln!(
-    //             "total: {}, active {}",
-    //             counters.total_connections.load(Ordering::Relaxed),
-    //             counters.active_connections.load(Ordering::Relaxed)
-    //         );
-    //         counters.total_connections.load(Ordering::Relaxed) == 1 + allowed_parallel_conn
-    //             && counters.active_connections.load(Ordering::Relaxed)
-    //                 == (0 + allowed_parallel_conn)
-    //     };
-    //     self.await_loop(condition, "disconnection", 7000, 50).await
-    // }
-    //
-    // async fn await_loop<F>(
-    //     &self,
-    //     test_desired_condition: F,
-    //     awaiting_what: &str,
-    //     global_timeout_ms: u64,
-    //     intermittent_sleep_period_ms: u64,
-    // ) where
-    //     F: Fn(&Arc<WebSocketCounters>) -> bool,
-    // {
-    //     let fut = async {
-    //         loop {
-    //             if test_desired_condition(&self.counters) {
-    //                 break;
-    //             }
-    //             tokio::time::sleep(Duration::from_millis(intermittent_sleep_period_ms)).await
-    //         }
-    //     };
-    //     tokio::time::timeout(Duration::from_millis(global_timeout_ms), fut)
-    //         .await
-    //         .unwrap_or_else(|_| {
-    //             panic!("Timed out after waiting {global_timeout_ms} for server's {awaiting_what}")
-    //         })
-    // }
-// }
 
 struct PanickingConn {
     mutex_to_sense_panic: Arc<Mutex<()>>,
@@ -1081,12 +836,12 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[should_panic(expected = "The queue is empty; all messages are gone.")]
     async fn attempt_to_get_a_message_from_an_empty_queue_causes_a_panic() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start().await;
+        let server_handle = server.start().await;
         let mut conn = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let conversation_request = UiChangePasswordRequest {
             old_password_opt: None,
