@@ -692,6 +692,7 @@ mod tests {
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
@@ -2013,7 +2014,8 @@ mod tests {
     }
 
     #[test]
-    fn is_running_in_integration_test_works() {
+    fn is_running_in_integration_test_works_when_set() {
+        let _guard = EnvironmentGuard::new();
         let test_cases = vec![
             ("true", true),
             ("TRUE", true),
@@ -2033,12 +2035,17 @@ mod tests {
             );
             env::remove_var("MASQ_INTEGRATION_TEST");
         }
+    }
 
-        assert_eq!(
-            is_running_in_integration_test(),
-            false,
-            "Failed on unset variable"
-        );
+    #[test]
+    fn is_running_in_integration_test_works_when_unset() {
+        let _guard = EnvironmentGuard::new();
+        let precondition = env::var("MASQ_INTEGRATION_TEST");
+
+        let result = is_running_in_integration_test();
+
+        assert_eq!(precondition, Err(env::VarError::NotPresent));
+        assert_eq!(result, false, "Failed on unset variable");
     }
 
     fn pk_from_cryptde_null(cryptde: &dyn CryptDE) -> &PublicKey {

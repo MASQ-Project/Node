@@ -886,7 +886,7 @@ impl ReceivableScanner {
                     ),
                 }
             } else {
-                unreachable!("Failed to get start_block while transactions were present, this should be impossible!");
+                unreachable!("Failed to get start_block while transactions were present");
             }
             match txn.commit() {
                 Ok(_) => {
@@ -3164,7 +3164,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Failed to get start_block while transactions were present, this should be impossible!"
+        expected = "entered unreachable code: Failed to get start_block while transactions were present"
     )]
     fn receivable_scanner_panics_when_failing_to_get_start_block_after_receiving_transactions() {
         let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
@@ -3184,7 +3184,7 @@ mod tests {
             timestamp: SystemTime::now(),
             new_start_block: BlockMarker::Uninitialized,
             response_skeleton_opt: None,
-            transactions: receivables.clone(),
+            transactions: receivables,
         };
         subject.mark_as_started(SystemTime::now());
 
