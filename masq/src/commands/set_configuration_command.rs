@@ -93,8 +93,6 @@ pub fn set_configuration_subcommand() -> App<'static, 'static> {
                 .args(&["gas-price", "min-hops", "start-block"])
                 .required(true),
         )
-    //TODO here is the place we want to place function to set country_code for ExitService,
-    // this function will be used in shared_app to setup the country_code for ExitService on startup
 }
 
 #[cfg(test)]

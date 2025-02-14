@@ -1,3 +1,5 @@
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::country_block_serde::CountryBlockDeserializer;
 use crate::country_block_stream::{Country, CountryBlock};
 use crate::dbip_country;

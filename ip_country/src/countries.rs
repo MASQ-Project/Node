@@ -1,3 +1,5 @@
+// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::country_block_stream::Country;
 use lazy_static::lazy_static;
 use std::collections::HashMap;

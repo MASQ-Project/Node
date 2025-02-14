@@ -1,3 +1,5 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
@@ -19,12 +21,12 @@ const EXIT_LOCATION_ABOUT: &str =
     in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
     available anywhere.\n\n\
     Here are some example commands:\n\
+        masq> exit-location --show-countries    // show all country codes available for exit in Database\n\
         masq> exit-location                     // disable exit-location preferences\n\
         masq> exit-location --fallback-routing  // disable exit-location preferences\n\
         masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n\t// fallback-routing is ON, \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\"\n\
         masq> exit-location --country-codes \"CZ|SK\"       \n\t// fallback-routing is OFF, \"CZ\" and \"SK\" countries have different priority\n";
 
-// TODO update following help when GH-469 is done with `To obtain codes, you can use the 'country-codes-list' (469 card command) command.`
 const COUNTRY_CODES_HELP: &str = "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
         Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
         for a group of countries is the same, separate those countries by commas (,).\n\
@@ -37,6 +39,9 @@ const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and 
      available anywhere. \n Here are some examples: \n\n\
      masq> exit-location --country-codes \"CZ\" --fallback-routing  \n\t// Set exit-location for \"CZ\" country with fallback-routing on \n\
      masq> exit-location --country-codes \"CZ\"                     \n\t// Set exit-location for \"CZ\" country with fallback-routing off \n\n";
+
+const SHOW_COUNTRIES_HELP: &str = "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
+    masq> exit-location --show-countries ";
 
 pub fn exit_location_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("exit-location").about(EXIT_LOCATION_ABOUT)
@@ -116,6 +121,7 @@ impl Command for SetExitLocationCommand {
                         locations: exit_location_response.exit_locations,
                     };
                     if !exit_location_response.missing_countries.is_empty() {
+                        short_writeln!(context.stdout(), "Foollowing conutries are missing in Database: {:?}", exit_location_response.missing_countries);
                         short_writeln!(
                             context.stderr(),
                             "code: {}\nmessage: {:?}",
@@ -176,6 +182,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
             Arg::with_name("show-countries")
                 .long("show-countries")
                 .value_name("SHOW-COUNTRIES")
+                .help(SHOW_COUNTRIES_HELP)
                 .takes_value(false)
                 .required(false),
         )
@@ -183,12 +190,12 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
 
 #[cfg(test)]
 pub mod tests {
+    use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{
         Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
     };
-    use crate::commands::exit_location_command::SetExitLocationCommand;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
     use masq_lib::messages::{
@@ -196,6 +203,38 @@ pub mod tests {
         UiSetExitLocationResponse,
     };
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            EXIT_LOCATION_ABOUT,
+            "If you activate exit-location preferences, all exit Nodes in countries you don't specify will be prohibited: \n\
+            that is, if there is no exit Node available in any of your preferred countries, you'll get an error. However, \
+            if you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
+            in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
+            available anywhere.\n\n\
+            Here are some example commands:\n\
+                masq> exit-location --show-countries    // show all country codes available for exit in Database\n\
+                masq> exit-location                     // disable exit-location preferences\n\
+                masq> exit-location --fallback-routing  // disable exit-location preferences\n\
+                masq> exit-location --country-codes \"CZ,PL|SK\" --fallback-routing \n\t// fallback-routing is ON, \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\"\n\
+                masq> exit-location --country-codes \"CZ|SK\"       \n\t// fallback-routing is OFF, \"CZ\" and \"SK\" countries have different priority\n"
+        );
+        assert_eq!(
+            COUNTRY_CODES_HELP,
+                "Establish a set of countries that your Node should try to use for exit Nodes. You should choose from the countries that host the \
+            Nodes in your Neighborhood. List the countries in order of preference, separated by vertical pipes (|). If your level of preference \
+            for a group of countries is the same, separate those countries by commas (,).\n\
+            You can specify country codes as follows:\n\n\
+            masq> exit-location --country-codes \"CZ,PL|SK\"        \n\t// \"CZ\" and \"PL\" countries have same priority \"1\", \"SK\" has priority \"2\" \n\
+            masq> exit-location --country-codes \"CZ|SK\"           \n\t// \"CZ\" and \"SK\" countries have different priority\n\n"
+        );
+        assert_eq!(
+            SHOW_COUNTRIES_HELP,
+                    "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
+            masq> exit-location --show-countries "
+        );
+    }
 
     #[test]
     fn testing_missing_location_error() {
@@ -275,7 +314,7 @@ pub mod tests {
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
-        assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
+        assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nFoollowing conutries are missing in Database: [\"CZ\"]\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
         assert_eq!(
             stderr.lock().unwrap().get_string(),
             "code: 9223372036854775817\nmessage: [\"CZ\"]\n".to_string()
