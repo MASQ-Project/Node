@@ -104,15 +104,15 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
         let contract_address = lower_level_interface.get_contract_address();
         let num_chain_id = self.chain.rec().num_chain_id;
         Box::new(
-            lower_level_interface.get_block_number().then(move |response_block_number_result| {
+            lower_level_interface.get_block_number().then(move |rpc_block_number_result| {
                 let start_block_number = match start_block_marker {
-                    BlockMarker::Uninitialized => match response_block_number_result {
+                    BlockMarker::Uninitialized => match rpc_block_number_result {
                         Ok(latest_block) => { BlockNumber::Number(latest_block) }
                         Err(_) => { BlockNumber::Latest }
                     },
                     BlockMarker::Value(number) => BlockNumber::Number(U64::from(number)),
                 };
-                let end_block_marker = Self::calculate_end_block_marker(start_block_marker, scan_range, response_block_number_result, &logger);
+                let end_block_marker = Self::calculate_end_block_marker(start_block_marker, scan_range, rpc_block_number_result, &logger);
                 let end_block_number = match end_block_marker {
                     BlockMarker::Uninitialized => { BlockNumber::Latest }
                     BlockMarker::Value(number) => { BlockNumber::Number(U64::from(number)) }
@@ -362,19 +362,19 @@ impl BlockchainInterfaceWeb3 {
     fn calculate_end_block_marker(
         start_block_marker: BlockMarker,
         scan_range: BlockScanRange,
-        response_block_number_result: Result<U64, BlockchainError>,
+        rpc_block_number_result: Result<U64, BlockchainError>,
         logger: &Logger,
     ) -> BlockMarker {
-        let local_end_block_marker = match (start_block_marker, scan_range) {
+        let locally_determined_end_block_marker = match (start_block_marker, scan_range) {
             (BlockMarker::Value(start_block), BlockScanRange::Range(scan_range_number)) => {
                 BlockMarker::Value(start_block + scan_range_number)
             }
             (_, _) => BlockMarker::Uninitialized,
         };
-        match response_block_number_result {
+        match rpc_block_number_result {
             Ok(response_block) => {
                 let response_block = response_block.as_u64();
-                match local_end_block_marker {
+                match locally_determined_end_block_marker {
                     BlockMarker::Uninitialized => BlockMarker::Value(response_block),
                     BlockMarker::Value(local_end_block_number) => {
                         BlockMarker::Value(local_end_block_number.min(response_block))
@@ -385,10 +385,10 @@ impl BlockchainInterfaceWeb3 {
                 debug!(
                     logger,
                     "Using locally calculated end block number: '{:?}' due to error {:?}",
-                    local_end_block_marker,
+                    locally_determined_end_block_marker,
                     e
                 );
-                local_end_block_marker
+                locally_determined_end_block_marker
             }
         }
     }
@@ -1225,7 +1225,7 @@ mod tests {
             ),
             BlockMarker::Value(101)
         );
-        // Case 2: end_block_marker is Uninitialized, highest block in transactions is Value
+        // Case 2: end_block_marker is Uninitialized, highest block found in transactions
         assert_eq!(
             Subject::find_new_start_block(
                 &transactions,
@@ -1235,7 +1235,7 @@ mod tests {
             ),
             BlockMarker::Value(61)
         );
-        // Case 3: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Value
+        // Case 3: end_block_marker is Uninitialized, no transactions retrieved, start_block_marker is Value
         assert_eq!(
             Subject::find_new_start_block(
                 &[],
@@ -1245,7 +1245,7 @@ mod tests {
             ),
             BlockMarker::Value(51)
         );
-        // Case 4: end_block_marker is Uninitialized, highest block in transactions is Uninitialized, start_block_marker is Uninitialized
+        // Case 4: end_block_marker is Uninitialized, no transactions retrieved, start_block_marker is Uninitialized
         assert_eq!(
             Subject::find_new_start_block(
                 &[],

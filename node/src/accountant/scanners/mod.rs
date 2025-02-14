@@ -885,6 +885,8 @@ impl ReceivableScanner {
                         start_block_number, e
                     ),
                 }
+            } else {
+                unreachable!("Failed to get start_block while transactions were present, this should be impossible!");
             }
             match txn.commit() {
                 Ok(_) => {
@@ -3158,6 +3160,35 @@ mod tests {
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Failed to get start_block while transactions were present, this should be impossible!"
+    )]
+    fn receivable_scanner_panics_when_failing_to_get_start_block_after_receiving_transactions() {
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(None));
+        let receivable_dao = ReceivableDaoMock::new().more_money_received_result(transaction);
+        let mut subject = ReceivableScannerBuilder::new()
+            .receivable_dao(receivable_dao)
+            .persistent_configuration(persistent_config)
+            .build();
+        let receivables = vec![BlockchainTransaction {
+            block_number: 4578910,
+            from: make_wallet("wallet_1"),
+            wei_amount: 45_780,
+        }];
+        let msg = ReceivedPayments {
+            timestamp: SystemTime::now(),
+            new_start_block: BlockMarker::Uninitialized,
+            response_skeleton_opt: None,
+            transactions: receivables.clone(),
+        };
+        subject.mark_as_started(SystemTime::now());
+
+        let _ = subject.finish_scan(msg, &Logger::new("test"));
     }
 
     #[test]

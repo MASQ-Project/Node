@@ -6378,6 +6378,7 @@ mod tests {
 
     #[test]
     fn proxy_server_field_test_is_running_in_integration_test() {
+        let is_running_in_integration_test = false;
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: localhost\r\n\r\n";
         let expected_data = http_request.to_vec();
         let mut proxy_server = ProxyServer::new(
@@ -6386,7 +6387,7 @@ mod tests {
             true,
             Some(58),
             false,
-            false,
+            is_running_in_integration_test,
         );
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {

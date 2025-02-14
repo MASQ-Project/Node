@@ -389,6 +389,18 @@ impl ActorFactoryReal {
             logger: Logger::new("ActorFactory"),
         }
     }
+
+    fn load_banned_cache(
+        db_initializer: &dyn DbInitializer,
+        banned_cache_loader: &dyn BannedCacheLoader,
+        data_directory: &Path,
+    ) {
+        banned_cache_loader.load(connection_or_panic(
+            db_initializer,
+            data_directory,
+            DbInitializationConfig::panic_on_migration(),
+        ));
+    }
 }
 
 impl ActorFactory for ActorFactoryReal {
@@ -412,7 +424,7 @@ impl ActorFactory for ActorFactoryReal {
         cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
-        let is_running_in_integration_test = env::var("MASQ_INTEGRATION_TEST").is_ok();
+        let is_running_in_integration_test = is_running_in_integration_test();
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
         let consuming_wallet_balance = if config.consuming_wallet_opt.is_some() {
             Some(0) //TODO this is an old unfinished concept, repair or remove it...never used.
@@ -549,22 +561,14 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
-impl ActorFactoryReal {
-    fn load_banned_cache(
-        db_initializer: &dyn DbInitializer,
-        banned_cache_loader: &dyn BannedCacheLoader,
-        data_directory: &Path,
-    ) {
-        banned_cache_loader.load(connection_or_panic(
-            db_initializer,
-            data_directory,
-            DbInitializationConfig::panic_on_migration(),
-        ));
-    }
-}
-
 fn is_crashable(config: &BootstrapperConfig) -> bool {
     config.crash_point == CrashPoint::Message
+}
+
+fn is_running_in_integration_test() -> bool {
+    env::var("MASQ_INTEGRATION_TEST")
+        .map(|value| value.to_ascii_lowercase() == "true")
+        .unwrap_or(false)
 }
 
 pub trait AutomapControlFactory {
@@ -2006,6 +2010,35 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+
+    #[test]
+    fn is_running_in_integration_test_works() {
+        let test_cases = vec![
+            ("true", true),
+            ("TRUE", true),
+            ("TrUe", true),
+            ("false", false),
+            ("random_value", false),
+            ("", false),
+        ];
+
+        for (input, expected) in test_cases {
+            env::set_var("MASQ_INTEGRATION_TEST", input);
+            assert_eq!(
+                is_running_in_integration_test(),
+                expected,
+                "Failed on input: {}",
+                input
+            );
+            env::remove_var("MASQ_INTEGRATION_TEST");
+        }
+
+        assert_eq!(
+            is_running_in_integration_test(),
+            false,
+            "Failed on unset variable"
+        );
     }
 
     fn pk_from_cryptde_null(cryptde: &dyn CryptDE) -> &PublicKey {
