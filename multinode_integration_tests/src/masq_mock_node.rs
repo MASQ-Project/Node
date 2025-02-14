@@ -400,18 +400,20 @@ impl MASQMockNode {
         &self,
         message_type_lite: MessageTypeLite,
         immediate_neighbor: SocketAddr,
+        exit_node_cryptde: Option<CryptDENull>,
     ) -> Option<ExpiredCoresPackage<MessageType>> {
         let public_key = self.main_public_key();
         let cryptde = CryptDENull::from(public_key, TEST_DEFAULT_MULTINODE_CHAIN);
+        let exit_cryptde = exit_node_cryptde.unwrap_or_else(|| cryptde.clone());
         loop {
             if let Ok((_, _, live_cores_package)) =
                 self.wait_for_package(&JsonMasquerader::new(), Duration::from_secs(2))
             {
                 let (_, intended_exit_public_key) =
                     CryptDENull::extract_key_pair(public_key.len(), &live_cores_package.payload);
-                assert_eq!(&intended_exit_public_key, public_key);
+                assert_eq!(&intended_exit_public_key, exit_cryptde.public_key());
                 let expired_cores_package = live_cores_package
-                    .to_expired(immediate_neighbor, &cryptde, &cryptde)
+                    .to_expired(immediate_neighbor, &cryptde, &exit_cryptde)
                     .unwrap();
                 if message_type_lite == expired_cores_package.payload.clone().into() {
                     return Some(expired_cores_package);

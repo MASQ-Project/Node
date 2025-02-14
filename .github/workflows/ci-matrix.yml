@@ -59,7 +59,11 @@ jobs:
         with:
           name: Node-${{ matrix.target.name }}
           path: results
-
+      - name: diagnostics
+        if: failure()
+        run: |
+          echo "final disc diagnostics ------>"
+          df -h /Users/runner/work/Node/Node/node/target/release
   deploy_to_s3:
     needs: build
     strategy:

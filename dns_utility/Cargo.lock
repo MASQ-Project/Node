@@ -400,6 +400,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac574ff4d437a7b5ad237ef331c17ccca63c46479e5b5453eb8e10bb99a759fe"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5efa2b3d7902f4b634a20cae3c9c4e6209dc4779feb6863329607560143efa70"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "digest"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -717,6 +738,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ip_country"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "itertools 0.13.0",
+ "lazy_static",
+]
+
+[[package]]
 name = "ipconfig"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -746,6 +776,15 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -862,7 +901,8 @@ dependencies = [
  "crossbeam-channel 0.5.8",
  "dirs",
  "ethereum-types",
- "itertools",
+ "ip_country",
+ "itertools 0.10.5",
  "lazy_static",
  "log 0.4.17",
  "nix",
@@ -870,6 +910,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "test_utilities",
  "time 0.3.20",
  "tiny-hderive",
  "toml",
@@ -1652,6 +1693,10 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"

@@ -3,7 +3,7 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
-use crate::neighborhood::Neighborhood;
+use crate::neighborhood::{Neighborhood, UserExitPreferences};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
@@ -215,7 +215,8 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
-            Some(NodeAddr::from_str(str_node_addr)?)
+            let node_addr = NodeAddr::from_str(str_node_addr)?;
+            Some(node_addr)
         };
         Ok(NodeDescriptor {
             blockchain,
@@ -244,7 +245,7 @@ impl NodeDescriptor {
             CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
-            node_addr_string
+            node_addr_string,
         )
     }
 
@@ -474,6 +475,7 @@ pub struct RouteQueryMessage {
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
     pub hostname_opt: Option<String>,
+    pub target_country_opt: Option<String>,
 }
 
 impl Message for RouteQueryMessage {
@@ -483,6 +485,7 @@ impl Message for RouteQueryMessage {
 impl RouteQueryMessage {
     pub fn data_indefinite_route_request(
         hostname_opt: Option<String>,
+        target_country_opt: Option<String>,
         payload_size: usize,
     ) -> RouteQueryMessage {
         RouteQueryMessage {
@@ -491,6 +494,7 @@ impl RouteQueryMessage {
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
             hostname_opt,
+            target_country_opt,
         }
     }
 }
@@ -598,6 +602,7 @@ pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
     pub db_patch_size: u8,
+    pub user_exit_preferences_opt: Option<UserExitPreferences>,
 }
 
 pub struct NeighborhoodTools {
@@ -1051,7 +1056,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
+        let result = RouteQueryMessage::data_indefinite_route_request(None, None, 7500);
 
         assert_eq!(
             result,
@@ -1060,7 +1065,8 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
-                hostname_opt: None
+                hostname_opt: None,
+                target_country_opt: None,
             }
         );
     }
