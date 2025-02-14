@@ -92,7 +92,6 @@ where
     let response: O = match O::fmb(message) {
         Ok((r, _)) => r,
         Err(e) => {
-            //TODO do I want to flush it here?
             masq_short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
             return Err(UnexpectedResponse(e));
         }
@@ -119,7 +118,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
@@ -142,6 +141,7 @@ mod tests {
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("booga".to_string())));
         stream_handles.assert_empty_stderr()
     }
@@ -157,6 +157,7 @@ mod tests {
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(Payload(10, "booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -173,6 +174,7 @@ mod tests {
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(Transmission("booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -193,7 +195,7 @@ mod tests {
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

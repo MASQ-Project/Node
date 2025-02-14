@@ -95,7 +95,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
@@ -145,7 +145,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

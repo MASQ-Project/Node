@@ -99,16 +99,12 @@ impl FlushHandleInner for NonInteractiveFlushHandleInner {
 #[cfg(test)]
 mod tests {
     use crate::terminal::non_interactive_terminal_interface::NonInteractiveWTermInterface;
-    use crate::terminal::test_utils::{
-        test_writing_streams_of_particular_terminal, NonInteractiveStreamsAssertionHandles,
-        WritingTestInput, WritingTestInputByTermInterfaces,
-    };
+    use crate::terminal::test_utils::{allow_flushed_writings_to_finish, test_write_streams_of_particular_terminal, NonInteractiveStreamsAssertionHandles, WriteInput, WriteInputsByTermInterfaceKind};
     use crate::terminal::{WTermInterface, WriteResult};
     use crate::test_utils::mocks::{
         make_async_std_streams, make_async_std_streams_with_error_setup,
         AsyncStdStreamsFactoryMock,
     };
-    use itertools::Either;
     use std::io::ErrorKind;
     use std::sync::Arc;
 
@@ -137,15 +133,13 @@ mod tests {
     #[tokio::test]
     async fn writing_works_for_non_interactive_terminal_interface() {
         let (first_instance_std_streams, first_instance_handles) = make_async_std_streams(vec![]);
-        let (second_instance_std_streams, second_instance_handles) = make_async_std_streams(vec![]);
         let std_streams_factory = AsyncStdStreamsFactoryMock::default()
-            .make_result(first_instance_std_streams)
-            .make_result(second_instance_std_streams);
+            .make_result(first_instance_std_streams);
 
         let subject = NonInteractiveWTermInterface::new(Arc::new(std_streams_factory));
 
-        test_writing_streams_of_particular_terminal(
-            WritingTestInputByTermInterfaces::NonInteractive(WritingTestInput {
+        test_write_streams_of_particular_terminal(
+            WriteInputsByTermInterfaceKind::NonInteractive(WriteInput {
                 term_interface: &subject,
                 streams_assertion_handles: NonInteractiveStreamsAssertionHandles {
                     stdout: first_instance_handles.stdout.left().unwrap(),
@@ -160,13 +154,13 @@ mod tests {
     #[tokio::test]
     async fn error_flushing_through_non_interactive_flush_handle() {
         let (std_streams, stream_handles) = make_async_std_streams_with_error_setup(
-            Either::Left(vec![]),
+            vec![],
             Some(std::io::Error::from(ErrorKind::BrokenPipe)),
             None,
         );
         let std_streams_factory = AsyncStdStreamsFactoryMock::default().make_result(std_streams);
         let subject = NonInteractiveWTermInterface::new(Arc::new(std_streams_factory));
-        let (writer, mut flush_handle) = subject.stdout();
+        let (_writer, mut flush_handle) = subject.stdout();
 
         let result = flush_handle
             .inner_arc_opt
@@ -177,10 +171,12 @@ mod tests {
             .write_internal("blah".to_string())
             .await;
 
+        allow_flushed_writings_to_finish().await;
         let err_kind = match result {
             Err(WriteResult::OSError(os_err)) => os_err.kind(),
             x => panic!("We expected OS error but got: {:?}", x),
         };
-        assert_eq!(err_kind, ErrorKind::BrokenPipe)
+        assert_eq!(err_kind, ErrorKind::BrokenPipe);
+        stream_handles.assert_empty_stdout();
     }
 }

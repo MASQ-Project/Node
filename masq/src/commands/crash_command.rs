@@ -100,6 +100,7 @@ mod tests {
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
 
     #[test]
     fn constants_have_correct_values() {
@@ -166,6 +167,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -192,6 +194,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -222,9 +225,12 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::ConnectionProblem("blah".to_string()))
-        )
+        );
+        stream_handles.assert_empty_stderr();
+        stream_handles.assert_empty_stdout()
     }
 }

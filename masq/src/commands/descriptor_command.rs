@@ -82,7 +82,7 @@ mod tests {
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
-    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiDescriptorRequest, UiDescriptorResponse};
     use std::sync::{Arc, Mutex};
@@ -102,7 +102,7 @@ mod tests {
             node_descriptor_opt: Some("Node descriptor".to_string()),
         }
         .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory.make(&["descriptor".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -122,7 +122,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -153,7 +153,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -183,7 +183,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -214,7 +214,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

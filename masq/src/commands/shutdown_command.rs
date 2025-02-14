@@ -156,7 +156,7 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -227,7 +227,7 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory.make(&["shutdown".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -247,7 +247,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::Payload(
@@ -280,7 +280,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -313,7 +313,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -351,7 +351,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -389,7 +389,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -428,7 +428,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(Other("Shutdown failed".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

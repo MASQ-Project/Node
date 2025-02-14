@@ -348,7 +348,7 @@ mod tests {
     use super::*;
     use crate::command_context_factory::CommandContextFactoryReal;
     use crate::command_factory::CommandFactoryReal;
-    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{
         AsyncTestStreamHandles,
         CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock, TermInterfaceMock,
@@ -502,7 +502,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(stream_handles.stderr_all_in_one(), "MASQ interrupted\n");
         let exiting_msg = caught_fictional_panic.downcast_ref::<String>().unwrap();
@@ -550,7 +550,7 @@ mod tests {
 
         let result = subject.process_command_line(None).await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(stream_handles.stdout_all_in_one(), expected_stdout_msg);
         assert_eq!(stream_handles.stderr_all_in_one(), "");
         assert_eq!(result, Ok(()))
@@ -572,7 +572,7 @@ mod tests {
 
         let result = subject.process_command_line(None).await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(()));
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(
@@ -620,7 +620,7 @@ mod tests {
 
         drop(stdout_flush_handle);
         drop(stderr_flush_handle);
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(stream_handles.stdout_all_in_one(), "a1b2c3\n");
         assert_eq!(stream_handles.stderr_all_in_one(), "3a2b1c\n")
     }

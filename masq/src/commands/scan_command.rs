@@ -82,6 +82,7 @@ mod tests {
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiScanRequest};
     use std::sync::{Arc, Mutex};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
 
     #[test]
     fn constants_have_correct_values() {
@@ -102,7 +103,7 @@ mod tests {
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
@@ -129,6 +130,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -153,9 +155,12 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::ConnectionProblem("blah".to_string()))
-        )
+        );
+        stream_handles.assert_empty_stderr();
+        stream_handles.assert_empty_stdout();
     }
 }

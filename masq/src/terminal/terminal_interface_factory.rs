@@ -18,9 +18,9 @@ pub struct TerminalInterfaceFactoryReal {}
 impl TerminalInterfaceFactory for TerminalInterfaceFactoryReal {
     fn make(
         &self,
-        is_interactive: bool,
-        streams_factory: &dyn AsyncStdStreamsFactory,
+        _is_interactive: bool,
+        _streams_factory: &dyn AsyncStdStreamsFactory,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
-        todo!()
+        todo!("can be tested only by the integration tests")
     }
 }

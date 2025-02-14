@@ -10,8 +10,7 @@ pub struct StdStreamsAssertionMatrix<'test> {
     incidental_std_streams_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     processor_std_streams_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     processor_term_interface_opt: Option<ProcessorTerminalInterfaceAssertionMatrix<'test>>,
-    // This one only is allowed to stay unpopulated meaning the test is composed in a way that makes
-    // it unable to have a hold of the required structures for this assertion
+    // This is the only one allowed to stay unpopulated
     broadcast_handler_term_interface_opt:
         Option<BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>>,
 }

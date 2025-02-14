@@ -221,6 +221,7 @@ mod tests {
     use workflow_websocket::client::Message as ClientMessage;
     use workflow_websocket::server::Message as ServerMessage;
 
+    // TODO ditch me after you have Dan's server in
     async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
         let message = Message::Text(UiTrafficConverter::new_marshal(
             UiShutdownRequest {}.tmb(345678),
@@ -235,7 +236,7 @@ mod tests {
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let stop_handle = server.start().await;
-        let (websocket, talker_half, _) = websocket_utils_with_masq_handshake(port).await;
+        let (websocket, _talker_half, _) = websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(websocket);
@@ -258,7 +259,7 @@ mod tests {
             .queue_owned_message(ServerMessage::Close(None))
             .start()
             .await;
-        let (websocket, listener_half, talker_half) =
+        let (websocket, _talker_half, _listener_half) =
             websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_detector) = ClosingStageDetector::make_for_test();
@@ -298,19 +299,19 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (websocket, listener_half, talker_half) =
+        let (websocket, _talker_half,listener_half) =
             websocket_utils_with_masq_handshake(port).await;
-        let listener_half_clone = listener_half.clone();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(websocket);
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
-        assert!(talker_half.close());
+        let closed = listener_half.close();
 
         let error = message_body_rx.recv().await.unwrap().unwrap_err();
 
+        assert!(closed);
         assert_eq!(error, ClientListenerError::Broken("RecvError".to_string()));
         wait_for_stop(client_listener_handle.as_ref()).await;
         let is_spinning = client_listener_handle.is_event_loop_spinning();
@@ -369,7 +370,7 @@ mod tests {
         let ref_counting_object = Arc::new(123);
         let cloned = ref_counting_object.clone();
         let join_handle = tokio::task::spawn(async move {
-            let cloned = cloned;
+            let _cloned_moved_in = cloned;
             loop {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }

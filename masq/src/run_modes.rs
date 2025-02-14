@@ -71,7 +71,7 @@ impl Main {
         );
 
         match self
-            .do_this_work(
+            .process_commands(
                 initialization_args.ui_port,
                 &mut incidental_streams,
                 term_interface,
@@ -84,7 +84,7 @@ impl Main {
         }
     }
 
-    async fn do_this_work(
+    async fn process_commands(
         &mut self,
         ui_port: u16,
         incidental_streams: &mut AsyncStdStreams,
@@ -176,7 +176,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
     use crate::masq_short_writeln;
-    use crate::terminal::test_utils::allow_writings_to_finish;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::terminal::{ReadError, ReadInput};
     use crate::test_utils::mocks::{
         make_async_std_streams, AsyncStdStreamsFactoryMock, CommandContextFactoryMock,
@@ -200,6 +200,7 @@ mod tests {
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
+    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -229,6 +230,8 @@ mod tests {
             .make_result(processor_aspiring_std_streams);
         let (w_term_interface, term_interface_stream_handles) =
             TermInterfaceMock::new_non_interactive();
+        let term_interface_id_stamp = ArbitraryIdStamp::new();
+        let w_term_interface = w_term_interface.set_arbitrary_id_stamp(term_interface_id_stamp);
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
@@ -236,7 +239,8 @@ mod tests {
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(command)));
-        let command_context = CommandContextMock::default().close_params(&close_params_arc);
+        let command_context_id_stamp = ArbitraryIdStamp::new();
+        let command_context = CommandContextMock::default().close_params(&close_params_arc).set_arbitrary_id_stamp(command_context_id_stamp);
         let command_context_factory = CommandContextFactoryMock::default()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
@@ -277,7 +281,7 @@ mod tests {
         let mut make_command_context_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
-        assert_eq!(ui_port, 5333);
+        assert_eq!(ui_port, DEFAULT_UI_PORT);
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
@@ -302,6 +306,8 @@ mod tests {
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
         let (command, captured_command_context_id, captured_terminal_interface_id) =
             execute_command_params.remove(0);
+        assert_eq!(captured_terminal_interface_id, term_interface_id_stamp);
+        assert_eq!(captured_command_context_id, captured_command_context_id);
         assert!(execute_command_params.is_empty());
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
@@ -401,7 +407,7 @@ mod tests {
         assert_eq!(*make_std_streams_params, vec![()]);
         let mut make_processor_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) = make_processor_params.pop().unwrap();
-        assert_eq!(ui_port, 5333);
+        assert_eq!(ui_port, DEFAULT_UI_PORT);
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
@@ -479,7 +485,7 @@ mod tests {
 
         let mut make_processor_params = make_command_context_factory_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) = make_processor_params.pop().unwrap();
-        assert_eq!(ui_port, 5333);
+        assert_eq!(ui_port, DEFAULT_UI_PORT);
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
@@ -504,7 +510,7 @@ mod tests {
             .assert()
             .await;
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
-        let (dyn_command, captured_command_context_id, captured_term_interface_id) =
+        let (dyn_command, _, _) =
             execute_command_params.remove(0);
         let actual_command = dyn_command.as_any().downcast_ref::<MockCommand>().unwrap();
         assert_eq!(actual_command.message, command.message);
@@ -551,6 +557,7 @@ mod tests {
         let mut make_command_context_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
+        assert_eq!(ui_port, DEFAULT_UI_PORT);
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::Expected(
                 BareStreamsFromStreamFactoryAssertionMatrix {
@@ -636,7 +643,7 @@ mod tests {
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
             // We say that no output is expected only because we intercept the command's execution
             // by mocking the CommandExecutionHelper
-            .processor_term_interface(Assert::NotUsed(&processor_aspiring_std_stream_handles))
+            .processor_term_interface(Assert::NotUsed(&term_interface_stream_handles))
             .broadcast_handler_term_interface(
                 AssertBroadcastHandler::MissingAsItIsNonInteractiveMode(
                     broadcast_handler_term_interface_opt.as_ref(),
@@ -645,7 +652,7 @@ mod tests {
             .assert()
             .await;
         let mut command_execution_params = command_execution_params_arc.lock().unwrap();
-        let (command, captured_command_context_id, captured_term_interface_id) =
+        let (command, _, _) =
             command_execution_params.remove(0);
         assert_eq!(
             *command.as_any().downcast_ref::<SetupCommand>().unwrap(),
@@ -749,7 +756,7 @@ mod tests {
             _context: &dyn CommandContext,
             term_interface: &dyn WTermInterface,
         ) -> Result<(), CommandError> {
-            let (writer, flush_handle) = term_interface.stdout();
+            let (writer, _flush_handle) = term_interface.stdout();
             masq_short_writeln!(writer, "{}", self.output);
             Ok(())
         }
@@ -970,7 +977,7 @@ mod tests {
             .queue_response(start_response)
             .queue_response(broadcast)
             .queue_response(descriptor_response);
-        let server_handle = node.start().await;
+        let _server_handle = node.start().await;
         let initial_args_parser_mock = InitialArgsParserMock::default()
             .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
                 node_ui_port,
@@ -1006,7 +1013,7 @@ mod tests {
 
         let result = subject.go(&["masq".to_string()]).await;
 
-        allow_writings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         StdStreamsAssertionMatrix::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))

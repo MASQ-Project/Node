@@ -5,7 +5,6 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
-use tokio::time::Instant;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -98,7 +97,7 @@ impl NodeConversation {
                 }
                 Ok(Err(NodeConversationTermination::Fatal)) => Ok(()),
                 Ok(Err(NodeConversationTermination::FiredAndForgotten)) => Ok(()),
-                Err(e) => panic!("Channel to ConnectionManager is already closed"), //TODO tested???
+                Err(_) => panic!("Channel to ConnectionManager is already closed"),
             },
             Err(_) => Err(ClientError::ConnectionDropped),
         }
@@ -127,16 +126,11 @@ impl NodeConversation {
         {
             Ok(_) => {
                 let fut = self.manager_to_conversation_rx.recv();
-                // (Duration::from_millis(timeout_millis))
-                let time_out = Instant::now() + Duration::from_millis(timeout_millis);
-                let recv_result = match tokio::time::timeout_at(time_out, fut).await {
+                let recv_result = match tokio::time::timeout( Duration::from_millis(timeout_millis), fut).await {
                     Ok(result) => result,
                     Err(_) => return Err(ClientError::Timeout(timeout_millis)),
                 };
-                // let recv_result = self
-                //     .manager_to_conversation_rx
-                //     .recv_timeout(Duration::from_millis(timeout_millis));
-                //TODO go through all the cases and see if each fails on a panic as there is always a test relating to them
+
                 match recv_result {
                     Ok(Ok(body)) => Ok(body),
                     Ok(Err(NodeConversationTermination::Graceful)) => {
@@ -439,5 +433,17 @@ mod tests {
         let result = subject.send(message.clone().tmb(0)).await;
 
         assert_eq!(result, Ok(()));
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Channel to ConnectionManager is already closed")]
+    async fn send_handles_already_closed_channel() {
+        let (subject, _, _message_body_send_rx) = make_subject();
+        let message = UiUnmarshalError {
+            message: "Message".to_string(),
+            bad_data: "Data".to_string(),
+        };
+
+        let _ = subject.send(message.clone().tmb(0)).await;
     }
 }

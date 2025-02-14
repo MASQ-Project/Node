@@ -10,11 +10,7 @@ use crate::notifications::connection_change_notification::ConnectionChangeNotifi
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::{TerminalWriter, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
-    UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
-    UiUndeliveredFireAndForget,
-};
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast, UiUndeliveredFireAndForget};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -23,8 +19,8 @@ use tokio::task::{JoinError, JoinHandle};
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
 
 pub struct BroadcastHandles {
-    pub standard: Box<dyn BroadcastHandle<MessageBody>>,
-    pub redirect: Box<dyn BroadcastHandle<RedirectOrder>>,
+    standard: Box<dyn BroadcastHandle<MessageBody>>,
+    redirect: Box<dyn BroadcastHandle<RedirectOrder>>,
 }
 
 impl BroadcastHandles {
@@ -36,8 +32,12 @@ impl BroadcastHandles {
     }
 
     pub fn handle_broadcast(&self, message_body: MessageBody) {
-        match UiRedirect::fmb(message_body.clone()) {
-            Ok((redirect, _)) => {
+        match UiRedirect::type_opcode() == message_body.opcode {
+            true => {
+                let (redirect,_) = match UiRedirect::fmb(message_body) {
+                    Ok(broadcast) => broadcast,
+                    Err(_) => todo!()
+                };
                 let context_id = redirect.context_id.unwrap_or(0);
                 self.redirect.send(RedirectOrder::new(
                     redirect.port,
@@ -45,7 +45,7 @@ impl BroadcastHandles {
                     REDIRECT_TIMEOUT_MILLIS,
                 ))
             }
-            Err(_) => {
+            false => {
                 self.standard.send(message_body);
             }
         };
@@ -531,9 +531,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
         broadcast_handle.send(example_broadcast);
         stream_handles.await_stdout_is_not_empty().await;
-        // Taking advantage of the TermInterface containing and Arc, and therefore
-        // if the background loop finishes the objects being used until then in this spawned task
-        // are dropped and which is when the count of the references on this Arc will decrement
+        // Taking advantage of the TermInterface containing and Arc, and therefore if the background loop finishes
+        // the objects being used by this spawned task are dropped, which is when the count of the references on this
+        // Arc decrements
         let count_before_close =
             Arc::strong_count(&stream_handles.stdout.as_ref().right().unwrap());
 

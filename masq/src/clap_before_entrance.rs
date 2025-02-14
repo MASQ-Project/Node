@@ -70,6 +70,7 @@ mod tests {
     use super::*;
     use crate::test_utils::mocks::make_async_std_streams;
     use masq_lib::constants::DEFAULT_UI_PORT;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
 
     #[tokio::test]
     async fn initial_args_parser_real_produces_default_values() {
@@ -85,6 +86,7 @@ mod tests {
             )
             .await;
 
+        allow_flushed_writings_to_finish().await;
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
@@ -108,6 +110,7 @@ mod tests {
             )
             .await;
 
+        allow_flushed_writings_to_finish().await;
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
@@ -199,6 +202,7 @@ mod tests {
                 )
                 .await;
 
+            allow_flushed_writings_to_finish().await;
             match result {
                 CLIProgramEntering::Leave(1) => (),
                 x => panic!("we expected Leave with exit code 1 but got {:?}", x),

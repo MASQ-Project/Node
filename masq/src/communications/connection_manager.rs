@@ -742,7 +742,7 @@ mod tests {
     use std::hash::Hash;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use std::thread;
+    use std::{thread, vec};
     use std::time::{Duration, SystemTime};
     use tokio::net::TcpListener;
     use tokio::task::JoinError;
@@ -1083,10 +1083,10 @@ mod tests {
     async fn when_fallback_fails_daemon_crash_broadcast_is_sent() {
         let mut inner = make_inner().await;
         let broadcast_handle_send_params_arc = Arc::new(Mutex::new(vec![]));
-        let broadcast_handle =
+        let standard_broadcast_handle =
             BroadcastHandleMock::default().send_params(&broadcast_handle_send_params_arc);
         inner.active_port_opt = None;
-        inner.broadcast_handles.standard = Box::new(broadcast_handle);
+        inner.broadcast_handles = BroadcastHandles::new(Box::new(standard_broadcast_handle), Box::new(BroadcastHandleMock::default()));
 
         CentralEventLoop::spawn(inner).await.unwrap();
 
@@ -1369,11 +1369,12 @@ mod tests {
         .tmb(0);
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let broadcast_handler = BroadcastHandleMock::default().send_params(&send_params_arc);
+        let standard_broadcast_handle = BroadcastHandleMock::default().send_params(&send_params_arc);
         let mut inner = make_inner().await;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
-        inner.broadcast_handles.standard = Box::new(broadcast_handler);
+        inner.broadcast_handles = BroadcastHandles::new(Box::new(standard_broadcast_handle), Box::new(BroadcastHandleMock::default()));
+
 
         let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
@@ -1527,7 +1528,7 @@ mod tests {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let client_listener_handle = establish_client_listener(
             port,
-            listener_to_manager_tx.clone(),
+            listener_to_manager_tx,
             close_sig.async_signal,
             Arc::new(WSHandshakeHandlerFactoryReal::default()),
             4_000,
@@ -1535,7 +1536,6 @@ mod tests {
         .await
         .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
-        let (_listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
         let mut inner = make_inner().await;
         inner.next_context_id = 1;
@@ -1592,7 +1592,7 @@ mod tests {
         inner = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
-                UiSetupRequest { values: vec![] }.tmb(2),
+                UiSetupRequest { values: vec![] }.tmb(2)
             )),
         )
         .await;
@@ -1705,6 +1705,8 @@ mod tests {
 
     #[tokio::test]
     async fn handles_close_order() {
+        //TODO consider writing an assertion using WSClientHandleMock
+
         // TODO this tests a suboptimal solution. The library we use isn't perfect and we had
         // to settle for calling its "disconnect" instead of competing a proper Close handshake
         running_test();
@@ -1747,7 +1749,7 @@ mod tests {
         fn on_request(
             self,
             request: &Request,
-            response: Response,
+            _response: Response,
         ) -> Result<Response, ErrorResponse> {
             thread::sleep(Duration::from_millis(10));
             panic!("We shouldn't get to see this panic")
@@ -1757,8 +1759,8 @@ mod tests {
     #[tokio::test]
     async fn establish_client_listener_times_out() {
         let port = find_free_port();
-        let (tx, rx) = unbounded_channel();
-        let (close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+        let (tx, _rx) = unbounded_channel();
+        let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
         let timeout_ms = 1;
         let _server = tokio::task::spawn(async move {
             let listener = TcpListener::bind(SocketAddr::new(localhost(), port))

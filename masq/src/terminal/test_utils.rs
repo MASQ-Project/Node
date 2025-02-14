@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
-use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
+use crate::terminal::test_utils::WriteInputsByTermInterfaceKind::{Interactive, NonInteractive};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WTermInterfaceDupAndSend,
     WriteResult, WriteStreamType,
@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-pub struct WritingTestInput<TerminalInterface, StreamsAssertionHandles> {
+pub struct WriteInput<TerminalInterface, StreamsAssertionHandles> {
     pub term_interface: TerminalInterface,
     pub streams_assertion_handles: StreamsAssertionHandles,
 }
@@ -30,11 +30,11 @@ pub struct NonInteractiveStreamsAssertionHandles {
     pub stderr: AsyncByteArrayWriter,
 }
 
-pub enum WritingTestInputByTermInterfaces<'test> {
+pub enum WriteInputsByTermInterfaceKind<'test> {
     NonInteractive(
-        WritingTestInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>,
+        WriteInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>,
     ),
-    Interactive(WritingTestInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
+    Interactive(WriteInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
 }
 
 pub enum InteractiveInterfaceByUse<'test> {
@@ -43,16 +43,16 @@ pub enum InteractiveInterfaceByUse<'test> {
     WOnlyBroadcastsInterface(&'test dyn WTermInterfaceDupAndSend),
 }
 
-pub async fn test_writing_streams_of_particular_terminal<'test: 'a, 'a>(
-    inputs: WritingTestInputByTermInterfaces<'test>,
+pub async fn test_write_streams_of_particular_terminal<'test: 'a, 'a>(
+    inputs: WriteInputsByTermInterfaceKind<'test>,
     attempt_info: &'test str,
 ) {
     match inputs {
-        NonInteractive(WritingTestInput {
+        NonInteractive(WriteInput {
             term_interface,
             streams_assertion_handles: NonInteractiveStreamsAssertionHandles { stdout, stderr },
         }) => {
-            assert_writings(
+            assert_writes(
                 term_interface.stdout(),
                 &stdout,
                 term_interface.stderr(),
@@ -62,7 +62,7 @@ pub async fn test_writing_streams_of_particular_terminal<'test: 'a, 'a>(
             )
             .await
         }
-        Interactive(WritingTestInput {
+        Interactive(WriteInput {
             term_interface,
             streams_assertion_handles,
         }) => {
@@ -77,7 +77,7 @@ pub async fn test_writing_streams_of_particular_terminal<'test: 'a, 'a>(
                     (term_interface.stdout(), term_interface.stderr())
                 }
             };
-            assert_writings(
+            assert_writes(
                 stdout_components,
                 &streams_assertion_handles,
                 stderr_components,
@@ -90,7 +90,7 @@ pub async fn test_writing_streams_of_particular_terminal<'test: 'a, 'a>(
     }
 }
 
-async fn assert_writings(
+async fn assert_writes(
     stdout_write_utils: (TerminalWriter, FlushHandle),
     stdout: &dyn StringAssertableStdHandle,
     stderr_writing_utils: (TerminalWriter, FlushHandle),
@@ -98,13 +98,13 @@ async fn assert_writings(
     attempt_info: &str,
     term_interface_spec: &str,
 ) {
-    assert_single_proper_writing(
+    assert_write_abilities(
         stdout_write_utils,
         stdout,
         &form_test_case_name(attempt_info, term_interface_spec, "stdout"),
     )
     .await;
-    assert_single_proper_writing(
+    assert_write_abilities(
         stderr_writing_utils,
         stderr,
         &form_test_case_name(attempt_info, term_interface_spec, "stderr"),
@@ -119,7 +119,7 @@ fn form_test_case_name(attempt_info: &str, terminal_spec: &str, stream_spec: &st
 const WRITE_OUTPUT_EXAMPLE: &str = "Bobbles.";
 const WRITELN_OUTPUT_EXAMPLE: &str = "Another bunch of bobbles.";
 
-async fn assert_single_proper_writing<'test>(
+async fn assert_write_abilities<'test>(
     (writer, flush_handle): (TerminalWriter, FlushHandle),
     test_output_handle: &'test dyn StringAssertableStdHandle,
     tested_case: &'test str,
@@ -365,6 +365,6 @@ impl FlushHandleInnerMock {
     }
 }
 
-pub async fn allow_writings_to_finish() {
+pub async fn allow_flushed_writings_to_finish() {
     tokio::time::sleep(Duration::from_millis(1)).await
 }
