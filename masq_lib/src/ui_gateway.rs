@@ -16,6 +16,15 @@ pub enum MessagePath {
     Conversation(u64), // context_id
 }
 
+impl MessagePath {
+    pub fn context_id(&self) -> u64 {
+        match self {
+            MessagePath::FireAndForget => 0,
+            MessagePath::Conversation(context_id) => *context_id,
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct MessageBody {
     pub opcode: String,

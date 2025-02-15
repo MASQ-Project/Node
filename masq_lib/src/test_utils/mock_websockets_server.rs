@@ -4,7 +4,7 @@ use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use crate::websockets_handshake::{WSSender, WSReceiver};
+use crate::websockets_types::{WSSender, WSReceiver};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use std::fmt::Debug;
@@ -428,7 +428,8 @@ mod tests {
         let actual_response: UiCheckPasswordResponse = connection
             .transact_with_context_id(request.clone(), 123)
             .await
-            .unwrap();
+            .unwrap()
+            .1;
 
         let mut requests = stop_handle.stop(StopStrategy::Close).await.requests;
         let captured_request = requests.remove(0).message_body();
@@ -509,7 +510,8 @@ mod tests {
         let received_message_number_one: UiCheckPasswordResponse = connection
             .transact_with_context_id(conversation_number_one_request.clone(), 1)
             .await
-            .unwrap();
+            .unwrap()
+            .1;
         eprintln!("Six");
         assert_eq!(
             received_message_number_one.matches,
@@ -519,29 +521,31 @@ mod tests {
         let received_message_number_two: UiCheckPasswordResponse = connection
             .transact_with_context_id(conversation_number_two_request.clone(), 2)
             .await
-            .unwrap();
+            .unwrap()
+            .1;
         eprintln!("Seven");
         assert_eq!(
             received_message_number_two.matches,
             conversation_number_two_response.matches
         );
         let _received_message_number_three: UiConfigurationChangedBroadcast =
-            connection.skip_until_received().await.unwrap();
+            connection.skip_until_received().await.unwrap().1;
 
         let _received_message_number_four: UiNodeCrashedBroadcast =
-            connection.skip_until_received().await.unwrap();
+            connection.skip_until_received().await.unwrap().1;
 
         let received_message_number_five: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request.clone(), 3)
             .await
-            .unwrap();
+            .unwrap()
+            .1;
         assert_eq!(
             received_message_number_five.node_descriptor_opt,
             Some("ae15fe6".to_string())
         );
 
         let _received_message_number_six: UiNewPasswordBroadcast =
-            connection.skip_until_received().await.unwrap();
+            connection.skip_until_received().await.unwrap().1;
 
         let requests = stop_handle.stop(StopStrategy::Close).await.requests;
 

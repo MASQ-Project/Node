@@ -207,30 +207,20 @@ impl ClientListenerEventLoopSpawner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_channel::{unbounded, Sender};
-    use futures::{FutureExt, SinkExt, StreamExt, TryFutureExt};
+    use futures::{SinkExt};
     use masq_lib::messages::{
         FromMessageBody, ToMessageBody, UiCheckPasswordResponse, UiDescriptorRequest,
         UiDescriptorResponse,
     };
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake,
-        websocket_utils_without_handshake,
-    };
-    use masq_lib::utils::{find_free_port, localhost};
-    use std::net::SocketAddr;
-    use std::time::{Duration, SystemTime};
-    use tokio::net::TcpListener;
+    use masq_lib::utils::{find_free_port};
+    use std::time::{Duration};
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::unbounded_channel;
-    use tokio::task::JoinError;
     use tokio::time::Instant;
-    use tokio_tungstenite::tungstenite::protocol::Role;
-    use tokio_tungstenite::{accept_async, accept_async_with_config, tungstenite};
-    use workflow_websocket::client::{Ack, Message as ClientMessage};
-    use workflow_websocket::server::{Message as ServerMessage, WebSocketConfig};
+    use workflow_websocket::client::{Message as ClientMessage};
+    use workflow_websocket::server::{Message as ServerMessage};
 
     async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
         let message = Message::Text(UiTrafficConverter::new_marshal(

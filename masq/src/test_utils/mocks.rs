@@ -6,7 +6,7 @@ use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{
     CommandExecutionHelper, CommandExecutionHelperFactory, CommandProcessor,
-    CommandProcessorCommon, CommandProcessorFactory, ProcessorProvidingCommonComponents,
+    CommandProcessorCommon, ProcessorProvidingCommonComponents,
 };
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
@@ -15,56 +15,42 @@ use crate::communications::broadcast_handlers::{
 };
 use crate::communications::client_listener_thread::WSClientHandle;
 use crate::communications::connection_manager::{
-    BroadcastReceiver, CMBootstrapper, ClosingStageDetector, RedirectOrder,
+    BroadcastReceiver,
 };
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
 use crate::terminal::{
-    FlushHandle, FlushHandleInner, RWTermInterface, ReadError, ReadInput, TerminalWriter,
+    FlushHandle, RWTermInterface, ReadError, ReadInput, TerminalWriter,
     WTermInterface, WTermInterfaceDupAndSend, WriteStreamType,
 };
 use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
-use ctrlc::Error::System;
 use itertools::Either;
-use masq_lib::command::StdStreams;
-use masq_lib::constants::DEFAULT_UI_PORT;
-use masq_lib::shared_schema::VecU64;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, ByteArrayReaderInner, ByteArrayWriter,
     ByteArrayWriterInner, HandleToCountReads, StdinReadCounter, StringAssertionMethods,
 };
-use masq_lib::test_utils::websockets_utils::establish_ws_conn_with_handshake;
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::utils::localhost;
-use masq_lib::websockets_handshake::{
-    HandshakeResultRx, HandshakeResultTx, WSHandshakeHandlerFactory,
-};
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, intentionally_blank,
     set_arbitrary_id_stamp_in_mock_impl,
 };
 use std::any::Any;
 use std::cell::RefCell;
-use std::fmt::Arguments;
-use std::future::Future;
-use std::io::{stdout, Read, Write};
-use std::ops::{Deref, Not};
+use std::io::{Read, Write};
+use std::ops::{Deref};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
-use std::{io, thread};
+use std::{io};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use workflow_websocket::client::{
-    Ack, ConnectOptions, ConnectStrategy, Error, Handshake, Message, Result as ClientResult,
-    WebSocket, WebSocketConfig,
+    Error, Handshake, Message, Result as ClientResult,
 };
 
 #[derive(Default)]

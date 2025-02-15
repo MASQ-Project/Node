@@ -18,7 +18,7 @@ use masq_lib::messages::{CrashReason, FromMessageBody, ToMessageBody, UiNodeCras
 use masq_lib::messages::{UiRedirect, NODE_UI_PROTOCOL};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use masq_lib::websockets_handshake::{
+use masq_lib::websockets_types::{
     HandshakeResultTx, WSClientConnectionInitiator, WSHandshakeHandlerFactory,
     WSHandshakeHandlerFactoryReal,
 };
@@ -744,16 +744,10 @@ mod tests {
     };
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
-    use masq_lib::test_utils::utils::{make_multi_thread_rt, make_rt};
-    use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake,
-        WSHandshakeHandlerFactoryMock,
-    };
     use masq_lib::utils::{find_free_port, localhost, running_test};
     use std::hash::Hash;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use std::thread::spawn;
     use std::time::{Duration, SystemTime};
     use tokio::net::TcpListener;
     use tokio::task::JoinError;
