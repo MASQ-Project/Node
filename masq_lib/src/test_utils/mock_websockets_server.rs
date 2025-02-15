@@ -21,10 +21,12 @@ use std::io::Write;
 use soketto::Incoming as SokettoIncomingType;
 use soketto::Data as SokettoDataType;
 use soketto::{handshake::{Server, ClientRequest, server::Response}};
-use soketto::connection::{Sender, Receiver, Error};
+use soketto::connection::{Sender, Receiver, Error, CloseReason};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use futures::io::{BufReader, BufWriter};
 use rustc_hex::ToHex;
+use soketto::base::OpCode;
+use soketto::data::ByteSlice125;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -40,21 +42,56 @@ enum MWSSMessage {
     // If you have a non-MessageBody request, or a non-MessageBody response that must be
     // triggered by a request, put it here.
     ConversationData(SokettoDataType, Vec<u8>),
+    // If you have a close message, put it here.
+    Close(),
 }
 
 impl MWSSMessage {
-    fn is_fire_and_forget(&self) -> bool {
+    pub fn is_fire_and_forget(&self) -> bool {
         match self {
             MWSSMessage::MessageBody (body) => body.path == MessagePath::FireAndForget,
             MWSSMessage::FAFData(_, _) => true,
-            MWSSMessage::ConversationData(_, _) => false,
+            _ => false,
         }
     }
 
-    fn message_body(self) -> MessageBody {
+    pub fn message_body(self) -> MessageBody {
         match self {
             MWSSMessage::MessageBody (body) => body,
             _ => panic!("Expected MWSSMessage::MessageBody, got {:?} instead", self),
+        }
+    }
+
+    pub async fn send(self, sender: &mut WSSender) {
+        match self {
+            MWSSMessage::MessageBody(body) => {
+                let opcode = body.opcode.clone();
+                let json = UiTrafficConverter::new_marshal(body);
+                Self::send_data_message(sender, SokettoDataType::Text(json.len()), json.into_bytes()).await;
+            },
+            MWSSMessage::FAFData(data_type, data) => {
+                Self::send_data_message(sender, data_type, data).await;
+            },
+            MWSSMessage::ConversationData(data_type, data) => {
+                Self::send_data_message(sender, data_type, data).await;
+            },
+            MWSSMessage::Close() => {
+                sender.close().await.expect("Failed to send close message");
+            },
+        }
+    }
+
+    async fn send_data_message(sender: &mut WSSender, data_type: SokettoDataType, data: Vec<u8>) {
+        match data_type {
+            SokettoDataType::Text(_) => {
+                let text = std::str::from_utf8(&data).expect("Error converting data to text");
+                sender.send_text(text).await.expect("Error sending data to client");
+                sender.flush().await.expect("Error flushing text to client");
+            },
+            SokettoDataType::Binary(_) => {
+                sender.send_binary(&data).await.expect("Error sending data to client");
+                sender.flush().await.expect("Error flushing binary data to client");
+            },
         }
     }
 }
@@ -116,6 +153,11 @@ impl MockWebSocketsServer {
 
     pub fn queue_conv_owned_message(mut self, data_type: SokettoDataType, data: Vec<u8>) -> Self {
         self.responses.push(MWSSMessage::ConversationData(data_type.clone(), data));
+        self
+    }
+
+    pub fn queue_close(mut self, code_opt: Option<u16>, reason_opt: Option<&str>) -> Self {
+        self.responses.push(MWSSMessage::FAFData(SokettoDataType::Binary(0), vec![]));
         self
     }
 
@@ -246,12 +288,7 @@ impl MockWebSocketsServer {
         while let Some(response) = responses.first() {
             if response.is_fire_and_forget() {
                 let response = responses.remove(0);
-                let (data_type, data) = match response {
-                    MWSSMessage::MessageBody(body) => Self::sendable_message_body(body),
-                    MWSSMessage::FAFData(data_type, data) => (data_type, data),
-                    MWSSMessage::ConversationData(_, _) => panic!("ConversationData shouldn't have gotten here"),
-                };
-                Self::send_data(sender, data_type, data).await;
+                response.send(sender).await;
             } else {
                 break;
             }
@@ -267,12 +304,8 @@ impl MockWebSocketsServer {
             Self::send_data(sender, SokettoDataType::Binary(msg.len()), msg).await;
             return;
         }
-        let (data_type, data) = match responses.remove(0) {
-            MWSSMessage::MessageBody(body) => Self::sendable_message_body(body),
-            MWSSMessage::ConversationData(data_type, data) => (data_type, data),
-            MWSSMessage::FAFData(data_type, data) => panic!("FAFData shouldn't have gotten here"),
-        };
-        Self::send_data(sender, data_type, data).await;
+        let response = responses.remove(0);
+        response.send(sender).await;
     }
 
     async fn send_data(sender: &mut WSSender, data_type: SokettoDataType, data: Vec<u8>) {
@@ -288,11 +321,6 @@ impl MockWebSocketsServer {
             },
         }
     }
-
-    fn sendable_message_body(body: MessageBody) -> (SokettoDataType, Vec<u8>) {
-        let json = UiTrafficConverter::new_marshal(body);
-        (SokettoDataType::Text(json.len()), json.into_bytes())
-    }
 }
 
 pub type ServerJoinHandle = JoinHandle<workflow_websocket::server::result::Result<()>>;
@@ -305,27 +333,20 @@ pub struct MockWebSocketsServerResult {
 
 #[derive(Debug, Copy, Clone)]
 pub enum StopStrategy {
-    CloseWebSockets,
-    FinTcp,
+    Close,
     Abort
 }
 
 impl StopStrategy {
     pub async fn apply (self, mut sender: WSSender) {
         match self {
-            StopStrategy::CloseWebSockets => {Self::close_web_sockets(sender);},
-            StopStrategy::FinTcp => {Self::fin_tcp(sender);},
+            StopStrategy::Close => {Self::close(sender);},
             StopStrategy::Abort => {Self::abort(sender);},
         }
     }
 
-    async fn close_web_sockets(mut sender: WSSender) {
+    async fn close(mut sender: WSSender) {
         sender.close().await.expect("Error closing WebSocket connection");
-    }
-
-    async fn fin_tcp(mut sender: WSSender) {
-        todo!("You may have to preserve the TcpStream or equivalent that goes into the Server");
-        // sender.writer.lock().await.close().expect("Error closing TCP connection");
     }
 
     async fn abort(mut sender: WSSender) {
@@ -409,7 +430,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut requests = stop_handle.stop(StopStrategy::CloseWebSockets).await.requests;
+        let mut requests = stop_handle.stop(StopStrategy::Close).await.requests;
         let captured_request = requests.remove(0).message_body();
         let actual_message_gotten_by_the_server =
             UiCheckPasswordRequest::fmb(captured_request).unwrap().0;
@@ -522,7 +543,7 @@ mod tests {
         let _received_message_number_six: UiNewPasswordBroadcast =
             connection.skip_until_received().await.unwrap();
 
-        let requests = stop_handle.stop(StopStrategy::CloseWebSockets).await.requests;
+        let requests = stop_handle.stop(StopStrategy::Close).await.requests;
 
         assert_eq!(
             requests
