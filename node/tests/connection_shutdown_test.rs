@@ -2,21 +2,26 @@
 
 pub mod utils;
 
+use crate::utils::CommandConfig;
 use crossbeam_channel::{unbounded, Sender};
+use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 use masq_lib::utils::find_free_port;
 use std::io::{Read, Write};
 use std::net::{IpAddr, TcpListener, TcpStream};
 use std::net::{Shutdown, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
-use std::{io, thread};
+use std::{env, io, thread};
 
 // 'node' below must not be named '_' alone or disappear, or the MASQNode will be immediately reclaimed.
 #[test]
 fn proxy_client_stream_reader_dies_when_client_stream_is_killed_integration() {
+    let _guard = EnvironmentGuard::new();
+    env::set_var("MASQ_INTEGRATION_TEST", "true");
+    let ui_port = find_free_port();
     let _node = utils::MASQNode::start_standard(
         "proxy_client_stream_reader_dies_when_client_stream_is_killed_integration",
-        None,
+        Some(CommandConfig::new().pair("--ui-port", &ui_port.to_string())),
         true,
         true,
         false,

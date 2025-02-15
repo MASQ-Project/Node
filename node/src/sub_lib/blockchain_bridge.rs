@@ -85,10 +85,12 @@ impl ConsumingWalletBalances {
 mod tests {
     use crate::actor_system_factory::SubsFactory;
     use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactoryReal};
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::blockchain::test_utils::make_blockchain_interface_web3;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
-    use actix::Actor;
+    use actix::{Actor, System};
+    use masq_lib::utils::find_free_port;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn blockchain_bridge_subs_debug() {
@@ -102,17 +104,20 @@ mod tests {
     #[test]
     fn blockchain_bridge_subs_factory_produces_proper_subs() {
         let subject = BlockchainBridgeSubsFactoryReal {};
-        let blockchain_interface = BlockchainInterfaceMock::default();
+        let blockchain_interface = make_blockchain_interface_web3(find_free_port());
         let persistent_config = PersistentConfigurationMock::new();
         let accountant = BlockchainBridge::new(
             Box::new(blockchain_interface),
-            Box::new(persistent_config),
+            Arc::new(Mutex::new(persistent_config)),
             false,
         );
+        let system = System::new("blockchain_bridge_subs_factory_produces_proper_subs");
         let addr = accountant.start();
 
         let subs = subject.make(&addr);
 
+        System::current().stop();
+        system.run();
         assert_eq!(subs, BlockchainBridge::make_subs_from(&addr))
     }
 }
