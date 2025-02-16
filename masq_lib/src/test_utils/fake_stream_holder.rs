@@ -47,7 +47,7 @@ impl ByteArrayWriterInner {
         }
     }
 
-    pub fn drain_flushed_strings(&mut self) -> Option<Vec<FlushableByteOutput>> {
+    fn drain_flushed_strings(&mut self) -> Option<Vec<FlushableByteOutput>> {
         match &mut self.captured_writes {
             Either::Right(flushables) => Some(flushables.drain(..).collect()),
             _ => None,

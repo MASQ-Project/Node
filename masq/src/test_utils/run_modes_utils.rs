@@ -6,36 +6,36 @@ use itertools::Either;
 use std::fmt::Debug;
 
 #[derive(Default)]
-pub struct StdStreamsAssertionMatrix<'test> {
+pub struct StdStreamsAssertion<'test> {
     incidental_std_streams_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     processor_std_streams_opt: Option<BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
-    processor_term_interface_opt: Option<ProcessorTerminalInterfaceAssertionMatrix<'test>>,
+    processor_term_interface_opt: Option<ProcessorTerminalInterfaceAssertion<'test>>,
     // This is the only one allowed to stay unpopulated
     broadcast_handler_term_interface_opt:
         Option<BroadcastHandlerTerminalInterfaceAssertionMatrix<'test>>,
 }
 
-impl<'test> StdStreamsAssertionMatrix<'test> {
+impl<'test> StdStreamsAssertion<'test> {
     pub fn incidental_std_streams(
         mut self,
         assert: Assert<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     ) -> Self {
-        self.incidental_std_streams_opt = Some(IntoFulfillingRustRules::into(assert));
+        self.incidental_std_streams_opt = Some(IntoAppeasingRustRules::into(assert));
         self
     }
     pub fn processor_aspiring_std_streams(
         mut self,
         assert: Assert<'test, BareStreamsFromStreamFactoryAssertionMatrix<'test>>,
     ) -> Self {
-        self.processor_std_streams_opt = Some(IntoFulfillingRustRules::into(assert));
+        self.processor_std_streams_opt = Some(IntoAppeasingRustRules::into(assert));
         self
     }
 
     pub fn processor_term_interface(
         mut self,
-        assert: Assert<'test, ProcessorTerminalInterfaceAssertionMatrix<'test>>,
+        assert: Assert<'test, ProcessorTerminalInterfaceAssertion<'test>>,
     ) -> Self {
-        self.processor_term_interface_opt = Some(IntoFulfillingRustRules::into(assert));
+        self.processor_term_interface_opt = Some(IntoAppeasingRustRules::into(assert));
         self
     }
 
@@ -48,29 +48,32 @@ impl<'test> StdStreamsAssertionMatrix<'test> {
     }
 }
 
-pub trait AssertableAsNotUsed<'test> {
-    fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self
-    where
-        Self: Sized;
+pub trait AssertableAlsoAsNotUsed<'test>
+where
+    Self: Sized,
+{
+    fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles)
+        -> Self;
+    fn check_that_populated(expected_fully_defined: Self) -> Self;
 }
 
-pub enum Assert<'test, Matrix: AssertableAsNotUsed<'test>> {
-    Expected(Matrix),
+pub enum Assert<'test, Assertion: AssertableAlsoAsNotUsed<'test>> {
+    Expected(Assertion),
     NotUsed(&'test AsyncTestStreamHandles),
 }
 
-trait IntoFulfillingRustRules<SomeType> {
+trait IntoAppeasingRustRules<SomeType> {
     fn into(self) -> SomeType;
 }
 
-impl<'test, Matrix: AssertableAsNotUsed<'test>> IntoFulfillingRustRules<Matrix>
-    for Assert<'test, Matrix>
+impl<'test, Assertion: AssertableAlsoAsNotUsed<'test>> IntoAppeasingRustRules<Assertion>
+    for Assert<'test, Assertion>
 {
-    fn into(self) -> Matrix {
+    fn into(self) -> Assertion {
         match self {
             Assert::Expected(fully_defined) => fully_defined,
             Assert::NotUsed(stream_handles) => {
-                Matrix::compose_assertion_matrix_for_not_used(stream_handles)
+                Assertion::compose_assertion_matrix_for_not_used(stream_handles)
             }
         }
     }
@@ -83,7 +86,8 @@ pub enum AssertBroadcastHandler<'test> {
             Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
         stream_handles: &'test AsyncTestStreamHandles,
     },
-    MissingAsItIsNonInteractiveMode(Option<&'test Box<dyn WTermInterfaceDupAndSend>>),
+    // It's not present in the non-interactive mode
+    Nonexistent(Option<&'test Box<dyn WTermInterfaceDupAndSend>>),
 }
 
 impl<'test> From<AssertBroadcastHandler<'test>>
@@ -99,7 +103,7 @@ impl<'test> From<AssertBroadcastHandler<'test>>
                 intercepted_broadcast_handler_term_interface_opt,
                 stream_handles,
             ),
-            AssertBroadcastHandler::MissingAsItIsNonInteractiveMode(terminal_opt) => {
+            AssertBroadcastHandler::Nonexistent(terminal_opt) => {
                 BroadcastHandlerTerminalInterfaceAssertionMatrix::assert_terminal_not_created(
                     terminal_opt,
                 )
@@ -109,12 +113,24 @@ impl<'test> From<AssertBroadcastHandler<'test>>
 }
 
 pub struct BareStreamsFromStreamFactoryAssertionMatrix<'test> {
-    pub stream_handles: &'test AsyncTestStreamHandles,
-    pub write_streams: WriteStreamsAssertion<'test>,
+    stream_handles: &'test AsyncTestStreamHandles,
+    write_streams: WriteStreamsAssertion<'test>,
     // Reading should be forbidden in these streams
 }
 
-impl<'test> AssertableAsNotUsed<'test> for BareStreamsFromStreamFactoryAssertionMatrix<'test> {
+impl<'test> BareStreamsFromStreamFactoryAssertionMatrix<'test> {
+    pub fn new<AssertionDetails: Into<WriteStreamsAssertion<'test>>>(
+        stream_handles: &'test AsyncTestStreamHandles,
+        streams_assertion_details: AssertionDetails,
+    ) -> Self {
+        Self {
+            stream_handles,
+            write_streams: streams_assertion_details.into(),
+        }
+    }
+}
+
+impl<'test> AssertableAlsoAsNotUsed<'test> for BareStreamsFromStreamFactoryAssertionMatrix<'test> {
     fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self
     where
         Self: Sized,
@@ -129,27 +145,73 @@ impl<'test> AssertableAsNotUsed<'test> for BareStreamsFromStreamFactoryAssertion
             },
         }
     }
+
+    fn check_that_populated(expected_fully_defined: Self) -> Self {
+        let is_populated = match &expected_fully_defined
+            .write_streams
+            .one_piece_or_distinct_flushes
+        {
+            Either::Left(one_piece_strings) => {
+                one_piece_strings.stdout_opt.is_some() || one_piece_strings.stderr_opt.is_some()
+            }
+            Either::Right(flushed_strings) => {
+                !flushed_strings.stdout.is_empty() || !flushed_strings.stderr.is_empty()
+            }
+        };
+
+        if !is_populated {
+            panic!("This assertion can be set up more simply by using the structure 'NotUsed' instead of 'Expected'")
+        }
+
+        expected_fully_defined
+    }
 }
 
-pub struct TerminalInterfaceAssertionMatrix<'test> {
-    pub term_interface_stream_handles: &'test AsyncTestStreamHandles,
-    pub expected_writes: WriteStreamsAssertion<'test>,
+pub struct TerminalInterfaceAssertion<'test> {
+    term_interface_stream_handles: &'test AsyncTestStreamHandles,
+    expected_writes: WriteStreamsAssertion<'test>,
     // None ... non-interactive mode,
     // Some ... interactive mode
-    pub read_attempts_opt: Option<usize>,
+    read_attempts_opt: Option<usize>,
 }
 
-pub struct ProcessorTerminalInterfaceAssertionMatrix<'test> {
-    pub standard_assertions: TerminalInterfaceAssertionMatrix<'test>,
+impl<'test> TerminalInterfaceAssertion<'test> {
+    pub fn new<AssertionDetails: Into<WriteStreamsAssertion<'test>>>(
+        term_interface_stream_handles: &'test AsyncTestStreamHandles,
+        assertion_details: AssertionDetails,
+    ) -> TerminalInterfaceAssertion<'test> {
+        Self {
+            term_interface_stream_handles,
+            expected_writes: assertion_details.into(),
+            read_attempts_opt: None,
+        }
+    }
+
+    pub fn expected_read_attempts(mut self, read_attempts: usize) -> Self {
+        self.read_attempts_opt = Some(read_attempts);
+        self
+    }
 }
 
-impl<'test> AssertableAsNotUsed<'test> for ProcessorTerminalInterfaceAssertionMatrix<'test> {
+pub struct ProcessorTerminalInterfaceAssertion<'test> {
+    standard_assertions: TerminalInterfaceAssertion<'test>,
+}
+
+impl<'test> ProcessorTerminalInterfaceAssertion<'test> {
+    pub fn new(standard_assertions: TerminalInterfaceAssertion<'test>) -> Self {
+        Self {
+            standard_assertions,
+        }
+    }
+}
+
+impl<'test> AssertableAlsoAsNotUsed<'test> for ProcessorTerminalInterfaceAssertion<'test> {
     fn compose_assertion_matrix_for_not_used(stream_handles: &'test AsyncTestStreamHandles) -> Self
     where
         Self: Sized,
     {
         Self {
-            standard_assertions: TerminalInterfaceAssertionMatrix {
+            standard_assertions: TerminalInterfaceAssertion {
                 term_interface_stream_handles: stream_handles,
                 expected_writes: WriteStreamsAssertion {
                     one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion {
@@ -161,13 +223,34 @@ impl<'test> AssertableAsNotUsed<'test> for ProcessorTerminalInterfaceAssertionMa
             },
         }
     }
+
+    fn check_that_populated(expected_fully_defined: Self) -> Self {
+        let is_populated = match &expected_fully_defined
+            .standard_assertions
+            .expected_writes
+            .one_piece_or_distinct_flushes
+        {
+            Either::Left(in_one_piece) => {
+                in_one_piece.stdout_opt.is_some() || in_one_piece.stderr_opt.is_some()
+            }
+            Either::Right(flushed_strings) => {
+                !flushed_strings.stdout.is_empty() || !flushed_strings.stderr.is_empty()
+            }
+        };
+
+        if !is_populated {
+            panic!("This assertion can be set up more simply by using the structure 'NotUsed' instead of 'Expected'")
+        }
+
+        expected_fully_defined
+    }
 }
 
 pub struct BroadcastHandlerTerminalInterfaceAssertionMatrix<'test> {
     pub w_term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
     // None means the terminal is not even considered as existing, we therefore suspect
     // the non-interactive mode
-    pub expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
+    pub expected_std_streams_usage_opt: Option<TerminalInterfaceAssertion<'test>>,
 }
 
 impl<'test> BroadcastHandlerTerminalInterfaceAssertionMatrix<'test> {
@@ -186,7 +269,7 @@ impl<'test> BroadcastHandlerTerminalInterfaceAssertionMatrix<'test> {
     ) -> Self {
         Self {
             w_term_interface_opt,
-            expected_std_streams_usage_opt: Some(TerminalInterfaceAssertionMatrix {
+            expected_std_streams_usage_opt: Some(TerminalInterfaceAssertion {
                 term_interface_stream_handles: stream_handles,
                 expected_writes: WriteStreamsAssertion {
                     one_piece_or_distinct_flushes: Either::Left(OnePieceWriteStreamsAssertion {
@@ -211,9 +294,21 @@ pub trait AssertionValuesWithTestableExpectedStreamOutputEmptiness {
     fn is_empty_stderr_output_expected(&self) -> bool;
 }
 
+#[derive(Default)]
 pub struct OnePieceWriteStreamsAssertion<'test> {
-    pub stdout_opt: Option<&'test str>,
-    pub stderr_opt: Option<&'test str>,
+    stdout_opt: Option<&'test str>,
+    stderr_opt: Option<&'test str>,
+}
+
+impl<'test> OnePieceWriteStreamsAssertion<'test> {
+    pub fn stdout(mut self, expected: &'test str) -> Self {
+        self.stdout_opt = Some(expected);
+        self
+    }
+    pub fn stderr(mut self, expected: &'test str) -> Self {
+        self.stderr_opt = Some(expected);
+        self
+    }
 }
 
 impl AssertionValuesWithTestableExpectedStreamOutputEmptiness
@@ -228,9 +323,21 @@ impl AssertionValuesWithTestableExpectedStreamOutputEmptiness
     }
 }
 
+#[derive(Default)]
 pub struct FlushesWriteStreamsAssertion<'test> {
-    pub stdout: Vec<&'test str>,
-    pub stderr: Vec<&'test str>,
+    stdout: Vec<&'test str>,
+    stderr: Vec<&'test str>,
+}
+
+impl<'test> FlushesWriteStreamsAssertion<'test> {
+    pub fn stdout(mut self, expected: Vec<&'test str>) -> Self {
+        self.stdout = expected;
+        self
+    }
+    pub fn stderr(mut self, expected: Vec<&'test str>) -> Self {
+        self.stderr = expected;
+        self
+    }
 }
 
 impl AssertionValuesWithTestableExpectedStreamOutputEmptiness for FlushesWriteStreamsAssertion<'_> {
@@ -264,7 +371,7 @@ impl<'test> From<FlushesWriteStreamsAssertion<'test>> for WriteStreamsAssertion<
     }
 }
 
-impl<'test> StdStreamsAssertionMatrix<'test> {
+impl<'test> StdStreamsAssertion<'test> {
     pub async fn assert(self) {
         let incidental_streams = self
             .incidental_std_streams_opt
@@ -323,7 +430,7 @@ impl<'test> StdStreamsAssertionMatrix<'test> {
 
 async fn assert_broadcast_term_interface_outputs<'test>(
     term_interface_opt: Option<&'test Box<dyn WTermInterfaceDupAndSend>>,
-    expected_std_streams_usage_opt: Option<TerminalInterfaceAssertionMatrix<'test>>,
+    expected_std_streams_usage_opt: Option<TerminalInterfaceAssertion<'test>>,
 ) {
     macro_rules! assert_terminal_output_stream_and_its_stream_handle_are_connected {
         ($fetch_write_utils: expr, $await_non_empty_output: expr, $fetch_written_data_all_in_one: expr, $literals_to_test_it_with: literal) => {
