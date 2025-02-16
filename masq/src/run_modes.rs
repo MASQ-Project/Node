@@ -400,16 +400,16 @@ mod tests {
         let mut make_processor_params = make_command_context_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) = make_processor_params.pop().unwrap();
         assert_eq!(ui_port, DEFAULT_UI_PORT);
-        let processor_assertion =
-            ProcessorTerminalInterfaceAssertion::new(TerminalInterfaceAssertion::new(
-                &term_interface_stream_handles,
-                OnePieceWriteStreamsAssertion::default()
-                    .stderr("Unrecognized command: \"booga\"\n"),
-            ));
         StdStreamsAssertion::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
-            .processor_term_interface(Assert::Expected(processor_assertion))
+            .processor_term_interface(Assert::Expected(ProcessorTerminalInterfaceAssertion::new(
+                TerminalInterfaceAssertion::new(
+                    &term_interface_stream_handles,
+                    OnePieceWriteStreamsAssertion::default()
+                        .stderr("Unrecognized command: \"booga\"\n"),
+                ),
+            )))
             .broadcast_handler_term_interface(AssertBroadcastHandler::Nonexistent(
                 broadcast_handler_term_interface_opt.as_ref(),
             ))
@@ -470,15 +470,16 @@ mod tests {
         let mut make_processor_params = make_command_context_factory_params_arc.lock().unwrap();
         let (ui_port, broadcast_handler_term_interface_opt) = make_processor_params.pop().unwrap();
         assert_eq!(ui_port, DEFAULT_UI_PORT);
-        let processor_assertion =
-            ProcessorTerminalInterfaceAssertion::new(TerminalInterfaceAssertion::new(
-                &term_interface_stream_handles,
-                OnePieceWriteStreamsAssertion::default().stderr("Transmission problem: Booga!\n"),
-            ));
         StdStreamsAssertion::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
-            .processor_term_interface(Assert::Expected(processor_assertion))
+            .processor_term_interface(Assert::Expected(ProcessorTerminalInterfaceAssertion::new(
+                TerminalInterfaceAssertion::new(
+                    &term_interface_stream_handles,
+                    OnePieceWriteStreamsAssertion::default()
+                        .stderr("Transmission problem: Booga!\n"),
+                ),
+            )))
             .broadcast_handler_term_interface(AssertBroadcastHandler::Nonexistent(
                 broadcast_handler_term_interface_opt.as_ref(),
             ))
@@ -532,15 +533,16 @@ mod tests {
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
         assert_eq!(ui_port, DEFAULT_UI_PORT);
-        let incidental_streams_assertion = BareStreamsFromStreamFactoryAssertionMatrix::new(
-            &incidental_std_stream_handles,
-            OnePieceWriteStreamsAssertion::default().stderr(
-                "Processor initialization failed: Can't connect to Daemon or Node: \
-                    \"booga\". Probably this means the Daemon isn't running.\n",
-            ),
-        );
         StdStreamsAssertion::default()
-            .incidental_std_streams(Assert::Expected(incidental_streams_assertion))
+            .incidental_std_streams(Assert::Expected(
+                BareStreamsFromStreamFactoryAssertionMatrix::new(
+                    &incidental_std_stream_handles,
+                    OnePieceWriteStreamsAssertion::default().stderr(
+                        "Processor initialization failed: Can't connect to Daemon or Node: \
+                    \"booga\". Probably this means the Daemon isn't running.\n",
+                    ),
+                ),
+            ))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
             .processor_term_interface(Assert::NotUsed(&term_interface_stream_handles))
             .broadcast_handler_term_interface(AssertBroadcastHandler::Nonexistent(
@@ -805,21 +807,20 @@ mod tests {
             *make_command_params,
             vec![vec!["setup".to_string()], vec!["start".to_string()]]
         );
-        let processor_assertion = ProcessorTerminalInterfaceAssertion::new(
-            TerminalInterfaceAssertion::new(
-                &prime_term_interface_stream_handles,
-                FlushesWriteStreamsAssertion::default().stdout(vec![
-                    "setup command\n",
-                    "start command\n",
-                    "MASQ is terminating...\n",
-                ]),
-            )
-            .expected_read_attempts(3),
-        );
         StdStreamsAssertion::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
-            .processor_term_interface(Assert::Expected(processor_assertion))
+            .processor_term_interface(Assert::Expected(ProcessorTerminalInterfaceAssertion::new(
+                TerminalInterfaceAssertion::new(
+                    &prime_term_interface_stream_handles,
+                    FlushesWriteStreamsAssertion::default().stdout(vec![
+                        "setup command\n",
+                        "start command\n",
+                        "MASQ is terminating...\n",
+                    ]),
+                )
+                .expected_read_attempts(3),
+            )))
             .broadcast_handler_term_interface(AssertBroadcastHandler::NotUsed {
                 intercepted_broadcast_handler_term_interface_opt:
                     broadcast_handler_term_interface_opt.as_ref(),
@@ -881,18 +882,17 @@ mod tests {
         let (ui_port, broadcast_handler_term_interface_opt) =
             make_command_context_params.pop().unwrap();
         assert_eq!(ui_port, 5333);
-        let processor_assertion = ProcessorTerminalInterfaceAssertion::new(
-            TerminalInterfaceAssertion::new(
-                &prime_term_interface_stream_handles,
-                OnePieceWriteStreamsAssertion::default()
-                    .stderr("Terminal read error: IO disconnected\n"),
-            )
-            .expected_read_attempts(1),
-        );
         StdStreamsAssertion::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
-            .processor_term_interface(Assert::Expected(processor_assertion))
+            .processor_term_interface(Assert::Expected(ProcessorTerminalInterfaceAssertion::new(
+                TerminalInterfaceAssertion::new(
+                    &prime_term_interface_stream_handles,
+                    OnePieceWriteStreamsAssertion::default()
+                        .stderr("Terminal read error: IO disconnected\n"),
+                )
+                .expected_read_attempts(1),
+            )))
             .broadcast_handler_term_interface(AssertBroadcastHandler::NotUsed {
                 intercepted_broadcast_handler_term_interface_opt:
                     broadcast_handler_term_interface_opt.as_ref(),
@@ -974,21 +974,20 @@ mod tests {
             "MASQNode successfully started in process 1234 on port {}\n",
             node_ui_port
         );
-        let processor_assertion = ProcessorTerminalInterfaceAssertion::new(
-            TerminalInterfaceAssertion::new(
-                &prime_term_interface_stream_handles,
-                FlushesWriteStreamsAssertion::default().stdout(vec![
-                    &first_stdout,
-                    "perfect-masq-node-descriptor\n",
-                    "MASQ is terminating...\n",
-                ]),
-            )
-            .expected_read_attempts(3),
-        );
         StdStreamsAssertion::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
             .processor_aspiring_std_streams(Assert::NotUsed(&processor_aspiring_std_stream_handles))
-            .processor_term_interface(Assert::Expected(processor_assertion))
+            .processor_term_interface(Assert::Expected(ProcessorTerminalInterfaceAssertion::new(
+                TerminalInterfaceAssertion::new(
+                    &prime_term_interface_stream_handles,
+                    FlushesWriteStreamsAssertion::default().stdout(vec![
+                        &first_stdout,
+                        "perfect-masq-node-descriptor\n",
+                        "MASQ is terminating...\n",
+                    ]),
+                )
+                .expected_read_attempts(3),
+            )))
             .assert()
             .await;
         background_term_interface_stream_handles.assert_empty_stderr();
