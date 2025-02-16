@@ -126,10 +126,11 @@ impl NodeConversation {
         {
             Ok(_) => {
                 let fut = self.manager_to_conversation_rx.recv();
-                let recv_result = match tokio::time::timeout( Duration::from_millis(timeout_millis), fut).await {
-                    Ok(result) => result,
-                    Err(_) => return Err(ClientError::Timeout(timeout_millis)),
-                };
+                let recv_result =
+                    match tokio::time::timeout(Duration::from_millis(timeout_millis), fut).await {
+                        Ok(result) => result,
+                        Err(_) => return Err(ClientError::Timeout(timeout_millis)),
+                    };
 
                 match recv_result {
                     Ok(Ok(body)) => Ok(body),

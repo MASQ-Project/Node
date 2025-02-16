@@ -68,9 +68,9 @@ impl InitializationArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::make_async_std_streams;
     use masq_lib::constants::DEFAULT_UI_PORT;
-    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
 
     #[tokio::test]
     async fn initial_args_parser_real_produces_default_values() {

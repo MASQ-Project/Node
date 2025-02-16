@@ -190,14 +190,14 @@ mod tests {
     };
     use crate::terminal::test_utils::{
         test_write_streams_of_particular_terminal, InteractiveInterfaceByUse,
-        LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
-        WriteInput, WriteInputsByTermInterfaceKind,
+        LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock, WriteInput,
+        WriteInputsByTermInterfaceKind,
     };
     use crate::terminal::{RWTermInterface, ReadError, ReadInput, WTermInterface};
     use liso::Response;
     use masq_lib::constants::MASQ_PROMPT;
-    use std::sync::{Arc, Mutex};
     use masq_lib::test_utils::fake_stream_holder::StringAssertableStdHandle;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn constants_are_correct() {
@@ -241,7 +241,11 @@ mod tests {
 
         let input_allowed = true;
         let clear_interrupted_input = false;
-        let expected_terminal_prompt_params = vec![(MASQ_PROMPT.to_string(), input_allowed, clear_interrupted_input)];
+        let expected_terminal_prompt_params = vec![(
+            MASQ_PROMPT.to_string(),
+            input_allowed,
+            clear_interrupted_input,
+        )];
         let mut initial_terminal_prompt_params = initial_terminal_prompt_params_arc.lock().unwrap();
         assert_eq!(
             *initial_terminal_prompt_params,
@@ -266,8 +270,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writing_works_for_interactive_term_interface_and_each_write_only_clone_or_reference(
-    ) {
+    async fn writing_works_for_interactive_term_interface_and_each_write_only_clone_or_reference() {
         let rw_liso_println_params = LisoFlushedAssertableStrings::default();
         let w_liso_println_params = LisoFlushedAssertableStrings::default();
         let cloned_w_liso_wrapper =
@@ -373,9 +376,15 @@ mod tests {
             result_and_expected.push((result, expected))
         }
 
-        result_and_expected.into_iter().for_each(|(result, expected)|{
-            assert_eq!(result, expected, "We expected {:?} but got {:?}", expected, result)
-        });
+        result_and_expected
+            .into_iter()
+            .for_each(|(result, expected)| {
+                assert_eq!(
+                    result, expected,
+                    "We expected {:?} but got {:?}",
+                    expected, result
+                )
+            });
         // We use the same Liso handle for both standard output streams, hence only a single assertion
         let flushed_strings = liso_println_params.get_string();
         assert_eq!(flushed_strings, String::new())

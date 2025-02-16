@@ -299,7 +299,7 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (websocket, _talker_half,listener_half) =
+        let (websocket, _talker_half, listener_half) =
             websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();

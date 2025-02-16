@@ -97,10 +97,10 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
-    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
 
     #[test]
     fn constants_have_correct_values() {

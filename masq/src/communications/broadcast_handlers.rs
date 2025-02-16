@@ -10,7 +10,11 @@ use crate::notifications::connection_change_notification::ConnectionChangeNotifi
 use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::{TerminalWriter, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast, UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast, UiUndeliveredFireAndForget};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
+    UiNewPasswordBroadcast, UiNodeCrashedBroadcast, UiRedirect, UiSetupBroadcast,
+    UiUndeliveredFireAndForget,
+};
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -34,9 +38,9 @@ impl BroadcastHandles {
     pub fn handle_broadcast(&self, message_body: MessageBody) {
         match UiRedirect::type_opcode() == message_body.opcode {
             true => {
-                let (redirect,_) = match UiRedirect::fmb(message_body) {
+                let (redirect, _) = match UiRedirect::fmb(message_body) {
                     Ok(broadcast) => broadcast,
-                    Err(_) => todo!()
+                    Err(_) => return,
                 };
                 let context_id = redirect.context_id.unwrap_or(0);
                 self.redirect.send(RedirectOrder::new(
@@ -298,17 +302,19 @@ mod tests {
     use crate::communications::broadcast_handlers::tests::StreamTypeAndTestHandles::{
         Stderr, Stdout,
     };
-    use crate::test_utils::mocks::{AsyncTestStreamHandles, TermInterfaceMock};
+    use crate::test_utils::mocks::{
+        AsyncTestStreamHandles, BroadcastHandleMock, TermInterfaceMock,
+    };
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
-        UiConnectionStage, UiNodeCrashedBroadcast,
+        UiConnectionStage, UiMessageError, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::test_utils::utils::make_rt;
     use masq_lib::ui_gateway::MessagePath;
     use std::default::Default;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     #[test]
@@ -590,6 +596,40 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
         assert_eq!(tasks_after_for_real_one, 1);
         assert_eq!(tasks_before_for_the_inactive_one, 0);
         assert_eq!(tasks_after_for_the_inactive_one, 0)
+    }
+
+    #[test]
+    fn malformed_redirect_broadcast_is_silently_ignored() {
+        let standard_broadcast_send_params_arc = Arc::new(Mutex::new(vec![]));
+        let redirect_broadcast_send_params_arc = Arc::new(Mutex::new(vec![]));
+        let handles = BroadcastHandles::new(
+            Box::new(
+                BroadcastHandleMock::default().send_params(&standard_broadcast_send_params_arc),
+            ),
+            Box::new(
+                BroadcastHandleMock::default().send_params(&redirect_broadcast_send_params_arc),
+            ),
+        );
+        let mut msg_body = UiRedirect {
+            port: 6789,
+            opcode: "someOpcode".to_string(),
+            context_id: Some(1),
+            payload: "{ bluh }".to_string(),
+        }
+        .tmb(0);
+        msg_body.payload = Ok("Not even a JSON payload".to_string());
+        let proof_of_invalidity = UiRedirect::fmb(msg_body.clone());
+
+        handles.handle_broadcast(msg_body.clone());
+
+        let standard_broadcast_send_params = standard_broadcast_send_params_arc.lock().unwrap();
+        assert_eq!(*standard_broadcast_send_params, vec![]);
+        let redirect_broadcast_send_params = redirect_broadcast_send_params_arc.lock().unwrap();
+        assert_eq!(*redirect_broadcast_send_params, vec![]);
+        assert!(matches!(
+            proof_of_invalidity,
+            Err(UiMessageError::DeserializationError(..))
+        ))
     }
 
     fn assert_homogeneous_output_made_via_single_flush(

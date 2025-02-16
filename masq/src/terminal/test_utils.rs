@@ -31,9 +31,7 @@ pub struct NonInteractiveStreamsAssertionHandles {
 }
 
 pub enum WriteInputsByTermInterfaceKind<'test> {
-    NonInteractive(
-        WriteInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>,
-    ),
+    NonInteractive(WriteInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>),
     Interactive(WriteInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
 }
 

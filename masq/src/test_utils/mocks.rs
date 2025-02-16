@@ -4,11 +4,10 @@ use crate::clap_before_entrance::InitialArgsParser;
 use crate::command_context::{CommandContext, ContextError};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
-use crate::command_processor::{
-    CommandExecutionHelper, CommandExecutionHelperFactory
-};
+use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFactory};
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
+use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::client_listener_thread::WSClientHandle;
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
@@ -29,15 +28,15 @@ use masq_lib::test_utils::fake_stream_holder::{
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::websockets_handshake::HandshakeResultTx;
 use masq_lib::{
-    arbitrary_id_stamp_in_trait_impl, implement_as_any,
-    set_arbitrary_id_stamp_in_mock_impl,
+    arbitrary_id_stamp_in_trait_impl, implement_as_any, set_arbitrary_id_stamp_in_mock_impl,
 };
 use std::any::Any;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use tokio::io::{AsyncWrite};
+use tokio::io::AsyncWrite;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::task::JoinError;
 use workflow_websocket::client::{Error, Handshake, Message, Result as ClientResult};
 
 #[derive(Default)]
@@ -249,6 +248,36 @@ impl CommandExecutionHelperMock {
 
     pub fn execute_command_result(self, result: Result<(), CommandError>) -> Self {
         self.execute_command_results.borrow_mut().push(result);
+        self
+    }
+}
+
+pub struct BroadcastHandleMock<Message> {
+    send_params: Arc<Mutex<Vec<Message>>>,
+}
+
+impl<Message> Default for BroadcastHandleMock<Message> {
+    fn default() -> Self {
+        Self {
+            send_params: Arc::new(Mutex::new(vec![])),
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl<Message: Send> BroadcastHandle<Message> for BroadcastHandleMock<Message> {
+    fn send(&self, message: Message) -> () {
+        self.send_params.lock().unwrap().push(message);
+    }
+
+    async fn wait_to_finish(&self) -> Result<(), JoinError> {
+        unimplemented!("not needed")
+    }
+}
+
+impl<Message> BroadcastHandleMock<Message> {
+    pub fn send_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
+        self.send_params = params.clone();
         self
     }
 }

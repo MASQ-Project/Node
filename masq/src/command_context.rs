@@ -3,7 +3,7 @@
 use crate::command_context::ContextError::ConnectionRefused;
 use crate::communications::connection_manager::{CMBootstrapper, ConnectionManager};
 use crate::communications::node_conversation::ClientError;
-use crate::terminal::{WTermInterfaceDupAndSend};
+use crate::terminal::WTermInterfaceDupAndSend;
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};

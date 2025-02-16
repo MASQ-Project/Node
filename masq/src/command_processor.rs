@@ -5,12 +5,10 @@ use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::CommandFactory;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::masq_short_writeln;
-use crate::terminal::{
-    FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface,
-};
+use crate::terminal::{FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
-use masq_lib::utils::{exit_process};
+use masq_lib::utils::exit_process;
 use std::sync::Arc;
 
 pub struct CommandProcessorFactory {}
@@ -350,8 +348,8 @@ mod tests {
     use crate::command_factory::CommandFactoryReal;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{
-        AsyncTestStreamHandles,
-        CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock, TermInterfaceMock,
+        AsyncTestStreamHandles, CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock,
+        TermInterfaceMock,
     };
     use futures::FutureExt;
     use masq_lib::utils::{find_free_port, running_test};
@@ -364,7 +362,7 @@ mod tests {
             let (term_interface, _) = TermInterfaceMock::new_non_interactive();
             Either::Left(Box::new(term_interface) as Box<dyn WTermInterface>)
         } else {
-            let (term_interface, _,_) = TermInterfaceMock::new_interactive(vec![]);
+            let (term_interface, _, _) = TermInterfaceMock::new_interactive(vec![]);
             Either::Right(Box::new(term_interface) as Box<dyn RWTermInterface>)
         };
         let command_context_factory = CommandContextFactoryReal::default();

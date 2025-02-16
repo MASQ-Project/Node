@@ -1,14 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::communications::broadcast_handlers::{
-    BroadcastHandle, BroadcastHandles, RedirectBroadcastHandle,
-    StandardBroadcastHandlerFactory, StandardBroadcastHandlerFactoryReal,
+    BroadcastHandle, BroadcastHandles, RedirectBroadcastHandle, StandardBroadcastHandlerFactory,
+    StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::client_listener_thread::{
     ClientListener, ClientListenerError, WSClientHandle,
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::terminal::{WTermInterfaceDupAndSend};
+use crate::terminal::WTermInterfaceDupAndSend;
 use async_channel::RecvError;
 use async_trait::async_trait;
 use futures::future::join_all;
@@ -184,7 +184,7 @@ struct CMChannelsToSubordinates {
 
 struct CMReceivers {
     conversation_return_rx: UnboundedReceiver<NodeConversation>,
-    //TODO we never use this!!! ... it should probably print a message or something
+    // TODO We don't do anything useful with this
     redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
     active_port_response_rx: UnboundedReceiver<Option<u16>>,
 }
@@ -723,7 +723,7 @@ impl Default for Timeouts {
 mod tests {
     use super::*;
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
-    use crate::test_utils::mocks::WSClientHandleMock;
+    use crate::test_utils::mocks::{BroadcastHandleMock, WSClientHandleMock};
     use async_channel::TryRecvError;
     use masq_lib::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiFinancialStatistics, UiNodeCrashedBroadcast,
@@ -742,10 +742,9 @@ mod tests {
     use std::hash::Hash;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use std::{thread, vec};
     use std::time::{Duration, SystemTime};
+    use std::{thread, vec};
     use tokio::net::TcpListener;
-    use tokio::task::JoinError;
     use tokio_tungstenite::accept_hdr_async;
     use tokio_tungstenite::tungstenite::handshake::server::{
         Callback, ErrorResponse, Request, Response,
@@ -785,36 +784,6 @@ mod tests {
         assert_eq!(COMPONENT_RESPONSE_TIMEOUT_MILLIS, 100);
         assert_eq!(STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS, 1000);
         assert_eq!(FALLBACK_TIMEOUT_MILLIS, 5000);
-    }
-
-    struct BroadcastHandleMock<Message> {
-        send_params: Arc<Mutex<Vec<Message>>>,
-    }
-
-    impl<Message> Default for BroadcastHandleMock<Message> {
-        fn default() -> Self {
-            Self {
-                send_params: Arc::new(Mutex::new(vec![])),
-            }
-        }
-    }
-
-    #[async_trait(?Send)]
-    impl<Message: Send> BroadcastHandle<Message> for BroadcastHandleMock<Message> {
-        fn send(&self, message: Message) -> () {
-            self.send_params.lock().unwrap().push(message);
-        }
-
-        async fn wait_to_finish(&self) -> Result<(), JoinError> {
-            unimplemented!("not needed")
-        }
-    }
-
-    impl<Message> BroadcastHandleMock<Message> {
-        pub fn send_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
-            self.send_params = params.clone();
-            self
-        }
     }
 
     async fn make_subject(
@@ -1086,7 +1055,10 @@ mod tests {
         let standard_broadcast_handle =
             BroadcastHandleMock::default().send_params(&broadcast_handle_send_params_arc);
         inner.active_port_opt = None;
-        inner.broadcast_handles = BroadcastHandles::new(Box::new(standard_broadcast_handle), Box::new(BroadcastHandleMock::default()));
+        inner.broadcast_handles = BroadcastHandles::new(
+            Box::new(standard_broadcast_handle),
+            Box::new(BroadcastHandleMock::default()),
+        );
 
         CentralEventLoop::spawn(inner).await.unwrap();
 
@@ -1369,12 +1341,15 @@ mod tests {
         .tmb(0);
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let send_params_arc = Arc::new(Mutex::new(vec![]));
-        let standard_broadcast_handle = BroadcastHandleMock::default().send_params(&send_params_arc);
+        let standard_broadcast_handle =
+            BroadcastHandleMock::default().send_params(&send_params_arc);
         let mut inner = make_inner().await;
         inner.conversations.insert(4, conversation_tx);
         inner.conversations_waiting.insert(4);
-        inner.broadcast_handles = BroadcastHandles::new(Box::new(standard_broadcast_handle), Box::new(BroadcastHandleMock::default()));
-
+        inner.broadcast_handles = BroadcastHandles::new(
+            Box::new(standard_broadcast_handle),
+            Box::new(BroadcastHandleMock::default()),
+        );
 
         let inner = CentralEventLoop::handle_incoming_message_body(
             inner,
@@ -1592,7 +1567,7 @@ mod tests {
         inner = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::ConversationMessage(
-                UiSetupRequest { values: vec![] }.tmb(2)
+                UiSetupRequest { values: vec![] }.tmb(2),
             )),
         )
         .await;

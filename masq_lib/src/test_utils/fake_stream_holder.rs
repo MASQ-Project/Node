@@ -5,9 +5,9 @@ use core::pin::Pin;
 use core::task::Poll;
 use itertools::{Either, Itertools};
 use std::cmp::min;
+use std::io::Error;
 use std::io::Read;
 use std::io::Write;
-use std::io::{Error};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::vec::IntoIter;
@@ -49,10 +49,8 @@ impl ByteArrayWriterInner {
 
     pub fn drain_flushed_strings(&mut self) -> Option<Vec<FlushableByteOutput>> {
         match &mut self.captured_writes {
-            Either::Right(flushables) => Some(flushables
-                                                  .drain(..)
-                                                  .collect()),
-            _ => None
+            Either::Right(flushables) => Some(flushables.drain(..).collect()),
+            _ => None,
         }
     }
 }
@@ -70,10 +68,7 @@ impl ByteArrayWriter {
         self.inner_arc.clone()
     }
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc
-            .lock()
-            .unwrap()
-            .get_bytes()
+        self.inner_arc.lock().unwrap().get_bytes()
     }
     pub fn get_string(&self) -> String {
         String::from_utf8(self.get_bytes()).unwrap()
@@ -348,10 +343,7 @@ impl AsyncByteArrayWriter {
         }
     }
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc
-            .lock()
-            .unwrap()
-            .get_bytes()
+        self.inner_arc.lock().unwrap().get_bytes()
     }
     pub fn reject_next_write(&mut self, error: Error) {
         self.inner_arc.lock().unwrap().next_error_opt = Some(error);
@@ -360,7 +352,7 @@ impl AsyncByteArrayWriter {
 
 impl StringAssertableStdHandle for AsyncByteArrayWriter {
     fn get_string(&self) -> String {
-            String::from_utf8(self.inner_arc.lock().unwrap().get_bytes()).unwrap()
+        String::from_utf8(self.inner_arc.lock().unwrap().get_bytes()).unwrap()
     }
     fn drain_flushed_strings(&self) -> FlushedStrings {
         let mut arc = self.inner_arc.lock().unwrap();
@@ -381,7 +373,7 @@ impl AsyncRead for AsyncByteArrayReader {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<Result<(), Error>> {
         let mut inner = self.byte_array_reader_inner.lock().unwrap();
-        match inner.read_results.remove(0){
+        match inner.read_results.remove(0) {
             Err(error) => Poll::Ready(Err(error)),
             Ok(bytes) => {
                 buf.put_slice(&bytes);
@@ -402,7 +394,7 @@ impl AsyncByteArrayReader {
 #[derive(Default)]
 pub struct ByteArrayReaderInner {
     read_results: Vec<Result<Vec<u8>, Error>>,
-    reads_initially: usize
+    reads_initially: usize,
 }
 
 impl HandleToCountReads for ByteArrayReaderInner {
@@ -413,14 +405,14 @@ impl HandleToCountReads for ByteArrayReaderInner {
 
 impl ByteArrayReaderInner {
     pub fn new(inputs: Either<Vec<Vec<u8>>, Vec<Result<Vec<u8>, Error>>>) -> Self {
-        let read_results = match inputs{
+        let read_results = match inputs {
             Either::Left(byte_arrays) => byte_arrays.into_iter().map(Ok).collect_vec(),
-            Either::Right(read_results) => read_results
+            Either::Right(read_results) => read_results,
         };
         let reads_initially = read_results.len();
         Self {
             read_results,
-            reads_initially
+            reads_initially,
         }
     }
 }

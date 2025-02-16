@@ -19,7 +19,7 @@ use masq_lib::async_streams::{
 };
 use masq_lib::write_async_stream_and_flush;
 use std::ops::Not;
-use tokio::io::{AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 pub struct Main {
     std_streams_factory: Box<dyn AsyncStdStreamsFactory>,
@@ -195,12 +195,12 @@ mod tests {
         ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse,
         UiShutdownRequest, UiStartResponse,
     };
+    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
     use std::any::Any;
     use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
-    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     #[cfg(target_os = "windows")]
     mod win_test_import {
@@ -240,7 +240,9 @@ mod tests {
             .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(command)));
         let command_context_id_stamp = ArbitraryIdStamp::new();
-        let command_context = CommandContextMock::default().close_params(&close_params_arc).set_arbitrary_id_stamp(command_context_id_stamp);
+        let command_context = CommandContextMock::default()
+            .close_params(&close_params_arc)
+            .set_arbitrary_id_stamp(command_context_id_stamp);
         let command_context_factory = CommandContextFactoryMock::default()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
@@ -510,8 +512,7 @@ mod tests {
             .assert()
             .await;
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
-        let (dyn_command, _, _) =
-            execute_command_params.remove(0);
+        let (dyn_command, _, _) = execute_command_params.remove(0);
         let actual_command = dyn_command.as_any().downcast_ref::<MockCommand>().unwrap();
         assert_eq!(actual_command.message, command.message);
         assert!(execute_command_params.is_empty());
@@ -652,8 +653,7 @@ mod tests {
             .assert()
             .await;
         let mut command_execution_params = command_execution_params_arc.lock().unwrap();
-        let (command, _, _) =
-            command_execution_params.remove(0);
+        let (command, _, _) = command_execution_params.remove(0);
         assert_eq!(
             *command.as_any().downcast_ref::<SetupCommand>().unwrap(),
             SetupCommand { values: vec![] }
