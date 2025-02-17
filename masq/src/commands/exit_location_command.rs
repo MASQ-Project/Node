@@ -121,7 +121,7 @@ impl Command for SetExitLocationCommand {
                         locations: exit_location_response.exit_locations,
                     };
                     if !exit_location_response.missing_countries.is_empty() {
-                        short_writeln!(context.stdout(), "Foollowing conutries are missing in Database: {:?}", exit_location_response.missing_countries);
+                        short_writeln!(context.stdout(), "Following countries are missing in Database: {:?}", exit_location_response.missing_countries);
                         short_writeln!(
                             context.stderr(),
                             "code: {}\nmessage: {:?}",
@@ -130,6 +130,8 @@ impl Command for SetExitLocationCommand {
                         );
                     }
                     short_writeln!(context.stdout(), "Exit location set: {}", location_set);
+                } else if exit_location_response.fallback_routing && exit_location_response.exit_locations.is_empty() {
+                    short_writeln!(context.stdout(), "Exit location is Unset.");
                 }
                 Ok(())
             }
@@ -230,6 +232,13 @@ pub mod tests {
             masq> exit-location --country-codes \"CZ|SK\"           \n\t// \"CZ\" and \"SK\" countries have different priority\n\n"
         );
         assert_eq!(
+            FALLBACK_ROUTING_HELP, "If you just want to make a suggestion, and you don't mind Nodes in other countries being used if nothing is available \
+             in your preferred countries, you can specify --fallback-routing, and you'll get no error unless there are no exit Nodes \
+             available anywhere. \n Here are some examples: \n\n\
+             masq> exit-location --country-codes \"CZ\" --fallback-routing  \n\t// Set exit-location for \"CZ\" country with fallback-routing on \n\
+             masq> exit-location --country-codes \"CZ\"                     \n\t// Set exit-location for \"CZ\" country with fallback-routing off \n\n"
+        );
+        assert_eq!(
             SHOW_COUNTRIES_HELP,
                     "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
             masq> exit-location --show-countries "
@@ -267,7 +276,7 @@ pub mod tests {
     }
 
     #[test]
-    fn testing_exit_location_gemeral_error() {
+    fn testing_exit_location_general_error() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::PayloadError(EXIT_COUNTRY_ERROR, "".to_string()),
@@ -284,7 +293,7 @@ pub mod tests {
         );
         assert_eq!(
             result,
-            Err(CommandError::Payload(9223372036854775816, "".to_string()))
+            Err(Payload(9223372036854775816, "".to_string()))
         );
     }
 
@@ -314,7 +323,7 @@ pub mod tests {
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
-        assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nFoollowing conutries are missing in Database: [\"CZ\"]\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
+        assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nFollowing countries are missing in Database: [\"CZ\"]\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
         assert_eq!(
             stderr.lock().unwrap().get_string(),
             "code: 9223372036854775817\nmessage: [\"CZ\"]\n".to_string()
@@ -328,13 +337,27 @@ pub mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
-                fallback_routing: false,
-                exit_locations: vec![],
+                fallback_routing: true,
+                exit_locations: vec![
+                    ExitLocation {
+                        country_codes: vec!["CZ".to_string(), "SK".to_string()],
+                        priority: 1,
+                    },
+                    ExitLocation {
+                        country_codes: vec!["AT".to_string(), "DE".to_string()],
+                        priority: 2,
+                    },
+                    ExitLocation {
+                        country_codes: vec!["PL".to_string()],
+                        priority: 3,
+                    }
+                ],
                 exit_countries: None,
                 missing_countries: vec![],
             }
             .tmb(0)));
         let stderr_arc = context.stderr_arc();
+        let stdout_arc = context.stdout_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--country-codes".to_string(),
@@ -370,6 +393,8 @@ pub mod tests {
             transact_params.as_slice(),
             &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
         );
+        let stdout = stdout_arc.lock().unwrap();
+        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location set: Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3; \n");
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
     }
@@ -381,11 +406,17 @@ pub mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: false,
-                exit_locations: vec![],
+                exit_locations: vec![
+                    ExitLocation {
+                        country_codes: vec!["CZ".to_string()],
+                        priority: 1,
+                    }
+                ],
                 exit_countries: None,
                 missing_countries: vec![],
             }
             .tmb(0)));
+        let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
@@ -411,7 +442,9 @@ pub mod tests {
             transact_params.as_slice(),
             &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
         );
+        let stdout = stdout_arc.lock().unwrap();
         let stderr = stderr_arc.lock().unwrap();
+        assert_eq!(&stdout.get_string(), "Fallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; \n");
         assert_eq!(&stderr.get_string(), "");
     }
 
@@ -421,13 +454,14 @@ pub mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
-                fallback_routing: false,
+                fallback_routing: true,
                 exit_locations: vec![],
                 exit_countries: None,
                 missing_countries: vec![],
             }
             .tmb(0)));
         let stderr_arc = context.stderr_arc();
+        let stdout_arc = context.stdout_arc();
         let subject = SetExitLocationCommand::new(&["exit-location".to_string()]).unwrap();
 
         let result = subject.execute(&mut context);
@@ -446,6 +480,8 @@ pub mod tests {
         );
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
+        let stdout = stdout_arc.lock().unwrap();
+        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location is Unset.\n");
     }
 
     #[test]
@@ -456,11 +492,12 @@ pub mod tests {
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: false,
                 exit_locations: vec![],
-                exit_countries: None,
+                exit_countries: Some(vec!["CZ".to_string()]),
                 missing_countries: vec![],
             }
             .tmb(0)));
         let stderr_arc = context.stderr_arc();
+        let stdout_arc = context.stdout_arc();
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--show-countries".to_string(),
@@ -483,5 +520,7 @@ pub mod tests {
         );
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
+        let stdout = stdout_arc.lock().unwrap();
+        assert_eq!(&stdout.get_string(), "Countries available for exit-location: [\"CZ\"]\n");
     }
 }
