@@ -173,7 +173,10 @@ impl UiConnection {
     }
 
     pub async fn skip_until_received<T: FromMessageBody>(&mut self) -> Result<(MessagePath, T), (u64, String)> {
-        Self::await_message(self).await
+        match Self::await_message(self).await {
+            Ok((path, msg, _)) => Ok((path, msg)),
+            Err((code, msg)) => Err((code, msg)),
+        }
     }
 
     async fn establish_ws_conn_with_protocols(
@@ -208,13 +211,17 @@ impl UiConnection {
         Ok((sender, receiver))
     }
 
-    async fn await_message<T: FromMessageBody>(&mut self) -> Result<(MessagePath, T), (u64, String)> {
+    async fn await_message<T: FromMessageBody>(&mut self) -> Result<(MessagePath, T, Vec<ReceiveResult<T>>), (u64, String)> {
+        let mut errors = Vec::new();
+        // Keep looping until we get the specific message we're looking for; throw away all others
         loop {
             match self.receive_message::<T>(None).await {
-                Correct(path, msg) => break Ok((path, msg)),
+                Correct(path, msg) => break Ok((path, msg, errors)),
                 TransactionError(code, msg) => break Err((code, msg)),
-                MBMarshalError(_, _) => continue,
-                MarshalError(_, _) => continue,
+                e => {
+                    errors.push(e);
+                    continue
+                }
             }
         }
     }

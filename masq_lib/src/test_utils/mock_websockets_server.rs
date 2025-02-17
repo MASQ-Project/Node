@@ -32,7 +32,7 @@ lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 enum MWSSMessage {
     // If you have a MessageBody, put it in one of these.
     MessageBody (MessageBody),
@@ -43,7 +43,7 @@ enum MWSSMessage {
     // triggered by a request, put it here.
     ConversationData(SokettoDataType, Vec<u8>),
     // If you have a close message, put it here.
-    Close(),
+    Close,
 }
 
 impl MWSSMessage {
@@ -75,7 +75,7 @@ impl MWSSMessage {
             MWSSMessage::ConversationData(data_type, data) => {
                 Self::send_data_message(sender, data_type, data).await;
             },
-            MWSSMessage::Close() => {
+            MWSSMessage::Close => {
                 sender.close().await.expect("Failed to send close message");
             },
         }
@@ -156,11 +156,6 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub fn queue_close(mut self, code_opt: Option<u16>, reason_opt: Option<&str>) -> Self {
-        self.responses.push(MWSSMessage::FAFData(SokettoDataType::Binary(0), vec![]));
-        self
-    }
-
     pub fn write_logs(mut self) -> Self {
         self.do_log = true;
         self
@@ -196,6 +191,10 @@ impl MockWebSocketsServer {
                     data_type_res = receiver.receive_data(&mut data) => {
                         match (data_type_res) {
                             Ok(data_type) => data_type,
+                            Err(Error::Closed) => {
+                                Self::process_close(&requests_inner_arc);
+                                break;
+                            },
                             Err(e) => panic!("Error receiving data from client: {}", e),
                         }
                     }
@@ -261,6 +260,10 @@ impl MockWebSocketsServer {
         Self::parse_and_save_incoming_message(data_type, data, requests_arc);
         Self::send_next_message(sender, responses).await;
         Self::send_faf_messages(sender, responses).await;
+    }
+
+    fn process_close(requests: &Arc<Mutex<Vec<MWSSMessage>>>) {
+        requests.lock().unwrap().push(MWSSMessage::Close);
     }
 
     fn parse_and_save_incoming_message(
@@ -459,6 +462,7 @@ mod tests {
         // connection.receive() -> Broadcast 2
         // connection.transact(stimulus) -> Conversation 3
         // connection.receive() -> Broadcast 3
+        // connection.close() -> Close
 
         //Content of those messages is practically irrelevant because it's not in the scope of this test.
 
@@ -482,7 +486,7 @@ mod tests {
         let conversation_number_two_response = UiCheckPasswordResponse { matches: true };
         let broadcast_number_one = UiConfigurationChangedBroadcast {}.tmb(0);
         let broadcast_number_two = UiNodeCrashedBroadcast {
-            process_id: 0,
+            process_id: 11,
             crash_reason: CrashReason::NoInformation,
         }
         .tmb(0);
@@ -493,26 +497,21 @@ mod tests {
         let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
-        eprintln!("Two");
         let server = MockWebSocketsServer::new(port)
             .queue_response(conversation_number_one_response.clone().tmb(1))
             .queue_response(conversation_number_two_response.clone().tmb(2))
             .queue_response(broadcast_number_one)
-            .queue_response(broadcast_number_two)
+            .queue_response(broadcast_number_two.clone())
             .queue_response(conversation_number_three_response)
             .queue_response(broadcast_number_three);
-        eprintln!("Three");
         let stop_handle = server.start().await;
-        eprintln!("Four");
         let mut connection = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
-        eprintln!("Five");
 
         let received_message_number_one: UiCheckPasswordResponse = connection
             .transact_with_context_id(conversation_number_one_request.clone(), 1)
             .await
             .unwrap()
             .1;
-        eprintln!("Six");
         assert_eq!(
             received_message_number_one.matches,
             conversation_number_one_response.matches
@@ -523,16 +522,23 @@ mod tests {
             .await
             .unwrap()
             .1;
-        eprintln!("Seven");
         assert_eq!(
             received_message_number_two.matches,
             conversation_number_two_response.matches
         );
+        // This message has no body, so we don't need to assert further on it
         let _received_message_number_three: UiConfigurationChangedBroadcast =
             connection.skip_until_received().await.unwrap().1;
 
-        let _received_message_number_four: UiNodeCrashedBroadcast =
-            connection.skip_until_received().await.unwrap().1;
+        let received_message_number_four: (MessagePath, UiNodeCrashedBroadcast) =
+            connection.skip_until_received::<UiNodeCrashedBroadcast>().await.unwrap();
+        assert_eq!(
+            received_message_number_four,
+            (
+                MessagePath::FireAndForget,
+                UiNodeCrashedBroadcast::fmb(broadcast_number_two).unwrap().0
+            )
+        );
 
         let received_message_number_five: UiDescriptorResponse = connection
             .transact_with_context_id(conversation_number_three_request.clone(), 3)
@@ -544,14 +550,22 @@ mod tests {
             Some("ae15fe6".to_string())
         );
 
+        // This message has no body, so we don't need to assert further on it
         let _received_message_number_six: UiNewPasswordBroadcast =
             connection.skip_until_received().await.unwrap().1;
 
+        connection.send_close().await;
+        let closed_error = connection.receive().await.unwrap_err();
+        assert!(matches!(closed_error, soketto::connection::Error::Closed));
+
         let requests = stop_handle.stop(StopStrategy::Close).await.requests;
 
+        let last_request = requests.last().unwrap();
+        assert_eq!(last_request, &MWSSMessage::Close);
         assert_eq!(
             requests
                 .into_iter()
+                .take(3)
                 .map(|x| x.message_body())
                 .collect::<Vec<MessageBody>>(),
             vec![
