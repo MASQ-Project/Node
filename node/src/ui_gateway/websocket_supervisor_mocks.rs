@@ -6,6 +6,7 @@ use actix::Recipient;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use async_trait::async_trait;
 
 #[derive(Default)]
 pub struct WebSocketSupervisorMock {
@@ -36,11 +37,11 @@ impl WebSocketSupervisorMock {
 
 #[derive(Default)]
 pub struct WebsocketSupervisorFactoryMock {
-    make_results: RefCell<Vec<std::io::Result<Box<dyn WebSocketSupervisor>>>>,
+    make_results: RefCell<Vec<std::io::Result<WebSocketSupervisorMock>>>,
 }
 
 impl WebsocketSupervisorFactoryMock {
-    pub fn make_result(self, result: std::io::Result<Box<dyn WebSocketSupervisor>>) -> Self {
+    pub fn make_result(self, result: std::io::Result<WebSocketSupervisorMock>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
     }
@@ -52,6 +53,10 @@ impl WebSocketSupervisorFactory for WebsocketSupervisorFactoryMock {
         _port: u16,
         _recipient: Recipient<NodeFromUiMessage>,
     ) -> std::io::Result<Box<dyn WebSocketSupervisor>> {
-        self.make_results.borrow_mut().remove(0)
+        let result = self.make_results.borrow_mut().remove(0);
+        match result {
+            Ok(ws_mock) => Ok(Box::new(ws_mock) as Box<dyn WebSocketSupervisor>),
+            Err(err) => Err(err),
+        }
     }
 }

@@ -3,15 +3,14 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapperReal;
-use actix::ActorFutureExt;
 use masq_lib::logger::Logger;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::TcpStream as StdTcpStream;
 use std::time::Duration;
+use async_trait::async_trait;
 use tokio::io;
-use tokio::io::AsyncRead;
 use tokio::net::TcpStream;
 use tokio::time::{timeout_at, Instant};
 
@@ -24,8 +23,9 @@ pub struct ConnectionInfo {
     pub peer_addr: SocketAddr,
 }
 
+#[async_trait]
 pub trait StreamConnector: Send {
-    async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> ConnectionInfo;
+    async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> Result<ConnectionInfo, io::Error>;
     fn connect_one(
         &self,
         ip_addrs: Vec<IpAddr>,
@@ -34,11 +34,13 @@ pub trait StreamConnector: Send {
         logger: &Logger,
     ) -> Result<ConnectionInfo, io::Error>;
     fn split_stream(&self, stream: TcpStream, logger: &Logger) -> Option<ConnectionInfo>;
+    fn dup(&self) -> Box<dyn StreamConnector>;
 }
 
 #[derive(Clone)]
 pub struct StreamConnectorReal {}
 
+#[async_trait]
 impl StreamConnector for StreamConnectorReal {
     async fn connect(
         &self,
@@ -51,7 +53,7 @@ impl StreamConnector for StreamConnectorReal {
             async {
                 let connect_result = TcpStream::connect(&socket_addr).await;
                 match connect_result {
-                    Ok(mut stream) => {
+                    Ok(stream) => {
                         let local_addr = stream.local_addr().unwrap_or_else(|e| {
                             panic!(
                                 "Newly-connected stream to {} has no local_addr: {:?}",
@@ -83,10 +85,7 @@ impl StreamConnector for StreamConnectorReal {
                 }
             },
         );
-        match timeout_result.await {
-            Ok(connectionInfoResult) => connectionInfoResult,
-            Err(_) => io::Error::from(ErrorKind::TimedOut),
-        }
+        timeout_result.await.unwrap_or_else(|_| Err(io::Error::from(ErrorKind::TimedOut)))
     }
 
     fn connect_one(
@@ -146,6 +145,10 @@ impl StreamConnector for StreamConnectorReal {
             local_addr,
             peer_addr,
         })
+    }
+
+    fn dup(&self) -> Box<dyn StreamConnector> {
+        Box::new(StreamConnectorReal {})
     }
 }
 

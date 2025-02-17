@@ -4,6 +4,8 @@ use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::marker::Send;
+use std::net::IpAddr;
+use crate::sub_lib::cryptde::PublicKey;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MasqueradeError {

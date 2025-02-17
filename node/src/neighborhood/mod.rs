@@ -12,8 +12,8 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-
-use actix::Context;
+use std::thread::panicking;
+use actix::{Context, Supervised};
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
@@ -63,9 +63,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::{
-    db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY,
-};
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use gossip_acceptor::GossipAcceptor;
@@ -78,6 +76,7 @@ use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -109,6 +108,12 @@ pub struct Neighborhood {
 
 impl Actor for Neighborhood {
     type Context = Context<Self>;
+}
+
+impl Supervised for Neighborhood {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Handler<BindMessage> for Neighborhood {
@@ -1152,6 +1157,7 @@ impl Neighborhood {
         } else {
             !self
                 .neighborhood_database
+                // TODO: Think about this. Should this be full_neighbor, since half neighborships can't be routed over?
                 .has_half_neighbor(candidate_node_key, first_node_key)
         }
     }
@@ -1162,6 +1168,7 @@ impl Neighborhood {
         undesirability_type: UndesirabilityType,
         logger: &Logger,
     ) -> i64 {
+        // TODO: rate_undesirability is now a bad name for this variable
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_) => {
@@ -1226,10 +1233,16 @@ impl Neighborhood {
         direction: RouteDirection,
         hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
+        // TODO: Change this to u64, and put a comment somewhere to the effect that we must never,
+        // ever A) have a negative undesirability or B) allow undesirability to decrease during
+        // the computation of a route, because that would mean that we couldn't use minimum_undesirability
+        // to abort the search early, which has been shown to save over three orders of magnitude in
+        // route-computation time. Undesirability must must must be monotonically increasing.
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
+
             .routing_engine(
                 vec![source],
                 initial_undesirability,
@@ -1253,7 +1266,7 @@ impl Neighborhood {
     #[allow(clippy::too_many_arguments)]
     fn routing_engine<'a>(
         &'a self,
-        prefix: Vec<&'a PublicKey>,
+        prefix: Vec<&'a PublicKey>, // TODO: Should be an ordered set, not a vector. Searched through repeatedly.
         undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
@@ -1297,7 +1310,7 @@ impl Neighborhood {
                         || Self::is_orig_node_on_back_leg(**node_record, target_opt, direction)
                 })
                 .flat_map(|node_record| {
-                    let mut new_prefix = prefix.clone();
+                    let mut new_prefix = prefix.clone(); // TODO: This is expensive. See if it can be optimized.
                     new_prefix.push(node_record.public_key());
 
                     let new_hops_remaining = if hops_remaining == 0 {
@@ -1492,7 +1505,7 @@ impl Neighborhood {
                 warning!(self.logger, "Received shutdown notification for stream to {}, but no Node with that IP is in the database - ignoring", msg.peer_addr.ip());
                 return;
             }
-            Some(n) => (n.public_key().clone()),
+            Some(n) => n.public_key().clone(),
         };
         self.remove_neighbor(&neighbor_key, &msg.peer_addr);
     }
@@ -1602,7 +1615,7 @@ mod tests {
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, make_rt, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget;
@@ -1643,7 +1656,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
-        make_node_to_ui_recipient, make_recipient_and_recording_arc, make_rt,
+        make_node_to_ui_recipient, make_recipient_and_recording_arc,
         prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
@@ -1938,7 +1951,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
@@ -1986,7 +1999,7 @@ mod tests {
         cpm_recipient.try_send(cpm).unwrap();
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         TestLogHandler::new().exists_log_containing(&format!(
             "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
             IP Address: {:?} is already a part of different connection progress.",
@@ -2034,7 +2047,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let notify_later_ask_about_gossip_params =
             notify_later_ask_about_gossip_params_arc.lock().unwrap();
         assert_eq!(
@@ -2093,7 +2106,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2122,7 +2135,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         TestLogHandler::new()
             .exists_log_containing(
                 &format!("TRACE: Neighborhood: Received an AskAboutDebutGossipMessage for an unknown node descriptor: {:?}; ignoring",
@@ -2162,7 +2175,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2207,7 +2220,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2251,7 +2264,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2297,7 +2310,7 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2356,7 +2369,7 @@ mod tests {
             );
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
         let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(node_to_ui_mutex.len(), 1);
@@ -2413,7 +2426,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2478,7 +2491,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]
@@ -2689,14 +2702,14 @@ mod tests {
         system.run();
         let result = make_rt().block_on(future).unwrap();
         assert_eq!(result, None);
-        todo!("""\
+        todo!("
             This test makes no sense.
                 1. The reason we're not getting a route is because our neighborhood has only half neighborships, which are invisible to the routing engine.
                 2. The test is supposed to be walletless, but the consuming wallet is created and not removed
                 3. There's no reason to expect that the over route will be one hop and the back route two hops
                 4. There's no assertion on the logs to make sure None is returned for the right reason
             The entire test is bogus and should be removed.
-        """)
+        ")
         // Speculation: The original intent of this test (which was not well rendered) was in the context of single-hop
         // routes always being Gossip routes, and therefore not requiring consuming wallets. The question was, "What if
         // one of the route segments is single-hop, therefore being a Gossip route and not requiring a wallet, while the
@@ -2949,8 +2962,8 @@ mod tests {
         assert_eq!(juicy_parts(result_1), (1, 1));
     }
 
-    #[test]
-    fn can_update_consuming_wallet() {
+    #[tokio::test]
+    async fn can_update_consuming_wallet() {
         let cryptde = main_cryptde();
         let system = System::new();
         let (o, r, e, mut subject) = make_o_r_e_subject();
@@ -2989,8 +3002,8 @@ mod tests {
         System::current().stop();
         system.run();
 
-        let route_1 = make_rt().block_on(route_request_1).unwrap();
-        let route_2 = make_rt().block_on(route_request_2).unwrap();
+        let route_1 = route_request_1.await.unwrap().unwrap().route;
+        let route_2 = route_request_2.await.unwrap().unwrap().route;
 
         assert_eq!(route_1, expected_before_route);
         assert_eq!(route_2, expected_after_route);
@@ -5400,7 +5413,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
     }
 
     #[test]

@@ -20,9 +20,9 @@ use crate::sub_lib::blockchain_bridge::{
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
+use actix::{Actor, Supervised, System};
 use actix::Context;
 use actix::Handler;
 use actix::Message;
@@ -33,10 +33,12 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::path::PathBuf;
+use std::thread::panicking;
 use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 use web3::Transport;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -61,6 +63,20 @@ struct TransactionConfirmationTools {
 
 impl Actor for BlockchainBridge {
     type Context = Context<Self>;
+}
+
+impl Supervised for BlockchainBridge {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
+}
+
+impl<T: Transport> Drop for BlockchainBridge<T> {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for BlockchainBridge {
@@ -227,9 +243,7 @@ impl BlockchainBridge {
             {
                 match blockchain_service_url {
                     Some(url) => match Http::new(&url) {
-                        Ok((event_loop_handle, transport)) => Box::new(
-                            BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain),
-                        ),
+                        Ok(http) => Box::new(BlockchainInterfaceWeb3::new(http, chain)),
                         Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
                     },
                     None => Box::new(BlockchainInterfaceNull::default()),
@@ -637,7 +651,7 @@ mod tests {
         let result = subject.handle_report_accounts_payable(request);
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        system.run().unwrap();
         assert_eq!(
             result,
             Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
@@ -656,9 +670,7 @@ mod tests {
 
     #[test]
     fn handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant() {
-        let system = System::new(
-            "handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant",
-        );
+        let system = System::new();
         let get_transaction_fee_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -956,9 +968,7 @@ mod tests {
 
     #[test]
     fn handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant() {
-        let system = System::new(
-            "handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant",
-        );
+        let system = System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let hash = make_tx_hash(0xde);
         let wallet_account = make_wallet("blah");
@@ -1370,7 +1380,7 @@ mod tests {
 
         subject_addr.try_send(msg).unwrap();
 
-        assert_eq!(system.run(), 0);
+        system.run().unwrap();
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(
             *get_transaction_receipts_params,
@@ -1420,9 +1430,7 @@ mod tests {
             pending_payable: vec![],
             response_skeleton_opt: None,
         };
-        let system = System::new(
-            "blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector",
-        );
+        let system = System::new();
 
         let _ = subject.handle_request_transaction_receipts(msg);
 
@@ -1606,9 +1614,7 @@ mod tests {
             .set_start_block_params(&set_start_block_params_arc)
             .set_start_block_result(Ok(()));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new(
-            "processing_of_received_payments_continues_even_if_no_payments_are_detected",
-        );
+        let system = System::new();
         let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_config),

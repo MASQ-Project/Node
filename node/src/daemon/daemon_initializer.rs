@@ -60,7 +60,7 @@ impl ChannelFactory for ChannelFactoryReal {
         Sender<HashMap<String, String>>,
         Receiver<HashMap<String, String>>,
     ) {
-        unbounded_channel()
+        unbounded()
     }
 }
 
@@ -368,7 +368,7 @@ mod tests {
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let config = InitializationConfig { ui_port: port };
-        let (sender, receiver) = unbounded_channel();
+        let (sender, receiver) = unbounded();
         let channel_factory = ChannelFactoryMock::new();
         let addr_factory = RecipientsFactoryMock::new();
         let rerun_parameters_arc = Arc::new(Mutex::new(vec![]));

@@ -1,6 +1,5 @@
-use std::future::Future;
-use std::io;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use std::future::Future;
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
@@ -13,9 +12,10 @@ use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::ops::DerefMut;
+use std::task::{Poll};
 use std::time::SystemTime;
+use tokio::io::{AsyncReadExt};
 
 pub struct StreamReaderReal {
     stream: Box<dyn ReadHalfWrapper>,
@@ -31,32 +31,39 @@ pub struct StreamReaderReal {
     sequencer: Sequencer,
 }
 
+/*
 impl Future for StreamReaderReal {
     type Output = Result<(), ()>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut buf = [0u8; 0x0001_0000];
+        todo!("Try replacing this with the new ::run method");
+        let mut buf_inner = [0u8; 0x0001_0000];
+        let mut buf = ReadBuf::new(&mut buf_inner);
         loop {
-            match self.stream.poll_read(cx, &mut buf) {
+            let prev_len = buf.filled().len();
+            match self.stream.deref_mut().poll_read(cx, &mut buf) {
                 Poll::Pending => return Poll::Pending,
-                Poll::Ready(Ok(0)) => {
-                    // see RETURN VALUE section of recv man page (Unix)
-                    debug!(
-                        self.logger,
-                        "Stream {} has shut down (0-byte read)",
-                        Self::stringify(self.local_addr, self.peer_addr)
-                    );
-                    self.shutdown();
-                    return Poll::Ready(Ok(()));
-                }
-                Poll::Ready(Ok(length)) => {
-                    debug!(
-                        self.logger,
-                        "Read {}-byte chunk from stream {}",
-                        length,
-                        Self::stringify(self.local_addr, self.peer_addr)
-                    );
-                    self.wrangle_discriminators(&buf, length)
+                Poll::Ready(Ok(_)) => {
+                    if (buf.filled().len() == prev_len) {
+                        // see RETURN VALUE section of recv man page (Unix)
+                        debug!(
+                            self.logger,
+                            "Stream {} has shut down (0-byte read)",
+                            Self::stringify(self.local_addr, self.peer_addr)
+                        );
+                        self.shutdown();
+                        return Poll::Ready(Ok(()));
+                    }
+                    else {
+                        let length = buf.filled().len() - prev_len;
+                        debug!(
+                            self.logger,
+                            "Read {}-byte chunk from stream {}",
+                            length,
+                            Self::stringify(self.local_addr, self.peer_addr)
+                        );
+                        self.wrangle_discriminators(buf.filled(), length)
+                    }
                 }
                 Err(e) => {
                     if indicates_dead_stream(e.kind()) {
@@ -82,6 +89,7 @@ impl Future for StreamReaderReal {
         }
     }
 }
+*/
 
 impl StreamReaderReal {
     #[allow(clippy::too_many_arguments)]
@@ -102,7 +110,7 @@ impl StreamReaderReal {
         }
         let discriminators: Vec<Discriminator> = discriminator_factories
             .into_iter()
-            .map(|df| (df.make()))
+            .map(|df| df.make())
             .collect();
         StreamReaderReal {
             stream,
@@ -116,6 +124,56 @@ impl StreamReaderReal {
             is_clandestine,
             logger: Logger::new(&name),
             sequencer: Sequencer::new(),
+        }
+    }
+
+    pub async fn run(mut self) {
+        let mut buf = [0u8; 0x0001_0000];
+        loop {
+            match self.stream.read(&mut buf).await {
+                Ok(0) => {
+                    debug!(
+                            self.logger,
+                            "Stream {} has shut down (0-byte read)",
+                            Self::stringify(self.local_addr, self.peer_addr)
+                        );
+                    self.shutdown();
+                    break;
+                },
+                Ok(length) => {
+                    debug!(
+                            self.logger,
+                            "Read {}-byte chunk from stream {}",
+                            length,
+                            Self::stringify(self.local_addr, self.peer_addr)
+                        );
+                    self.wrangle_discriminators(&buf, length)
+                },
+                Err(e) => {
+                    if indicates_dead_stream(e.kind()) {
+                        debug!(
+                            self.logger,
+                            "Stream {} is dead: {}",
+                            Self::stringify(self.local_addr, self.peer_addr),
+                            e
+                        );
+                        self.shutdown();
+                        break;
+                    } else {
+                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors, we go into a tight loop and do not return
+                        // Perhaps we should count these and abort after a certain number. Keep in
+                        // mind that this code is public, and if we design an algorithm to allow
+                        // our peer to generate non-stream-killing errors without ending the stream,
+                        // attackers can use the source code of that algorithm to design workarounds.
+                        warning!(
+                            self.logger,
+                            "Continuing after read error on stream {}: {}",
+                            Self::stringify(self.local_addr, self.peer_addr),
+                            e.to_string()
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -133,7 +191,7 @@ impl StreamReaderReal {
         loop {
             match chosen_discriminator.take_chunk() {
                 Some(unmasked_chunk) => {
-                    // For Proxy Clients that send an Http Connect message via TLS, sequence_number
+                    // For Proxy Clients that send an HTTP Connect message via TLS, sequence_number
                     // should be Some(0). The next message the ProxyClient will send begins the TLS
                     // handshake and should start the sequence at Some(0) as well, the ProxyServer will
                     // handle the sequenced packet offset before sending them through the stream_writer
@@ -248,8 +306,8 @@ mod tests {
         (recording, make_dispatcher_subs_from(&addr))
     }
 
-    #[test]
-    fn stream_reader_shuts_down_and_returns_ok_on_0_byte_read() {
+    #[tokio::test]
+    async fn stream_reader_shuts_down_and_returns_ok_on_0_byte_read() {
         init_test_logging();
         let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
@@ -258,9 +316,8 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Ok(Async::Ready(0)))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_ok(&[]);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -274,10 +331,10 @@ mod tests {
             local_addr,
         );
 
-        let result = subject.poll();
+        subject.run().await;
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(
@@ -289,16 +346,14 @@ mod tests {
                 sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
-
-        assert_eq!(result, Ok(Async::Ready(())));
 
         TestLogHandler::new().exists_log_containing(
             "DEBUG: StreamReader for 1.2.3.4:5678: Stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678 has shut down (0-byte read)",
         );
     }
 
-    #[test]
-    fn stream_reader_shuts_down_and_returns_err_when_it_gets_a_dead_stream_error() {
+    #[tokio::test]
+    async fn stream_reader_logs_error_and_shuts_down_when_it_gets_a_dead_stream_error() {
         init_test_logging();
         let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
@@ -307,9 +362,8 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Err(io::Error::from(ErrorKind::BrokenPipe)))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -323,10 +377,10 @@ mod tests {
             local_addr,
         );
 
-        let result = subject.poll();
+        subject.run().await;
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let shp_recording = shp_recording_arc.lock().unwrap();
         assert_eq!(
@@ -339,15 +393,13 @@ mod tests {
             }
         );
 
-        assert_eq!(result, Err(()));
-
         TestLogHandler::new().exists_log_containing(
             "DEBUG: StreamReader for 1.2.3.4:5678: Stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678 is dead: broken pipe",
         );
     }
 
-    #[test]
-    fn stream_reader_returns_not_ready_when_it_gets_not_ready() {
+    #[tokio::test]
+    async fn stream_reader_logs_err_but_does_not_shut_down_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
         let system = System::new();
         let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
@@ -356,13 +408,13 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Ok(Async::NotReady))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Err(io::Error::from(ErrorKind::Other)))
+            .read_ok(&[]);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            Some(1234),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
             dispatcher_subs.stream_shutdown_sub,
@@ -372,53 +424,10 @@ mod tests {
             local_addr,
         );
 
-        let result = subject.poll();
+        subject.run().await;
 
         System::current().stop_with_code(0);
-        system.run();
-
-        assert_eq!(result, Ok(Async::NotReady));
-
-        let shp_recording = shp_recording_arc.lock().unwrap();
-        assert_eq!(shp_recording.len(), 0);
-
-        let d_recording = d_recording_arc.lock().unwrap();
-        assert_eq!(d_recording.len(), 0);
-    }
-
-    #[test]
-    fn stream_reader_logs_err_but_does_not_shut_down_when_it_gets_a_non_dead_stream_error() {
-        init_test_logging();
-        let system = System::new();
-        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
-        let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
-        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
-            vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (vec![], Err(io::Error::from(ErrorKind::Other))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
-
-        let mut subject = StreamReaderReal::new(
-            Box::new(reader),
-            Some(1234 as u16),
-            dispatcher_subs.ibcd_sub,
-            stream_handler_pool_subs.remove_sub,
-            dispatcher_subs.stream_shutdown_sub,
-            discriminator_factories,
-            true,
-            peer_addr,
-            local_addr,
-        );
-
-        let _result = subject.poll();
-
-        System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         TestLogHandler::new().await_log_containing("WARN: StreamReader for 1.2.3.4:5678: Continuing after read error on stream between local 1.2.3.5:6789 and peer 1.2.3.4:5678: other error", 1000);
 
@@ -439,13 +448,12 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> = vec![];
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![(vec![], Ok(Async::Ready(5)))],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_result(Ok(vec![]));
 
         let _subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            Some(1234),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
             dispatcher_subs.stream_shutdown_sub,
@@ -456,8 +464,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn stream_reader_sends_framed_chunks_to_dispatcher() {
+    #[tokio::test]
+    async fn stream_reader_sends_framed_chunks_to_dispatcher() {
         init_test_logging();
         let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
@@ -468,23 +476,13 @@ mod tests {
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let partial_request = Vec::from("GET http://her".as_bytes());
         let remaining_request = Vec::from("e.com HTTP/1.1\r\n\r\n".as_bytes());
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (
-                    partial_request.clone(),
-                    Ok(Async::Ready(partial_request.len())),
-                ),
-                (
-                    remaining_request.clone(),
-                    Ok(Async::Ready(remaining_request.len())),
-                ),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_ok(partial_request.as_slice())
+            .read_final(remaining_request.as_slice());
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            Some(1234),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
             dispatcher_subs.stream_shutdown_sub,
@@ -495,10 +493,10 @@ mod tests {
         );
         let before = SystemTime::now();
 
-        subject.poll().err();
+        subject.run().await;
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
@@ -509,7 +507,7 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
                 peer_addr,
-                reception_port: Some(1234 as u16),
+                reception_port: Some(1234),
                 last_data: false,
                 is_clandestine: true,
                 sequence_number: Some(0),
@@ -525,8 +523,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn stream_reader_sends_two_correct_sequenced_messages_when_sent_a_http_connect() {
+    #[tokio::test]
+    async fn stream_reader_sends_two_correct_sequenced_messages_when_sent_a_http_connect() {
         let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
@@ -539,20 +537,13 @@ mod tests {
         let http_connect_request = Vec::from("CONNECT example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
         // Magic TLS Sauce stolen from Configuration
         let tls_request = Vec::from(&[0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (
-                    http_connect_request.clone(),
-                    Ok(Async::Ready(http_connect_request.len())),
-                ),
-                (tls_request.clone(), Ok(Async::Ready(tls_request.len()))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_ok(http_connect_request.as_slice())
+            .read_final(tls_request.as_slice());
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            Some(1234),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
             dispatcher_subs.stream_shutdown_sub,
@@ -562,10 +553,10 @@ mod tests {
             local_addr,
         );
 
-        subject.poll().err();
+        subject.run().await;
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
 
         let d_recording = d_recording_arc.lock().unwrap();
         assert_eq!(
@@ -582,8 +573,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced() {
+    #[tokio::test]
+    async fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced() {
         let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
@@ -593,18 +584,14 @@ mod tests {
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let request1 = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
         let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (request1.clone(), Ok(Async::Ready(request1.len()))),
-                (vec![], Ok(Async::NotReady)),
-                (request2.clone(), Ok(Async::Ready(request2.len()))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_ok(request1.as_slice())
+            .read_result(Ok(vec![]))
+            .read_final(request2.as_slice());
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            Some(1234),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
             dispatcher_subs.stream_shutdown_sub,
@@ -615,11 +602,10 @@ mod tests {
         );
         let before = SystemTime::now();
 
-        let _result = subject.poll();
-        let _result = subject.poll();
+        subject.run().await;
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
@@ -629,8 +615,8 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr: peer_addr,
-                reception_port: Some(1234 as u16),
+                peer_addr,
+                reception_port: Some(1234),
                 last_data: false,
                 is_clandestine: false,
                 sequence_number: Some(0),
@@ -644,8 +630,8 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr: peer_addr,
-                reception_port: Some(1234 as u16),
+                peer_addr,
+                reception_port: Some(1234),
                 last_data: false,
                 is_clandestine: false,
                 sequence_number: Some(1),
@@ -654,8 +640,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequence(
+    #[tokio::test]
+    async fn stream_reader_does_not_assign_sequence_to_inbound_client_data_that_is_not_marked_as_sequence(
     ) {
         let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
@@ -670,16 +656,12 @@ mod tests {
                 .mask("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes())
                 .unwrap(),
         );
-        let reader = ReadHalfWrapperMock {
-            poll_read_results: vec![
-                (request.clone(), Ok(Async::Ready(request.len()))),
-                (vec![], Ok(Async::NotReady)),
-            ],
-        };
+        let reader = ReadHalfWrapperMock::new()
+            .read_final(request.as_slice());
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
-            Some(1234 as u16),
+            Some(1234),
             dispatcher_subs.ibcd_sub,
             stream_handler_pool_subs.remove_sub,
             dispatcher_subs.stream_shutdown_sub,
@@ -690,10 +672,10 @@ mod tests {
         );
         let before = SystemTime::now();
 
-        let _result = subject.poll();
+        subject.run().await;
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
         let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
@@ -704,7 +686,7 @@ mod tests {
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
                 peer_addr,
-                reception_port: Some(1234 as u16),
+                reception_port: Some(1234),
                 last_data: false,
                 is_clandestine: true,
                 sequence_number: None,
@@ -722,7 +704,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
             None,
@@ -738,7 +720,7 @@ mod tests {
         subject.shutdown();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let shp_recording = shp_recording_arc.lock().unwrap();
         let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
         assert_eq!(
@@ -761,7 +743,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
             Some(HTTP_PORT),
@@ -778,7 +760,7 @@ mod tests {
         subject.shutdown();
 
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
         let shp_recording = shp_recording_arc.lock().unwrap();
         let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
         assert_eq!(

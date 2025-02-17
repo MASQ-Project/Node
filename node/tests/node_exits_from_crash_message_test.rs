@@ -2,10 +2,12 @@
 
 pub mod utils;
 
+use tungstenite::Message;
 use crate::utils::CommandConfig;
 use masq_lib::messages::{ToMessageBody, UiCrashRequest};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::{find_free_port, localhost};
+use node_lib::daemon::launch_verifier::ClientWrapperReal;
 use websocket::{ClientBuilder, OwnedMessage};
 
 //we test only those actors who are subscribers of UiGateway who are:
@@ -79,12 +81,13 @@ fn start_node_and_request_crash(dir_name: &str, crash_key: &str) {
         }
         .tmb(0),
     );
+    let mut client = ClientWrapperReal::new(format!("ws://{}:{}", localhost(), port).as_str());
     let mut client = ClientBuilder::new(format!("ws://{}:{}", localhost(), port).as_str())
         .expect("Couldn't create ClientBuilder")
         .add_protocol("MASQNode-UIv2")
         .connect_insecure()
         .unwrap();
-    client.send_message(&OwnedMessage::Text(msg)).unwrap();
+    client.send_message(&Message::Text(msg)).unwrap();
 
     let success = node.wait_for_exit().unwrap().status.success();
     assert!(!success, "Did not fail as expected");

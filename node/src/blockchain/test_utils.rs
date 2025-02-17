@@ -6,7 +6,6 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
     ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -21,8 +20,8 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::batch_payable_tools::BatchPayableTools;
-use web3::transports::{Batch, Http};
+use crate::blockchain::batch_payable_tools::{BatchPayableTools, SecP256K1SecretsKeySecretKey};
+use web3::transports::{Batch};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
@@ -343,13 +342,6 @@ impl TestTransport {
     }
 }
 
-pub fn make_fake_event_loop_handle() -> u64 {
-    // TODO: Not really u64; what _should_ it be?
-    Http::with_max_parallel("http://86.75.30.9", REQUESTS_IN_PARALLEL)
-        .unwrap()
-        .0
-}
-
 #[derive(Default)]
 pub struct BatchPayableToolsFactoryMock<T> {
     make_results: RefCell<Vec<Box<dyn BatchPayableTools<T>>>>,
@@ -369,7 +361,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
             Vec<(
                 TransactionParameters,
                 Web3<Batch<T>>,
-                secp256k1secrets::key::SecretKey,
+                SecP256K1SecretsKeySecretKey,
             )>,
         >,
     >,
@@ -398,7 +390,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         &self,
         transaction_params: TransactionParameters,
         web3: &Web3<Batch<T>>,
-        key: &secp256k1secrets::key::SecretKey,
+        key: &SecP256K1SecretsKeySecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
         self.sign_transaction_params.lock().unwrap().push((
             transaction_params.clone(),
@@ -452,7 +444,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
                 Vec<(
                     TransactionParameters,
                     Web3<Batch<T>>,
-                    secp256k1secrets::key::SecretKey,
+                    secp256k1secrets::SecretKey,
                 )>,
             >,
         >,

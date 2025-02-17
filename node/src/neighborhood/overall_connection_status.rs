@@ -971,7 +971,7 @@ mod tests {
         );
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let stage = subject.stage;
         let recording = node_to_ui_recording_arc.lock().unwrap();
         let message_opt = recording.get_record_opt::<NodeToUiMessage>(0).cloned();

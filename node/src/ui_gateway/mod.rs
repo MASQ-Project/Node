@@ -9,11 +9,11 @@ use crate::daemon::DaemonBindMessage;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::{
     WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
-use actix::Actor;
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -23,13 +23,14 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::UiCrashRequest;
 use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
-use std::mem::replace;
+use std::sync::{Arc, Mutex};
+use std::thread::panicking;
 
 pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,
-    websocket_supervisor: Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
+    websocket_supervisor_or_factory: Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     crashable: bool,
     logger: Logger,
@@ -39,7 +40,7 @@ impl UiGateway {
     pub fn new(config: &UiGatewayConfig, crashable: bool) -> UiGateway {
         UiGateway {
             port: config.ui_port,
-            websocket_supervisor: Either::Left(Box::new(WebsocketSupervisorFactoryReal)),
+            websocket_supervisor_or_factory: Either::Left(Box::new(WebsocketSupervisorFactoryReal)),
             incoming_message_recipients: vec![],
             crashable,
 
@@ -97,7 +98,7 @@ impl UiGateway {
 
     fn initiate_websocket_supervisor(&mut self, recipient: Recipient<NodeFromUiMessage>) {
         let ws = match self
-            .websocket_supervisor
+            .websocket_supervisor_or_factory
             .as_ref()
             .left()
             .as_ref()
@@ -107,12 +108,27 @@ impl UiGateway {
             Ok(wss) => Either::Right(wss),
             Err(e) => panic!("Couldn't start WebSocketSupervisor: {:?}", e),
         };
-        let _ = replace(&mut self.websocket_supervisor, ws);
+        self.websocket_supervisor_or_factory = ws;
+        // let _ = replace(&mut self.websocket_supervisor_arc_or_factory, ws); Delete this if the line above works
     }
 }
 
 impl Actor for UiGateway {
     type Context = Context<Self>;
+}
+
+impl Supervised for UiGateway {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
+}
+
+impl Drop for UiGateway {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for UiGateway {
@@ -147,12 +163,12 @@ impl Handler<NodeToUiMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-        self.websocket_supervisor
+        self.websocket_supervisor_or_factory
             .as_ref()
             .right()
             .as_ref()
             .expect("WebSocketSupervisor is uninitialized")
-            .send_msg(msg)
+            .send_msg(msg);
     }
 }
 
@@ -239,7 +255,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject_addr = subject.start();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         let check = MailboxCapacityCheck { tx };
 
         subject_addr.try_send(check).unwrap();
@@ -263,7 +279,7 @@ mod tests {
         let daemon_bind_message = make_daemon_bind_message(ui_gateway);
         let subject_addr = subject.start();
         subject_addr.try_send(daemon_bind_message).unwrap();
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         let check = MailboxCapacityCheck { tx };
 
         subject_addr.try_send(check).unwrap();
@@ -348,10 +364,10 @@ mod tests {
         let websocket_supervisor =
             WebSocketSupervisorMock::new().send_msg_params(&send_msg_params_arc);
         let websocket_supervisor_factory = WebsocketSupervisorFactoryMock::default()
-            .make_result(Ok(Box::new(websocket_supervisor)));
+            .make_result(Ok(websocket_supervisor));
         let port = find_free_port();
         let mut subject = UiGateway::new(&UiGatewayConfig { ui_port: port }, false);
-        subject.websocket_supervisor = Either::Left(
+        subject.websocket_supervisor_or_factory = Either::Left(
             Box::new(websocket_supervisor_factory) as Box<dyn WebSocketSupervisorFactory>
         );
         let system = System::new();

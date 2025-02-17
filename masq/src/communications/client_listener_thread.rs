@@ -1,16 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::communications::connection_manager::ClosingStageDetector;
-use async_channel::Receiver as WSReceiver;
 use async_trait::async_trait;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use std::sync::Arc;
+use soketto::connection::Error;
+use soketto::Data;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::{AbortHandle, JoinHandle};
-use workflow_websocket::client::{Error, Result as ClientResult};
-use workflow_websocket::client::{Message, WebSocket};
+use masq_lib::websockets_types::{WSReceiver, WSSender};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ClientListenerError {
@@ -32,30 +32,29 @@ impl ClientListenerError {
 }
 
 pub struct ClientListener {
-    websocket: WebSocket,
+    ws_receiver: WSReceiver,
 }
 
 impl ClientListener {
-    pub fn new(websocket: WebSocket) -> Self {
-        Self { websocket }
+    pub fn new(ws_receiver: WSReceiver) -> Self {
+        Self { ws_receiver }
     }
 
     pub async fn start(
         self,
         close_sig: BroadcastReceiver<()>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
-    ) -> Box<dyn WSClientHandle> {
-        let ws_receiver = self.websocket.receiver_rx().clone();
-        let spawner = ClientListenerEventLoopSpawner::new(ws_receiver, message_body_tx, close_sig);
-        let abort_handle = spawner.spawn().abort_handle();
-        let client_listener = WSClientHandleReal::new(self.websocket, abort_handle);
-        Box::new(client_listener)
+    ) -> AbortHandle {
+        let spawner = ClientListenerSpawner::new(self.ws_receiver, message_body_tx, close_sig);
+        spawner.spawn().abort_handle()
+        // let client_handle = WSClientHandleReal::new(self.websocket, abort_handle);
+        // Box::new(client_handle)
     }
 }
 
 #[async_trait]
 pub trait WSClientHandle: Send {
-    async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>>;
+    async fn send_msg(&mut self, msg: String) -> std::result::Result<(), Error>;
     // This is unfortunate as we cannot get the library we're using to send a graceful Close msg.
     // Without us to understand, they implemented a panic to unwind upon this message's arrival (on
     // the server side - which also is built from the same library). All they provide is this
@@ -72,7 +71,7 @@ pub trait WSClientHandle: Send {
 }
 
 pub struct WSClientHandleReal {
-    websocket: WebSocket,
+    ws_sender: WSSender,
     listener_event_loop_abort_handle: AbortHandle,
 }
 
@@ -84,8 +83,8 @@ impl Drop for WSClientHandleReal {
 
 #[async_trait]
 impl WSClientHandle for WSClientHandleReal {
-    async fn send(&self, msg: Message) -> Result<(), Arc<Error>> {
-        self.websocket.send(msg).await.map(|_| ())
+    async fn send_msg(&mut self, msg: String) -> Result<(), Error> {
+        self.ws_sender.send_text_owned(msg).await.map(|_| ())
     }
 
     async fn disconnect(&self) -> ClientResult<()> {
@@ -112,23 +111,23 @@ impl WSClientHandle for WSClientHandleReal {
 }
 
 impl WSClientHandleReal {
-    pub fn new(websocket: WebSocket, listener_event_loop_abort_handle: AbortHandle) -> Self {
+    pub fn new(ws_sender: WSSender, listener_event_loop_abort_handle: AbortHandle) -> Self {
         Self {
-            websocket,
+            ws_sender,
             listener_event_loop_abort_handle,
         }
     }
 }
 
-struct ClientListenerEventLoopSpawner {
-    listener_half: WSReceiver<Message>,
+struct ClientListenerSpawner {
+    listener_half: WSReceiver,
     message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     close_sig: BroadcastReceiver<()>,
 }
 
-impl ClientListenerEventLoopSpawner {
+impl ClientListenerSpawner {
     pub fn new(
-        listener_half: WSReceiver<Message>,
+        listener_half: WSReceiver,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
         close_sig: BroadcastReceiver<()>,
     ) -> Self {
@@ -144,8 +143,11 @@ impl ClientListenerEventLoopSpawner {
     }
 
     async fn loop_guts(mut self) {
+        let mut msg = Vec::new();
         loop {
-            let ws_msg_rcv = self.listener_half.recv();
+            msg.clear();
+
+            let ws_msg_rcv = self.listener_half.receive_data(&mut msg);
             let close_sig_rcv = self.close_sig.recv();
 
             tokio::select! {
@@ -155,10 +157,10 @@ impl ClientListenerEventLoopSpawner {
                     break
                 }
 
-                msg = ws_msg_rcv => {
-                      match msg {
-                        Ok(Message::Text(string)) => {
-                            match UiTrafficConverter::new_unmarshal(&string) {
+                received = ws_msg_rcv => {
+                      match received {
+                        Ok(Data::Text(len)) => {
+                            match UiTrafficConverter::new_unmarshal(&String::from_utf8_lossy(&msg)) {
                                 Ok(body) => match self.message_body_tx.send(Ok(body.clone())) {
                                     Ok(_) => (),
                                     Err(_) => break,
@@ -172,14 +174,7 @@ impl ClientListenerEventLoopSpawner {
                                 },
                             }
                         }
-                        Ok(Message::Open) => {
-                            // Dropping, it doesn't say anything but what we already know
-                        }
-                        Ok(Message::Close) => {
-                            let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
-                            break;
-                        }
-                        Ok(_unexpected) => {
+                        Ok(Data::Binary(_)) => {
                             match self
                                 .message_body_tx
                                 .send(Err(ClientListenerError::UnexpectedPacket))
@@ -187,6 +182,10 @@ impl ClientListenerEventLoopSpawner {
                                 Ok(_) => (),
                                 Err(_) => break,
                             }
+                        }
+                        Err(Error::Closed) => {
+                            let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
+                            break;
                         }
                         Err(error) => {
                             let _ = self
@@ -210,24 +209,20 @@ mod tests {
     };
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use masq_lib::test_utils::websockets_utils::{
-        establish_ws_conn_with_handshake, websocket_utils_with_masq_handshake,
-    };
     use masq_lib::utils::find_free_port;
     use std::time::Duration;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::unbounded_channel;
     use tokio::time::Instant;
-    use workflow_websocket::client::Message as ClientMessage;
-    use workflow_websocket::server::Message as ServerMessage;
+    use crate::test_utils::websockets_utils::websocket_utils_with_masq_handshake;
 
     // TODO ditch me after you have Dan's server in
-    async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
-        let message = Message::Text(UiTrafficConverter::new_marshal(
-            UiShutdownRequest {}.tmb(345678),
-        ));
-        client_talker_half.send(message).await.unwrap();
-    }
+    // async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
+    //     let message = Message::Text(UiTrafficConverter::new_marshal(
+    //         UiShutdownRequest {}.tmb(345678),
+    //     ));
+    //     client_talker_half.send_msg(message).await.unwrap();
+    // }
 
     #[tokio::test]
     async fn listens_and_passes_data_through() {
@@ -243,12 +238,11 @@ mod tests {
         let client_listener_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
-        stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let message_body = message_body_rx.recv().await.unwrap().unwrap();
 
         assert_eq!(message_body, expected_message.tmb(1));
-        let is_spinning = client_listener_handle.is_event_loop_spinning();
+        let is_spinning = !client_listener_handle.is_finished();
         assert_eq!(is_spinning, true);
     }
 
@@ -256,7 +250,7 @@ mod tests {
     async fn processes_incoming_close_correctly() {
         let port = find_free_port();
         let server_handle = MockWebSocketsServer::new(port)
-            .queue_owned_message(ServerMessage::Close(None))
+            .queue_close()
             .start()
             .await;
         let (websocket, _talker_half, _listener_half) =
@@ -268,9 +262,9 @@ mod tests {
             .start(close_detector.dup_receiver(), message_body_tx)
             .await;
 
-        let server_response_trigger = ClientMessage::Text(UiTrafficConverter::new_marshal(
-            UiDescriptorRequest {}.tmb(1),
-        ));
+        // let server_response_trigger = ClientMessage::Text(UiTrafficConverter::new_marshal(
+        //     UiDescriptorRequest {}.tmb(1),
+        // ));
         client_listener_handle
             .send(server_response_trigger)
             .await
@@ -402,7 +396,7 @@ mod tests {
             websocket_utils_with_masq_handshake(port).await;
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = ClientListenerEventLoopSpawner::new(
+        let subject = ClientListenerSpawner::new(
             listener_half,
             message_body_tx,
             close_sig.dup_receiver(),

@@ -26,7 +26,6 @@ use masq_lib::test_utils::fake_stream_holder::{
     StringAssertableStdHandle,
 };
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::websockets_handshake::HandshakeResultTx;
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, set_arbitrary_id_stamp_in_mock_impl,
 };
@@ -355,30 +354,6 @@ impl MockCommand {
     }
 }
 
-pub struct WSClientHandshakeAlwaysAcceptingHandler {
-    handshake_confirmation_tx: HandshakeResultTx,
-}
-
-#[async_trait]
-impl Handshake for WSClientHandshakeAlwaysAcceptingHandler {
-    async fn handshake(
-        &self,
-        _sender: &Sender<Message>,
-        _receiver: &Receiver<Message>,
-    ) -> ClientResult<()> {
-        self.handshake_confirmation_tx.send(Ok(())).unwrap();
-        Ok(())
-    }
-}
-
-impl WSClientHandshakeAlwaysAcceptingHandler {
-    pub fn new(handshake_confirmation_tx: HandshakeResultTx) -> Self {
-        Self {
-            handshake_confirmation_tx,
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct WSClientHandleMock {
     send_params: Arc<Mutex<Vec<Message>>>,
@@ -387,7 +362,7 @@ pub struct WSClientHandleMock {
 
 #[async_trait]
 impl WSClientHandle for WSClientHandleMock {
-    async fn send(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
+    async fn send_msg(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
         self.send_params.lock().unwrap().push(msg);
         self.send_results.lock().unwrap().remove(0)
     }

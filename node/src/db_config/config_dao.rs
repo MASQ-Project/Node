@@ -36,7 +36,7 @@ impl ConfigDaoRecord {
     }
 }
 
-pub trait ConfigDao {
+pub trait ConfigDao: Send {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError>;
     fn get(&self, name: &str) -> Result<ConfigDaoRecord, ConfigDaoError>;
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;

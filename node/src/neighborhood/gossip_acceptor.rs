@@ -2348,7 +2348,7 @@ mod tests {
             &dest_db.node_by_key(node_b.public_key()).unwrap().inner
         );
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -2629,7 +2629,7 @@ mod tests {
         );
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
         assert_eq!(result, GossipAcceptanceResult::Ignored);
@@ -2669,7 +2669,7 @@ mod tests {
         );
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 1);
@@ -2716,7 +2716,7 @@ mod tests {
         );
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -2757,7 +2757,7 @@ mod tests {
         );
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -3388,7 +3388,7 @@ mod tests {
         subject.handle(cryptde, &mut db, agrs, gossip_source, neighborhood_metadata);
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(
@@ -3471,7 +3471,7 @@ mod tests {
             ),
         }
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
@@ -3518,7 +3518,7 @@ mod tests {
 
         let final_timestamp = SystemTime::now();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         assert_eq!(result, GossipAcceptanceResult::Ignored);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
@@ -3558,7 +3558,7 @@ mod tests {
         );
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         assert_eq!(result, GossipAcceptanceResult::Ignored);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
@@ -3607,7 +3607,7 @@ mod tests {
             ),
         }
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        assert_eq!(system.run().is_ok(), true);
         let recording = recording_arc.lock().unwrap();
         let received_message: &ConnectionProgressMessage = recording.get_record(0);
         assert_eq!(

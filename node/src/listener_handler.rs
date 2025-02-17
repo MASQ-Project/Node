@@ -15,18 +15,24 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use async_trait::async_trait;
 
-pub trait ListenerHandler: Send + Future {
-    fn bind_port_and_configuration(
+#[async_trait]
+pub trait ListenerHandler: Send {
+    async fn bind_port_and_configuration(
         &mut self,
         port: u16,
         port_configuration: PortConfiguration,
     ) -> io::Result<()>;
     fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>);
+
+    async fn handle_listeners(&mut self);
+
+
 }
 
 pub trait ListenerHandlerFactory: Send {
-    fn make(&self) -> Box<dyn Future<Output = io::Result<()>>>;
+    fn make(&self) -> Box<dyn ListenerHandler>;
 }
 
 pub struct ListenerHandlerReal {
@@ -38,8 +44,9 @@ pub struct ListenerHandlerReal {
     logger: Logger,
 }
 
+#[async_trait]
 impl ListenerHandler for ListenerHandlerReal {
-    fn bind_port_and_configuration(
+    async fn bind_port_and_configuration(
         &mut self,
         port: u16,
         port_configuration: PortConfiguration,
@@ -53,22 +60,18 @@ impl ListenerHandler for ListenerHandlerReal {
         } else {
             Ipv4Addr::LOCALHOST
         });
-        self.listener.bind(SocketAddr::new(ip_addr, port))
+        self.listener.bind(SocketAddr::new(ip_addr, port)).await
     }
 
     fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>) {
         self.add_stream_sub = Some(add_stream_sub);
     }
-}
 
-impl Future for ListenerHandlerReal {
-    type Output = ();
-
-    fn poll(self: Pin<&mut ListenerHandlerReal>, cx: &mut Context<'_>) -> Poll<()> {
+    async fn handle_listeners(&mut self) {
         loop {
-            let result = self.listener.poll_accept(cx);
+            let result = self.listener.accept().await;
             match result {
-                Poll::Ready(Ok((stream, socket_addr))) => {
+                Ok((stream, socket_addr)) => {
                     let connection_info =
                         match self.stream_connector.split_stream(stream, &self.logger) {
                             Some(ci) => ci,
@@ -78,7 +81,7 @@ impl Future for ListenerHandlerReal {
                                     "Connection from {} was closed before it could be accepted",
                                     socket_addr
                                 );
-                                return Poll::Pending;
+                                continue;
                             }
                         };
                     self.add_stream_sub
@@ -94,12 +97,11 @@ impl Future for ListenerHandlerReal {
                         ))
                         .expect("Internal error: StreamHandlerPool is dead");
                 }
-                Poll::Ready(Err(e)) => {
+                Err(e) => {
                     // TODO FIXME we should kill the entire Node if there is a fatal error in a listener_handler
                     // TODO this could be exploitable and inefficient: if we keep getting errors, we go into a tight loop and do not return
                     error!(self.logger, "Could not accept connection: {}", e);
                 }
-                Poll::Pending => return Poll::Pending,
             }
         }
     }
@@ -121,7 +123,7 @@ impl ListenerHandlerReal {
 pub struct ListenerHandlerFactoryReal {}
 
 impl ListenerHandlerFactory for ListenerHandlerFactoryReal {
-    fn make(&self) -> Box<dyn Future<Output = io::Result<()>>> {
+    fn make(&self) -> Box<dyn ListenerHandler> {
         Box::new(ListenerHandlerReal::new())
     }
 }
@@ -140,7 +142,6 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::stream_connector_mock::StreamConnectorMock;
-    use crate::test_utils::unshared_test_utils::make_rt;
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -162,66 +163,63 @@ mod tests {
     use tokio;
     use tokio::net::TcpStream;
     use tokio::task;
+    use masq_lib::test_utils::utils::make_rt;
 
     struct TokioListenerWrapperMock {
-        logger_arc: Arc<TestLog>,
+        bind_params: Arc<Mutex<Vec<SocketAddr>>>,
         bind_results: Vec<io::Result<()>>,
-        poll_accept_results: RefCell<Vec<Poll<io::Result<(TcpStream, SocketAddr)>>>>,
+        accept_results: Arc<Mutex<Vec<io::Result<(TcpStream, SocketAddr)>>>>,
     }
 
     impl TokioListenerWrapperMock {
         fn new() -> TokioListenerWrapperMock {
             TokioListenerWrapperMock {
-                logger_arc: Arc::new(TestLog::new()),
+                bind_params: Arc::new(Mutex::new(vec![])),
                 bind_results: vec![],
-                poll_accept_results: RefCell::new(vec![]),
+                accept_results: Arc::new(Mutex::new(vec![])),
             }
         }
     }
 
+    #[async_trait]
     impl TokioListenerWrapper for TokioListenerWrapperMock {
-        fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
-            self.logger_arc
-                .lock()
-                .unwrap()
-                .log(format!("bind ({:?})", addr));
+        async fn bind(&mut self, addr: SocketAddr) -> io::Result<()> {
+            self.bind_params.lock().unwrap().push(addr);
             self.bind_results.remove(0)
         }
 
-        fn poll_accept(
-            &mut self,
-            cx: &mut Context<'_>,
-        ) -> Poll<io::Result<(TcpStream, SocketAddr)>> {
-            self.poll_accept_results.borrow_mut().remove(0)
+        async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+            self.accept_results.lock().unwrap().remove(0)
         }
     }
 
     impl TokioListenerWrapperMock {
+        pub fn bind_params(mut self, params: &Arc<Mutex<Vec<SocketAddr>>>) -> Self {
+            self.bind_params = params.clone();
+            self
+        }
         pub fn bind_result(mut self, result: io::Result<()>) -> TokioListenerWrapperMock {
             self.bind_results.push(result);
             self
         }
 
-        pub fn poll_accept_results(
+        pub fn accept_result(
             self,
-            result_vec: Vec<Poll<io::Result<(TcpStream, SocketAddr)>>>,
+            result: io::Result<(TcpStream, SocketAddr)>,
         ) -> TokioListenerWrapperMock {
-            result_vec
-                .into_iter()
-                .for_each(|result| self.poll_accept_results.borrow_mut().push(result));
+            self.accept_results.lock().unwrap().push(result);
             self
         }
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "TcpListener not initialized - bind to a SocketAddr")]
-    fn panics_if_tried_to_run_without_initializing() {
-        let subject = ListenerHandlerReal::new();
-        make_rt().block_on(subject).unwrap();
+    async fn panics_if_tried_to_run_without_initializing() {
+        let subject = ListenerHandlerReal::new().handle_listeners().await;
     }
 
-    #[test]
-    fn handles_bind_port_and_configuration_failure() {
+    #[tokio::test]
+    async fn handles_bind_port_and_configuration_failure() {
         let listener = TokioListenerWrapperMock::new()
             .bind_result(Err(Error::from(ErrorKind::AddrNotAvailable)));
         let discriminator_factory = NullDiscriminatorFactory::new();
@@ -231,15 +229,17 @@ mod tests {
         let result = subject.bind_port_and_configuration(
             1234,
             PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
-        );
+        ).await;
 
         assert_eq!(result.err().unwrap().kind(), ErrorKind::AddrNotAvailable);
     }
 
-    #[test]
-    fn handles_bind_port_and_configuration_success_for_clandestine_port() {
-        let listener = TokioListenerWrapperMock::new().bind_result(Ok(()));
-        let listener_log = listener.logger_arc.clone();
+    #[tokio::test]
+    async fn handles_bind_port_and_configuration_success_for_clandestine_port() {
+        let bind_params_arc = Arc::new(Mutex::new(vec![]));
+        let listener = TokioListenerWrapperMock::new()
+            .bind_params(&bind_params_arc)
+            .bind_result(Ok(()));
         let discriminator_factory =
             NullDiscriminatorFactory::new().discriminator_nature(vec![b"booga".to_vec()]);
         let mut subject = ListenerHandlerReal::new();
@@ -248,10 +248,10 @@ mod tests {
         let result = subject.bind_port_and_configuration(
             2345,
             PortConfiguration::new(vec![Box::new(discriminator_factory)], true),
-        );
+        ).await.unwrap();
 
-        assert_eq!(result.unwrap(), ());
-        assert_eq!(listener_log.dump(), vec!(format!("bind (0.0.0.0:2345)")));
+        let bind_params = bind_params_arc.lock().unwrap();
+        assert_eq!(*bind_params, vec![SocketAddr::from_str("0.0.0.0:2345").unwrap()]);
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);
@@ -261,10 +261,12 @@ mod tests {
         assert!(port_configuration.is_clandestine);
     }
 
-    #[test]
-    fn handles_bind_port_and_configuration_success_for_non_clandestine_port() {
-        let listener = TokioListenerWrapperMock::new().bind_result(Ok(()));
-        let listener_log = listener.logger_arc.clone();
+    #[tokio::test]
+    async fn handles_bind_port_and_configuration_success_for_non_clandestine_port() {
+        let bind_params_arc = Arc::new(Mutex::new(vec![]));
+        let listener = TokioListenerWrapperMock::new()
+            .bind_params(&bind_params_arc)
+            .bind_result(Ok(()));
         let discriminator_factory =
             NullDiscriminatorFactory::new().discriminator_nature(vec![b"booga".to_vec()]);
         let mut subject = ListenerHandlerReal::new();
@@ -273,10 +275,10 @@ mod tests {
         let result = subject.bind_port_and_configuration(
             2345,
             PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
-        );
+        ).await.unwrap();
 
-        assert_eq!(result.unwrap(), ());
-        assert_eq!(listener_log.dump(), vec!(format!("bind (127.0.0.1:2345)")));
+        let bind_params = bind_params_arc.lock().unwrap();
+        assert_eq!(*bind_params, vec![SocketAddr::from_str("127.0.0.1:2345").unwrap()]);
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);
@@ -286,12 +288,12 @@ mod tests {
         assert!(!port_configuration.is_clandestine);
     }
 
-    #[test]
-    fn handles_connection_errors() {
+    #[tokio::test]
+    async fn handles_connection_errors() {
         init_test_logging();
         let (stream_handler_pool, _, recording_arc) = make_recorder();
 
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new();
             let add_stream_sub = start_recorder(stream_handler_pool);
@@ -301,23 +303,18 @@ mod tests {
         });
 
         let port = find_free_port();
-        thread::spawn(move || {
-            let add_stream_sub = rx.recv().unwrap();
-            let tokio_listener_wrapper = TokioListenerWrapperMock::new()
-                .bind_result(Ok(()))
-                .poll_accept_results(vec![
-                    Poll::Ready(Err(Error::from(ErrorKind::AddrInUse))),
-                    Poll::Ready(Err(Error::from(ErrorKind::AddrNotAvailable))),
-                    Poll::Pending,
-                ]);
-            let mut subject = ListenerHandlerReal::new();
-            subject.listener = Box::new(tokio_listener_wrapper);
-            subject.bind_subs(add_stream_sub);
-            subject
-                .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
-                .unwrap();
-            task::spawn(subject);
-        });
+        let add_stream_sub = rx.recv().unwrap();
+        let tokio_listener_wrapper = TokioListenerWrapperMock::new()
+            .bind_result(Ok(()))
+            .accept_result(Err(Error::from(ErrorKind::AddrInUse)))
+            .accept_result(Err(Error::from(ErrorKind::AddrNotAvailable)));
+        let mut subject = ListenerHandlerReal::new();
+        subject.listener = Box::new(tokio_listener_wrapper);
+        subject.bind_subs(add_stream_sub);
+        subject
+            .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
+            .await
+            .unwrap();
         let tlh = TestLogHandler::new();
         tlh.await_log_containing("address not available", 1000);
         tlh.assert_logs_contain_in_order(vec![
@@ -334,33 +331,28 @@ mod tests {
         assert_eq!(recording.len(), 0);
     }
 
-    #[test]
-    fn handles_connection_that_wont_split() {
+    #[tokio::test]
+    async fn handles_connection_that_wont_split() {
         init_test_logging();
         let (stream_handler_pool, _, recording_arc) = make_recorder();
 
         let port = find_free_port();
         let server = LittleTcpServer::start();
-        thread::spawn(move || {
-            let add_stream_sub = start_recorder(stream_handler_pool);
-            let std_stream = StdTcpStream::connect(server.socket_addr()).unwrap();
-            let stream = TcpStream::from_std(std_stream).unwrap();
-            let tokio_listener_wrapper = TokioListenerWrapperMock::new()
-                .bind_result(Ok(()))
-                .poll_accept_results(vec![Poll::Ready(Ok((
-                    stream,
-                    SocketAddr::from_str("1.2.3.4:5").unwrap(),
-                )))]);
-            let stream_connector = StreamConnectorMock::new().split_stream_result(None);
-            let mut subject = ListenerHandlerReal::new();
-            subject.listener = Box::new(tokio_listener_wrapper);
-            subject.stream_connector = Box::new(stream_connector);
-            subject.bind_subs(add_stream_sub);
-            subject
-                .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
-                .unwrap();
-            task::spawn(subject)
-        });
+        let add_stream_sub = start_recorder(stream_handler_pool);
+        let std_stream = StdTcpStream::connect(server.socket_addr()).unwrap();
+        let stream = TcpStream::from_std(std_stream).unwrap();
+        let tokio_listener_wrapper = TokioListenerWrapperMock::new()
+            .bind_result(Ok(()))
+            .accept_result(Ok((stream, SocketAddr::from_str("1.2.3.4:5").unwrap())));
+        let stream_connector = StreamConnectorMock::new().split_stream_result(None);
+        let mut subject = ListenerHandlerReal::new();
+        subject.listener = Box::new(tokio_listener_wrapper);
+        subject.stream_connector = Box::new(stream_connector);
+        subject.bind_subs(add_stream_sub);
+        subject
+            .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
+            .await
+            .unwrap();
         let tlh = TestLogHandler::new();
         // Stream has no peer_addr before splitting: {}
         tlh.await_log_containing(
@@ -374,11 +366,11 @@ mod tests {
         assert_eq!(recording.len(), 0);
     }
 
-    #[test]
-    fn converts_connections_into_connection_infos() {
+    #[tokio::test]
+    async fn converts_connections_into_connection_infos() {
         let (stream_handler_pool, awaiter, recording_arc) = make_recorder();
 
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new();
             let add_stream_sub = start_recorder(stream_handler_pool);
@@ -387,18 +379,13 @@ mod tests {
         });
 
         let port = find_free_port();
-        thread::spawn(move || {
-            let add_stream_sub = rx.recv().unwrap();
-            let mut subject = ListenerHandlerReal::new();
-            subject.bind_subs(add_stream_sub);
-            subject
-                .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
-                .unwrap();
-            task::spawn(subject)
-        });
-
-        // todo fixme wait for listener to be running in a better way
-        thread::sleep(Duration::from_millis(500));
+        let add_stream_sub = rx.recv().unwrap();
+        let mut subject = ListenerHandlerReal::new();
+        subject.bind_subs(add_stream_sub);
+        subject
+            .bind_port_and_configuration(port, PortConfiguration::new(vec![], false))
+            .await
+            .unwrap();
 
         let socket_addr = SocketAddr::new(localhost(), port);
         let x = net::TcpStream::connect(socket_addr).unwrap();

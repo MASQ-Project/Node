@@ -18,7 +18,8 @@ use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
-use std::future::Future;
+use async_trait::async_trait;
+use tokio::task::{JoinHandle, JoinSet};
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
 
@@ -72,9 +73,10 @@ pub trait DumpConfigRunner {
     declare_as_any!();
 }
 
+#[async_trait(?Send)]
 pub trait ServerInitializer {
-    fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    fn spawn_futures(self);
+    async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
+    fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>>;
     declare_as_any!();
 }
 
@@ -257,8 +259,10 @@ pub mod mocks {
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
+    use std::io;
     use std::sync::{Arc, Mutex};
-    use tokio::task::JoinSet;
+    use async_trait::async_trait;
+    use tokio::task::{JoinHandle, JoinSet};
 
     pub fn test_clustered_params() -> DIClusteredParams {
         DIClusteredParams {
@@ -388,8 +392,8 @@ pub mod mocks {
     pub struct ServerInitializerMock {
         go_params: Arc<Mutex<Vec<Vec<String>>>>,
         go_results: RefCell<Vec<Result<(), ConfiguratorError>>>,
-        spawn_futures_params: Arc<Mutex<Vec<()>>>,
-        spawn_futures_results: RefCell<Vec<JoinSet<()>>>,
+        spawn_long_lived_services_params: Arc<Mutex<Vec<()>>>,
+        spawn_long_lived_services_results: RefCell<Vec<JoinHandle<std::io::Result<()>>>>,
     }
 
     impl ServerInitializerMock {
@@ -403,26 +407,27 @@ pub mod mocks {
             self
         }
 
-        pub fn spawn_futures_result(self, result: JoinSet<()>) -> Self {
-            self.spawn_futures_results.borrow_mut().push(result);
+        pub fn spawn_long_lived_services_result(self, result: JoinHandle<std::io::Result<()>>) -> Self {
+            self.spawn_long_lived_services_results.borrow_mut().push(result);
             self
         }
 
-        pub fn spawn_futures_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.spawn_futures_params = params.clone();
+        pub fn spawn_long_lived_services_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.spawn_long_lived_services_params = params.clone();
             self
         }
     }
 
+    #[async_trait(?Send)]
     impl ServerInitializer for ServerInitializerMock {
-        fn go(&mut self, _streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
+        async fn go(&mut self, _streams: &mut StdStreams, args: &[String]) -> RunModeResult {
             self.go_params.lock().unwrap().push(args.to_vec());
             self.go_results.borrow_mut().remove(0)
         }
 
-        fn spawn_futures(self) -> JoinSet<()> {
-            self.spawn_futures_params.lock().unwrap().push(());
-            self.spawn_futures_results.borrow_mut().remove(0)
+        fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>> {
+            self.spawn_long_lived_services_params.lock().unwrap().push(());
+            self.spawn_long_lived_services_results.borrow_mut().remove(0)
         }
     }
 

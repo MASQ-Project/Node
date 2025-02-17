@@ -12,7 +12,10 @@ use clap::Error;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use tokio::{task, task_local};
+use tokio::{task};
+use tokio::task::JoinHandle;
+use masq_lib::logger::Logger;
+use masq_lib::test_utils::utils::make_rt;
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -79,7 +82,7 @@ impl RunModes {
     }
 
     fn process_gathered_errors(error: ConfiguratorError, streams: &mut StdStreams) {
-        short_writeln!(streams.stderr, "Configuration error");
+        writeln!(streams.stderr, "Configuration error").expect("writeln failed");
         Self::produce_unified_err_msgs(streams, error.param_errors)
     }
 
@@ -111,7 +114,7 @@ impl RunModes {
             err if err.kind() == clap::error::ErrorKind::DisplayHelp
                 || err.kind() == clap::error::ErrorKind::DisplayVersion =>
             {
-                short_writeln!(streams.stdout, "{}", err.message);
+                writeln!(streams.stdout, "{:?}", err).expect("writeln failed");
                 ExitCode(0)
             }
             err => {
@@ -151,11 +154,11 @@ impl RunModes {
         privilege_required: bool,
         streams: &mut StdStreams,
     ) {
-        short_writeln!(
+        writeln!(
             streams.stderr,
             "{}",
             Self::privilege_mismatch_message(mode, privilege_required)
-        )
+        ).expect("writeln failed")
     }
 
     fn is_help_or_version(args: &[String]) -> bool {
@@ -166,12 +169,12 @@ impl RunModes {
 
     fn produce_unified_err_msgs(streams: &mut StdStreams, error: Vec<ParamError>) {
         error.into_iter().for_each(|err_case| {
-            short_writeln!(
+            writeln!(
                 streams.stderr,
                 "{} - {}",
                 err_case.parameter,
                 err_case.reason
-            )
+            ).expect("writeln failed")
         })
     }
 
@@ -242,20 +245,42 @@ impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new();
         let mut server_initializer = self.server_initializer_factory.make();
-        server_initializer.go(streams, args)?;
-        let _ = task::spawn(async {
-            let result = server_initializer.await;
+        let args_inner = args.to_vec();
+        // TODO Bert thinks the task::spawn() is overkill; wants system.block_on() instead
+        let join_handle: JoinHandle<Result<(), String>> = task::spawn(async move {
+            match server_initializer.go(streams, &args_inner).await {
+                Ok(_) => (),
+                Err(e) => {
+                    System::current().stop_with_code(1);
+                    return Err(format!("{:?}", e));
+                }
+            }
+            let result = server_initializer.spawn_long_lived_services().await;
             match result {
                 Ok(x) => panic!(
                     "DNS server was never supposed to stop, but terminated with {:?}",
                     x
                 ),
-                Err(_) => System::current().stop_with_code(1), // TODO: Maybe log this error?
+                Err(e) => {
+                    System::current().stop_with_code(1);
+                    return Err(format!("{:?}", e));
+                },
             }
         });
         match system.run() {
             Ok(()) => Ok(()),
-            Err(e) => RunnerError::blah,
+            Err(e) => {
+                let result = make_rt().block_on(join_handle);
+                let logger = Logger::new("RunnerReal");
+                /// TODO SPIKE
+                match result {
+                    Ok(Ok(_)) => error!(logger, "Node terminated with error: {:?}", e),
+                    Ok(Err(e)) => error!(logger, "Node terminated with error, but we couldn't get the error message: {:?}", e),
+                    Err(e) => error!(logger, "Node terminated with error, but we couldn't look for the error message: {:?}", e),
+                }
+                /// TODO SPIKE
+                Err(RunnerError::Numeric(1))
+            },
         }
     }
 
@@ -305,9 +330,13 @@ mod tests {
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use regex::Regex;
     use std::cell::RefCell;
+    use std::io;
+    use std::io::ErrorKind;
     use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+    use tokio::spawn;
+    use tokio::task::JoinSet;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
@@ -540,12 +569,13 @@ parm2 - msg2\n"
         let go_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = RunModes::new();
         let mut runner = RunnerReal::new();
+        let join_handle = spawn(async { Err(io::Error::from(ErrorKind::BrokenPipe)) });
         runner.server_initializer_factory = Box::new(
             ServerInitializerFactoryMock::default().make_result(Box::new(
                 ServerInitializerMock::default()
                     .go_result(Ok(()))
                     .go_params(&go_params_arc)
-                    .poll_result(Err(())),
+                    .spawn_long_lived_services_result(join_handle),
             )),
         );
         subject.runner = Box::new(runner);

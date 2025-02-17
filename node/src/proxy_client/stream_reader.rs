@@ -13,6 +13,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio::io::{ReadBuf};
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -22,60 +23,6 @@ pub struct StreamReader {
     peer_addr: SocketAddr,
     logger: Logger,
     sequencer: Sequencer,
-}
-
-impl Future for StreamReader {
-    type Output = io::Result<()>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut buf: [u8; 16384] = [0; 16384];
-        loop {
-            match self.stream.poll_read(cx, &mut buf) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Ok(0)) => {
-                    // see RETURN VALUE section of recv man page (Unix)
-                    debug!(
-                        self.logger,
-                        "Stream from {} was closed: (0-byte read)", self.peer_addr
-                    );
-                    self.shutdown();
-                    return Poll::Ready(Ok(()));
-                }
-                Poll::Ready(Ok(len)) => {
-                    if self.logger.trace_enabled() {
-                        trace!(
-                            self.logger,
-                            "Read {}-byte chunk from {}: {}",
-                            len,
-                            self.peer_addr,
-                            utils::to_string(&Vec::from(&buf[0..len]))
-                        );
-                    }
-                    let stream_key = self.stream_key;
-                    self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
-                }
-                Poll::Ready(Err(e)) => {
-                    if indicates_dead_stream(e.kind()) {
-                        debug!(
-                            self.logger,
-                            "Stream from {} was closed: {}", self.peer_addr, e
-                        );
-                        self.shutdown();
-                        return Poll::Ready(Err(e));
-                    } else {
-                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors,
-                        // we go into a tight loop and do not return
-                        warning!(
-                            self.logger,
-                            "Continuing after read error on stream from {}: {}",
-                            self.peer_addr,
-                            e
-                        );
-                    }
-                }
-            }
-        }
-    }
 }
 
 impl StreamReader {
@@ -94,6 +41,60 @@ impl StreamReader {
             peer_addr,
             logger: Logger::new(&format!("StreamReader for {:?}/{}", stream_key, peer_addr)[..]),
             sequencer: Sequencer::new(),
+        }
+    }
+
+    const BUF_LEN: usize = 16384;
+    pub async fn go(mut self) -> io::Result<()> {
+        let mut buf: [u8; Self::BUF_LEN] = [0; Self::BUF_LEN];
+        loop {
+            let prev_buf_len = Self::BUF_LEN;
+            match self.stream.as_mut().read(&mut buf).await {
+                Ok(_) => {
+                    let len = Self::BUF_LEN - prev_buf_len;
+                    if len == 0 {
+                        // see RETURN VALUE section of recv man page (Unix)
+                        debug!(
+                        self.logger,
+                        "Stream from {} was closed: (0-byte read)", self.peer_addr
+                    );
+                        self.shutdown();
+                        return Ok(());
+                    }
+                    else {
+                        if self.logger.trace_enabled() {
+                            trace!(
+                            self.logger,
+                            "Read {}-byte chunk from {}: {}",
+                            len,
+                            self.peer_addr,
+                            utils::to_string(&Vec::from(&buf[0..len]))
+                        );
+                        }
+                        let stream_key = self.stream_key;
+                        self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
+                    }
+                }
+                Err(e) => {
+                    if indicates_dead_stream(e.kind()) {
+                        debug!(
+                            self.logger,
+                            "Stream from {} was closed: {}", self.peer_addr, e
+                        );
+                        self.shutdown();
+                        return Err(e);
+                    } else {
+                        // TODO this could be exploitable and inefficient: if we keep getting non-dead-stream errors,
+                        // we go into a tight loop and do not return
+                        warning!(
+                            self.logger,
+                            "Continuing after read error on stream from {}: {}",
+                            self.peer_addr,
+                            e
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -133,8 +134,8 @@ mod tests {
     use std::str::FromStr;
     use std::thread;
 
-    #[test]
-    fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
+    #[tokio::test]
+    async fn stream_reader_assigns_a_sequence_to_client_response_payloads() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
 
         let read_results = vec![
@@ -143,47 +144,35 @@ mod tests {
             b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec(),
         ];
 
-        let mut stream = Box::new(ReadHalfWrapperMock::new());
+        let mut stream = ReadHalfWrapperMock::new()
+            .read_result(Ok(b"HTTP/1.1 200".to_vec()))
+            .read_result(Ok(b" OK\r\n\r\nHTTP/1.1 40".to_vec()))
+            .read_result(Ok(b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()))
+            .read_result(Ok(vec![]));
 
-        stream.poll_read_results = vec![
-            (
-                read_results[0].clone(),
-                Poll::Ready(Ok(read_results[0].len())),
-            ),
-            (
-                read_results[1].clone(),
-                Poll::Ready(Ok(read_results[1].len())),
-            ),
-            (
-                read_results[2].clone(),
-                Poll::Ready(Ok(read_results[2].len())),
-            ),
-            (vec![], Poll::Ready(Ok(0))),
-        ];
-
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
 
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
-            system.run();
+            system.run().unwrap();
         });
 
         let proxy_client_sub = rx.recv().unwrap();
-        let (stream_killer, stream_killer_params) = unbounded_channel();
+        let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
-            stream,
+            stream: Box::new(stream),
             stream_killer,
             peer_addr: SocketAddr::from_str("8.7.4.3:50").unwrap(),
             logger: Logger::new("test"),
             sequencer: Sequencer::new(),
         };
 
-        let _res = subject.poll();
+        let _res = subject.go().await;
 
         proxy_client_awaiter.await_message_count(3);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
@@ -221,38 +210,25 @@ mod tests {
         assert_eq!(stream_killer_parameters, (make_meaningless_stream_key(), 3));
     }
 
-    #[test]
-    fn stream_reader_can_handle_multiple_packets_followed_by_dropped_stream() {
+    #[tokio::test]
+    async fn stream_reader_can_handle_multiple_packets_followed_by_dropped_stream() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let mut stream = ReadHalfWrapperMock::new();
-        stream.poll_read_results = vec![
-            (
-                Vec::from(&b"HTTP/1.1 200"[..]),
-                Poll::Ready(Ok(b"HTTP/1.1 200".len())),
-            ),
-            (
-                Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..]),
-                Poll::Ready(Ok(b" OK\r\n\r\nHTTP/1.1 40".len())),
-            ),
-            (
-                Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..]),
-                Poll::Ready(Ok(
-                    b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".len(),
-                )),
-            ),
-            (vec![], Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe)))),
-        ];
-        let (tx, rx) = unbounded_channel();
+        let mut stream = ReadHalfWrapperMock::new()
+            .read_result(Ok(Vec::from(&b"HTTP/1.1 200"[..])))
+            .read_result(Ok(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..])))
+            .read_result(Ok(Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..])))
+            .read_result(Err(Error::from(ErrorKind::BrokenPipe)));
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
 
-            system.run();
+            system.run().unwrap();
         });
         let proxy_client_sub = rx.recv().unwrap();
-        let (stream_killer, stream_killer_params) = unbounded_channel();
+        let (stream_killer, stream_killer_params) = unbounded();
         let mut subject = StreamReader {
             stream_key: make_meaningless_stream_key(),
             proxy_client_sub,
@@ -263,9 +239,9 @@ mod tests {
             sequencer: Sequencer::new(),
         };
 
-        let result = subject.poll();
+        let result = subject.go().await;
 
-        assert_eq!(result, Err(()));
+        assert_eq!(result.err().unwrap().kind(), ErrorKind::BrokenPipe);
         proxy_client_awaiter.await_message_count(3);
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
@@ -306,13 +282,13 @@ mod tests {
         assert!(stream_killer_params.try_recv().is_err());
     }
 
-    #[test]
-    fn receiving_0_bytes_kills_stream() {
+    #[tokio::test]
+    async fn receiving_0_bytes_kills_stream() {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
-        let (stream_killer, kill_stream_params) = unbounded_channel();
-        let mut stream = ReadHalfWrapperMock::new();
-        stream.poll_read_results = vec![(vec![], Poll::Ready(Ok(0)))];
+        let (stream_killer, kill_stream_params) = unbounded();
+        let mut stream = ReadHalfWrapperMock::new()
+            .read_result(Ok(vec![]));
 
         let system = System::new();
         let peer_actors = peer_actors_builder().build();
@@ -330,33 +306,28 @@ mod tests {
             sequencer,
         };
         System::current().stop_with_code(0);
-        system.run();
+        system.run().unwrap();
 
-        let result = subject.poll();
+        let result = subject.go().await;
 
-        assert_eq!(result, Poll::Ready(Ok(())));
+        let _ = result.unwrap(); // no panic; result is Ok(())
         assert_eq!(kill_stream_params.try_recv().unwrap(), (stream_key, 2));
         TestLogHandler::new()
             .exists_log_containing("Stream from 5.3.4.3:654 was closed: (0-byte read)");
     }
 
-    #[test]
-    fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
+    #[tokio::test]
+    async fn non_dead_stream_read_errors_log_but_do_not_shut_down() {
         init_test_logging();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
         let stream_key = make_meaningless_stream_key();
-        let (stream_killer, _) = unbounded_channel();
-        let mut stream = ReadHalfWrapperMock::new();
-        stream.poll_read_results = vec![
-            (vec![], Poll::Ready(Err(Error::from(ErrorKind::Other)))),
-            (
-                Vec::from(&b"HTTP/1.1 200 OK\r\n\r\n"[..]),
-                Poll::Ready(Ok(b"HTTP/1.1 200 OK\r\n\r\n".len())),
-            ),
-            (vec![], Poll::Ready(Err(Error::from(ErrorKind::BrokenPipe)))),
-        ];
+        let (stream_killer, _) = unbounded();
+        let mut stream = ReadHalfWrapperMock::new()
+            .read_result(Err(Error::from(ErrorKind::Other)))
+            .read_result(Ok(b"HTTP/1.1 200 OK\r\n\r\n".to_vec()))
+            .read_result(Err(Error::from(ErrorKind::BrokenPipe)));
 
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new();
@@ -364,7 +335,7 @@ mod tests {
 
             tx.send(peer_actors.proxy_client_opt.unwrap().inbound_server_data)
                 .expect("Internal Error");
-            system.run();
+            system.run().unwrap();
         });
 
         let proxy_client_sub = rx.recv().unwrap();
@@ -378,9 +349,9 @@ mod tests {
             sequencer: Sequencer::new(),
         };
 
-        let result = subject.poll();
+        let result = subject.go().await;
 
-        assert_eq!(result, Err(()));
+        assert_eq!(result.err().unwrap().kind(), ErrorKind::BrokenPipe);
         proxy_client_awaiter.await_message_count(1);
         TestLogHandler::new().exists_log_containing(
             "WARN: test: Continuing after read error on stream from 6.5.4.1:8325: other error",

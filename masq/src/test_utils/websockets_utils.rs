@@ -1,10 +1,6 @@
-// Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+//Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::messages::NODE_UI_PROTOCOL;
-use crate::websockets_handshake::{
-    ws_url, HandshakeResultTx, MASQClientWSHandshakeHandler, WSClientConnectionInitiator,
-    WSHandshakeHandlerFactory, WS_CLIENT_CONNECT_TIMEOUT_MS,
-};
+use masq_lib::messages::NODE_UI_PROTOCOL;
 use async_channel::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -65,58 +61,4 @@ fn arrange_utils(ws: WebSocket) -> (WebSocket, Sender<(Message, Ack)>, Receiver<
     let talker_half = ws.sender_tx().clone();
     let listener_half = ws.receiver_rx().clone();
     (ws, talker_half, listener_half)
-}
-
-#[derive(Default)]
-pub struct WSHandshakeHandlerFactoryMock {
-    make_params: Arc<Mutex<Vec<HandshakeResultTx>>>,
-    make_results: Arc<Mutex<Vec<WSHandshakeHandlerFactoryResult>>>,
-}
-
-impl WSHandshakeHandlerFactory for WSHandshakeHandlerFactoryMock {
-    fn make(&self, confirmation_rx: HandshakeResultTx) -> Arc<dyn Handshake> {
-        self.make_params
-            .lock()
-            .unwrap()
-            .push(confirmation_rx.clone());
-        match self.make_results.lock().unwrap().remove(0) {
-            WSHandshakeHandlerFactoryResult::Complete(handler) => handler,
-            WSHandshakeHandlerFactoryResult::ToBeConstructed(handler_constructor) => {
-                handler_constructor(confirmation_rx)
-            }
-        }
-    }
-}
-
-impl WSHandshakeHandlerFactoryMock {
-    pub fn make_params(mut self, params: Arc<Mutex<Vec<HandshakeResultTx>>>) -> Self {
-        self.make_params = params.clone();
-        self
-    }
-
-    pub fn make_plain_result(self, result: Arc<dyn Handshake>) -> Self {
-        self.make_results
-            .lock()
-            .unwrap()
-            .push(WSHandshakeHandlerFactoryResult::Complete(result));
-        self
-    }
-
-    pub fn make_result_constructor(
-        self,
-        constructor: Box<dyn FnOnce(HandshakeResultTx) -> Arc<dyn Handshake> + Send>,
-    ) -> Self {
-        self.make_results
-            .lock()
-            .unwrap()
-            .push(WSHandshakeHandlerFactoryResult::ToBeConstructed(
-                constructor,
-            ));
-        self
-    }
-}
-
-enum WSHandshakeHandlerFactoryResult {
-    Complete(Arc<dyn Handshake>),
-    ToBeConstructed(Box<dyn FnOnce(HandshakeResultTx) -> Arc<dyn Handshake> + Send>),
 }

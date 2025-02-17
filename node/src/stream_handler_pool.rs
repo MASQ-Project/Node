@@ -26,8 +26,8 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
-use actix::Addr;
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, MessageScheduler, NODE_MAILBOX_CAPACITY};
+use actix::{Addr, Supervised};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -41,7 +41,7 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
-
+use crate::sub_lib::channel_wrappers::{FuturesChannelFactory, FuturesChannelFactoryReal, SenderWrapper};
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
 // overseen by StreamHandlerPool will not (and should not) have StreamKeys. Don't let the
@@ -119,6 +119,12 @@ pub struct StreamHandlerPool {
 
 impl Actor for StreamHandlerPool {
     type Context = Context<Self>;
+}
+
+impl Supervised for StreamHandlerPool {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Handler<AddStreamMsg> for StreamHandlerPool {
@@ -270,7 +276,7 @@ impl StreamHandlerPool {
             local_addr,
             peer_addr
         );
-        tokio::spawn(stream_reader);
+        tokio::spawn(stream_reader.run());
     }
 
     fn set_up_stream_writer(
@@ -284,9 +290,9 @@ impl StreamHandlerPool {
             .insert(StreamWriterKey::from(peer_addr), Some(tx));
 
         if is_clandestine {
-            tokio::spawn(StreamWriterUnsorted::new(write_stream, peer_addr, rx));
+            StreamWriterUnsorted::spawn(write_stream, peer_addr, rx);
         } else {
-            tokio::spawn(StreamWriterSorted::new(write_stream, peer_addr, rx));
+            StreamWriterSorted::spawn(write_stream, peer_addr, rx);
         };
     }
 
@@ -499,7 +505,7 @@ impl StreamHandlerPool {
         };
 
         let packet_len = packet.data.len();
-        match tx_box.unbounded_send(packet) {
+        match tx_box.send(packet) {
             Err(e) => {
                 error!(
                     self.logger,
@@ -573,16 +579,20 @@ impl StreamHandlerPool {
         );
         let failure_handler = StreamStartFailureHandler::new(self, &msg, peer_addr);
         let success_handler = StreamStartSuccessHandler::new(self, msg, peer_addr);
+        let stream_connector = self.stream_connector.dup();
+        let logger = self.logger.clone();
 
-        let connect_future = self
-            .stream_connector
-            .connect(peer_addr, &self.logger)
-            .map(move |connection_info| success_handler.handle(connection_info))
-            .map_err(move |err| {
-                // connection was unsuccessful
-                failure_handler.handle(err)
-            });
-
+        let connect_future = async move {
+            match stream_connector.connect(peer_addr, &logger).await {
+                Ok(connection_info) => {
+                    success_handler.handle(connection_info);
+                },
+                Err(err) => {
+                    // connection was unsuccessful
+                    failure_handler.handle(err);
+                }
+            }
+        };
         debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
         tokio::spawn(connect_future);
     }
@@ -785,9 +795,9 @@ mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::task::Poll;
     use std::thread;
     use std::time::SystemTime;
-    use tokio::prelude::Async;
 
     #[test]
     fn constants_have_correct_values() {
@@ -844,14 +854,14 @@ mod tests {
             let connection_info = ConnectionInfo {
                 reader: Box::new(
                     ReadHalfWrapperMock::new()
-                        .poll_read_ok(one_http_req.clone())
-                        .poll_read_ok(second_chunk.clone())
-                        .poll_read_result(vec![], Err(Error::from(ErrorKind::BrokenPipe))),
+                        .read_ok(one_http_req.as_slice())
+                        .read_ok(second_chunk.as_slice())
+                        .read_result(Err(Error::from(ErrorKind::BrokenPipe))),
                 ),
                 writer: Box::new(
                     WriteHalfWrapperMock::new()
-                        .poll_write_result(Ok(Async::Ready(one_http_req.len())))
-                        .poll_write_result(Ok(Async::Ready(second_chunk.len()))),
+                        .write_result(Ok(one_http_req.len()))
+                        .write_result(Ok(second_chunk.len())),
                 ),
                 local_addr,
                 peer_addr,
@@ -935,13 +945,13 @@ mod tests {
     #[test]
     fn stream_handler_pool_writes_data_to_stream_writer() {
         init_test_logging();
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
+        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
-            .poll_write_result(Err(Error::from(ErrorKind::Other)))
-            .poll_write_result(Ok(Async::Ready(5)))
-            .poll_write_result(Ok(Async::NotReady))
-            .poll_write_params(&write_stream_params_arc);
+            .write_result(Err(Error::from(ErrorKind::Other)))
+            .write_result(Ok(5))
+            .write_result(Ok(0))
+            .write_params(&write_stream_params_arc);
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
@@ -1006,7 +1016,7 @@ mod tests {
     #[test]
     fn terminal_packet_is_transmitted_and_then_stream_is_shut_down() {
         init_test_logging();
-        let (sub_tx, sub_rx) = unbounded_channel();
+        let (sub_tx, sub_rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1034,13 +1044,13 @@ mod tests {
 
         let subject_subs = sub_rx.recv().unwrap();
 
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
-        let poll_write_params_arc = Arc::new(Mutex::new(vec![]));
+        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
+        let write_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
-            .poll_write_result(Ok(Async::Ready(2)))
-            .poll_write_result(Ok(Async::NotReady))
-            .poll_write_params(&poll_write_params_arc)
-            .poll_close_ok();
+            .write_result(Ok(2))
+            .write_result(Ok(0))
+            .write_params(&write_params_arc)
+            .shutdown_result(Ok(()));
         let local_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.4.5:5673").unwrap();
         let connection_info = ConnectionInfo {
@@ -1078,12 +1088,12 @@ mod tests {
             1000,
         );
 
-        await_messages(1, &poll_write_params_arc);
-        let poll_write_params = poll_write_params_arc
+        await_messages(1, &write_params_arc);
+        let write_params = write_params_arc
             .lock()
             .expect("is this really the poison error? NO!");
-        assert_eq!(poll_write_params.len(), 1);
-        assert_eq!(*poll_write_params, vec![vec![0x12, 0x34]]);
+        assert_eq!(write_params.len(), 1);
+        assert_eq!(*write_params, vec![vec![0x12, 0x34]]);
 
         subject_subs
             .transmit_sub
@@ -1104,11 +1114,11 @@ mod tests {
     #[test]
     fn stream_handler_pool_removes_stream_when_it_gets_the_remove_stream_msg() {
         init_test_logging();
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
+        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
-            .poll_write_result(Ok(Async::Ready(2)))
-            .poll_write_params(&write_stream_params_arc);
+            .write_result(Ok(2))
+            .write_params(&write_stream_params_arc);
         let local_addr = SocketAddr::from_str("1.2.3.4:5673").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:5673").unwrap();
 
@@ -1120,8 +1130,8 @@ mod tests {
             subject.stream_connector = Box::new(StreamConnectorMock::new().connection(
                 local_addr,
                 peer_addr,
-                vec![(vec![], Ok(Async::NotReady))],
-                vec![Ok(Async::Ready(2))],
+                vec![(vec![], Ok(()))],
+                vec![Ok(2)],
             ));
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
@@ -1368,27 +1378,25 @@ mod tests {
         let outgoing_masked_len = outgoing_masked.len();
         let (dispatcher, dispatcher_awaiter, dispatcher_recording_arc) = make_recorder();
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-        let poll_write_params_arc = Arc::new(Mutex::new(vec![]));
-        let poll_write_params_arc_a = poll_write_params_arc.clone();
-        let (tx, rx) = unbounded_channel();
+        let write_params_arc = Arc::new(Mutex::new(vec![]));
+        let write_params_arc_a = write_params_arc.clone();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new(
-                "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
-            );
+            let system = System::new();
             let discriminator_factory = JsonDiscriminatorFactory::new();
             let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new().connect_pair_result(Ok(ConnectionInfo {
                     reader: Box::new(
                         ReadHalfWrapperMock::new()
-                            .poll_read_ok(incoming_masked)
-                            .poll_read_result(vec![], Ok(Async::NotReady)),
+                            .read_ok(incoming_masked.as_slice())
+                            .read_result(Ok(vec![])),
                     ),
                     writer: Box::new(
                         WriteHalfWrapperMock::new()
-                            .poll_write_ok(outgoing_masked_len)
-                            .poll_write_result(Ok(Async::NotReady))
-                            .poll_write_params(&poll_write_params_arc),
+                            .write_result(Ok(outgoing_masked_len))
+                            .write_result(Ok(0))
+                            .write_params(&write_params_arc),
                     ),
                     local_addr: SocketAddr::from_str("127.0.0.1:54321").unwrap(),
                     peer_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
@@ -1443,10 +1451,10 @@ mod tests {
             })
             .unwrap();
 
-        await_messages(1, &poll_write_params_arc_a);
+        await_messages(1, &write_params_arc_a);
         let after = SystemTime::now();
-        let poll_write_params = poll_write_params_arc_a.lock().unwrap();
-        assert_eq!(poll_write_params[0], outgoing_masked);
+        let write_params = write_params_arc_a.lock().unwrap();
+        assert_eq!(write_params[0], outgoing_masked);
 
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
@@ -1481,18 +1489,18 @@ mod tests {
     fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
         init_test_logging();
         let key = PublicKey::from(vec![8, 4, 8, 4]);
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
+        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
-            .poll_write_result(Err(Error::from(ErrorKind::Other)))
-            .poll_write_result(Ok(Async::Ready(5)))
-            .poll_write_result(Ok(Async::NotReady))
-            .poll_write_params(&write_stream_params_arc);
+            .write_result(Err(Error::from(ErrorKind::Other)))
+            .write_result(Ok(5))
+            .write_result(Ok(0))
+            .write_params(&write_stream_params_arc);
         let local_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
         let (neighborhood, awaiter, recording_arc) = make_recorder();
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1685,7 +1693,7 @@ mod tests {
         };
         let msg_a = msg.clone();
 
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1734,16 +1742,16 @@ mod tests {
         );
 
         let local_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
-        let poll_write_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let write_params_arc = Arc::new(Mutex::new(Vec::new()));
 
         let connection_info = ConnectionInfo {
             reader: Box::new(
-                ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady)),
+                ReadHalfWrapperMock::new().read_result(Ok(vec![])),
             ),
             writer: Box::new(
                 WriteHalfWrapperMock::new()
-                    .poll_write_result(Ok(Async::NotReady))
-                    .poll_write_params(&poll_write_params_arc),
+                    .write_result(Ok(0))
+                    .write_params(&write_params_arc),
             ),
             local_addr,
             peer_addr: peer_addr_a,
@@ -1761,10 +1769,10 @@ mod tests {
             ))
             .unwrap();
 
-        await_messages(1, &poll_write_params_arc);
-        let poll_write_params = poll_write_params_arc.lock().unwrap();
+        await_messages(1, &write_params_arc);
+        let write_params = write_params_arc.lock().unwrap();
 
-        assert_eq!(poll_write_params[0], msg_a.data);
+        assert_eq!(write_params[0], msg_a.data);
     }
 
     #[test]
@@ -1833,22 +1841,22 @@ mod tests {
         let expected_data = JsonMasquerader::new().mask(&msg_a.data).unwrap();
 
         let local_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
-        let poll_write_params_arc = Arc::new(Mutex::new(Vec::new()));
+        let write_params_arc = Arc::new(Mutex::new(Vec::new()));
 
         let connection_info = ConnectionInfo {
             reader: Box::new(
-                ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady)),
+                ReadHalfWrapperMock::new().read_result(Ok(vec![])),
             ),
             writer: Box::new(
                 WriteHalfWrapperMock::new()
-                    .poll_write_params(&poll_write_params_arc)
-                    .poll_write_result(Ok(Async::Ready(expected_data.len()))),
+                    .write_params(&write_params_arc)
+                    .write_result(Ok(expected_data.len())),
             ),
             local_addr,
             peer_addr: peer_addr_a,
         };
         let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
 
         thread::spawn(move || {
             let system = System::new();
@@ -1903,11 +1911,11 @@ mod tests {
             })
             .unwrap();
 
-        await_messages(1, &poll_write_params_arc);
-        let poll_write_params = poll_write_params_arc.lock().unwrap();
+        await_messages(1, &write_params_arc);
+        let write_params = write_params_arc.lock().unwrap();
 
-        assert_eq!(poll_write_params[0], expected_data);
-        assert_eq!(poll_write_params.len(), 1);
+        assert_eq!(write_params[0], expected_data);
+        assert_eq!(write_params.len(), 1);
 
         neighborhood_awaiter.await_message_count(1);
         let connection_progress_message =
@@ -2028,13 +2036,13 @@ mod tests {
         let masked_hello = JsonMasquerader::new().mask(&hello).unwrap();
         let masked_worlds = JsonMasquerader::new().mask(&worlds).unwrap();
 
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
+        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
-            .poll_write_result(Ok(Async::Ready(masked_hello.len())))
-            .poll_write_result(Ok(Async::Ready(masked_worlds.len())))
-            .poll_write_result(Ok(Async::NotReady))
-            .poll_write_params(&write_stream_params_arc);
+            .write_result(Ok(masked_hello.len()))
+            .write_result(Ok(masked_worlds.len()))
+            .write_result(Ok(0))
+            .write_params(&write_stream_params_arc);
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
@@ -2106,8 +2114,8 @@ mod tests {
     #[test]
     fn stream_handler_pool_drops_data_when_masking_fails() {
         init_test_logging();
-        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
-        let writer = WriteHalfWrapperMock::new().poll_write_result(Ok(Async::NotReady));
+        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
+        let writer = WriteHalfWrapperMock::new().write_result(Ok(0));
         let local_addr = SocketAddr::from_str("1.2.3.4:6789").unwrap();
         let peer_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
 
@@ -2168,11 +2176,9 @@ mod tests {
         init_test_logging();
         let outgoing_unmasked = b"Outgoing data".to_vec();
         let outgoing_unmasked_len = outgoing_unmasked.len();
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
-            let system = System::new(
-                "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
-            );
+            let system = System::new();
             let discriminator_factory = JsonDiscriminatorFactory::new();
             let mut subject = StreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
             subject.stream_connector = Box::new(StreamConnectorMock::new()); // this will panic if a connection is attempted

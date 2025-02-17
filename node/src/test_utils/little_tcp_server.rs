@@ -24,8 +24,8 @@ impl LittleTcpServer {
     pub fn start() -> LittleTcpServer {
         let listener = TcpListener::bind(SocketAddr::new(localhost(), 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let (tx, rx) = unbounded_channel();
-        let (count_tx, count_rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
+        let (count_tx, count_rx) = unbounded();
         thread::spawn(move || {
             let mut buf = [0u8; 1024];
             loop {

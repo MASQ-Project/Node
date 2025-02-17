@@ -14,9 +14,6 @@ use futures::future::join_all;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use masq_lib::websockets_handshake::{
-    WSClientConnectionInitiator, WSHandshakeHandlerFactory, WSHandshakeHandlerFactoryReal,
-};
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,14 +66,12 @@ pub enum ServicesDeploymentError {
 
 pub struct CMBootstrapper {
     pub standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-    pub ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
 }
 
 impl Default for CMBootstrapper {
     fn default() -> Self {
         Self::new(
             Box::new(StandardBroadcastHandlerFactoryReal::default()),
-            Arc::new(WSHandshakeHandlerFactoryReal::default()),
         )
     }
 }
@@ -84,11 +79,9 @@ impl Default for CMBootstrapper {
 impl CMBootstrapper {
     fn new(
         standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-        ws_handshake_handler_factory_arc: Arc<dyn WSHandshakeHandlerFactory>,
     ) -> Self {
         Self {
             standard_broadcast_handler_factory,
-            ws_handshake_handler_factory_arc,
         }
     }
 
@@ -108,7 +101,6 @@ impl CMBootstrapper {
             port,
             listener_to_manager_tx,
             close_sig_client_listener,
-            self.ws_handshake_handler_factory_arc.clone(),
             STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS,
         )
         .await
@@ -277,7 +269,6 @@ async fn establish_client_listener(
     port: u16,
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     close_sig_rx: BroadcastReceiver<()>,
-    ws_handshake_handler_factory: Arc<dyn WSHandshakeHandlerFactory>,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
     let conn_initiator =
@@ -448,7 +439,7 @@ impl CentralEventLoop {
             Ok(OutgoingMessageType::ConversationMessage (message_body)) => match message_body.path {
                 MessagePath::Conversation(context_id) => {
                     if let Some(_) = inner.conversations.get(&context_id){
-                        let send_message_result = inner.ws_client_handle.send(Message::Text(UiTrafficConverter::new_marshal(message_body))).await;
+                        let send_message_result = inner.ws_client_handle.send_msg(Message::Text(UiTrafficConverter::new_marshal(message_body))).await;
                         match send_message_result {
                             Ok(_) => {
                                 inner.conversations_waiting.insert(context_id);
@@ -465,7 +456,7 @@ impl CentralEventLoop {
             },
             Ok(OutgoingMessageType::FireAndForgetMessage(message_body, context_id)) => match message_body.path {
                 MessagePath::FireAndForget => {
-                    match inner.ws_client_handle.send(Message::Text(UiTrafficConverter::new_marshal(message_body))).await {
+                    match inner.ws_client_handle.send_msg(Message::Text(UiTrafficConverter::new_marshal(message_body))).await {
                         Ok (_) => {
                             if let Some(manager_to_conversation_tx) = inner.conversations.get(&context_id) {
                                 match manager_to_conversation_tx.send(Err(NodeConversationTermination::FiredAndForgotten)).await {

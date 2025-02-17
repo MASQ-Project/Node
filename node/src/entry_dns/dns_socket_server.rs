@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::entry_dns::processing;
-use crate::sub_lib::socket_server::{ConfiguredByPrivilege, ConfiguredServer};
+use crate::sub_lib::socket_server::{ConfiguredByPrivilege, SpawnableConfiguredByPrivilege};
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
 use masq_lib::command::StdStreams;
@@ -9,28 +9,32 @@ use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
 use std::net::SocketAddr;
+use async_trait::async_trait;
 
 const DNS_PORT: u16 = 53;
 
 pub struct DnsSocketServer {
     socket_wrapper: Box<dyn UdpSocketWrapperTrait>,
     logger: Logger,
+    // TODO: I think this field is unnecessary. It's only used in the async block below, so it could be a local variable.
     buf: [u8; 65536],
 }
 
+#[async_trait(?Send)]
 impl ConfiguredByPrivilege for DnsSocketServer {
-    fn initialize_as_privileged(
+    async fn initialize_as_privileged(
         &mut self,
         _multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
         let socket_addr = SocketAddr::new(localhost(), DNS_PORT);
         self.socket_wrapper
             .bind(socket_addr)
+            .await
             .unwrap_or_else(|e| panic!("Cannot bind socket to {:?}: {:?}", socket_addr, e));
         Ok(())
     }
 
-    fn initialize_as_unprivileged(
+    async fn initialize_as_unprivileged(
         &mut self,
         _multi_config: &MultiConfig,
         _streams: &mut StdStreams<'_>,
@@ -41,8 +45,9 @@ impl ConfiguredByPrivilege for DnsSocketServer {
     }
 }
 
-impl ConfiguredServer for DnsSocketServer {
-    async fn make_server_future(self) -> std::io::Result<()> {
+#[async_trait]
+impl SpawnableConfiguredByPrivilege for DnsSocketServer {
+    async fn make_server_future(&mut self) -> std::io::Result<()> {
         loop {
             let mut buffer = self.buf;
             let (len, socket_addr) = match self.socket_wrapper.recv_from(&mut buffer).await {
@@ -92,7 +97,7 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use crate::test_utils::unshared_test_utils::{make_rt, make_simplified_multi_config};
+    use crate::test_utils::unshared_test_utils::{make_simplified_multi_config};
     use hickory_proto::op::ResponseCode;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -107,9 +112,8 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use tokio;
-    use tokio::runtime::Runtime;
-    use tokio::task;
+    use async_trait::async_trait;
+    use masq_lib::test_utils::utils::make_rt;
 
     #[test]
     fn constants_have_correct_values() {
@@ -128,8 +132,9 @@ mod tests {
         send_to_results: Arc<Mutex<Vec<io::Result<usize>>>>,
     }
 
+    #[async_trait]
     impl UdpSocketWrapperTrait for UdpSocketWrapperMock {
-        fn bind(&mut self, addr: SocketAddr) -> io::Result<bool> {
+        async fn bind(&mut self, addr: SocketAddr) -> io::Result<bool> {
             let mut unwrapped_guts = self.guts.lock().unwrap();
             let guts_ref = unwrapped_guts.borrow_mut();
             let guts: &mut UdpSocketWrapperMockGuts = guts_ref.deref_mut();
@@ -197,13 +202,14 @@ mod tests {
         }
     }
 
-    #[test]
-    fn uses_standard_dns_port() {
+    #[tokio::test]
+    async fn uses_standard_dns_port() {
         let socket_wrapper = make_socket_wrapper_mock();
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
 
         subject
             .initialize_as_privileged(&make_simplified_multi_config([]))
+            .await
             .unwrap();
 
         let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
@@ -212,8 +218,8 @@ mod tests {
         assert_eq!(log[0], "bind ('127.0.0.1:53')")
     }
 
-    #[test]
-    fn serves_multiple_requests_then_short_circuits_on_error() {
+    #[tokio::test]
+    async fn serves_multiple_requests_then_short_circuits_on_error() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let (log, mut buf) = {
@@ -245,10 +251,10 @@ mod tests {
                     &make_simplified_multi_config([]),
                     &mut holder.streams(),
                 )
+                .await
                 .unwrap();
-            let future = subject.make_server_future();
 
-            make_rt().block_on(future).unwrap();
+            let _ = subject.make_server_future().await.unwrap();
 
             let unwrapped_guts = socket_wrapper.guts.lock().unwrap();
             let borrowed_guts = unwrapped_guts.borrow();
@@ -280,8 +286,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn server_handles_error_receiving_from_udp_socket_wrapper() {
+    #[tokio::test]
+    async fn server_handles_error_receiving_from_udp_socket_wrapper() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
@@ -293,10 +299,10 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
+            .await
             .unwrap();
-        let future = subject.make_server_future();
 
-        let result = make_rt().block_on(future);
+        let result = subject.make_server_future().await;
 
         assert!(result.is_err());
         TestLogHandler::new().await_log_containing(
@@ -305,8 +311,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn poll_handles_error_sending_to_udp_socket_wrapper() {
+    #[tokio::test]
+    async fn poll_handles_error_sending_to_udp_socket_wrapper() {
         init_test_logging();
         let mut holder = FakeStreamHolder::new();
         let socket_wrapper = make_socket_wrapper_mock();
@@ -322,10 +328,10 @@ mod tests {
         let mut subject = make_instrumented_subject(socket_wrapper.clone());
         subject
             .initialize_as_unprivileged(&make_simplified_multi_config([]), &mut holder.streams())
+            .await
             .unwrap();
-        let future = subject.make_server_future();
 
-        let result = make_rt().block_on(future);
+        let result = subject.make_server_future().await;
 
         assert!(result.is_err());
         TestLogHandler::new().await_log_containing(

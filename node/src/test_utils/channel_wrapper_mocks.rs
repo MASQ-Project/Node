@@ -1,19 +1,18 @@
 use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
-use futures::sync::mpsc::SendError;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
-use tokio::prelude::Async;
+use async_trait::async_trait;
+use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>);
 
 #[derive(Default)]
 pub struct FuturesChannelFactoryMock<T> {
-    pub results: Vec<FuturesChannelFactoryMockResult<T>>,
+    make_results: Vec<FuturesChannelFactoryMockResult<T>>,
 }
 
 impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChannelFactoryMock<T> {
@@ -21,37 +20,60 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
         &mut self,
         peer_addr: SocketAddr,
     ) -> (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>) {
-        if self.results.is_empty() {
+        if self.make_results.is_empty() {
             (
                 Box::new(SenderWrapperMock::new(peer_addr)),
                 Box::new(ReceiverWrapperMock::new()),
             )
         } else {
-            self.results.remove(0)
+            self.make_results.remove(0)
         }
+    }
+}
+
+impl<T: 'static + Clone + Debug + Send> FuturesChannelFactoryMock<T> {
+    pub fn new() -> Self {
+        Self { make_results: vec![] }
+    }
+
+    pub fn make_result(mut self, sender: SenderWrapperMock<T>, receiver: ReceiverWrapperMock<T>) -> Self {
+        self.make_results.push((Box::new(sender), Box::new(receiver)));
+        self
     }
 }
 
 #[derive(Default)]
 pub struct ReceiverWrapperMock<T> {
-    pub poll_results: Vec<Poll<Result<Option<T>, ()>>>,
+    recv_results: RefCell<Vec<Option<T>>>,
+    try_recv_results: RefCell<Vec<Result<T, TryRecvError>>>,
 }
 
+#[async_trait]
 impl<T: Send> ReceiverWrapper<T> for ReceiverWrapperMock<T> {
-    fn poll(&mut self) -> Result<Async<Option<T>>, ()> {
-        if !self.poll_results.is_empty() {
-            self.poll_results.remove(0)
-        } else {
-            panic!("ReceiverWrapper tried to remove from pull_results but there were none");
-        }
+    async fn recv(&mut self) -> Option<T> {
+        self.recv_results.borrow_mut().remove(0)
+    }
+    fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        self.try_recv_results.borrow_mut().remove(0)
     }
 }
 
 impl<T> ReceiverWrapperMock<T> {
     pub fn new() -> Self {
         Self {
-            poll_results: vec![],
+            recv_results: RefCell::new(vec![]),
+            try_recv_results: RefCell::new(vec![]),
         }
+    }
+
+    pub fn recv_result(mut self, result: Option<T>) -> Self {
+        self.recv_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn try_recv_result(mut self, result: Result<T, TryRecvError>) -> Self {
+        self.try_recv_results.borrow_mut().push(result);
+        self
     }
 }
 
@@ -63,7 +85,7 @@ pub struct SenderWrapperMock<T> {
 }
 
 impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T> {
-    fn unbounded_send(&self, data: T) -> Result<(), SendError<T>> {
+    fn send(&self, data: T) -> Result<(), SendError<T>> {
         self.unbounded_send_params.lock().unwrap().push(data);
         if self.unbounded_send_results.borrow().is_empty() {
             Ok(())
@@ -76,7 +98,7 @@ impl<T: 'static + Clone + Debug + Send> SenderWrapper<T> for SenderWrapperMock<T
         self.peer_addr_result
     }
 
-    fn clone(&self) -> Box<dyn SenderWrapper<T>> {
+    fn dup(&self) -> Box<dyn SenderWrapper<T>> {
         Box::new(SenderWrapperMock {
             peer_addr_result: self.peer_addr_result,
             unbounded_send_params: self.unbounded_send_params.clone(),

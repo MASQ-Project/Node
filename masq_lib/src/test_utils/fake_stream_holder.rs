@@ -25,8 +25,8 @@ pub struct ByteArrayWriterInner {
 }
 
 impl ByteArrayWriterInner {
-    fn new(flush_conscious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
-        let captured_writes = match flush_conscious_mode {
+    fn new(flush_cautious_mode: bool, next_error_opt: Option<std::io::Error>) -> Self {
+        let captured_writes = match flush_cautious_mode {
             false => Either::Left(vec![]),
             true => Either::Right(vec![]),
         };
@@ -364,6 +364,14 @@ impl StringAssertableStdHandle for AsyncByteArrayWriter {
 #[derive(Clone)]
 pub struct AsyncByteArrayReader {
     byte_array_reader_inner: Arc<Mutex<ByteArrayReaderInner>>,
+}
+
+impl Default for AsyncByteArrayReader {
+    fn default() -> Self {
+        Self {
+            byte_array_reader_inner: Arc::new(Mutex::new(ByteArrayReaderInner::default())),
+        }
+    }
 }
 
 impl AsyncRead for AsyncByteArrayReader {

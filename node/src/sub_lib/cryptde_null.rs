@@ -15,6 +15,8 @@ use rustc_hex::ToHex;
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
+use sha1::{Digest, Sha1};
+use sha1::digest::{Output, Update};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
@@ -119,9 +121,10 @@ impl CryptDE for CryptDENull {
     }
 
     fn hash(&self, data: &PlainData) -> CryptData {
-        let mut hash = sha1::Sha1::new();
-        hash.update(data.as_slice());
-        CryptData::new(&hash.digest().bytes())
+        let mut hash = Sha1::new();
+        Digest::update(&mut hash, data.as_slice());
+        let digest = hash.finalize();
+        CryptData::new(digest.as_slice())
     }
 
     fn public_key_to_descriptor_fragment(&self, public_key: &PublicKey) -> String {
@@ -169,7 +172,7 @@ impl CryptDENull {
         let mut private_key = [0; 32];
         let mut rng = thread_rng();
         for byte in &mut private_key {
-            *byte = rng.gen();
+            *byte = rng.random();
         }
         let private_key = PrivateKey::from(&private_key[..]);
         let public_key = Self::public_from_private(&private_key);

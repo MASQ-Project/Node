@@ -25,12 +25,12 @@ pub fn app_head() -> Command {
 
 pub fn app_daemon() -> Command {
     app_head()
-        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()))
         .arg(
-            Arg::with_name("initialization")
+            Arg::new("initialization")
                 .long("initialization")
                 .required(true)
-                .takes_value(false)
+                .num_args(0)
                 .help("Directs MASQ to start the Daemon that controls the Node, rather than the Node itself"),
         )
         .arg(ui_port_arg(DAEMON_UI_PORT_HELP.clone()))
@@ -44,13 +44,13 @@ pub fn app_config_dumper() -> Command {
     app_head()
         .arg(chain_arg())
         .arg(
-            Arg::with_name("dump-config")
+            Arg::new("dump-config")
                 .long("dump-config")
                 .required(true)
-                .takes_value(false)
+                .num_args(0)
                 .help(DUMP_CONFIG_HELP),
         )
-        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
+        .arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.clone()))
         .arg(db_password_arg(DB_PASSWORD_HELP.to_string()))
         .arg(real_user_arg())
 }

@@ -47,10 +47,10 @@ impl DnsUtility {
     fn perform_action(&self, action: Action, streams: &mut StdStreams<'_>) -> u8 {
         let modifier = match self.factory.make() {
             None => {
-                short_writeln!(
+                writeln!(
                     streams.stderr,
                     "Don't know how to modify DNS settings on this system"
-                );
+                ).expect("writeln failed");
                 return 1;
             }
             Some(m) => m,
@@ -67,7 +67,8 @@ impl DnsUtility {
         match result {
             Ok(_) => 0,
             Err(msg) => {
-                short_writeln!(streams.stderr, "Cannot {}: {}", name, msg);
+                writeln!(streams.stderr, "Cannot {}: {}", name, msg)
+                    .expect("writeln failed");
                 1
             }
         }
@@ -87,7 +88,8 @@ impl DnsUtility {
                 e
             ),
         };
-        short_writeln!(stdout, "{}", status);
+        writeln!(stdout, "{}", status)
+            .expect("writeln failed");
         Ok(())
     }
 
@@ -99,10 +101,10 @@ impl DnsUtility {
     }
 
     fn usage(streams: &mut StdStreams<'_>) -> u8 {
-        short_writeln!(
+        writeln!(
             streams.stderr,
             "Usage: dns_utility [ subvert | revert | inspect | status ]"
-        );
+        ).expect("writeln failed");
         1
     }
 }

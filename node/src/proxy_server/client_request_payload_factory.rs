@@ -42,8 +42,8 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
             }
         };
         let data = PlainData::new(&ibcd.data);
-        let target_host = protocol_pack.find_host(&data);
-        let (target_hostname, target_port) = match target_host {
+        let target_host_opt = protocol_pack.find_host(&data);
+        let (target_hostname_opt, target_port) = match target_host_opt {
             Some(host) => match host.port {
                 Some(port) => (Some(host.name), port),
                 None => (Some(host.name), protocol_pack.standard_port()),
@@ -57,7 +57,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 sequence_number,
                 last_data: ibcd.last_data,
             },
-            target_hostname,
+            target_hostname: target_hostname_opt,
             target_port,
             protocol: protocol_pack.proxy_protocol(),
             originator_public_key: cryptde.public_key().clone(),

@@ -24,6 +24,7 @@ use masq_lib::shared_schema::{
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
@@ -37,7 +38,7 @@ pub fn determine_fundamentals(
     let orientation_schema = Command::new("MASQNode")
         .arg(chain_arg())
         .arg(real_user_arg())
-        .arg(data_directory_arg(DATA_DIRECTORY_HELP))
+        .arg(data_directory_arg(DATA_DIRECTORY_HELP.to_string()))
         .arg(config_file_arg());
     let orientation_args: Vec<Box<dyn VclArg>> = merge(
         Box::new(EnvironmentVcl::new(app)),
@@ -104,7 +105,7 @@ pub fn real_user_data_directory_path_and_chain(
     (
         real_user,
         data_directory_path,
-        Chain::from(chain_name.as_str()),
+        Chain::from_str(chain_name.as_str()).expect("Invalid chain name"),
     )
 }
 
@@ -182,10 +183,9 @@ mod tests {
                 "/nonexistent_home/nonexistent_alice".to_string(),
             )),
         );
-        let chain_name = "polygon-mumbai";
 
         let result =
-            data_directory_from_context(&dirs_wrapper, &real_user, Chain::from(chain_name));
+            data_directory_from_context(&dirs_wrapper, &real_user, Chain::PolyMumbai);
 
         assert_eq!(
             result,

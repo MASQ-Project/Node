@@ -1227,9 +1227,7 @@ mod tests {
             data: data_enc.into(),
         };
 
-        let system = System::new(
-            "reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper",
-        );
+        let system = System::new();
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = RoutingService::new(
             CryptDEPair {
@@ -1312,9 +1310,7 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let system = System::new(
-            "route_logs_and_ignores_cores_package_that_demands_routing_without_paying_wallet",
-        );
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -1413,9 +1409,7 @@ mod tests {
             sequence_number: None,
             data: data_enc.into(),
         };
-        let system = System::new(
-            "route_logs_and_ignores_cores_package_that_demands_proxy_client_routing_with_paying_wallet_that_cant_pay",
-        );
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -1511,9 +1505,7 @@ mod tests {
             encodex(main_cryptde, &destination_key, &payload).unwrap(),
         );
 
-        let system = System::new(
-            "route_logs_and_ignores_cores_package_that_demands_hopper_routing_with_paying_wallet_that_cant_pay",
-        );
+        let system = System::new();
         let (proxy_client, _, proxy_client_recording_arc) = make_recorder();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();

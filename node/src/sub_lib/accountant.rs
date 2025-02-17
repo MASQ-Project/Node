@@ -222,8 +222,6 @@ mod tests {
     fn constants_have_correct_values() {
         let default_earning_wallet_expected: Wallet =
             Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
-        let temporary_consuming_wallet_expected: Wallet =
-            Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
         let payment_thresholds_expected = PaymentThresholds {
             debt_threshold_gwei: 1_000_000_000,
             maturity_threshold_sec: 1200,

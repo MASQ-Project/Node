@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use actix::Recipient;
-use futures::Future;
+use actix::{Recipient};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -10,6 +9,13 @@ use std::time::SystemTime;
 use web3::transports::Batch;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
+
+pub enum Web3TransportsResult<O> {
+    Ok(O)
+}
+
+#[derive(Clone)]
+pub struct SecP256K1SecretsKeySecretKey;
 
 pub trait BatchPayableTools<T>
 where
@@ -19,7 +25,7 @@ where
         &self,
         transaction_params: TransactionParameters,
         web3: &Web3<Batch<T>>,
-        key: &secp256k1secrets::key::SecretKey,
+        key: &SecP256K1SecretsKeySecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
     fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>);
     fn batch_wide_timestamp(&self) -> SystemTime;
@@ -32,7 +38,7 @@ where
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error>;
+    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error>;
 }
 
 #[derive(Debug)]
@@ -53,11 +59,12 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
         &self,
         transaction_params: TransactionParameters,
         web3: &Web3<Batch<T>>,
-        key: &secp256k1secrets::key::SecretKey,
+        key: &SecP256K1SecretsKeySecretKey,
     ) -> Result<SignedTransaction, Web3Error> {
-        web3.accounts()
-            .sign_transaction(transaction_params, key)
-            .wait()
+        todo!()
+        // web3.accounts()
+        //     .sign_transaction(transaction_params, key)
+        //     .wait()
     }
 
     fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
@@ -85,8 +92,9 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error> {
-        web3.transport().submit_batch().wait()
+    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error> {
+        todo!()
+        // web3.transport().submit_batch().wait()
     }
 }
 
@@ -111,7 +119,7 @@ mod tests {
 
         let system = System::new();
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let message = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         assert_eq!(

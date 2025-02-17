@@ -37,9 +37,9 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Addr;
+use actix::{Addr, Supervised, System};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -50,7 +50,9 @@ use masq_lib::utils::MutabilityConflictHelper;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
+use std::thread::panicking;
 use std::time::{Duration, SystemTime};
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -86,6 +88,12 @@ pub struct ProxyServer {
 
 impl Actor for ProxyServer {
     type Context = Context<Self>;
+}
+
+impl Supervised for ProxyServer {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Handler<BindMessage> for ProxyServer {
@@ -942,17 +950,14 @@ impl IBCDHelperReal {
             pld.sequenced_packet.data.len()
         );
         let payload_size = pld.sequenced_packet.data.len();
-        tokio::spawn(
-            route_source
+        tokio::spawn(async move {
+            let route_result = route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
                     payload_size,
-                ))
-                .then(move |route_result| {
-                    Self::resolve_route_query_response(tth_args, add_route_sub, route_result);
-                    Ok(())
-                }),
-        );
+                )).await;
+            Self::resolve_route_query_response(tth_args, add_route_sub, route_result);
+        });
         Ok(())
     }
 
@@ -1361,9 +1366,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&make_parameters_arc_thread)
                 .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
@@ -1521,9 +1524,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&stream_key_parameters_arc_thread)
                 .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
@@ -1593,9 +1594,7 @@ mod tests {
             let stream_key_factory = StreamKeyFactoryMock::new()
                 .make_parameters(&stream_key_parameters_arc_thread)
                 .make_result(stream_key);
-            let system = System::new(
-                "proxy_server_receives_connect_responds_with_ok_and_stores_stream_key_and_hostname",
-            );
+            let system = System::new();
             let mut subject = ProxyServer::new(
                 cryptde,
                 alias_cryptde(),
@@ -4345,7 +4344,7 @@ mod tests {
         let cryptde = main_cryptde();
         let stream_key = make_meaningless_stream_key();
 
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = unbounded();
         thread::spawn(move || {
             let system = System::new();
             let mut subject = ProxyServer::new(

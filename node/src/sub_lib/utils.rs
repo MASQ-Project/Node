@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::{InitializationError, DATABASE_FILE};
-use actix::{Actor, AsyncContext, Context, Handler, Message, SpawnHandle};
+use actix::{Actor, AsyncContext, Context, Handler, Message, SpawnHandle, System};
 use clap::Command;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{FromMessageBody, UiCrashRequest};
@@ -14,6 +14,7 @@ use std::any::Any;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::thread::panicking;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -138,6 +139,12 @@ fn crash_request_analyzer(
         Err(_) => None,
         Ok((msg, _)) if msg.actor == crash_key => Some(msg),
         Ok((_, _)) => None,
+    }
+}
+
+pub fn supervisor_restarting() {
+    if panicking() {
+        System::current().stop_with_code(1);
     }
 }
 
@@ -513,7 +520,7 @@ mod tests {
 
     #[test]
     fn notify_handles_real_sends_their_messages_correctly() {
-        let (sender, receiver) = unbounded_channel();
+        let (sender, receiver) = unbounded();
         let test_actor = NotifyHandlesTestActor::new(sender);
         let _ = test_actor.start();
         let system = System::new();

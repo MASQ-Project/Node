@@ -5,12 +5,35 @@ use masq_lib::logger::Logger;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use crate::sub_lib::socket_server::SpawnableConfiguredByPrivilege;
 
 pub struct CrashTestDummy<C> {
     pub configuration: C,
     crash_point: CrashPoint,
     message: String,
     logger: Logger,
+}
+
+impl<C> Future for CrashTestDummy<C>
+where
+    C: Send,
+{
+    type Output = Result<(), ()>;
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.crash_point {
+            CrashPoint::None => Poll::Ready(Ok(())),
+            CrashPoint::Message => Poll::Ready(Ok(())),
+            CrashPoint::Panic => {
+                error!(self.logger, "Intercepted instruction to panic.");
+                panic!("{}", self.message);
+            }
+            CrashPoint::Error => {
+                error!(self.logger, "Intercepted instruction to return error.");
+                Poll::Ready(Err(()))
+            }
+        }
+    }
 }
 
 impl<C> CrashTestDummy<C>
@@ -33,28 +56,6 @@ where
             crash_point: CrashPoint::Panic,
             message,
             logger: Logger::new("CrashTestDummy"),
-        }
-    }
-}
-
-impl<C> Future for CrashTestDummy<C>
-where
-    C: Send,
-{
-    type Output = Result<(), ()>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.crash_point {
-            CrashPoint::None => Poll::Ready(Ok(())),
-            CrashPoint::Message => Poll::Ready(Ok(())),
-            CrashPoint::Panic => {
-                error!(self.logger, "Intercepted instruction to panic.");
-                panic!("{}", self.message);
-            }
-            CrashPoint::Error => {
-                error!(self.logger, "Intercepted instruction to return error.");
-                Poll::Ready(Err(()))
-            }
         }
     }
 }

@@ -11,7 +11,13 @@ use serde::Serializer;
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use sha1::{Sha1, Digest};
 
+const SHA1_DIGEST_LENGTH: usize = 20;
+
+// TODO: Stop using SHA1 here: it's cryptographically broken. Use something more secure.
+// Also: find out whether we actually do need a hash here. If we don't, a UUID would be
+// shorter and more secure.
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
     hash: HashType,
@@ -62,14 +68,14 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() != sha1::DIGEST_LENGTH {
+        if v.len() != SHA1_DIGEST_LENGTH {
             return Err(serde::de::Error::custom(format!(
                 "can't deserialize bytes from {:?}",
                 v
             )));
         }
 
-        let mut x: HashType = [0; sha1::DIGEST_LENGTH];
+        let mut x: HashType = [0; SHA1_DIGEST_LENGTH];
         x.copy_from_slice(v); // :(
 
         Ok(StreamKey { hash: x })
@@ -77,24 +83,24 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
 }
 
 impl StreamKey {
-    pub fn new(public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
-        let mut hash = sha1::Sha1::new();
+    pub fn new(_public_key: PublicKey, peer_addr: SocketAddr) -> StreamKey {
+        let mut hash = Sha1::new();
         match peer_addr.ip() {
             IpAddr::V4(ipv4) => hash.update(&ipv4.octets()),
             IpAddr::V6(_ipv6) => unimplemented!(),
         }
-        hash.update(&[
+        sha1::digest::Update::update(&mut hash, &[
             (peer_addr.port() >> 8) as u8,
             (peer_addr.port() & 0xFF) as u8,
         ]);
-        hash.update(public_key.as_slice());
+        let output = hash.finalize();
         StreamKey {
-            hash: hash.digest().bytes(),
+            hash: output.as_slice().try_into().expect(&format!("Hash length should be {}, not {}", SHA1_DIGEST_LENGTH, output.len())),
         }
     }
 }
 
-type HashType = [u8; sha1::DIGEST_LENGTH];
+type HashType = [u8; SHA1_DIGEST_LENGTH];
 
 #[cfg(test)]
 mod tests {

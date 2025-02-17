@@ -2,9 +2,6 @@
 
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
-use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
-use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
-use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -19,6 +16,7 @@ use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use crate::sub_lib::channel_wrappers::{FuturesChannelFactory, FuturesChannelFactoryReal, SenderWrapper};
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
@@ -71,10 +69,10 @@ impl StreamEstablisher {
             rx_to_write,
             payload.stream_key,
         );
-        tokio::spawn(stream_writer);
+        tokio::spawn(stream_writer.future());
 
         self.stream_adder_tx
-            .send((payload.stream_key, tx_to_write.clone()))
+            .send((payload.stream_key, tx_to_write.dup()))
             .expect("StreamHandlerPool died");
         Ok(tx_to_write)
     }
@@ -85,7 +83,7 @@ impl StreamEstablisher {
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
     ) {
-        let stream_reader = StreamReader::new(
+        let mut stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
             read_stream,
@@ -93,7 +91,7 @@ impl StreamEstablisher {
             peer_addr,
         );
         debug!(self.logger, "Spawning StreamReader for {}", peer_addr);
-        tokio::spawn(stream_reader);
+        tokio::spawn(stream_reader.go());
     }
 }
 
@@ -145,7 +143,7 @@ mod tests {
     #[test]
     fn spawn_stream_reader_handles_data() {
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
-        let (sub_tx, sub_rx) = unbounded_channel();
+        let (sub_tx, sub_rx) = unbounded();
         thread::spawn(move || {
             let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
@@ -155,21 +153,17 @@ mod tests {
             system.run();
         });
 
-        let (ibsd_tx, ibsd_rx) = unbounded_channel();
-        let test_future = async {
+        let (ibsd_tx, ibsd_rx) = unbounded();
+        let test_future = async move {
             let proxy_client_sub = sub_rx.recv().unwrap();
 
-            let (stream_adder_tx, _stream_adder_rx) = unbounded_channel();
-            let (stream_killer_tx, _) = unbounded_channel();
-            let mut read_stream = Box::new(ReadHalfWrapperMock::new());
+            let (stream_adder_tx, _stream_adder_rx) = unbounded();
+            let (stream_killer_tx, _) = unbounded();
             let bytes = b"I'm a stream establisher test not a framer test";
-            read_stream.poll_read_results = vec![
-                (bytes.to_vec(), Poll::Ready(Ok(bytes.len()))),
-                (
-                    vec![],
-                    Poll::Ready(Err(io::Error::from(ErrorKind::BrokenPipe))),
-                ),
-            ];
+            let read_stream = Box::new(ReadHalfWrapperMock::new()
+                .read_result(Ok(bytes.to_vec()))
+                .read_result(Err(io::Error::from(ErrorKind::BrokenPipe)))
+            );
 
             let subject = StreamEstablisher {
                 cryptde: main_cryptde(),
@@ -203,7 +197,6 @@ mod tests {
                 .get_record::<InboundServerData>(0)
                 .clone();
             ibsd_tx.send(record).unwrap();
-            return Ok(());
         };
 
         task::spawn(test_future);

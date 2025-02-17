@@ -33,8 +33,8 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::Recipient;
-use actix::{Addr, Arbiter};
+use actix::{Recipient, Supervisor};
+use actix::{Addr, Arbiter, Actor};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
@@ -347,7 +347,7 @@ impl ActorSystemFactoryToolsReal {
     }
 }
 
-pub trait ActorFactory {
+pub trait ActorFactory: Send {
     fn make_and_start_dispatcher(
         &self,
         config: &BootstrapperConfig,
@@ -390,9 +390,9 @@ impl ActorFactory for ActorFactoryReal {
     ) -> (DispatcherSubs, Recipient<PoolBindMessage>) {
         let node_descriptor = config.node_descriptor.clone();
         let crashable = is_crashable(config);
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let arbiter = Arbiter::new();
         let addr: Addr<Dispatcher> =
-            arbiter.start(move |_| Dispatcher::new(node_descriptor, crashable));
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Dispatcher::new(node_descriptor, crashable));
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -411,8 +411,8 @@ impl ActorFactory for ActorFactoryReal {
             None
         };
         let crashable = is_crashable(config);
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<ProxyServer> = arbiter.start(move |_| {
+        let arbiter = Arbiter::new();
+        let addr: Addr<ProxyServer> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
             ProxyServer::new(
                 cryptdes.main,
                 cryptdes.alias,
@@ -425,8 +425,8 @@ impl ActorFactory for ActorFactoryReal {
     }
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Hopper> = arbiter.start(move |_| Hopper::new(config));
+        let arbiter = Arbiter::new();
+        let addr: Addr<Hopper> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Hopper::new(config));
         Hopper::make_subs_from(&addr)
     }
 
@@ -436,9 +436,9 @@ impl ActorFactory for ActorFactoryReal {
         config: &BootstrapperConfig,
     ) -> NeighborhoodSubs {
         let config_clone = config.clone();
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let arbiter = Arbiter::new();
         let addr: Addr<Neighborhood> =
-            arbiter.start(move |_| Neighborhood::new(cryptde, &config_clone));
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Neighborhood::new(cryptde, &config_clone));
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -455,8 +455,8 @@ impl ActorFactory for ActorFactoryReal {
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         Self::load_banned_cache(db_initializer, banned_cache_loader, data_directory);
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Accountant> = arbiter.start(move |_| {
+        let arbiter = Arbiter::new();
+        let addr: Addr<Accountant> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
             Accountant::new(
                 config,
                 DaoFactories {
@@ -473,8 +473,8 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
         let crashable = is_crashable(config);
         let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<UiGateway> = arbiter.start(move |_| ui_gateway);
+        let arbiter = Arbiter::new();
+        let addr: Addr<UiGateway> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| ui_gateway);
         UiGateway::make_subs_from(&addr)
     }
 
@@ -485,15 +485,15 @@ impl ActorFactory for ActorFactoryReal {
         let clandestine_discriminator_factories =
             config.clandestine_discriminator_factories.clone();
         let crashable = is_crashable(config);
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<StreamHandlerPool> = arbiter
-            .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
+        let arbiter = Arbiter::new();
+        let addr: Addr<StreamHandlerPool> = Supervisor::start_in_arbiter(&arbiter.handle(),
+            move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
         StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<ProxyClient> = arbiter.start(move |_| ProxyClient::new(config));
+        let arbiter = Arbiter::new();
+        let addr: Addr<ProxyClient> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| ProxyClient::new(config));
         ProxyClient::make_subs_from(&addr)
     }
 
@@ -509,8 +509,8 @@ impl ActorFactory for ActorFactoryReal {
         let wallet_opt = config.consuming_wallet_opt.clone();
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain;
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
+        let arbiter = Arbiter::new();
+        let addr: Addr<BlockchainBridge> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
                 blockchain_service_url_opt,
                 data_directory,
@@ -529,9 +529,9 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs {
         let data_directory = config.data_directory.clone();
         let crashable = is_crashable(config);
-        let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<Configurator> =
-            arbiter.start(move |_| Configurator::new(data_directory, crashable));
+        let arbiter = Arbiter::new();
+        let addr: Addr<Configurator> = Supervisor::start_in_arbiter(&arbiter.handle(),
+            move |_| Configurator::new(data_directory, crashable));
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -648,7 +648,6 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::assert_on_initialization_with_panic_on_migration;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -690,6 +689,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     struct LogRecipientSetterNull {}
 
@@ -1336,7 +1336,7 @@ mod tests {
     #[test]
     fn discovered_automap_protocol_is_written_into_the_db() {
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let (tx, _rx) = unbounded_channel();
+        let (tx, _rx) = unbounded();
         let mut config = BootstrapperConfig::default();
         config.neighborhood_config.mode = NeighborhoodMode::Standard(
             NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
@@ -1749,7 +1749,8 @@ mod tests {
         let system = System::new();
         let killer = SystemKillerActor::new(Duration::from_millis(1500));
         let mercy_signal_rx = killer.receiver();
-        Arbiter::start(|_| killer);
+        let arbiter = Arbiter::new();
+        Actor::start_in_arbiter(&arbiter.handle(), move |_| killer);
         let ui_node_addr = actor_initialization();
         let crash_request = UiCrashRequest {
             actor: actor_crash_key.to_string(),
@@ -1763,7 +1764,7 @@ mod tests {
             body: crash_request.tmb(123),
         };
         ui_node_addr.try_send(actor_message).unwrap();
-        system.run();
+        system.run().unwrap();
         assert!(
             mercy_signal_rx.try_recv().is_err(),
             "{} while panicking is unable to shut the system down",
@@ -1982,9 +1983,7 @@ mod tests {
             .unwrap();
         let mut b_config = bc_from_earning_wallet(make_wallet("mine"));
         b_config.data_directory = data_dir;
-        let system = System::new(
-            "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
-        );
+        let system = System::new();
         let (addr_tx, addr_rv) = bounded(1);
         let subject = ActorFactoryReal {};
 
@@ -2002,7 +2001,7 @@ mod tests {
         accountant_addr
             .try_send(TestUserDefinedSqliteFnsForNewDelinquencies {})
             .unwrap();
-        assert_eq!(system.run(), 0);
+        system.run().unwrap();
         //we didn't blow up, it recognized the functions
         //this is an example of the error: "no such function: slope_drop_high_bytes"
     }

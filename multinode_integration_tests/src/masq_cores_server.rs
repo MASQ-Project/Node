@@ -82,7 +82,7 @@ impl MASQCoresServer {
         let mut key = main_cryptde.public_key().as_slice().to_vec();
         key.reverse();
         let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
-        let (io_tx, io_rx) = unbounded_channel();
+        let (io_tx, io_rx) = unbounded();
         let join_handle = thread::spawn(move || loop {
             let (mut stream, _) = match listener.accept() {
                 Err(e) => {

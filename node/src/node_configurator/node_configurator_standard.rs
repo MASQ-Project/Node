@@ -135,7 +135,7 @@ fn collect_externals_from_multi_config(
 pub fn server_initializer_collected_params<'a>(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<GatheredParams<'a>, ConfiguratorError> {
+) -> Result<GatheredParams, ConfiguratorError> {
     let app = app_node();
 
     let (config_file_path, user_specified, data_directory, real_user) =
@@ -500,11 +500,11 @@ mod tests {
         let config_file_path = home_dir.join("config.toml");
         {
             let mut config_file = File::create(&config_file_path).unwrap();
-            short_writeln!(
+            writeln!(
                 config_file,
                 "consuming-private-key = \"{}\"",
                 consuming_private_key
-            );
+            ).unwrap();
         }
         let args = ArgsBuilder::new()
             .param("--data-directory", home_dir.to_str().unwrap())
@@ -772,7 +772,7 @@ mod tests {
             .configure(&make_simplified_multi_config(args))
             .unwrap();
 
-        assert_eq!(config.blockchain_bridge_config.chain, Chain::from("dev"));
+        assert_eq!(config.blockchain_bridge_config.chain, Chain::Dev);
     }
 
     #[test]

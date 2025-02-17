@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::path::PathBuf;
-
-use actix::{Actor, Context, Handler, Recipient};
+use std::thread::panicking;
+use actix::{Actor, Context, Handler, Recipient, Supervised, System};
 
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiChangePasswordRequest, UiChangePasswordResponse,
@@ -27,7 +27,7 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
@@ -40,6 +40,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
+use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -53,6 +54,12 @@ pub struct Configurator {
 
 impl Actor for Configurator {
     type Context = Context<Self>;
+}
+
+impl Supervised for Configurator {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
 }
 
 impl Handler<BindMessage> for Configurator {

@@ -1,7 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
-use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -15,8 +13,6 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
-#[cfg(test)]
-use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::utils::AutomapProtocol;
@@ -25,7 +21,9 @@ use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
-use websocket::url::Url;
+use url::Url;
+#[cfg(test)]
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {
@@ -84,7 +82,7 @@ impl PersistentConfigError {
     }
 }
 
-pub trait PersistentConfiguration {
+pub trait PersistentConfiguration: Send {
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError>;
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError>;
     fn current_schema_version(&self) -> String;
@@ -167,7 +165,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
-        Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
+        Url::parse(url)
+            .map_err(|e|
+                PersistentConfigError::InvalidUrl(e.to_string())
+            )?;
         Ok(self
             .dao
             .set("blockchain_service_url", Some(url.to_string()))?)

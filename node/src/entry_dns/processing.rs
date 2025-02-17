@@ -2,7 +2,6 @@
 use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
-use hickory_proto::op::ResponseCode;
 use hickory_resolver::proto::op::OpCode;
 use hickory_resolver::proto::rr::{DNSClass, RecordType};
 use masq_lib::logger::Logger;
@@ -12,6 +11,7 @@ use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
+use hickory_proto::op::ResponseCode;
 
 const HEADER_BYTES: usize = 12;
 const UNKNOWN: &str = "<unknown>";
@@ -120,10 +120,8 @@ fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logge
                 query_list += ", "
             }
             let query_class = query.get_query_class();
-            let class_string = match DNSClass::from_u16(query_class) {
-                Ok(c) => <&'static str>::from(c),
-                Err(_) => UNKNOWN,
-            };
+            let dns_class: DNSClass = query_class.into();
+            let class_string = format!("{}", dns_class);
             let _ = write!(
                 query_list,
                 "{}/{}/{}",
@@ -188,6 +186,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
     use std::time::Instant;
+    use hickory_proto::op::ResponseCode;
 
     #[test]
     fn constants_have_correct_values() {

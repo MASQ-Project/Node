@@ -451,16 +451,15 @@ impl DbInitializerReal {
     }
 
     pub fn choose_clandestine_port() -> u16 {
-        let mut rng = SmallRng::from_entropy();
+        let mut rng = SmallRng::from_thread_rng();
         loop {
             let candidate_port: u16 =
                 rng.gen_range(LOWEST_USABLE_INSECURE_PORT..HIGHEST_RANDOM_CLANDESTINE_PORT);
-            match TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(
+            if let Ok(_) = std::net::TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::from(0),
                 candidate_port,
             ))) {
-                Ok(_) => return candidate_port,
-                Err(_) => continue,
+                return candidate_port;
             }
         }
     }
@@ -1611,15 +1610,17 @@ mod tests {
         assert!(regex_two.is_match(&config_two_debug))
     }
 
-    #[test]
-    fn choose_clandestine_port_chooses_different_unused_ports_each_time() {
-        let _listeners = (0..10)
-            .map(|_| {
-                let port = DbInitializerReal::choose_clandestine_port();
-                TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port)))
-                    .expect(&format!("Port {} was not free", port))
-            })
-            .collect::<Vec<TcpListener>>();
+    #[tokio::test]
+    async fn choose_clandestine_port_chooses_different_unused_ports_each_time() {
+        for _ in 0..10 {
+            let port = DbInitializerReal::choose_clandestine_port();
+            let listener = TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::from(0),
+                port,
+            )))
+            .await
+            .expect(&format!("Port {} was not free", port));
+        }
     }
 
     #[test]

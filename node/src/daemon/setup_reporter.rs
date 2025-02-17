@@ -212,24 +212,21 @@ impl SetupReporterReal {
 
     pub fn get_default_params() -> SetupCluster {
         let schema = shared_app(app_head());
-        schema
-            .p
-            .opts
-            .iter()
-            .flat_map(|opt| {
-                let name = opt.b.name;
-                match opt.v.default_val {
-                    Some(os_str) => {
-                        let value = os_str.to_str().expect("expected valid UTF-8");
-                        Some((
-                            name.to_string(),
-                            UiSetupResponseValue::new(name, value, Default),
-                        ))
-                    }
-                    None => None,
-                }
-            })
-            .collect()
+        schema.get_arguments().flat_map(|arg| {
+            let name = arg.get_long().expect("All our args must have long names");
+            let values = arg.get_default_values();
+            if values.len() == 0 {
+                None
+            }
+            else if values.len() == 1 {
+                let value = values[0].to_str().expect("expected valid UTF-8");
+                Some ((name.to_string(), UiSetupResponseValue::new(name, value, Default)))
+            }
+            else {
+                todo!("Multiple default values for argument: {}; figure this out", name);
+            }
+        })
+        .collect()
     }
 
     fn real_user_from_str(s: &str) -> Option<crate::bootstrapper::RealUser> {
@@ -382,7 +379,7 @@ impl SetupReporterReal {
         Ok((
             real_user_opt,
             data_directory_opt,
-            BlockChain::from(chain_name.as_str()),
+            BlockChain::from_str(chain_name.as_str()).expect("Invalid chain name allowed through validation"),
         ))
     }
 
@@ -2493,7 +2490,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("setup_dir")));
-        assert_eq!(chain, Blockchain::from("dev"));
+        assert_eq!(chain, Blockchain::Dev);
     }
 
     #[test]
@@ -2520,7 +2517,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, None);
-        assert_eq!(chain, Blockchain::from("dev"));
+        assert_eq!(chain, Blockchain::Dev);
     }
 
     #[test]
@@ -2862,7 +2859,7 @@ mod tests {
                 .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
-        config.blockchain_bridge_config.chain = Blockchain::from("eth-mainnet");
+        config.blockchain_bridge_config.chain = Blockchain::EthMainnet;
 
         let subject = DataDirectory::default();
 

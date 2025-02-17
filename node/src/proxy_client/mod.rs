@@ -5,7 +5,6 @@ mod local_test_utils;
 mod resolver_wrapper;
 mod stream_establisher;
 mod stream_handler_pool;
-mod stream_handler_pool_new;
 mod stream_reader;
 mod stream_writer;
 
@@ -28,10 +27,10 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -42,7 +41,9 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::thread::panicking;
 use std::time::SystemTime;
+use tokio::runtime::Runtime;
 
 pub const CRASH_KEY: &str = "PROXYCLIENT";
 
@@ -59,11 +60,26 @@ pub struct ProxyClient {
     exit_byte_rate: u64,
     is_decentralized: bool,
     crashable: bool,
+    runtime: Runtime,
     logger: Logger,
 }
 
 impl Actor for ProxyClient {
     type Context = Context<Self>;
+}
+
+impl Supervised for ProxyClient {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
+}
+
+impl Drop for ProxyClient {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for ProxyClient {
@@ -234,6 +250,7 @@ impl ProxyClient {
             exit_byte_rate: config.exit_byte_rate,
             is_decentralized: config.is_decentralized,
             crashable: config.crashable,
+            runtime: tokio::runtime::Builder::new_current_thread().enable_all().build().expect("Failed to create runtime for ProxyClient"),
             logger: Logger::new("ProxyClient"),
         }
     }
@@ -335,7 +352,6 @@ mod tests {
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
-    use crate::proxy_client::stream_handler_pool::StreamHandlerPool;
     use crate::proxy_client::stream_handler_pool::StreamHandlerPoolFactory;
     use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
     use crate::sub_lib::cryptde::CryptData;
@@ -546,8 +562,8 @@ mod tests {
             Mutex<Vec<(ResolverConfig, ResolverOpts)>>,
         > = Arc::new(Mutex::new(vec![]));
         let resolver_wrapper_factory = ResolverWrapperFactoryMock::new()
-            .new_parameters(&mut resolver_wrapper_new_parameters_arc)
-            .new_result(Box::new(resolver_wrapper));
+            .make_params(&mut resolver_wrapper_new_parameters_arc)
+            .make_result(Box::new(resolver_wrapper));
         let pool = StreamHandlerPoolMock::new();
         let mut pool_factory_make_parameters = Arc::new(Mutex::new(vec![]));
         let pool_factory = StreamHandlerPoolFactoryMock::new()
@@ -782,7 +798,7 @@ mod tests {
         let pool_factory = StreamHandlerPoolFactoryMock::new().make_result(pool);
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
-        let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
+        let resolver_factory = ResolverWrapperFactoryMock::new().make_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde,
             dns_servers: dnss(),
@@ -839,7 +855,7 @@ mod tests {
         let pool_factory = StreamHandlerPoolFactoryMock::new().make_result(pool);
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
-        let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
+        let resolver_factory = ResolverWrapperFactoryMock::new().make_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde,
             dns_servers: dnss(),
@@ -906,7 +922,7 @@ mod tests {
         let pool_factory = StreamHandlerPoolFactoryMock::new().make_result(pool);
         let resolver = ResolverWrapperMock::new()
             .lookup_ip_success(vec![IpAddr::from_str("4.3.2.1").unwrap()]);
-        let resolver_factory = ResolverWrapperFactoryMock::new().new_result(Box::new(resolver));
+        let resolver_factory = ResolverWrapperFactoryMock::new().make_result(Box::new(resolver));
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde,
             dns_servers: dnss(),

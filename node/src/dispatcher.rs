@@ -6,9 +6,9 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::test_utils::main_cryptde;
-use actix::Actor;
+use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -21,6 +21,7 @@ use masq_lib::messages::{
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use std::net::{IpAddr, Ipv4Addr};
+use std::thread::panicking;
 
 pub const CRASH_KEY: &str = "DISPATCHER";
 lazy_static! {
@@ -45,6 +46,20 @@ pub struct Dispatcher {
 
 impl Actor for Dispatcher {
     type Context = Context<Self>;
+}
+
+impl Supervised for Dispatcher {
+    fn restarting(&mut self, _ctx: &mut Self::Context) {
+        supervisor_restarting();
+    }
+}
+
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        if panicking() {
+            System::current().stop_with_code(1);
+        }
+    }
 }
 
 impl Handler<BindMessage> for Dispatcher {

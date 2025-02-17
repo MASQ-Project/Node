@@ -54,6 +54,11 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
+use async_trait::async_trait;
+use futures_util::future::join_all;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
+use crate::crash_test_dummy::CrashTestDummy;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -123,7 +128,7 @@ impl PortConfiguration {
     }
 }
 
-pub trait EnvironmentWrapper: Send {
+pub trait EnvironmentWrapper: Send + Sync {
     fn var(&self, key: &str) -> Option<String>;
 }
 
@@ -436,25 +441,16 @@ impl BootstrapperConfig {
 
 pub struct Bootstrapper {
     listener_handler_factory: Box<dyn ListenerHandlerFactory>,
-    listener_handlers: FuturesUnordered<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+    listener_handlers: Vec<Box<dyn ListenerHandler>>,
+    // listener_handlers: FuturesUnordered<Box<dyn ListenerHandler>>,
     actor_system_factory: Box<dyn ActorSystemFactory>,
     logger_initializer: Box<dyn LoggerInitializerWrapper>,
     config: BootstrapperConfig,
 }
 
-impl Future for Bootstrapper {
-    type Item = ();
-    type Error = ();
-
-    fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).poll());
-        try_ready!(self.listener_handlers.poll());
-        Ok(Async::Ready(()))
-    }
-}
-
+#[async_trait(?Send)]
 impl ConfiguredByPrivilege for Bootstrapper {
-    fn initialize_as_privileged(
+    async fn initialize_as_privileged(
         &mut self,
         multi_config: &MultiConfig,
     ) -> Result<(), ConfiguratorError> {
@@ -465,34 +461,52 @@ impl ConfiguredByPrivilege for Bootstrapper {
             self.config.log_level,
             None,
         );
-        self.listener_handlers =
-            FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new();
+        self.listener_handlers = vec![];
         let port_configurations = self.config.port_configurations.clone();
-        port_configurations
-            .iter()
-            .for_each(|(port, port_configuration)| {
-                let mut listener_handler = self.listener_handler_factory.make();
-                if let Err(e) =
-                    listener_handler.bind_port_and_configuration(*port, port_configuration.clone())
-                {
-                    panic!("Could not listen on port {}: {}", port, e)
-                }
-                self.listener_handlers.push(listener_handler);
-            });
+        let futures = join_all(
+            port_configurations
+                .iter()
+                .map(|(port, port_configuration)| {
+                    let mut listener_handler = self.listener_handler_factory.make();
+                    async move {
+                        listener_handler
+                            .bind_port_and_configuration(*port, port_configuration.clone())
+                            .await
+                            .unwrap_or_else(|e| panic!("Could not listen on port {}: {}", port, e));
+                        listener_handler
+                    }
+                }),
+        );
+        futures.await.into_iter().for_each(|lh| self.listener_handlers.push(lh));
+        //
+        // let mut futures = FuturesUnordered::new();
+        // for (port, port_configuration) in port_configurations {
+        //     let mut listener_handler = self.listener_handler_factory.make();
+        //     let future = async move {
+        //         if let Err(e) = listener_handler.bind_port_and_configuration(port, port_configuration).await {
+        //             panic!("Could not listen on port {}: {}", port, e);
+        //         }
+        //         listener_handler
+        //     };
+        //     futures.push(future);
+        // }
+        // while let Some(listener_handler) = futures.next().await {
+        //     self.listener_handlers.push(listener_handler);
+        // }
         Ok(())
     }
 
-    fn initialize_as_unprivileged(
+    async fn initialize_as_unprivileged(
         &mut self,
         multi_config: &MultiConfig,
-        _: &mut StdStreams,
+        _: &mut StdStreams<'_>,
     ) -> Result<(), ConfiguratorError> {
         // NOTE: The following line of code is not covered by unit tests
-        fdlimit::raise_fd_limit();
+        fdlimit::raise_fd_limit().expect("Could not raise file descriptor limit");
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
-        let _ = self.set_up_clandestine_port();
+        let _ = self.set_up_clandestine_port().await;
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
         let cryptdes = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
@@ -525,14 +539,22 @@ impl Bootstrapper {
     pub fn new(logger_initializer: Box<dyn LoggerInitializerWrapper>) -> Bootstrapper {
         Bootstrapper {
             listener_handler_factory: Box::new(ListenerHandlerFactoryReal::new()),
-            listener_handlers:
-                FuturesUnordered::<Box<dyn ListenerHandler<Item = (), Error = ()>>>::new(),
+            listener_handlers: vec![],
             actor_system_factory: Box::new(ActorSystemFactoryReal::new(Box::new(
                 ActorSystemFactoryToolsReal::new(),
             ))),
             logger_initializer,
             config: BootstrapperConfig::new(),
         }
+    }
+
+    pub async fn listen(&mut self) {
+        CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).await.expect("Could not create CrashTestDummy");
+        let futures = join_all(self.listener_handlers
+            .iter_mut()
+            .map(|f| f.handle_listeners())
+        );
+        futures.await;
     }
 
     #[cfg(test)] // The real ones are private, but ActorSystemFactory needs to use them for testing
@@ -621,7 +643,7 @@ impl Bootstrapper {
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
     }
 
-    fn set_up_clandestine_port(&mut self) -> Option<u16> {
+    async fn set_up_clandestine_port(&mut self) -> Option<u16> {
         let clandestine_port_opt =
             if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
                 &self.config.neighborhood_config.mode
@@ -648,6 +670,7 @@ impl Bootstrapper {
                             is_clandestine: true,
                         },
                     )
+                    .await
                     .expect("Failed to bind ListenerHandler to clandestine port");
                 self.listener_handlers.push(listener_handler);
                 self.config.neighborhood_config.mode = NeighborhoodMode::Standard(
@@ -749,13 +772,11 @@ mod tests {
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
-    use futures::Future;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::logger::Logger;
-    use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
+    use masq_lib::logger::{Logger, TEST_LOG_RECIPIENT_GUARD};
     use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
@@ -772,6 +793,9 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
+    use async_trait::async_trait;
+    use futures_util::stream::FuturesUnordered;
     use tokio;
 
     lazy_static! {
@@ -780,13 +804,13 @@ mod tests {
 
     struct ListenerHandlerFactoryMock {
         log: TestLog,
-        mocks: RefCell<Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>>,
+        mocks: RefCell<Vec<Box<dyn ListenerHandler>>>,
     }
 
     unsafe impl Sync for ListenerHandlerFactoryMock {}
 
     impl ListenerHandlerFactory for ListenerHandlerFactoryMock {
-        fn make(&self) -> Box<dyn ListenerHandler<Item = (), Error = ()>> {
+        fn make(&self) -> Box<dyn ListenerHandler> {
             self.log.log(String::from("make ()"));
             self.mocks.borrow_mut().remove(0)
         }
@@ -800,7 +824,7 @@ mod tests {
             }
         }
 
-        fn add(&mut self, mock: Box<dyn ListenerHandler<Item = (), Error = ()>>) {
+        fn add(&mut self, mock: Box<dyn ListenerHandler>) {
             self.mocks.borrow_mut().push(mock)
         }
     }
@@ -817,13 +841,14 @@ mod tests {
         port_configuration_parameter: Option<PortConfiguration>,
         add_stream_sub: Option<Recipient<AddStreamMsg>>,
         add_stream_msgs: Arc<Mutex<Vec<AddStreamMsg>>>,
-        _listen_results: Vec<Box<dyn ListenerHandler<Item = (), Error = ()>>>,
+        _listen_results: Vec<Box<dyn ListenerHandler>>,
         //to be able to eliminate hanging and the need of a background thread in the test
         polling_setting: PollingSetting,
     }
 
+    #[async_trait]
     impl ListenerHandler for ListenerHandlerNull {
-        fn bind_port_and_configuration(
+        async fn bind_port_and_configuration(
             &mut self,
             port: u16,
             discriminator_factories: PortConfiguration,
@@ -844,29 +869,28 @@ mod tests {
 
             self.add_stream_sub = Some(add_stream_sub);
         }
-    }
 
-    impl Future for ListenerHandlerNull {
-        type Item = ();
-        type Error = ();
-
-        fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-            self.log.lock().unwrap().log(String::from("poll (...)"));
-            let mut add_stream_msgs = self.add_stream_msgs.lock().unwrap();
-            let add_stream_sub = self.add_stream_sub.as_ref().unwrap();
-            while add_stream_msgs.len() > 0 {
-                let add_stream_msg = add_stream_msgs.remove(0);
-                add_stream_sub
-                    .try_send(add_stream_msg)
-                    .expect("StreamHandlerPool is dead");
+        async fn handle_listeners(&mut self) {
+            loop {
+                {
+                    self.log.lock().unwrap().log(String::from("poll (...)"));
+                    let mut add_stream_msgs = self.add_stream_msgs.lock().unwrap();
+                    let add_stream_sub = self.add_stream_sub.as_ref().unwrap();
+                    while add_stream_msgs.len() > 0 {
+                        let add_stream_msg = add_stream_msgs.remove(0);
+                        add_stream_sub
+                            .try_send(add_stream_msg)
+                            .expect("StreamHandlerPool is dead");
+                    }
+                    if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
+                        self.polling_setting.counter += 1;
+                        if self.polling_setting.counter == desired_number {
+                            break; //breaking the infinite looping
+                        }
+                    }
+                } // Release all the locks before relinquishing control
+                tokio::time::sleep(Duration::from_millis(10)).await //to avoid busy waiting
             }
-            if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
-                self.polling_setting.counter += 1;
-                if self.polling_setting.counter == desired_number {
-                    return Ok(Async::Ready(())); //breaking the infinite looping
-                }
-            }
-            Ok(Async::NotReady)
         }
     }
 
@@ -1049,8 +1073,8 @@ mod tests {
         assert_eq!(subject.gid_opt, Some(4321));
     }
 
-    #[test]
-    fn initialize_as_privileged_with_no_args_binds_http_and_tls_ports() {
+    #[tokio::test]
+    async fn initialize_as_privileged_with_no_args_binds_http_and_tls_ports() {
         let _lock = INITIALIZATION.lock();
         let (first_handler, first_handler_log) =
             extract_log(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -1066,6 +1090,7 @@ mod tests {
 
         subject
             .initialize_as_privileged(&make_simplified_multi_config([]))
+            .await
             .unwrap();
 
         let mut all_calls = vec![];
@@ -1089,8 +1114,8 @@ mod tests {
         assert_eq!(all_calls.len(), 2, "{:?}", all_calls);
     }
 
-    #[test]
-    fn initialize_as_privileged_in_zero_hop_mode_produces_empty_clandestine_discriminator_factories_vector(
+    #[tokio::test]
+    async fn initialize_as_privileged_in_zero_hop_mode_produces_empty_clandestine_discriminator_factories_vector(
     ) {
         let _lock = INITIALIZATION.lock();
         let first_handler = Box::new(ListenerHandlerNull::new(vec![]).bind_port_result(Ok(())));
@@ -1105,6 +1130,7 @@ mod tests {
                 "--neighborhood-mode",
                 "zero-hop",
             ]))
+            .await
             .unwrap();
 
         let config = subject.config;
@@ -1115,8 +1141,8 @@ mod tests {
         assert_eq!(config.clandestine_discriminator_factories.is_empty(), true);
     }
 
-    #[test]
-    fn initialize_as_privileged_points_logger_initializer_at_data_directory() {
+    #[tokio::test]
+    async fn initialize_as_privileged_points_logger_initializer_at_data_directory() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1146,6 +1172,7 @@ mod tests {
                 "--chain",
                 "polygon-mumbai",
             ]))
+            .await
             .unwrap();
 
         let init_params = init_params_arc.lock().unwrap();
@@ -1160,8 +1187,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it() {
+    #[tokio::test]
+    async fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it() {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
@@ -1190,6 +1217,7 @@ mod tests {
                 ]),
                 &mut FakeStreamHolder::new().streams(),
             )
+            .await
             .unwrap();
 
         let config = subject.config;
@@ -1283,8 +1311,8 @@ mod tests {
         assert_eq!(port_config.is_clandestine, true)
     }
 
-    #[test]
-    fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+    #[tokio::test]
+    async fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1305,6 +1333,7 @@ mod tests {
                 &make_simplified_multi_config(["--ip", "1.2.3.4", "--clandestine-port", "5123"]),
                 &mut FakeStreamHolder::new().streams(),
             )
+            .await
             .unwrap();
 
         let config = subject.config;
@@ -1320,8 +1349,8 @@ mod tests {
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
     }
 
-    #[test]
-    fn initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
+    #[tokio::test]
+    async fn initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
     ) {
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
@@ -1349,6 +1378,7 @@ mod tests {
                 ]),
                 &mut holder.streams(),
             )
+            .await
             .unwrap();
 
         let config = subject.config;
@@ -1362,8 +1392,8 @@ mod tests {
         TestLogHandler::new().exists_no_log_containing("@0.0.0.0:5124");
     }
 
-    #[test]
-    fn initialize_as_unprivileged_sets_gas_price_on_blockchain_config() {
+    #[tokio::test]
+    async fn initialize_as_unprivileged_sets_gas_price_on_blockchain_config() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1383,6 +1413,7 @@ mod tests {
                 &make_simplified_multi_config(["--ip", "1.2.3.4", "--gas-price", "11"]),
                 &mut FakeStreamHolder::new().streams(),
             )
+            .await
             .unwrap();
 
         let config = subject.config;
@@ -1407,8 +1438,8 @@ mod tests {
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
-    #[test]
-    fn initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
+    #[tokio::test]
+    async fn initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
     ) {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
@@ -1434,9 +1465,10 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).unwrap();
+        subject.initialize_as_privileged(&multi_config).await.unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
+            .await
             .unwrap();
 
         let config = subject.config;
@@ -1444,8 +1476,8 @@ mod tests {
         assert_eq!(config.clandestine_port_opt, Some(1234u16));
     }
 
-    #[test]
-    fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
+    #[tokio::test]
+    async fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap(); // protection to interfering with 'prepare_initial_messages_initiates_global_log_recipient'
         let _lock = INITIALIZATION.lock();
@@ -1482,9 +1514,10 @@ mod tests {
             .build();
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).unwrap();
+        subject.initialize_as_privileged(&multi_config).await.unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
+            .await
             .unwrap();
 
         let mut make_and_start_actor_params = make_and_start_actor_params_arc.lock().unwrap();
@@ -1499,9 +1532,9 @@ mod tests {
         )
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "Could not listen on port")]
-    fn initialize_as_privileged_panics_if_tcp_listener_doesnt_bind() {
+    async fn initialize_as_privileged_panics_if_tcp_listener_doesnt_bind() {
         let _lock = INITIALIZATION.lock();
         let mut subject = BootstrapperBuilder::new()
             .add_listener_handler(Box::new(
@@ -1515,6 +1548,7 @@ mod tests {
 
         subject
             .initialize_as_privileged(&make_simplified_multi_config(["--ip", "111.111.111.111"]))
+            .await
             .unwrap();
     }
 
@@ -1635,8 +1669,8 @@ mod tests {
         assert_round_trip(cryptdes.alias);
     }
 
-    #[test]
-    fn initialize_as_unprivileged_binds_clandestine_port() {
+    #[tokio::test]
+    async fn initialize_as_unprivileged_binds_clandestine_port() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1659,6 +1693,7 @@ mod tests {
                 "--data-directory",
                 data_dir.to_str().unwrap(),
             ]))
+            .await
             .unwrap();
 
         subject
@@ -1673,6 +1708,7 @@ mod tests {
                 ]),
                 &mut holder.streams(),
             )
+            .await
             .unwrap();
 
         let calls = clandestine_listener_handler_log_arc.lock().unwrap().dump();
@@ -1685,8 +1721,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
+    #[tokio::test]
+    async fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
@@ -1712,10 +1748,11 @@ mod tests {
             .config(config)
             .build();
         let multi_config = &make_simplified_multi_config(args);
-        subject.initialize_as_privileged(&multi_config).unwrap();
+        subject.initialize_as_privileged(&multi_config).await.unwrap();
 
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
+            .await
             .unwrap();
 
         // Checking log message cause I don't know how to get at add_stream_sub
@@ -1726,8 +1763,8 @@ mod tests {
         ]);
     }
 
-    #[test]
-    fn bootstrapper_as_future_polls_listener_handler_futures() {
+    #[tokio::test]
+    async fn bootstrapper_as_future_polls_listener_handler_futures() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1797,12 +1834,13 @@ mod tests {
         ];
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).unwrap();
+        subject.initialize_as_privileged(&multi_config).await.unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
+            .await
             .unwrap();
 
-        CurrentThread::new().block_on(subject).unwrap();
+        subject.listen().await;
 
         let number_of_expected_messages = 3;
         awaiter.await_message_count(number_of_expected_messages);
@@ -1819,8 +1857,8 @@ mod tests {
         assert_contains(&actual_ports, &String::from("Some(443)"));
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
+    #[tokio::test]
+    async fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
         let port = find_free_port();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1856,7 +1894,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, Some(port));
         let config_dao = ConfigDaoReal::new(conn);
@@ -1893,8 +1931,8 @@ mod tests {
         assert_eq!(0, clandestine_discriminators.len()); // Used to be 1, now 0 after removal
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
+    #[tokio::test]
+    async fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1926,7 +1964,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1944,8 +1982,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_originate_only() {
+    #[tokio::test]
+    async fn set_up_clandestine_port_handles_originate_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1973,7 +2011,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, None);
         assert!(subject
@@ -1984,8 +2022,8 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_consume_only() {
+    #[tokio::test]
+    async fn set_up_clandestine_port_handles_consume_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2010,7 +2048,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, None);
         assert!(subject
@@ -2021,8 +2059,8 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_zero_hop() {
+    #[tokio::test]
+    async fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "set_up_clandestine_port_handles_zero_hop",
@@ -2040,7 +2078,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, None);
         assert!(subject
@@ -2211,7 +2249,7 @@ mod tests {
 
     impl ActorSystemFactoryActiveMock {
         fn new() -> ActorSystemFactoryActiveMock {
-            let (tx, rx) = unbounded_channel();
+            let (tx, rx) = unbounded();
             thread::spawn(move || {
                 let system = System::new();
 
@@ -2263,7 +2301,7 @@ mod tests {
 
         fn add_listener_handler(
             mut self,
-            listener_handler: Box<dyn ListenerHandler<Item = (), Error = ()>>,
+            listener_handler: Box<dyn ListenerHandler>,
         ) -> BootstrapperBuilder {
             self.listener_handler_factory.add(listener_handler);
             self
@@ -2278,9 +2316,7 @@ mod tests {
             Bootstrapper {
                 actor_system_factory: self.actor_system_factory,
                 listener_handler_factory: Box::new(self.listener_handler_factory),
-                listener_handlers: FuturesUnordered::<
-                    Box<dyn ListenerHandler<Item = (), Error = ()>>,
-                >::new(),
+                listener_handlers: vec![],
                 logger_initializer: self.log_initializer_wrapper,
                 config: self.config,
             }
