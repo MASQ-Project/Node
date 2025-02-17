@@ -15,8 +15,10 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
+use futures_util::future::join_all;
 use futures_util::io::{BufReader, BufWriter};
 use itertools::Itertools;
+use rustc_hex::ToHex;
 use soketto::handshake::Server;
 use soketto::handshake::server::Response;
 use soketto::Incoming;
@@ -64,7 +66,7 @@ impl WebSocketSupervisorReal {
         let logger = Logger::new("WebSocketSupervisor");
         let inner_arc = Arc::new(Mutex::new(WebSocketSupervisorInner {
             port,
-            next_client_id: 0,
+            next_client_id: 1,
             from_ui_message_sub: from_ui_message_sub.clone(),
             client_id_by_socket_addr: HashMap::new(),
             socket_addr_by_client_id: HashMap::new(),
@@ -109,9 +111,9 @@ impl WebSocketSupervisorReal {
         // future
     }
 
-    async fn handle_client(
+    async fn handle_client<'a>(
         peer_addr: SocketAddr,
-        mut server: Server<BufReader<BufWriter<Compat<TcpStream>>>>,
+        mut server: Server<'a, BufReader<BufWriter<Compat<TcpStream>>>>,
         inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
     ) {
         let websocket_key = {
@@ -209,7 +211,7 @@ impl WebSocketSupervisorReal {
                                                         target: ClientId(client_id),
                                                         body: UiUnmarshalError {
                                                             message: e.to_string(),
-                                                            bad_data: message.to_string(),
+                                                            bad_data: message.to_hex(),
                                                         }
                                                             .tmb(0),
                                                     },
@@ -218,7 +220,7 @@ impl WebSocketSupervisorReal {
                                             }
                                             Some(context_id) => {
                                                 WebSocketSupervisorReal::send_msg_inner(
-                                                    &locked_inner,
+                                                    locked_inner,
                                                     NodeToUiMessage {
                                                         target: ClientId(client_id),
                                                         body: MessageBody {
@@ -246,12 +248,13 @@ impl WebSocketSupervisorReal {
                         }
                     }
                 },
-                Incoming::Closed => {
+                Incoming::Closed(reason) => {
                     info!(
                         &logger,
-                        "UI client {} at {} disconnected",
+                        "UI client {} at {} disconnected: {:?}",
                         client_id,
                         peer_addr,
+                        reason
                     );
                     let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is dead");
                     Self::close_connection(&mut locked_inner, client_id, peer_addr, &logger);
@@ -272,28 +275,31 @@ impl WebSocketSupervisorReal {
     fn filter_clients<'a, P>(
         locked_inner: &'a MutexGuard<WebSocketSupervisorInner>,
         predicate: P,
-    ) -> Vec<(u64, &'a WSSender)>
+    ) -> Vec<(u64, &'a mut WSSender)>
     where
-        P: FnOnce(&(&u64)) -> bool,
+        P: Fn(u64) -> bool,
     {
         locked_inner
             .client_by_id
             .iter()
-            .filter(predicate)
-            .map(|(id, item)| (*id, item.as_ref()))
+            .filter(|(id_ref_ref, _)| {
+                let id = **id_ref_ref;
+                predicate(id)
+            })
+            .map(|(id, item)| (*id, item))
             .collect()
     }
 
     // TODO: This is called both by WebSocketSupervisor and MasqNodeUiv2Handler. It should be
     // moved outside of the WebSocketSupervisorReal impl block. Perhaps it should be made a method
     // of WebSocketSupervisorInner.
-    fn send_msg_inner(
+    async fn send_msg_inner(
         mut locked_inner: MutexGuard<'_, WebSocketSupervisorInner>,
         msg: NodeToUiMessage,
     ) {
         let clients = match msg.target {
             ClientId(n) => {
-                let clients = Self::filter_clients(&locked_inner, |(id)| **id == n);
+                let clients = Self::filter_clients(&locked_inner, |(id)| id == n);
                 if !clients.is_empty() {
                     clients
                 } else {
@@ -301,11 +307,11 @@ impl WebSocketSupervisorReal {
                     return;
                 }
             }
-            AllExcept(n) => Self::filter_clients(&locked_inner, |(id)| **id != n),
+            AllExcept(n) => Self::filter_clients(&locked_inner, |(id)| id != n),
             AllClients => Self::filter_clients(&locked_inner, |_| true),
         };
         let json = UiTrafficConverter::new_marshal(msg.body);
-        if let Some(dead_client_ids) = Self::send_to_clients(clients, json) {
+        if let Some(dead_client_ids) = Self::send_to_clients(clients, json).await {
             Self::handle_sink_errs(dead_client_ids, &mut locked_inner)
         }
     }
@@ -324,22 +330,24 @@ impl WebSocketSupervisorReal {
         })
     }
 
-    fn send_to_clients(
-        clients: Vec<(u64, &WSSender)>,
+    async fn send_to_clients(
+        mut clients: Vec<(u64, &mut WSSender)>,
         json: String,
     ) -> Option<Vec<u64>> { // list of clients that died and could not receive the message
-        let dead_client_ids = clients.into_iter()
-            .map(move |(client_id, mut client)| {
-                let send_result = client.send_text(json.clone());
-                let flush_result = client.flush();
+        let client_id_result_pairs = join_all(clients.iter_mut()
+            .map(|(client_id, mut client)| async move{
+                let send_result = client.send_text(json.clone()).await;
+                let flush_result = client.flush().await;
                 let result = if send_result.is_err() {
                     send_result
                 } else {
                     todo!("Test-drive me");
                     flush_result
                 };
-                (client_id, result)
-            })
+                (*client_id, result)
+            })).await;
+        let dead_client_ids = client_id_result_pairs
+            .into_iter()
             .flat_map(|(client_id, result)| {
                 match result {
                     Ok(_) => None,
@@ -372,8 +380,8 @@ impl WebSocketSupervisorReal {
             .expectv("client id");
     }
 
-    async fn close_connection(
-        locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
+    async fn close_connection<'a>(
+        locked_inner: &mut MutexGuard<'a, WebSocketSupervisorInner>,
         client_id: u64,
         socket_addr: SocketAddr,
         logger: &Logger,
@@ -432,9 +440,9 @@ impl WebSocketSupervisorFactory for WebsocketSupervisorFactoryReal {
         &self,
         port: u16,
         recipient: Recipient<NodeFromUiMessage>,
-    ) -> io::Result<Box<dyn WebSocketSupervisor>> {
-        WebSocketSupervisorReal::new(port, recipient, usize::MAX)
-            .map(|positive| positive as Box<dyn WebSocketSupervisor>)
+    ) -> io::Result<Box<dyn WebSocketSupervisor>> { // TODO This shouldn't be a Result, since there's no way to fail.
+        let wss = WebSocketSupervisorReal::new(port, recipient, usize::MAX);
+        Ok(Box::new(wss))
     }
 }
 
@@ -448,22 +456,19 @@ mod tests {
     use actix::{Actor, Addr};
     use crossbeam_channel::bounded;
     use masq_lib::constants::UNMARSHAL_ERROR;
-    use masq_lib::messages::{
-        FromMessageBody, UiCheckPasswordRequest, UiDescriptorResponse, UiShutdownRequest,
-        UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL,
-    };
+    use masq_lib::messages::{FromMessageBody, UiCheckPasswordRequest, UiDescriptorResponse, UiShutdownRequest, UiStartOrder, UiUnmarshalError, UiMessageError, NODE_UI_PROTOCOL, UiConfigurationChangedBroadcast};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::test_utils::ui_connection::UiConnection;
-    use masq_lib::test_utils::utils::make_rt;
+    use masq_lib::test_utils::ui_connection::{ReceiveResult, UiConnection};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
-    use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage};
+    use masq_lib::ui_gateway::{MessagePath, MessageTarget, NodeFromUiMessage};
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
     use masq_lib::utils::{find_free_port, localhost};
     use std::net::{IpAddr, Ipv4Addr, Shutdown, TcpStream};
     use std::time::Duration;
+    use soketto::connection::Builder;
+    use soketto::Mode;
     use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-    use workflow_websocket::client::{ConnectOptions, WebSocket};
     use workflow_websocket::client::message::Message;
 
     impl WebSocketSupervisorReal {
@@ -535,7 +540,7 @@ mod tests {
                 Ok(_) => true,
                 Err(_) => false,
             }
-        }).await
+        })
     }
 
     // async fn wait_for<F, T>(interval_ms: u64, remaining_ms: u64, mut f: F) -> T
@@ -581,8 +586,8 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new();
         let recipient = ui_gateway.start().recipient();
-        let subject = WebSocketSupervisorReal::new(port, recipient, 1);
-        wait_for_server(port);
+        let subject = WebSocketSupervisorReal::new(port, recipient, 2);
+        wait_for_server(port).await;
 
         let mut ui_connection: UiConnection = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
@@ -624,8 +629,8 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new();
         let recipient = ui_gateway.start().recipient();
-        let subject = WebSocketSupervisorReal::new(port, recipient, 1);
-        wait_for_server(port);
+        let subject = WebSocketSupervisorReal::new(port, recipient, 2);
+        wait_for_server(port).await;
 
         let result: Result<UiConnection, String> = UiConnection::new(port, "MASQNode-UI").await;
 
@@ -652,8 +657,8 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let system = System::new();
         let recipient = ui_gateway.start().recipient();
-        let subject = WebSocketSupervisorReal::new(port, recipient, 1);
-        wait_for_server(port);
+        let subject = WebSocketSupervisorReal::new(port, recipient, 2);
+        wait_for_server(port).await;
 
         {
             let mut ui_connection: UiConnection =
@@ -697,10 +702,18 @@ mod tests {
             .send_string(r#"{"opcode": "athird", "payload": {}}"#.to_string())
             .await;
 
-        one_client.send_close().await.unwrap();
-        let one_close_msg = one_client.receive_message(None).await.unwrap();
-        another_client.send_close().await.unwrap();
-        let another_close_msg = another_client.receive_message(None).await.unwrap();
+        one_client.send_close().await;
+        let error = one_client.receive().await;
+        assert_eq!(
+            format!("{:?}", error.err().unwrap()),
+            format!("{:?}", soketto::connection::Error::Closed)
+        );
+        another_client.send_close().await;
+        let error = another_client.receive().await;
+        assert_eq!(
+            format!("{:?}", error.err().unwrap()),
+            format!("{:?}", soketto::connection::Error::Closed)
+        );
 
         ui_gateway_awaiter.await_message_count(3);
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
@@ -744,8 +757,6 @@ mod tests {
                 },
             },
         );
-        assert_eq!(one_close_msg, Message::Close);
-        assert_eq!(another_close_msg, Message::Close);
     }
 
     #[tokio::test]
@@ -777,8 +788,10 @@ mod tests {
             )
             .as_str(),
         );
-        let unmarshal_error = client.receive_message::<UiUnmarshalError>(None).await.unwrap();
-        assert_eq!(actual_struct.target, ClientId(0));
+        let actual_json = client.receive_string().await;
+        let actual_struct =
+            UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
+        assert_eq!(actual_struct.target, ClientId(4321));
         assert_eq!(
             UiUnmarshalError::fmb(actual_struct.body).unwrap().0,
             UiUnmarshalError {
@@ -788,32 +801,32 @@ mod tests {
         )
     }
 
-    fn make_ordinary_inner() -> WebSocketSupervisorInner {
+    fn make_ordinary_inner(port: u16, test_name: &str) -> WebSocketSupervisorInner {
         let (ui_message_sub, _, _) = make_recorder();
         WebSocketSupervisorInner {
-            port: 1234,
+            port,
             next_client_id: 0,
             from_ui_message_sub: ui_message_sub.start().recipient::<NodeFromUiMessage>(),
             client_id_by_socket_addr: Default::default(),
             socket_addr_by_client_id: Default::default(),
             client_by_id: Default::default(),
+            logger: Logger::new(test_name),
         }
     }
 
     #[tokio::test]
     async fn bad_one_way_message_is_logged_and_returns_error() {
         init_test_logging();
+        let port = find_free_port();
         let (recorder, _, recording_arc) = make_recorder();
-        let mut subject = MasqNodeUiv2Handler::new(1234, recorder.start().recipient());
+        let mut subject = WebSocketSupervisorReal::new(port, recorder.start().recipient(), 1);
         let test_name = "bad_one_way_message_is_logged_and_returns_error";
-        let logger = Logger::new(test_name);
-        subject.logger = logger;
-        let subject_arc = Arc::new(subject);
+        subject.inject_logger(Logger::new(test_name));
         let bad_message_json = r#"{"opcode":"shutdown"}"#;
         let client_id = 4321u64;
-        let (websocket_sink, mut client_rx) = make_websocket_sink_pair();
+        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
-        subject_arc.message(&client_id, Message::Text(bad_message_json.to_string()).into(), &websocket_sink).await.unwrap();
+        client.send_string(bad_message_json.to_string()).await;
 
         let expected_traffic_conversion_message =
             "Required field was missing: payload, error".to_string();
@@ -829,10 +842,7 @@ mod tests {
             )
                 .as_str(),
         );
-        let actual_json = match client_rx.recv().await.unwrap() {
-            Message::Text(s) => s,
-            x => panic!("Expected OwnedMessage::Text, got {:?}", x),
-        };
+        let actual_json = client.receive_string().await;
         let actual_struct =
             UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
         assert_eq!(actual_struct.target, ClientId(4321));
@@ -848,17 +858,16 @@ mod tests {
     #[tokio::test]
     async fn bad_two_way_message_is_logged_and_returns_error() {
         init_test_logging();
+        let port = find_free_port();
         let (recorder, _, recording_arc) = make_recorder();
-        let mut subject = MasqNodeUiv2Handler::new(1234, recorder.start().recipient());
+        let mut subject = WebSocketSupervisorReal::new(port, recorder.start().recipient(), 1);
         let test_name = "bad_two_way_message_is_logged_and_returns_error";
-        let logger = Logger::new(test_name);
-        subject.logger = logger;
-        let subject_arc = Arc::new(subject);
+        subject.inject_logger(Logger::new(test_name));
         let bad_message_json = r#"{"opcode":"setup", "contextId":3333}"#;
         let client_id = 4321u64;
-        let (websocket_sink, mut client_rx) = make_websocket_sink_pair();
+        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
-        subject_arc.message(&client_id, Message::Text(bad_message_json.to_string()).into(), &websocket_sink).await.unwrap();
+        client.send_string(bad_message_json.to_string()).await;
 
         let expected_traffic_conversion_message =
             "Required field was missing: payload, error".to_string();
@@ -875,10 +884,7 @@ mod tests {
             .as_str(),
         );
 
-        let actual_json = match client_rx.recv().await.unwrap() {
-            Message::Text(s) => s,
-            x => panic!("Expected OwnedMessage::Text, got {:?}", x),
-        };
+        let actual_json = client.receive_string().await;
         let actual_struct =
             UiTrafficConverter::new_unmarshal_to_ui(&actual_json, ClientId(0)).unwrap();
         assert_eq!(
@@ -895,15 +901,19 @@ mod tests {
     }
 
     async fn transmit_failure_assertion() {
-        let client_mock = {
-            let (client, _client_rx) = make_websocket_sink_pair();
-            client
-        };
+        let port = find_free_port();
+        let test_name = "transmit_failure_assertion";
+        let client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let (ui_gateway, _, _) = make_recorder();
         let from_ui_message_sub = subs(ui_gateway);
         let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::from([1, 2, 4, 5])), 4455);
-        let mut client_by_id: HashMap<u64, WebSocketSink> = HashMap::new();
-        client_by_id.insert(123, client_mock);
+        let logger = Logger::new(test_name);
+        let stream = tokio::net::TcpStream::connect(socket_addr)
+            .await
+            .expect("Couldn't connect to test socket");
+        let builder = Builder::new(BufReader::new(BufWriter::new(stream.compat())), Mode::Server);
+        let mut client_by_id: HashMap<u64, WSSender> = HashMap::new();
+        client_by_id.insert(123, builder.finish().0);
         let mut client_id_by_socket_addr: HashMap<SocketAddr, u64> = HashMap::new();
         client_id_by_socket_addr.insert(socket_addr, 123);
         let mut socket_addr_by_client_id: HashMap<u64, SocketAddr> = HashMap::new();
@@ -915,6 +925,7 @@ mod tests {
             client_id_by_socket_addr,
             socket_addr_by_client_id,
             client_by_id,
+            logger,
         }));
         let msg = NodeToUiMessage {
             target: ClientId(123),
@@ -926,7 +937,7 @@ mod tests {
         let assertable_inner_arc = inner_arc.clone();
         let inner = inner_arc.lock().unwrap();
 
-        WebSocketSupervisorReal::send_msg(inner, msg).await;
+        WebSocketSupervisorReal::send_msg_inner(inner, msg).await;
 
         let assertable_inner = assertable_inner_arc.lock().unwrap();
         assert_eq!(assertable_inner.client_id_by_socket_addr.get(&socket_addr), None);
@@ -1020,15 +1031,13 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 1);
-        let (one_mock_client, one_mock_client_rx) = make_websocket_sink_pair();
-        let (another_mock_client, mut another_mock_client_rx) = make_websocket_sink_pair();
-        let one_client_id = subject.inject_client(one_mock_client);
-        let another_client_id = subject.inject_client(another_mock_client);
+        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
+        let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let msg = NodeToUiMessage {
-            target: ClientId(one_client_id),
+            target: ClientId(1), // first client gets client ID 1
             body: MessageBody {
-                opcode: "booga".to_string(),
+                opcode: "configurationChanged".to_string(),
                 path: FireAndForget,
                 payload: Ok("{}".to_string()),
             },
@@ -1036,9 +1045,8 @@ mod tests {
 
         subject.send_msg(msg.clone());
 
-        let actual_message = msg_received_assertion(one_mock_client_rx, ClientId(one_client_id)).await;
-        assert_eq!(actual_message, msg);
-        assert_eq!(another_mock_client_rx.recv().await, None);
+        let _ = one_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        another_client.assert_nothing_waiting(100).await;
     }
 
     #[tokio::test]
@@ -1046,15 +1054,17 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
-        let (one_mock_client, one_mock_client_rx) = make_websocket_sink_pair();
-        let (another_mock_client, mut another_mock_client_rx) = make_websocket_sink_pair();
-        let one_client_id = subject.inject_client(one_mock_client);
-        let another_client_id = subject.inject_client(another_mock_client);
+        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 3);
+        let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let mut third_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let one_client_id = 1;
+        let another_client_id = 2;
+        let third_client_id = 3;
         let msg = NodeToUiMessage {
             target: AllExcept(another_client_id),
             body: MessageBody {
-                opcode: "booga".to_string(),
+                opcode: "configurationChanged".to_string(),
                 path: FireAndForget,
                 payload: Ok("{}".to_string()),
             },
@@ -1062,10 +1072,9 @@ mod tests {
 
         subject.send_msg(msg.clone());
 
-        let actual_message =
-            msg_received_assertion(one_mock_client_rx, AllExcept(another_client_id)).await;
-        assert_eq!(actual_message, msg);
-        assert_eq!(another_mock_client_rx.recv().await, None);
+        let _ = one_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        another_client.assert_nothing_waiting(100).await;
+        let _ = third_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
     }
 
     #[tokio::test]
@@ -1073,15 +1082,17 @@ mod tests {
         let port = find_free_port();
         let (ui_gateway, _, _) = make_recorder();
         let ui_message_sub = subs(ui_gateway);
-        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 2);
-        let (one_mock_client, one_mock_client_rx) = make_websocket_sink_pair();
-        let (another_mock_client, another_mock_client_rx) = make_websocket_sink_pair();
-        let one_client_id = subject.inject_client(one_mock_client);
-        let another_client_id = subject.inject_client(another_mock_client);
+        let subject = WebSocketSupervisorReal::new(port, ui_message_sub, 3);
+        let mut one_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let mut another_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let mut third_client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let one_client_id = 1;
+        let another_client_id = 2;
+        let third_client_id = 3;
         let msg = NodeToUiMessage {
             target: AllClients,
             body: MessageBody {
-                opcode: "booga".to_string(),
+                opcode: "configurationChanged".to_string(),
                 path: FireAndForget,
                 payload: Ok("{}".to_string()),
             },
@@ -1089,10 +1100,9 @@ mod tests {
 
         subject.send_msg(msg.clone());
 
-        let actual_message = msg_received_assertion(one_mock_client_rx, AllClients).await;
-        assert_eq!(actual_message, msg);
-        let actual_message = msg_received_assertion(another_mock_client_rx, AllClients).await;
-        assert_eq!(actual_message, msg);
+        let _ = one_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        let _ = another_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        let _ = third_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
     }
 
     #[tokio::test]
