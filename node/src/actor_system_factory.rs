@@ -1,3 +1,4 @@
+use std::env;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
@@ -308,7 +309,7 @@ impl ActorSystemFactoryToolsReal {
                 AutomapChange::NewIp(new_public_ip) => {
                     exit_process(
                         1,
-                        format! ("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str()
+                        format!("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str(),
                     );
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
@@ -378,7 +379,29 @@ pub trait ActorFactory {
     fn make_and_start_configurator(&self, config: &BootstrapperConfig) -> ConfiguratorSubs;
 }
 
-pub struct ActorFactoryReal {}
+pub struct ActorFactoryReal {
+    logger: Logger,
+}
+
+impl ActorFactoryReal {
+    pub fn new() -> Self {
+        Self {
+            logger: Logger::new("ActorFactory"),
+        }
+    }
+
+    fn load_banned_cache(
+        db_initializer: &dyn DbInitializer,
+        banned_cache_loader: &dyn BannedCacheLoader,
+        data_directory: &Path,
+    ) {
+        banned_cache_loader.load(connection_or_panic(
+            db_initializer,
+            data_directory,
+            DbInitializationConfig::panic_on_migration(),
+        ));
+    }
+}
 
 impl ActorFactory for ActorFactoryReal {
     fn make_and_start_dispatcher(
@@ -401,6 +424,7 @@ impl ActorFactory for ActorFactoryReal {
         cryptdes: CryptDEPair,
         config: &BootstrapperConfig,
     ) -> ProxyServerSubs {
+        let is_running_in_integration_test = is_running_in_integration_test();
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
         let consuming_wallet_balance = if config.consuming_wallet_opt.is_some() {
             Some(0) //TODO this is an old unfinished concept, repair or remove it...never used.
@@ -416,6 +440,7 @@ impl ActorFactory for ActorFactoryReal {
                 is_decentralized,
                 consuming_wallet_balance,
                 crashable,
+                is_running_in_integration_test,
             )
         });
         ProxyServer::make_subs_from(&addr)
@@ -509,10 +534,12 @@ impl ActorFactory for ActorFactoryReal {
         let data_directory = config.data_directory.clone();
         let chain = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
+        let logger = self.logger.clone();
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let blockchain_interface = BlockchainBridge::initialize_blockchain_interface(
                 blockchain_service_url_opt,
                 chain,
+                logger,
             );
             let persistent_config =
                 BlockchainBridge::initialize_persistent_configuration(&data_directory);
@@ -534,22 +561,14 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
-impl ActorFactoryReal {
-    fn load_banned_cache(
-        db_initializer: &dyn DbInitializer,
-        banned_cache_loader: &dyn BannedCacheLoader,
-        data_directory: &Path,
-    ) {
-        banned_cache_loader.load(connection_or_panic(
-            db_initializer,
-            data_directory,
-            DbInitializationConfig::panic_on_migration(),
-        ));
-    }
-}
-
 fn is_crashable(config: &BootstrapperConfig) -> bool {
     config.crash_point == CrashPoint::Message
+}
+
+fn is_running_in_integration_test() -> bool {
+    env::var("MASQ_INTEGRATION_TEST")
+        .map(|value| value.to_ascii_lowercase() == "true")
+        .unwrap_or(false)
 }
 
 pub trait AutomapControlFactory {
@@ -624,7 +643,6 @@ mod tests {
     use super::*;
     use crate::accountant::exportable_test_parts::test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
-    use crate::blockchain::blockchain_bridge::exportable_test_parts::test_blockchain_bridge_is_constructed_with_correctly_functioning_connections;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from_recorder, start_recorder_refcell_opt,
@@ -674,6 +692,7 @@ mod tests {
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
@@ -1050,7 +1069,7 @@ mod tests {
         };
         let main_cryptde_public_key_expected = pk_from_cryptde_null(main_cryptde);
         let alias_cryptde_public_key_expected = pk_from_cryptde_null(alias_cryptde);
-        let actor_factory = Box::new(ActorFactoryReal {});
+        let actor_factory = Box::new(ActorFactoryReal::new());
         let actor_factory_raw_address_expected = addr_of!(*actor_factory);
         let persistent_config_expected_arbitrary_id = ArbitraryIdStamp::new();
         let persistent_config = Box::new(
@@ -1236,7 +1255,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
+            node_descriptor: NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Igdp),
@@ -1250,7 +1269,7 @@ mod tests {
                 min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1337,7 +1356,7 @@ mod tests {
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
             dispatcher_param.node_descriptor,
-            NodeDescriptor::try_from ((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1549,7 +1568,7 @@ mod tests {
                 min_hops: MIN_HOPS_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let system = System::new("MASQNode");
         let mut subject = make_subject_with_null_setter();
@@ -1762,7 +1781,7 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}
+            let subscribers = ActorFactoryReal::new()
                 .make_and_start_proxy_server(make_cryptde_pair(), &bootstrapper_config);
             subscribers.node_from_ui
         };
@@ -1783,7 +1802,7 @@ mod tests {
                 crashable: true,
                 exit_byte_rate: 50,
             };
-            let subscribers = ActorFactoryReal {}.make_and_start_proxy_client(proxy_cl_config);
+            let subscribers = ActorFactoryReal::new().make_and_start_proxy_client(proxy_cl_config);
             subscribers.node_from_ui
         };
 
@@ -1800,7 +1819,7 @@ mod tests {
                 is_decentralized: false,
                 crashable: true,
             };
-            let subscribers = ActorFactoryReal {}.make_and_start_hopper(hopper_config);
+            let subscribers = ActorFactoryReal::new().make_and_start_hopper(hopper_config);
             subscribers.node_from_ui
         };
 
@@ -1812,7 +1831,8 @@ mod tests {
         let closure = || {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
-            let subscribers = ActorFactoryReal {}.make_and_start_ui_gateway(&bootstrapper_config);
+            let subscribers =
+                ActorFactoryReal::new().make_and_start_ui_gateway(&bootstrapper_config);
             subscribers.node_from_ui_message_sub
         };
 
@@ -1825,7 +1845,7 @@ mod tests {
             let mut bootstrapper_config = BootstrapperConfig::default();
             bootstrapper_config.crash_point = CrashPoint::Message;
             let subscribers =
-                ActorFactoryReal {}.make_and_start_stream_handler_pool(&bootstrapper_config);
+                ActorFactoryReal::new().make_and_start_stream_handler_pool(&bootstrapper_config);
             subscribers.node_from_ui_sub
         };
 
@@ -1948,7 +1968,7 @@ mod tests {
 
         let _ = subject.make_and_start_actors(
             bootstrapper_config,
-            Box::new(ActorFactoryReal {}),
+            Box::new(ActorFactoryReal::new()),
             Box::new(persistent_config),
         );
     }
@@ -1960,7 +1980,7 @@ mod tests {
                    db_initializer: DbInitializerReal,
                    banned_cache_loader: BannedCacheLoaderMock,
                    address_leaker: SubsFactoryTestAddrLeaker<Accountant>| {
-            ActorFactoryReal {}.make_and_start_accountant(
+            ActorFactoryReal::new().make_and_start_accountant(
                 bootstrapper_config,
                 &db_initializer,
                 &banned_cache_loader,
@@ -1971,21 +1991,6 @@ mod tests {
         test_accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions(
             "actor_system_factory",
             "accountant_is_constructed_with_upgraded_db_connection_recognizing_our_extra_sqlite_functions",
-            act,
-        )
-    }
-
-    #[test]
-    fn blockchain_bridge_is_constructed_with_correctly_functioning_connections() {
-        let act = |bootstrapper_config: BootstrapperConfig,
-                   address_leaker: SubsFactoryTestAddrLeaker<BlockchainBridge>| {
-            ActorFactoryReal {}
-                .make_and_start_blockchain_bridge(&bootstrapper_config, &address_leaker)
-        };
-
-        test_blockchain_bridge_is_constructed_with_correctly_functioning_connections(
-            "actor_system_factory",
-            "blockchain_bridge_is_constructed_with_correctly_functioning_connections",
             act,
         )
     }
@@ -2006,6 +2011,41 @@ mod tests {
         };
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+
+    #[test]
+    fn is_running_in_integration_test_works_when_set() {
+        let _guard = EnvironmentGuard::new();
+        let test_cases = vec![
+            ("true", true),
+            ("TRUE", true),
+            ("TrUe", true),
+            ("false", false),
+            ("random_value", false),
+            ("", false),
+        ];
+
+        for (input, expected) in test_cases {
+            env::set_var("MASQ_INTEGRATION_TEST", input);
+            assert_eq!(
+                is_running_in_integration_test(),
+                expected,
+                "Failed on input: {}",
+                input
+            );
+            env::remove_var("MASQ_INTEGRATION_TEST");
+        }
+    }
+
+    #[test]
+    fn is_running_in_integration_test_works_when_unset() {
+        let _guard = EnvironmentGuard::new();
+        let precondition = env::var("MASQ_INTEGRATION_TEST");
+
+        let result = is_running_in_integration_test();
+
+        assert_eq!(precondition, Err(env::VarError::NotPresent));
+        assert_eq!(result, false, "Failed on unset variable");
     }
 
     fn pk_from_cryptde_null(cryptde: &dyn CryptDE) -> &PublicKey {

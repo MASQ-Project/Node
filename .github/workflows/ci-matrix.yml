@@ -14,7 +14,7 @@ jobs:
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
-          - { name: macos, os: macos-12 }
+          - { name: macos, os: macos-13 }
           - { name: windows, os: windows-2022 }
 
     name: Build node on ${{ matrix.target.os }}
@@ -23,6 +23,12 @@ jobs:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Print source branch name
+        run: |
+          echo "Source branch: ${{ github.head_ref }}"
+        shell: bash
+
       - name: Stable with rustfmt and clippy
         uses: actions-rs/toolchain@v1
         with:
@@ -40,17 +46,20 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo
+
       - name: Build ${{ matrix.target.os }}
         run: |
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
         shell: bash
+
       - name: Publish ${{ matrix.target.os }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Node-${{ matrix.target.name }}
           path: results
+
   deploy_to_s3:
     needs: build
     strategy:
@@ -62,7 +71,8 @@ jobs:
           with:
             ref: ${{ github.event.pull_request.head.sha }}
 
-        - uses: actions/download-artifact@v3
+        - name: Download artifacts
+          uses: actions/download-artifact@v4
 
         - name: Display structure of downloaded files
           run: ls -R
@@ -77,7 +87,7 @@ jobs:
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}'
+            DEST_DIR: 'Node/${{ github.head_ref }}/Node-${{ matrix.os }}'
             SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
 
         - if: startsWith(github.head_ref, 'v')

@@ -5,7 +5,7 @@ use crate::data_version::DataVersion;
 use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
-pub const CURRENT_SCHEMA_VERSION: usize = 9;
+pub const CURRENT_SCHEMA_VERSION: usize = 10;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -23,6 +23,8 @@ pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
 pub const WALLET_ADDRESS_LENGTH: usize = 42;
 pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
+
+pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
