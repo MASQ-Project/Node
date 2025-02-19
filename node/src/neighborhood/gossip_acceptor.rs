@@ -287,7 +287,6 @@ impl DebutHandler {
             }
             None => (),
         }
-        // TODO 468 make debuting_node mut and add country_undesirability to its metadata
         let debut_node_key = database
             .add_node(debuting_node)
             .expect("Debuting Node suddenly appeared in database");
@@ -700,7 +699,6 @@ impl GossipHandler for IntroductionHandler {
                 .as_ref()
                 .expect("IP Address not found for the Node Addr.")
                 .ip_addr();
-            // TODO 468 pass the NeighborhoodMetadata into update_database
             match self.update_database(
                 database,
                 cryptde,
@@ -892,7 +890,6 @@ impl IntroductionHandler {
             }
             None => {
                 let mut new_introducer = NodeRecord::from(introducer);
-                //TODO 468 add country undesirability
                 match user_exit_preferences_opt {
                     //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                     Some(user_exit_preferences) => user_exit_preferences
@@ -1144,7 +1141,6 @@ impl StandardGossipHandler {
             })
             .for_each(|agr| {
                 let mut node_record = NodeRecord::from(agr);
-                // TODO modify for country undesirability in node_record (make it mut)
                 match user_exit_preferences_opt {
                     Some(user_exit_preferences) => {
                         //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication

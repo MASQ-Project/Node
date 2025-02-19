@@ -103,5 +103,4 @@ fn http_end_to_end_routing_test_with_exit_location() {
         ))
         .unwrap();
     assert_eq!(last_hop.public_key, exit_fr.inner.public_key)
-    //println!("{:#?}", last_hop.public_key);
 }

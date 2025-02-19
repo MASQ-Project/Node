@@ -75,11 +75,9 @@ use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::string::ToString;
-//use masq_lib::constants::EXIT_COUNTRY_ERROR;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::MessagePath::Conversation;
-//use masq_lib::ui_gateway::MessagePath::Conversation;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
@@ -879,6 +877,7 @@ impl Neighborhood {
                 self.gossip_to_neighbors()
             }
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
+                //TODO investigate: Do we adding debutant to DB ? should we fetch country_codes here?
                 self.user_exit_preferences.db_countries = self.init_db_countries();
                 self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
             }
@@ -1397,7 +1396,7 @@ impl Neighborhood {
         source: &'a PublicKey,
         minimum_hops: usize,
         payload_size: usize,
-    ) -> (HashMap<PublicKey, ExitLocationsRoutes>, Vec<&'a PublicKey>) {
+    ) -> Vec<&'a PublicKey> {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability = 0;
         let research_exits: &mut Vec<&'a PublicKey> = &mut vec![];
@@ -1430,7 +1429,7 @@ impl Neighborhood {
                     });
             }
         });
-        (result_exit, research_exits.to_vec())
+        research_exits.to_vec()
     }
 
     // Interface to main routing engine. Supply source key, target key--if any--in target_opt,
@@ -1821,7 +1820,7 @@ impl Neighborhood {
                     path: Conversation(context_id),
                     payload: Err((
                         EXIT_COUNTRY_MISSING_COUNTRIES_ERROR,
-                        format!("{:?}", missing_message),
+                        missing_message,
                     )),
                 },
             }
@@ -1864,6 +1863,7 @@ impl Neighborhood {
         &mut self,
         message: &UiSetExitLocationRequest,
     ) -> (Vec<ExitLocation>, Vec<String>) {
+        //TODO perform following update of db_countries only in Gossip_Acceptor
         self.user_exit_preferences.db_countries = self.init_db_countries();
         let mut countries_lack_in_neighborhood = vec![];
         (
@@ -1900,19 +1900,16 @@ impl Neighborhood {
     fn init_db_countries(&mut self) -> Vec<String> {
         let root_key = self.neighborhood_database.root_key();
         let min_hops = self.min_hops as usize;
-        let (exit_locations_db, exit_nodes) = self
+        let exit_nodes = self
             .find_exit_location(root_key, min_hops, 0usize)
             .to_owned();
         let mut db_countries = vec![];
-        match (exit_locations_db.is_empty(), exit_nodes.is_empty()) {
-            (true, true) => {}
-            _ => {
-                for pub_key in exit_nodes {
-                    let node_opt = self.neighborhood_database.node_by_key(pub_key);
-                    if let Some(node_record) = node_opt {
-                        if let Some(cc) = &node_record.inner.country_code_opt {
-                            db_countries.push(cc.clone())
-                        }
+        if !exit_nodes.is_empty() {
+            for pub_key in exit_nodes {
+                let node_opt = self.neighborhood_database.node_by_key(pub_key);
+                if let Some(node_record) = node_opt {
+                    if let Some(cc) = &node_record.inner.country_code_opt {
+                        db_countries.push(cc.clone())
                     }
                 }
             }
@@ -2257,33 +2254,35 @@ mod tests {
         assert_eq!(subject.db_patch_size, expected_db_patch_size);
     }
 
-    // #[test]
-    // fn test_wtih_debut_allways_have_half_neighborship_in_handle_gossip() {
-    //     let mut subject = make_standard_subject();
-    //     subject.min_hops = Hops::OneHop;
-    //     let root_node_key = subject.neighborhood_database.root_key();
-    //     let first_neighbor = make_node_record(1111, true);
-    //     let mut debut_db = subject.neighborhood_database.clone();
-    //     debut_db.add_node(first_neighbor.clone()).unwrap();
-    //     debut_db.this_node = first_neighbor.public_key().clone();
-    //     debut_db.remove_node(&root_node_key.clone());
-    //     let resinging = debut_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
-    //     resinging.resign();
-    //     let debut = GossipBuilder::new(&debut_db).node(first_neighbor.public_key(), true).build();
-    //
-    //     let peer_actors = peer_actors_builder().build();
-    //     subject.handle_bind_message(BindMessage { peer_actors });
-    //
-    //
-    //     subject.handle_gossip(
-    //         debut,
-    //         SocketAddr::from_str("1.1.1.1:1111").unwrap(),
-    //         make_cpm_recipient().0,
-    //     );
-    //
-    //     print!("db after: {:?}\n", subject.neighborhood_database.to_dot_graph());
-    //     println!("db_countries: {:?}", subject.user_exit_preferences.db_countries);
-    // }
+    #[test]
+    fn test_wtih_debut_allways_have_half_neighborship_in_handle_gossip() {
+        //TODO 788 finish this test and find out where to update exit_locations
+        let mut subject = make_standard_subject();
+        let root_node_key = subject.neighborhood_database.root_key();
+        let first_neighbor = make_node_record(1111, true);
+        let mut debut_db = subject.neighborhood_database.clone();
+        debut_db.add_node(first_neighbor.clone()).unwrap();
+        debut_db.this_node = first_neighbor.public_key().clone();
+        debut_db.remove_node(&root_node_key.clone());
+        let resinging = debut_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
+        resinging.resign();
+        let debut = GossipBuilder::new(&debut_db).node(first_neighbor.public_key(), true).build();
+
+        let peer_actors = peer_actors_builder().build();
+        subject.handle_bind_message(BindMessage { peer_actors });
+
+
+        subject.handle_gossip(
+            debut,
+            SocketAddr::from_str("1.1.1.1:1111").unwrap(),
+            make_cpm_recipient().0,
+        );
+        subject.min_hops = Hops::OneHop;
+        subject.user_exit_preferences.db_countries = subject.init_db_countries();
+        print!("db after: {:?}\n", subject.neighborhood_database.to_dot_graph());
+        println!("db_countries: {:?}", subject.user_exit_preferences.db_countries);
+        assert_eq!(subject.user_exit_preferences.db_countries, vec!["CH".to_string()]);
+    }
 
     #[test]
     fn init_db_countries_works_properly() {
@@ -3936,7 +3935,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         assert_eq!(
             exit_handler_response,
-            Err((9223372036854775817, "\"CZ, SK, IN\"".to_string(),))
+            Err((9223372036854775817, "CZ, SK, IN".to_string(),))
         );
         log_handler.assert_logs_contain_in_order(vec![
             &format!(
@@ -4413,7 +4412,7 @@ mod tests {
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
 
-        let (_routes, mut exit_nodes) = subject.find_exit_location(&l, 3, 10_000);
+        let mut exit_nodes = subject.find_exit_location(&l, 3, 10_000);
 
         let total_exit_nodes = exit_nodes.len();
         exit_nodes.sort();
@@ -4459,7 +4458,7 @@ mod tests {
         };
         designate_root_node(db, &n1);
 
-        let (_routes, mut exit_nodes) = subject.find_exit_location(&n1, 3, 10_000);
+        let mut exit_nodes = subject.find_exit_location(&n1, 3, 10_000);
 
         let total_exit_nodes = exit_nodes.len();
         exit_nodes.sort();

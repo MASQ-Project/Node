@@ -1248,7 +1248,6 @@ mod tests {
                     rate_pack(100),
                 ),
                 min_hops: MIN_HOPS_FOR_TEST,
-
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1548,7 +1547,6 @@ mod tests {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
                 min_hops: MIN_HOPS_FOR_TEST,
-
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
