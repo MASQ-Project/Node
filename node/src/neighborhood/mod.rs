@@ -2256,32 +2256,60 @@ mod tests {
 
     #[test]
     fn test_wtih_debut_allways_have_half_neighborship_in_handle_gossip() {
+        init_test_logging();
         //TODO 788 finish this test and find out where to update exit_locations
         let mut subject = make_standard_subject();
-        let root_node_key = subject.neighborhood_database.root_key();
+        let root_node_key = subject.neighborhood_database.root_key().clone();
+        let root_node = subject.neighborhood_database.root().clone();
         let first_neighbor = make_node_record(1111, true);
+        let second_neighbor = make_node_record(2222, true);
+        let debutant = make_node_record(3333, true);
+
+        subject.neighborhood_database.add_node(first_neighbor.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
+        let mut gossip_db = subject.neighborhood_database.clone();
         let mut debut_db = subject.neighborhood_database.clone();
-        debut_db.add_node(first_neighbor.clone()).unwrap();
-        debut_db.this_node = first_neighbor.public_key().clone();
-        debut_db.remove_node(&root_node_key.clone());
-        let resinging = debut_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
-        resinging.resign();
-        let debut = GossipBuilder::new(&debut_db).node(first_neighbor.public_key(), true).build();
+
+        gossip_db.this_node = first_neighbor.public_key().clone();
+        gossip_db.remove_node(&root_node_key);
+        gossip_db.add_node(root_node).unwrap();
+        gossip_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), &root_node_key);
+        gossip_db.add_node(second_neighbor.clone()).unwrap();
+        gossip_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), second_neighbor.public_key());
+        gossip_db.root_mut().inner.version = 1;
+        let resigner = gossip_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
+        resigner.resign();
+
+        debut_db.this_node = debutant.public_key().clone();
+        debut_db.add_node(debutant.clone()).unwrap();
+        debut_db.remove_node(&root_node_key);
+        let debut_resigner = debut_db.node_by_key_mut(debutant.public_key()).unwrap();
+        debut_resigner.resign();
+
+        let standard_gossip = GossipBuilder::new(&gossip_db).node(first_neighbor.public_key(), true).node(second_neighbor.public_key(), false).build();
+        let debut_gossip = GossipBuilder::new(&debut_db).node(debutant.public_key(), true).build();
 
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
-
+        subject.min_hops = Hops::OneHop;
 
         subject.handle_gossip(
-            debut,
+            standard_gossip,
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
             make_cpm_recipient().0,
         );
-        subject.min_hops = Hops::OneHop;
-        subject.user_exit_preferences.db_countries = subject.init_db_countries();
+
+        subject.handle_gossip(
+            debut_gossip,
+            SocketAddr::from_str("3.3.3.3:3333").unwrap(),
+            make_cpm_recipient().0,
+        );
+
         print!("db after: {:?}\n", subject.neighborhood_database.to_dot_graph());
         println!("db_countries: {:?}", subject.user_exit_preferences.db_countries);
-        assert_eq!(subject.user_exit_preferences.db_countries, vec!["CH".to_string()]);
+        // TestLogHandler::new()
+        //     .exists_log_containing(&format!("Gossip from {} accepted", SocketAddr::from_str("1.1.1.1:1111").unwrap()));
+        assert_eq!(subject.user_exit_preferences.db_countries, vec!["FR".to_string(), "US".to_string(), "AU".to_string()]);
     }
 
     #[test]
@@ -5850,17 +5878,19 @@ mod tests {
     }
 
     #[test]
-    fn handle_new_public_ip_changes_public_ip_and_nothing_else() {
+    fn handle_new_public_ip_changes_public_ip_and_country_code_nothing_else() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1234, true);
         let neighbor = make_node_record(1050, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        subject.neighborhood_database.root_mut().inner.country_code_opt = Some("AU".to_string());
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
             new_ip: new_public_ip,
         });
 
+        assert_eq!(subject.neighborhood_database.root().inner.country_code_opt, Some("US".to_string()));
         assert_eq!(
             subject.neighborhood_database.root().inner.country_code_opt,
             Some(
