@@ -2,60 +2,70 @@
 
 use crate::communications::connection_manager::ClosingStageDetector;
 use async_trait::async_trait;
+use futures::io::{BufReader, BufWriter};
+use masq_lib::messages::NODE_UI_PROTOCOL;
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
-use std::sync::Arc;
+use masq_lib::utils::localhost;
+use masq_lib::websockets_types::{WSReceiver, WSSender};
 use soketto::connection::Error;
+use soketto::handshake::{Client, ServerResponse};
 use soketto::Data;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::{AbortHandle, JoinHandle};
-use masq_lib::websockets_types::{WSReceiver, WSSender};
-use std::net::SocketAddr;
-use futures::io::{BufReader, BufWriter};
-use soketto::handshake::{Client, ServerResponse};
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use masq_lib::messages::NODE_UI_PROTOCOL;
-use masq_lib::utils::localhost;
 
 // TODO assert me if preserved
 pub const WS_CONNECT_TIMEOUT_MS: u64 = 1500;
 
 #[derive(Debug)]
-pub enum ConnectError{
+pub enum ConnectError {
     Error(Error),
-    Timeout
+    Timeout,
 }
 
-pub async fn make_connection(port: u16, timeout_ms: u64) -> Result<(WSSender, WSReceiver), ConnectError>{
+pub async fn make_connection(
+    port: u16,
+    timeout_ms: u64,
+) -> Result<(WSSender, WSReceiver), ConnectError> {
     let socket_addr = SocketAddr::new(localhost(), port);
 
-    let tcp_stream = match tokio::net::TcpStream::connect(socket_addr).await{
+    let tcp_stream = match tokio::net::TcpStream::connect(socket_addr).await {
         Ok(tcp) => tcp,
-        Err(e) => todo!()
+        Err(e) => todo!(),
     };
 
-    let mut client = Client::new(BufReader::new(BufWriter::new(tcp_stream.compat())), "/", "/");
+    let mut client = Client::new(
+        BufReader::new(BufWriter::new(tcp_stream.compat())),
+        "/",
+        "/",
+    );
 
     client.add_protocol(NODE_UI_PROTOCOL);
 
-    let result =  client.handshake().await;
+    let result = client.handshake().await;
 
-    let server_response = match result{
+    let server_response = match result {
         Ok(res) => res,
-        Err(e) => todo!()
+        Err(e) => todo!(),
     };
 
     match server_response {
-        ServerResponse::Accepted {protocol} => {
+        ServerResponse::Accepted { protocol } => {
             if let Some(_) = protocol {
                 Ok(client.into_builder().finish())
             } else {
                 todo!()
             }
-        },
-        ServerResponse::Rejected {status_code} => todo!(),
-        ServerResponse::Redirect {status_code, location} => todo!()
+        }
+        ServerResponse::Rejected { status_code } => todo!(),
+        ServerResponse::Redirect {
+            status_code,
+            location,
+        } => todo!(),
     }
 }
 
@@ -244,9 +254,14 @@ impl ClientListenerSpawner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::messages::{FromMessageBody, ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorRequest, UiDescriptorResponse};
+    use masq_lib::messages::{
+        FromMessageBody, ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse,
+        UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorRequest, UiDescriptorResponse,
+    };
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::mock_websockets_server::{MWSSMessage, MockWebSocketsServer, StopStrategy};
+    use masq_lib::test_utils::mock_websockets_server::{
+        MWSSMessage, MockWebSocketsServer, StopStrategy,
+    };
     use masq_lib::utils::find_free_port;
     use std::time::Duration;
     use tokio::sync::mpsc::error::TryRecvError;
@@ -263,12 +278,15 @@ mod tests {
 
     #[tokio::test]
     async fn listens_and_passes_data_through() {
-        let expected_message = UiConnectionChangeBroadcast { stage: UiConnectionStage::RouteFound };
+        let expected_message = UiConnectionChangeBroadcast {
+            stage: UiConnectionStage::RouteFound,
+        };
         let port = find_free_port();
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let server_stop_handle = server.start().await;
-        let (talker_half, listener_half) = make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+        let (talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(listener_half);
@@ -287,9 +305,7 @@ mod tests {
     #[tokio::test]
     async fn processes_incoming_close_correctly() {
         let port = find_free_port();
-        let server_stop_handle = MockWebSocketsServer::new(port)
-            .start()
-            .await;
+        let server_stop_handle = MockWebSocketsServer::new(port).start().await;
         let (mut talker_half, listener_half) =
             make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
@@ -343,9 +359,8 @@ mod tests {
     #[tokio::test]
     async fn processes_bad_owned_message_correctly() {
         let port = find_free_port();
-        let server =
-            MockWebSocketsServer::new(port)
-                .queue_faf_owned_message(Data::Binary(10), b"BadMessage".to_vec());
+        let server = MockWebSocketsServer::new(port)
+            .queue_faf_owned_message(Data::Binary(10), b"BadMessage".to_vec());
         let stop_handle = server.start().await;
         let (talker_half, listener_half) =
             make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
@@ -366,7 +381,8 @@ mod tests {
     #[tokio::test]
     async fn processes_bad_packet_correctly() {
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port).queue_faf_owned_message(Data::Text(5),b"booga".to_vec());
+        let server = MockWebSocketsServer::new(port)
+            .queue_faf_owned_message(Data::Text(5), b"booga".to_vec());
         let stop_handle = server.start().await;
         let (talker_half, listener_half) =
             make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
@@ -426,20 +442,28 @@ mod tests {
             make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = ClientListenerSpawner::new(
-            listener_half,
-            message_body_tx,
-            close_sig.dup_receiver(),
-        );
+        let subject =
+            ClientListenerSpawner::new(listener_half, message_body_tx, close_sig.dup_receiver());
         let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
         let mut client_handle = WSClientHandleReal::new(talker_half, join_handle.abort_handle());
-        client_handle.send_msg(UiDescriptorRequest{}.tmb(1234)).await.unwrap();
+        client_handle
+            .send_msg(UiDescriptorRequest {}.tmb(1234))
+            .await
+            .unwrap();
         let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();
         let (received_message, context_id) = UiDescriptorResponse::fmb(received_msg_body).unwrap();
 
         close_signaler.signalize_close();
         // Making the mock server send another msg
-        client_handle.send_msg(UiCheckPasswordRequest{ db_password_opt: None }.tmb(4321)).await.unwrap();
+        client_handle
+            .send_msg(
+                UiCheckPasswordRequest {
+                    db_password_opt: None,
+                }
+                .tmb(4321),
+            )
+            .await
+            .unwrap();
 
         let timeout = Duration::from_millis(1500);
         let start = Instant::now();
@@ -477,8 +501,10 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let subject =
-            WSClientHandleReal::new(talker_half, meaningless_event_loop_join_handle.abort_handle());
+        let subject = WSClientHandleReal::new(
+            talker_half,
+            meaningless_event_loop_join_handle.abort_handle(),
+        );
 
         let result = subject.close().await;
 

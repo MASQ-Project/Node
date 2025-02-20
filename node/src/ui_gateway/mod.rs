@@ -13,11 +13,11 @@ use crate::sub_lib::utils::{supervisor_restarting, NODE_MAILBOX_CAPACITY};
 use crate::ui_gateway::websocket_supervisor::{
     WebSocketSupervisor, WebSocketSupervisorFactory, WebsocketSupervisorFactoryReal,
 };
-use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use actix::{Actor, Supervised, System};
 use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiCrashRequest;
@@ -30,7 +30,8 @@ pub const CRASH_KEY: &str = "UIGATEWAY";
 
 pub struct UiGateway {
     port: u16,
-    websocket_supervisor_or_factory: Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
+    websocket_supervisor_or_factory:
+        Either<Box<dyn WebSocketSupervisorFactory>, Box<dyn WebSocketSupervisor>>,
     incoming_message_recipients: Vec<Recipient<NodeFromUiMessage>>,
     crashable: bool,
     logger: Logger,
@@ -363,13 +364,14 @@ mod tests {
         let send_msg_params_arc = Arc::new(Mutex::new(vec![]));
         let websocket_supervisor =
             WebSocketSupervisorMock::new().send_msg_params(&send_msg_params_arc);
-        let websocket_supervisor_factory = WebsocketSupervisorFactoryMock::default()
-            .make_result(Ok(websocket_supervisor));
+        let websocket_supervisor_factory =
+            WebsocketSupervisorFactoryMock::default().make_result(Ok(websocket_supervisor));
         let port = find_free_port();
         let mut subject = UiGateway::new(&UiGatewayConfig { ui_port: port }, false);
-        subject.websocket_supervisor_or_factory = Either::Left(
-            Box::new(websocket_supervisor_factory) as Box<dyn WebSocketSupervisorFactory>
-        );
+        subject.websocket_supervisor_or_factory = Either::Left(Box::new(
+            websocket_supervisor_factory,
+        )
+            as Box<dyn WebSocketSupervisorFactory>);
         let system = System::new();
         let subject_addr: Addr<UiGateway> = subject.start();
         let peer_actors = peer_actors_builder().accountant(accountant).build();

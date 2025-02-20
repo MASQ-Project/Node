@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 use crate::sub_lib::sequence_buffer::SequenceBuffer;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
@@ -10,7 +11,6 @@ use std::io;
 use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use tokio::io::AsyncWriteExt;
-use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 
 pub struct StreamWriter {
     stream: Box<dyn WriteHalfWrapper>,
@@ -63,8 +63,8 @@ impl StreamWriter {
                     // } else {
                     //     warning!(self.logger, "Continuing after write error: {}", e);
                     // }
-                    return Err(e)
-                },
+                    return Err(e);
+                }
                 (_, wr) => (),
             }
         }
@@ -190,7 +190,12 @@ mod tests {
             .write_result(Ok(0));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            Box::new(rx_to_write),
+            stream_key,
+        );
 
         let _res = subject.future().await;
 
@@ -262,7 +267,12 @@ mod tests {
             .write_result(Ok(text_data.len()));
         let peer_addr = SocketAddr::from_str("1.3.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            Box::new(rx_to_write),
+            stream_key,
+        );
 
         subject.future().await.unwrap();
 
@@ -275,7 +285,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel() {
+    async fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel(
+    ) {
         let stream_key = make_meaningless_stream_key();
         let first_data = &b"These are the times"[..];
         let second_data = &b"These are the other times"[..];
@@ -292,7 +303,12 @@ mod tests {
             .write_result(Ok(second_data.len()));
         let peer_addr = SocketAddr::from_str("1.2.3.9:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            Box::new(rx_to_write),
+            stream_key,
+        );
 
         let result = subject.future().await;
 
@@ -308,14 +324,16 @@ mod tests {
     #[tokio::test]
     async fn stream_writer_exits_if_channel_is_closed() {
         let stream_key = make_meaningless_stream_key();
-        let rx_to_write = set_up_standard_results(
-            ReceiverWrapperMock::new(),
-            &b"These are the times".to_vec()
-        );
-        let writer = WriteHalfWrapperMock::new()
-            .write_result(Ok(19));
+        let rx_to_write =
+            set_up_standard_results(ReceiverWrapperMock::new(), &b"These are the times".to_vec());
+        let writer = WriteHalfWrapperMock::new().write_result(Ok(19));
         let peer_addr = SocketAddr::from_str("1.2.3.4:999").unwrap();
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            Box::new(rx_to_write),
+            stream_key,
+        );
 
         let result = subject.future().await;
 
@@ -327,10 +345,14 @@ mod tests {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
         let rx_to_write = ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(b"These are the times".to_vec(), 0, false)))
+            .recv_result(Some(SequencedPacket::new(
+                b"These are the times".to_vec(),
+                0,
+                false,
+            )))
             .recv_result(None);
-        let writer = WriteHalfWrapperMock::new()
-            .write_result(Err(Error::from(ErrorKind::BrokenPipe)));
+        let writer =
+            WriteHalfWrapperMock::new().write_result(Err(Error::from(ErrorKind::BrokenPipe)));
         let mut subject = StreamWriter::new(
             Box::new(writer),
             SocketAddr::from_str("2.3.4.5:80").unwrap(),
@@ -388,8 +410,11 @@ mod tests {
     #[tokio::test]
     async fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
         let stream_key = make_meaningless_stream_key();
-        let rx = ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(b"worlds".to_vec(), 0, false)));
+        let rx = ReceiverWrapperMock::new().recv_result(Some(SequencedPacket::new(
+            b"worlds".to_vec(),
+            0,
+            false,
+        )));
 
         let write_params_arc = Arc::new(Mutex::new(vec![vec![]]));
         let writer = WriteHalfWrapperMock::new()
@@ -405,7 +430,10 @@ mod tests {
         assert_eq!(result.is_ok(), true);
 
         let write_params = write_params_arc.lock().unwrap();
-        assert_eq!(*write_params, vec![b"worlds".to_vec(), b"lds".to_vec(), b"s".to_vec()]);
+        assert_eq!(
+            *write_params,
+            vec![b"worlds".to_vec(), b"lds".to_vec(), b"s".to_vec()]
+        );
     }
 
     #[tokio::test]
@@ -422,7 +450,12 @@ mod tests {
             .shutdown_params(&shutdown_params_arc)
             .shutdown_result(Ok(()));
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            Box::new(rx_to_write),
+            stream_key,
+        );
 
         let res = subject.future().await;
 
@@ -513,7 +546,12 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("2.2.3.4:5678").unwrap();
 
-        let mut subject = StreamWriter::new(Box::new(writer), peer_addr, Box::new(rx_to_write), stream_key);
+        let mut subject = StreamWriter::new(
+            Box::new(writer),
+            peer_addr,
+            Box::new(rx_to_write),
+            stream_key,
+        );
 
         let result = subject.future().await;
 
@@ -540,16 +578,14 @@ mod tests {
 
     fn set_up_standard_results(
         rx_to_write: ReceiverWrapperMock<SequencedPacket>,
-        packet_a: &Vec<u8>
+        packet_a: &Vec<u8>,
     ) -> ReceiverWrapperMock<SequencedPacket> {
         rx_to_write
-            .recv_result(
-                Some(SequencedPacket {
-                    data: packet_a.to_vec(),
-                    sequence_number: 0,
-                    last_data: true,
-                })
-            )
+            .recv_result(Some(SequencedPacket {
+                data: packet_a.to_vec(),
+                sequence_number: 0,
+                last_data: true,
+            }))
             .recv_result(None)
     }
 }

@@ -53,7 +53,9 @@ pub struct MultiConfig {
 
 impl From<ArgMatches> for MultiConfig {
     fn from(matches: ArgMatches) -> Self {
-        MultiConfig{arg_matches: matches}
+        MultiConfig {
+            arg_matches: matches,
+        }
     }
 }
 

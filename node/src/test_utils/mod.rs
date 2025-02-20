@@ -563,6 +563,7 @@ pub mod unshared_test_utils {
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
+    use clap::ArgMatches;
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
@@ -578,7 +579,6 @@ pub mod unshared_test_utils {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
-    use clap::ArgMatches;
 
     #[derive(Message)]
     #[rtype(result = "()")]
@@ -970,15 +970,15 @@ pub mod unshared_test_utils {
 
 #[cfg(test)]
 mod tests {
+    use crate::sub_lib::cryptde::CryptData;
+    use crate::sub_lib::hop::LiveHop;
+    use crate::sub_lib::neighborhood::ExpectedService;
+    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::sub_lib::cryptde::CryptData;
-    use crate::sub_lib::hop::LiveHop;
-    use crate::sub_lib::neighborhood::ExpectedService;
 
     use super::*;
 

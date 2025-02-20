@@ -29,11 +29,11 @@ use masq_lib::ui_gateway::MessageBody;
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, set_arbitrary_id_stamp_in_mock_impl,
 };
+use soketto::connection::Error;
 use std::any::Any;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-use soketto::connection::Error;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::task::JoinError;

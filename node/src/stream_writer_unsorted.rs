@@ -1,11 +1,11 @@
-use std::future::Future;
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use masq_lib::logger::Logger;
+use std::future::Future;
 use std::net::SocketAddr;
-use std::task::{Poll};
+use std::task::Poll;
 use tokio::io::AsyncWriteExt;
 
 pub struct StreamWriterUnsorted {
@@ -21,11 +21,7 @@ impl StreamWriterUnsorted {
         peer_addr: SocketAddr,
         rx_to_write: Box<dyn ReceiverWrapper<SequencedPacket>>,
     ) {
-        let writer = Self::new(
-            stream,
-            peer_addr,
-            rx_to_write,
-        );
+        let writer = Self::new(stream, peer_addr, rx_to_write);
         let future = writer.go();
         tokio::spawn(future);
     }
@@ -61,7 +57,8 @@ impl StreamWriterUnsorted {
                         "Transmitting {} bytes of clandestine data",
                         packet.data.len()
                     );
-                    match self.stream.as_mut().write(&packet.data).await {  //poll_write(cx, &packet.data) {
+                    match self.stream.as_mut().write(&packet.data).await {
+                        //poll_write(cx, &packet.data) {
                         Err(e) => {
                             if indicates_dead_stream(e.kind()) {
                                 error!(
@@ -115,33 +112,18 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
     use std::sync::mpsc::TryRecvError;
+    use std::sync::{Arc, Mutex};
     use std::task::Poll;
 
     #[tokio::test]
     async fn stream_writer_terminates_when_it_gets_a_dead_stream_error() {
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(
-                b"hello".to_vec(),
-                0,
-                false,
-            )))
-            .recv_result(Some(SequencedPacket::new(
-              b"world".to_vec(),
-              1,
-              false,
-            )))
-            .try_recv_result(Ok(SequencedPacket::new(
-                b"hello".to_vec(),
-                0,
-                false,
-            )))
-            .try_recv_result(Ok(SequencedPacket::new(
-                b"world".to_vec(),
-                1,
-                false,
-            )))
+        let rx = Box::new(
+            ReceiverWrapperMock::new()
+                .recv_result(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))
+                .recv_result(Some(SequencedPacket::new(b"world".to_vec(), 1, false)))
+                .try_recv_result(Ok(SequencedPacket::new(b"hello".to_vec(), 0, false)))
+                .try_recv_result(Ok(SequencedPacket::new(b"world".to_vec(), 1, false))),
         );
         let write_params = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
@@ -162,17 +144,10 @@ mod tests {
     #[tokio::test]
     async fn stream_writer_logs_error_and_continues_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(
-                b"hello".to_vec(),
-                0,
-                false,
-            )))
-            .recv_result(Some(SequencedPacket::new(
-                b"world".to_vec(),
-                1,
-                false,
-            )))
+        let rx = Box::new(
+            ReceiverWrapperMock::new()
+                .recv_result(Some(SequencedPacket::new(b"hello".to_vec(), 0, false)))
+                .recv_result(Some(SequencedPacket::new(b"world".to_vec(), 1, false))),
         );
         let write_params = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
@@ -194,17 +169,10 @@ mod tests {
     async fn stream_writer_writes_to_stream_and_does_not_shut_down() {
         let first_data = b"hello";
         let second_data = b"world";
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .try_recv_result(Ok(SequencedPacket::new(
-                first_data.to_vec(),
-                0,
-                false,
-            )))
-            .try_recv_result(Ok(SequencedPacket::new(
-                second_data.to_vec(),
-                1,
-                false,
-            )))
+        let rx = Box::new(
+            ReceiverWrapperMock::new()
+                .try_recv_result(Ok(SequencedPacket::new(first_data.to_vec(), 0, false)))
+                .try_recv_result(Ok(SequencedPacket::new(second_data.to_vec(), 1, false))),
         );
         let write_params = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
@@ -225,20 +193,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel() {
+    async fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel(
+    ) {
         let first_data = b"hello";
         let second_data = b"world";
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .try_recv_result(Ok(SequencedPacket::new(
-                first_data.to_vec(),
-                0,
-                false,
-            )))
-            .try_recv_result(Ok(SequencedPacket::new(
-                second_data.to_vec(),
-                1,
-                false,
-            )))
+        let rx = Box::new(
+            ReceiverWrapperMock::new()
+                .try_recv_result(Ok(SequencedPacket::new(first_data.to_vec(), 0, false)))
+                .try_recv_result(Ok(SequencedPacket::new(second_data.to_vec(), 1, false))),
         );
         let write_params = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
@@ -261,12 +223,12 @@ mod tests {
 
     #[tokio::test]
     async fn stream_writer_exits_if_channel_is_closed() {
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .try_recv_result(Ok(SequencedPacket::new(
+        let rx = Box::new(
+            ReceiverWrapperMock::new().try_recv_result(Ok(SequencedPacket::new(
                 b"hello".to_vec(),
                 0,
                 false,
-            )))
+            ))),
         );
         let writer = WriteHalfWrapperMock::new()
             .write_result(Ok(5))
@@ -284,8 +246,9 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "got an error from an unbounded channel which cannot return error")]
     async fn stream_writer_panics_if_channel_returns_err() {
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .try_recv_result(Err(tokio::sync::mpsc::error::TryRecvError::Disconnected))
+        let rx = Box::new(
+            ReceiverWrapperMock::new()
+                .try_recv_result(Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)),
         );
         let writer = WriteHalfWrapperMock::new();
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -297,12 +260,12 @@ mod tests {
 
     #[tokio::test]
     async fn stream_writer_reattempts_writing_packets_that_were_prevented_by_not_ready() {
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(
+        let rx = Box::new(
+            ReceiverWrapperMock::new().recv_result(Some(SequencedPacket::new(
                 b"hello".to_vec(),
                 0,
                 false,
-            )))
+            ))),
         );
 
         let write_params = Arc::new(Mutex::new(vec![]));
@@ -321,12 +284,12 @@ mod tests {
 
     #[tokio::test]
     async fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
-        let rx = Box::new(ReceiverWrapperMock::new()
-            .recv_result(Some(SequencedPacket::new(
-              b"worlds".to_vec(),
-              0,
-              false,
-            )))
+        let rx = Box::new(
+            ReceiverWrapperMock::new().recv_result(Some(SequencedPacket::new(
+                b"worlds".to_vec(),
+                0,
+                false,
+            ))),
         );
 
         let write_params = Arc::new(Mutex::new(vec![]));

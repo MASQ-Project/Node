@@ -4,20 +4,23 @@ use crate::communications::broadcast_handlers::{
     BroadcastHandles, RedirectBroadcastHandle, StandardBroadcastHandlerFactory,
     StandardBroadcastHandlerFactoryReal,
 };
-use crate::communications::websocket_client::{make_connection, ClientListener, ClientListenerError, ConnectError, WSClientHandle, WSClientHandleReal};
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
+use crate::communications::websocket_client::{
+    make_connection, ClientListener, ClientListenerError, ConnectError, WSClientHandle,
+    WSClientHandleReal,
+};
 use crate::terminal::WTermInterfaceDupAndSend;
 use async_channel::RecvError;
 use futures::future::join_all;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
+use soketto::connection::Error;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use soketto::connection::Error;
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
@@ -68,16 +71,12 @@ pub struct CMBootstrapper {
 
 impl Default for CMBootstrapper {
     fn default() -> Self {
-        Self::new(
-            Box::new(StandardBroadcastHandlerFactoryReal::default()),
-        )
+        Self::new(Box::new(StandardBroadcastHandlerFactoryReal::default()))
     }
 }
 
 impl CMBootstrapper {
-    fn new(
-        standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>,
-    ) -> Self {
+    fn new(standard_broadcast_handler_factory: Box<dyn StandardBroadcastHandlerFactory>) -> Self {
         Self {
             standard_broadcast_handler_factory,
         }
@@ -716,16 +715,18 @@ mod tests {
         UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest, UiSetupResponse,
         UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse, UiUnmarshalError,
     };
-    use masq_lib::test_utils::mock_websockets_server::{MWSSMessage, MockWebSocketsServer, MockWebSocketsServerHandle, StopStrategy};
+    use masq_lib::test_utils::mock_websockets_server::{
+        MWSSMessage, MockWebSocketsServer, MockWebSocketsServerHandle, StopStrategy,
+    };
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::utils::{find_free_port, localhost, running_test};
     use std::hash::Hash;
+    use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use std::{io, thread, vec};
-    use std::io::ErrorKind;
     use tokio::net::TcpListener;
     use tokio_tungstenite::accept_hdr_async;
     use tokio_tungstenite::tungstenite::handshake::server::{
@@ -883,25 +884,33 @@ mod tests {
         let message1 = UiUnmarshalError {
             message: "Message 1".to_string(),
             bad_data: "Data 1".to_string(),
-        }.tmb(0);
+        }
+        .tmb(0);
         let message2 = UiUnmarshalError {
             message: "Message 2".to_string(),
             bad_data: "Data 2".to_string(),
-        }.tmb(0);
+        }
+        .tmb(0);
 
         conversation.send(message1.clone()).await.unwrap();
         conversation.send(message2.clone()).await.unwrap();
 
         let mut outgoing_messages = stop_handle.stop(StopStrategy::Abort).await;
-        assert_eq!(outgoing_messages.requests, vec![MWSSMessage::MessageBody(message1), MWSSMessage::MessageBody(message2)]);
+        assert_eq!(
+            outgoing_messages.requests,
+            vec![
+                MWSSMessage::MessageBody(message1),
+                MWSSMessage::MessageBody(message2)
+            ]
+        );
     }
 
     #[tokio::test]
     async fn conversations_waiting_is_set_correctly_for_normal_operation() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-            // .queue_string("irrelevant")
-            // .queue_string("irrelevant");
+        // .queue_string("irrelevant")
+        // .queue_string("irrelevant");
         let stop_handle = server.start().await;
         let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
@@ -1076,7 +1085,12 @@ mod tests {
         )
         .await;
         let requests = deamon_stop_handle.stop(StopStrategy::Abort).await;
-        assert_eq!(requests.requests, vec![MWSSMessage::MessageBody(UiSetupRequest { values: vec![] }.tmb(4))])
+        assert_eq!(
+            requests.requests,
+            vec![MWSSMessage::MessageBody(
+                UiSetupRequest { values: vec![] }.tmb(4)
+            )]
+        )
     }
 
     #[tokio::test]
@@ -1270,8 +1284,12 @@ mod tests {
         )
         .await;
         let outgoing_messages = deamon_stop_handle.stop(StopStrategy::Abort).await;
-        UiSetupRequest::fmb()
-        assert_eq!(outgoing_messages.requests, vec![MWSSMessage::MessageBody(UiSetupRequest { values: vec![] }.tmb(4))])
+        assert_eq!(
+            outgoing_messages.requests,
+            vec![MWSSMessage::MessageBody(
+                UiSetupRequest { values: vec![] }.tmb(4)
+            )]
+        )
     }
 
     #[tokio::test]
@@ -1468,14 +1486,10 @@ mod tests {
         let server_stop_handle = server.start().await;
         let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        let client_listener_handle = establish_client_listener(
-            port,
-            listener_to_manager_tx,
-            close_sig.async_signal,
-            4_000,
-        )
-        .await
-        .unwrap();
+        let client_listener_handle =
+            establish_client_listener(port, listener_to_manager_tx, close_sig.async_signal, 4_000)
+                .await
+                .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
         let mut inner = make_inner().await;
@@ -1501,7 +1515,10 @@ mod tests {
         .await;
 
         let recorded = server_stop_handle.stop(StopStrategy::Abort).await;
-        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(outgoing_message)])
+        assert_eq!(
+            recorded.requests,
+            vec![MWSSMessage::MessageBody(outgoing_message)]
+        )
     }
 
     #[tokio::test]
@@ -1521,8 +1538,7 @@ mod tests {
         .collect::<HashMap<u64, ManagerToConversationSender>>();
         let send_error = Err(Error::Io(io::Error::from(ErrorKind::NotConnected)));
         let client_listener_handle =
-            Box::new(WSClientHandleMock::default()
-                .send_result(send_error));
+            Box::new(WSClientHandleMock::default().send_result(send_error));
         let mut inner = make_inner().await;
         inner.daemon_port = daemon_port;
         inner.conversations = conversations;
@@ -1589,9 +1605,7 @@ mod tests {
         .into_iter()
         .collect::<HashMap<u64, ManagerToConversationSender>>();
         let send_error = Err(Error::Io(io::Error::from(ErrorKind::NotConnected)));
-        let ws_client_handle =
-            Box::new(WSClientHandleMock::default()
-                .send_result(send_error));
+        let ws_client_handle = Box::new(WSClientHandleMock::default().send_result(send_error));
         let mut inner = make_inner().await;
         inner.daemon_port = daemon_port;
         inner.conversations = conversations;
@@ -1680,9 +1694,17 @@ mod tests {
         assert_eq!(result, Err(ClientError::ClosingStage));
         let recorded = server_handle.stop(StopStrategy::Abort).await;
         assert_eq!(recorded.requests, vec![MWSSMessage::Close]);
-        match tokio::time::timeout(Duration::from_secs(1), subject.central_even_loop_join_handle).await {
+        match tokio::time::timeout(
+            Duration::from_secs(1),
+            subject.central_even_loop_join_handle,
+        )
+        .await
+        {
             Ok(Ok(())) => (),
-            x => panic!("Central event loop didn't vanish quickly enough or gracefully: {:?}", x)
+            x => panic!(
+                "Central event loop didn't vanish quickly enough or gracefully: {:?}",
+                x
+            ),
         };
     }
 
@@ -1715,13 +1737,7 @@ mod tests {
                 .unwrap()
         });
 
-        let result = establish_client_listener(
-            port,
-            tx,
-            close_rx,
-            timeout_ms,
-        )
-        .await;
+        let result = establish_client_listener(port, tx, close_rx, timeout_ms).await;
 
         let err = match result {
             Err(e) => e,

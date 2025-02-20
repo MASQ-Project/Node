@@ -20,9 +20,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use thousands::Separable;
 use variant_count::VariantCount;
-use web3::contract::{Contract};
+use web3::contract::Contract;
 use web3::transports::{Batch, Http};
-use web3::types::{Address, Bytes, FilterBuilder, SignedTransaction, TransactionParameters, TransactionReceipt, H160, H256, U256};
+use web3::types::{
+    Address, Bytes, FilterBuilder, SignedTransaction, TransactionParameters, TransactionReceipt,
+    H160, H256, U256,
+};
 use web3::{BatchTransport, Error, Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
@@ -758,8 +761,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
-        make_default_signed_transaction, make_tx_hash,
-        BatchPayableToolsMock, TestTransport,
+        make_default_signed_transaction, make_tx_hash, BatchPayableToolsMock, TestTransport,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;
@@ -786,11 +788,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, Instant, SystemTime};
+    use web3::error::TransportError;
+    use web3::signing::RecoveryError;
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
-    use web3::error::TransportError;
-    use web3::signing::RecoveryError;
 
     #[test]
     fn constants_have_correct_values() {
@@ -909,8 +911,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject
             .retrieve_transactions(
@@ -986,8 +987,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject
             .retrieve_transactions(
@@ -1037,8 +1037,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject
             .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
@@ -1061,8 +1060,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject.retrieve_transactions(
             42,
@@ -1089,8 +1087,7 @@ mod tests {
         )
         .unwrap();
 
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject.retrieve_transactions(
             42,
@@ -1114,8 +1111,7 @@ mod tests {
         )
         .unwrap();
 
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject.retrieve_transactions(
             42,
@@ -1145,8 +1141,7 @@ mod tests {
         )
         .unwrap();
 
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject
             .get_transaction_fee_balance(
@@ -1167,8 +1162,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject.get_transaction_fee_balance(&Wallet::new(
             "0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ",
@@ -1192,8 +1186,7 @@ mod tests {
             port
         ))
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject.get_transaction_fee_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
@@ -1228,8 +1221,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = subject
             .get_token_balance(
@@ -1250,8 +1242,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result =
             subject.get_token_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
@@ -1282,8 +1273,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let result = act(
             &subject,
@@ -1326,10 +1316,7 @@ mod tests {
         let actor_addr = accountant.start();
         let fingerprint_recipient = recipient!(actor_addr, PendingPayableFingerprintSeeds);
         let logger = Logger::new("sending_batch_payments");
-        let mut subject = BlockchainInterfaceWeb3::new(
-            transport.clone(),
-            TEST_DEFAULT_CHAIN,
-        );
+        let mut subject = BlockchainInterfaceWeb3::new(transport.clone(), TEST_DEFAULT_CHAIN);
         subject.logger = logger;
         let gas_price = 120;
         let amount_1 = gwei_to_wei(900_000_000_u64);
@@ -1521,8 +1508,7 @@ mod tests {
         let batch_wide_timestamp_expected = SystemTime::now();
         let transport = TestTransport::default().initiate_reference_counter(&reference_counter_arc);
         let chain = Chain::EthMainnet;
-        let mut subject =
-            BlockchainInterfaceWeb3::new(transport, chain);
+        let mut subject = BlockchainInterfaceWeb3::new(transport, chain);
         let first_tx_parameters = TransactionParameters {
             nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
@@ -1728,10 +1714,7 @@ mod tests {
     #[test]
     fn web3_interface_gas_limit_for_polygon_mainnet_starts_on_70000_as_the_base() {
         let transport = TestTransport::default();
-        let subject = BlockchainInterfaceWeb3::new(
-            transport,
-            Chain::PolyMainnet,
-        );
+        let subject = BlockchainInterfaceWeb3::new(transport, Chain::PolyMainnet);
 
         assert_gas_limit_is_between(subject, 70000, u64::MAX)
     }
@@ -1739,8 +1722,7 @@ mod tests {
     #[test]
     fn web3_interface_gas_limit_for_dev_lies_within_limits() {
         let transport = TestTransport::default();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, Chain::Dev);
+        let subject = BlockchainInterfaceWeb3::new(transport, Chain::Dev);
 
         assert_gas_limit_is_between(subject, 55000, 65000)
     }
@@ -1748,10 +1730,7 @@ mod tests {
     #[test]
     fn web3_interface_gas_limit_for_eth_mainnet_lies_within_limits() {
         let transport = TestTransport::default();
-        let subject = BlockchainInterfaceWeb3::new(
-            transport,
-            Chain::EthMainnet,
-        );
+        let subject = BlockchainInterfaceWeb3::new(transport, Chain::EthMainnet);
 
         assert_gas_limit_is_between(subject, 55000, 65000)
     }
@@ -1802,10 +1781,7 @@ mod tests {
             .sign_transaction_result(Err(Web3Error::Recovery(RecoveryError::InvalidSignature)))
             //we return after meeting the first result
             .sign_transaction_result(Err(Web3Error::Internal));
-        let mut subject = BlockchainInterfaceWeb3::new(
-            transport,
-            Chain::PolyMumbai,
-        );
+        let mut subject = BlockchainInterfaceWeb3::new(transport, Chain::PolyMumbai);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = Recorder::new().start().recipient();
         let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
@@ -1835,10 +1811,7 @@ mod tests {
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
-        let subject = BlockchainInterfaceWeb3::new(
-            transport,
-            TEST_DEFAULT_CHAIN,
-        );
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
 
         let system = System::new();
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -1877,12 +1850,11 @@ mod tests {
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Ok(signed_transaction))
             .batch_wide_timestamp_result(SystemTime::now())
-            .submit_batch_result(Err(Web3Error::Transport(TransportError::Message("Transaction crashed".to_string()))));
+            .submit_batch_result(Err(Web3Error::Transport(TransportError::Message(
+                "Transaction crashed".to_string(),
+            ))));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let mut subject = BlockchainInterfaceWeb3::new(
-            transport,
-            Chain::PolyMumbai,
-        );
+        let mut subject = BlockchainInterfaceWeb3::new(transport, Chain::PolyMumbai);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let unimportant_recipient = Recorder::new().start().recipient();
         let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1917,10 +1889,7 @@ mod tests {
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Recovery(RecoveryError::InvalidMessage)));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";
-        let mut subject = BlockchainInterfaceWeb3::new(
-            transport,
-            Chain::PolyMumbai,
-        );
+        let mut subject = BlockchainInterfaceWeb3::new(transport, Chain::PolyMumbai);
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = make_wallet("unlucky man");
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
@@ -2230,10 +2199,7 @@ mod tests {
             .send_result(json!(
                 "0x0000000000000000000000000000000000000000000000000000000000000001"
             ));
-        let subject = BlockchainInterfaceWeb3::new(
-            transport.clone(),
-            TEST_DEFAULT_CHAIN,
-        );
+        let subject = BlockchainInterfaceWeb3::new(transport.clone(), TEST_DEFAULT_CHAIN);
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
 
@@ -2275,8 +2241,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
         let tx_hash =
             H256::from_str("a128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e")
                 .unwrap();
@@ -2311,8 +2276,7 @@ mod tests {
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-        let subject =
-            BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
+        let subject = BlockchainInterfaceWeb3::new(transport, TEST_DEFAULT_CHAIN);
         let tx_hash = make_tx_hash(4564546);
 
         let result = subject.get_transaction_receipt(tx_hash);

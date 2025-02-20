@@ -504,7 +504,8 @@ mod tests {
                 config_file,
                 "consuming-private-key = \"{}\"",
                 consuming_private_key
-            ).unwrap();
+            )
+            .unwrap();
         }
         let args = ArgsBuilder::new()
             .param("--data-directory", home_dir.to_str().unwrap())

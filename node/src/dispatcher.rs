@@ -6,13 +6,15 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY,
+};
 use crate::test_utils::main_cryptde;
-use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use actix::{Actor, Supervised, System};
 use lazy_static::lazy_static;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{

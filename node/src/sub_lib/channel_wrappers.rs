@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use async_trait::async_trait;
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use async_trait::async_trait;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 #[async_trait]
 pub trait ReceiverWrapper<T: Send>: Send {

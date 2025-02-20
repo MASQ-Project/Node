@@ -135,9 +135,13 @@ mod tests {
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
-    use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL};
+    use masq_lib::messages::{
+        ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL,
+    };
     use masq_lib::messages::{UiCrashRequest, UiSetupRequest};
-    use masq_lib::test_utils::mock_websockets_server::{MWSSMessage, MockWebSocketsServer, StopStrategy};
+    use masq_lib::test_utils::mock_websockets_server::{
+        MWSSMessage, MockWebSocketsServer, StopStrategy,
+    };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};

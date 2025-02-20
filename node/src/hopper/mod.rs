@@ -4,24 +4,26 @@ mod consuming_service;
 pub mod live_cores_package;
 mod routing_service;
 
-use std::thread::panicking;
 use crate::bootstrapper::CryptDEPair;
+use crate::dispatcher::Dispatcher;
 use crate::hopper::routing_service::RoutingServiceSubs;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::hopper::HopperSubs;
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{HopperConfig, NoLookupIncipientCoresPackage};
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
-use actix::{Actor, Supervised, System};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY,
+};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
+use actix::{Actor, Supervised, System};
 use consuming_service::ConsumingService;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use routing_service::RoutingService;
-use crate::dispatcher::Dispatcher;
+use std::thread::panicking;
 
 pub const CRASH_KEY: &str = "HOPPER";
 

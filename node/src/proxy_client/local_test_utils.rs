@@ -2,6 +2,7 @@
 
 use crate::proxy_client::resolver_wrapper::ResolverWrapper;
 use crate::proxy_client::resolver_wrapper::ResolverWrapperFactory;
+use async_trait::async_trait;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup::Lookup;
@@ -15,7 +16,6 @@ use std::cell::RefCell;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use async_trait::async_trait;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::unbounded_channel;
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use actix::{Recipient};
+use actix::Recipient;
 use serde_json::Value;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -11,7 +11,7 @@ use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 
 pub enum Web3TransportsResult<O> {
-    Ok(O)
+    Ok(O),
 }
 
 #[derive(Clone)]

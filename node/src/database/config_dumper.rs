@@ -18,6 +18,7 @@ use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
+use heck::{AsPascalCase, ToLowerCamelCase, ToSnekCase};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
@@ -25,7 +26,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;
 use serde_json::json;
 use serde_json::{Map, Value};
-use heck::{AsPascalCase, ToLowerCamelCase, ToSnekCase};
 #[cfg(test)]
 use std::any::Any;
 use std::path::{Path, PathBuf};

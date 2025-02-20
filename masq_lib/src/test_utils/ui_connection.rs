@@ -1,27 +1,29 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
+use crate::test_utils::ui_connection::ReceiveResult::{
+    Correct, MBMarshalError, MarshalError, TransactionError,
+};
 use crate::ui_gateway::MessageBody;
-use crate::test_utils::ui_connection::ReceiveResult::{Correct, MBMarshalError, MarshalError, TransactionError};
 use crate::ui_gateway::MessagePath::Conversation;
 use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::{MessagePath, MessageTarget, NodeToUiMessage};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use crate::websockets_types::{WSSender, WSReceiver};
-use std::net::SocketAddr;
-use std::{fmt, io};
-use workflow_websocket::client::{Error, Message, WebSocket};
-use std::fmt::{Debug, Formatter};
-use std::time::Duration;
+use crate::websockets_types::{WSReceiver, WSSender};
 use futures_util::io::{BufReader, BufWriter};
 use rustc_hex::ToHex;
-use soketto::{handshake, Data as SokettoDataType};
 use soketto::data::ByteSlice125;
 use soketto::handshake::ServerResponse;
+use soketto::{handshake, Data as SokettoDataType};
+use std::fmt::{Debug, Formatter};
+use std::net::SocketAddr;
+use std::time::Duration;
+use std::{fmt, io};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::TokioAsyncReadCompatExt;
+use workflow_websocket::client::{Error, Message, WebSocket};
 
 pub struct UiConnection {
     context_id: u64,
@@ -43,8 +45,10 @@ impl Debug for UiConnection {
 
 impl UiConnection {
     pub async fn new(port: u16, protocol: &'static str) -> Result<UiConnection, String> {
-        let (sender, receiver) = Self::establish_ws_conn_with_protocols(port,
-   vec![protocol.to_string()]).await.unwrap();
+        let (sender, receiver) =
+            Self::establish_ws_conn_with_protocols(port, vec![protocol.to_string()])
+                .await
+                .unwrap();
         Ok(UiConnection {
             context_id: 0,
             local_addr: SocketAddr::new(localhost(), port),
@@ -70,37 +74,56 @@ impl UiConnection {
     }
 
     pub async fn send_close(&mut self) {
-        self.sender.close().await.expect("Failed to close connection");
+        self.sender
+            .close()
+            .await
+            .expect("Failed to close connection");
     }
 
     pub async fn send_data(&mut self, data: Vec<u8>) {
-        self.sender.send_binary(data).await.expect("Failed to send data");
+        self.sender
+            .send_binary(data)
+            .await
+            .expect("Failed to send data");
         self.sender.flush().await.expect("Failed to flush data");
     }
 
     pub async fn send_string(&mut self, string: String) {
-        self.sender.send_text_owned(string).await.expect("Failed to send message");
+        self.sender
+            .send_text_owned(string)
+            .await
+            .expect("Failed to send message");
         self.sender.flush().await.expect("Failed to flush message");
     }
 
     pub async fn send_ping(&mut self, data: Vec<u8>) {
-        self.sender.send_ping(ByteSlice125::try_from(data.as_slice()).unwrap()).await.expect("Failed to send ping");
+        self.sender
+            .send_ping(ByteSlice125::try_from(data.as_slice()).unwrap())
+            .await
+            .expect("Failed to send ping");
         self.sender.flush().await.expect("Failed to flush ping");
     }
 
     pub async fn send_pong(&mut self, data: Vec<u8>) {
-        self.sender.send_pong(ByteSlice125::try_from(data.as_slice()).unwrap()).await.expect("Failed to send pong");
+        self.sender
+            .send_pong(ByteSlice125::try_from(data.as_slice()).unwrap())
+            .await
+            .expect("Failed to send pong");
         self.sender.flush().await.expect("Failed to flush pong");
     }
 
-    pub async fn receive(&mut self) -> Result<(SokettoDataType, Vec<u8>), soketto::connection::Error> {
+    pub async fn receive(
+        &mut self,
+    ) -> Result<(SokettoDataType, Vec<u8>), soketto::connection::Error> {
         let mut message = Vec::new();
         let data_type = self.receiver.receive_data(&mut message).await?;
         match data_type {
-            SokettoDataType::Binary(_) => if message.as_slice() == b"EMPTY_QUEUE" {
-                panic!("The queue is empty; all messages are gone.")
-            },
-            _ => ()
+            SokettoDataType::Binary(_) => {
+                if message.as_slice() == b"EMPTY_QUEUE" {
+                    panic!("The queue is empty; all messages are gone.")
+                }
+            }
+            _ => (),
         }
         Ok((data_type, message))
     }
@@ -109,8 +132,7 @@ impl UiConnection {
         let (data_type, message) = self.receive().await.unwrap();
         if let SokettoDataType::Binary(_) = data_type {
             message
-        }
-        else {
+        } else {
             panic!("Expected a binary message, but received a text message")
         }
     }
@@ -119,8 +141,7 @@ impl UiConnection {
         let (data_type, message) = self.receive().await.unwrap();
         if let SokettoDataType::Text(_) = data_type {
             String::from_utf8(message).expect("Failed to convert message to string")
-        }
-        else {
+        } else {
             panic!("Expected a text message, but received a binary message")
         }
     }
@@ -166,13 +187,19 @@ impl UiConnection {
         let mut message: Vec<u8> = Vec::new();
         let future = self.receiver.receive_data(&mut message);
         match timeout(Duration::from_millis(milliseconds), future).await {
-            Ok(Ok(data_type)) => panic!("Expected nothing; found {:?} message: {}", data_type, message.to_hex::<String>()),
+            Ok(Ok(data_type)) => panic!(
+                "Expected nothing; found {:?} message: {}",
+                data_type,
+                message.to_hex::<String>()
+            ),
             Ok(Err(e)) => panic!("Error verifying no waiting message: {}", e),
             Err(_) => return,
         }
     }
 
-    pub async fn skip_until_received<T: FromMessageBody>(&mut self) -> Result<(MessagePath, T), (u64, String)> {
+    pub async fn skip_until_received<T: FromMessageBody>(
+        &mut self,
+    ) -> Result<(MessagePath, T), (u64, String)> {
         match Self::await_message(self).await {
             Ok((path, msg, _)) => Ok((path, msg)),
             Err((code, msg)) => Err((code, msg)),
@@ -184,34 +211,45 @@ impl UiConnection {
         protocols: Vec<String>,
     ) -> Result<(WSSender, WSReceiver), String> {
         let socket_addr = SocketAddr::new(localhost(), port);
-        let stream = TcpStream::connect(socket_addr)
-            .await
-            .map_err(|e| format!("Connecting a TCP stream to the websocket server failed: {}", e))?;
+        let stream = TcpStream::connect(socket_addr).await.map_err(|e| {
+            format!(
+                "Connecting a TCP stream to the websocket server failed: {}",
+                e
+            )
+        })?;
         let host = socket_addr.to_string();
         let mut client = handshake::Client::new(
             BufReader::new(BufWriter::new(stream.compat())),
             host.as_str(),
-            "/"
+            "/",
         );
-        protocols.iter().for_each (|protocol| {client.add_protocol(protocol.as_str());});
+        protocols.iter().for_each(|protocol| {
+            client.add_protocol(protocol.as_str());
+        });
         let handshake_response = client
             .handshake()
             .await
             .map_err(|e| format!("Handshake with the websocket server failed: {}", e))?;
         match handshake_response {
-            ServerResponse::Accepted { protocol: protocol_opt } => {
+            ServerResponse::Accepted {
+                protocol: protocol_opt,
+            } => {
                 // TODO: Record protocol_opt somehow so that it can be asserted
             }
             _ => {
-                return Err(format!("Websocket server did not accept any of these subprotocols: {:?}: {:?}",
-                                   protocols, handshake_response));
+                return Err(format!(
+                    "Websocket server did not accept any of these subprotocols: {:?}: {:?}",
+                    protocols, handshake_response
+                ));
             }
         }
         let (sender, receiver) = client.into_builder().finish();
         Ok((sender, receiver))
     }
 
-    async fn await_message<T: FromMessageBody>(&mut self) -> Result<(MessagePath, T, Vec<ReceiveResult<T>>), (u64, String)> {
+    async fn await_message<T: FromMessageBody>(
+        &mut self,
+    ) -> Result<(MessagePath, T, Vec<ReceiveResult<T>>), (u64, String)> {
         let mut errors = Vec::new();
         // Keep looping until we get the specific message we're looking for; throw away all others
         loop {
@@ -220,7 +258,7 @@ impl UiConnection {
                 TransactionError(code, msg) => break Err((code, msg)),
                 e => {
                     errors.push(e);
-                    continue
+                    continue;
                 }
             }
         }
@@ -258,7 +296,7 @@ impl UiConnection {
                 // TODO: This msg is something that came in from outside; the rules say it's not
                 // allowed to panic us. We should probably log it and return an error.
                 panic!("Deserialization of {:?} ended up with err: {:?}", msg, e)
-            },
+            }
             MarshalError(msg, e) => {
                 // TODO: This msg is something that came in from outside; the rules say it's not
                 // allowed to panic us. We should probably log it and return an error.

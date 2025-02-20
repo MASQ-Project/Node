@@ -12,10 +12,10 @@ use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305::SEALBYTES
 use sodiumoxide::crypto::sealedbox::{open, seal};
 use sodiumoxide::crypto::secretbox;
 use sodiumoxide::crypto::sign as signing;
+use sodiumoxide::crypto::sign::Signature;
 use sodiumoxide::crypto::{box_ as encryption, hash};
 use sodiumoxide::randombytes::randombytes_into;
 use std::any::Any;
-use sodiumoxide::crypto::sign::Signature;
 
 lazy_static! {
     static ref INITIALIZED: bool = {
@@ -141,8 +141,8 @@ impl CryptDE for CryptDEReal {
         let signature = match Signature::from_bytes(&signature_data) {
             Err(e) => {
                 todo! ("Signature came in from outside. Not allowed to panic. Drive in an error log here");
-                return false
-            },
+                return false;
+            }
             Ok(signature) => signature,
         };
         signing::verify_detached(

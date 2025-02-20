@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::socket_server::SpawnableConfiguredByPrivilege;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use crate::sub_lib::socket_server::SpawnableConfiguredByPrivilege;
 
 pub struct CrashTestDummy<C> {
     pub configuration: C,

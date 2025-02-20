@@ -5,6 +5,7 @@ use crate::proxy_client::resolver_wrapper::{ResolverWrapper, ResolverWrapperFact
 use crate::proxy_client::stream_establisher::StreamEstablisherFactoryReal;
 use crate::proxy_client::stream_establisher::{StreamEstablisher, StreamEstablisherFactory};
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
+use crate::sub_lib::channel_wrappers::SenderWrapper;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::proxy_client::{error_socket_addr, ProxyClientSubs};
 use crate::sub_lib::proxy_client::{DnsResolveFailure_0v1, InboundServerData};
@@ -25,7 +26,6 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use tokio::task;
 use web3::block_on;
-use crate::sub_lib::channel_wrappers::SenderWrapper;
 
 pub trait StreamHandlerPool {
     fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
@@ -128,18 +128,20 @@ impl StreamHandlerPoolReal {
                 } else {
                     let inner_arc_2 = inner_arc_1.clone();
                     let future = async move {
-                        let sender_wrapper = match Self::make_stream_with_key(&payload, inner_arc_2).await {
-                            Ok(sw) => sw,
-                            Err(msg) => {
-                                return;
-                            }
-                        };
+                        let sender_wrapper =
+                            match Self::make_stream_with_key(&payload, inner_arc_2).await {
+                                Ok(sw) => sw,
+                                Err(msg) => {
+                                    return;
+                                }
+                            };
                         if let Err(msg) = Self::write_and_tend(
                             sender_wrapper,
                             payload,
                             paying_wallet_opt,
                             inner_arc,
-                        ).await
+                        )
+                        .await
                         {
                             // TODO: This ends up sending an empty response back to the browser and terminating
                             // the stream. User deserves better than that. Send back a response from the
@@ -246,13 +248,18 @@ impl StreamHandlerPoolReal {
 
         match payload.target_hostname {
             Some(ref target_hostname) => match Self::parse_ip(target_hostname) {
-                Ok(socket_addr) => Self::handle_ip(
-                    payload.clone(),
-                    socket_addr,
-                    inner_arc,
-                    target_hostname.to_string(),
-                ).await,
-                Err(_) => Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()).await,
+                Ok(socket_addr) => {
+                    Self::handle_ip(
+                        payload.clone(),
+                        socket_addr,
+                        inner_arc,
+                        target_hostname.to_string(),
+                    )
+                    .await
+                }
+                Err(_) => {
+                    Self::lookup_dns(inner_arc, target_hostname.to_string(), payload.clone()).await
+                }
             },
             None => {
                 error!(
@@ -274,10 +281,10 @@ impl StreamHandlerPoolReal {
         }
     }
 
-    async fn make_establisher(inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>) -> StreamEstablisher {
-        let inner = inner_arc
-            .lock()
-            .await;
+    async fn make_establisher(
+        inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
+    ) -> StreamEstablisher {
+        let inner = inner_arc.lock().await;
         inner.establisher_factory.make()
     }
 
@@ -287,11 +294,8 @@ impl StreamHandlerPoolReal {
         inner_arc: Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
         target_hostname: String,
     ) -> StreamEstablisherResultInner {
-        let mut stream_establisher =
-            StreamHandlerPoolReal::make_establisher(inner_arc).await;
-        match stream_establisher
-            .establish_stream(&payload, vec![ip_addr], target_hostname)
-        {
+        let mut stream_establisher = StreamHandlerPoolReal::make_establisher(inner_arc).await;
+        match stream_establisher.establish_stream(&payload, vec![ip_addr], target_hostname) {
             Ok(sender_wrapper) => Ok(sender_wrapper),
             Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
         }
@@ -309,25 +313,17 @@ impl StreamHandlerPoolReal {
             .proxy_client_subs
             .dns_resolve_failed
             .clone();
-        let mut establisher =
-            StreamHandlerPoolReal::make_establisher(inner_arc.clone()).await;
+        let mut establisher = StreamHandlerPoolReal::make_establisher(inner_arc.clone()).await;
         let stream_key = payload.stream_key;
         let logger = StreamHandlerPoolReal::make_logger_copy(&inner_arc).await;
-        match inner_arc
-            .lock()
-            .await
-            .resolver
-            .lookup_ip(&fqdn)
-            .await
-        {
+        match inner_arc.lock().await.resolver.lookup_ip(&fqdn).await {
             Ok(lookup_result) => match Self::handle_lookup_ip(
                 target_hostname.to_string(),
                 &payload,
                 lookup_result, // TODO  We should probably be taking care of the error side of this here, rather than in handle_lookup_ip().
                 logger,
                 &mut establisher,
-            )
-            {
+            ) {
                 Ok(sender_wrapper) => Ok(sender_wrapper),
                 Err(io_error) => Err(format!("Could not establish stream: {:?}", io_error)),
             },
@@ -375,7 +371,9 @@ impl StreamHandlerPoolReal {
         sender_wrapper_opt.map(|sender_wrapper_box_ref| sender_wrapper_box_ref.dup())
     }
 
-    async fn make_logger_copy(inner_arc: &Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>) -> Logger {
+    async fn make_logger_copy(
+        inner_arc: &Arc<tokio::sync::Mutex<StreamHandlerPoolRealInner>>,
+    ) -> Logger {
         let inner = inner_arc.lock().await;
         inner.logger.clone()
     }
@@ -504,6 +502,7 @@ mod tests {
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
+    use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::hopper::ExpiredCoresPackage;
     use crate::sub_lib::hopper::MessageType;
@@ -522,6 +521,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use actix::System;
+    use hickory_resolver::error::{ResolveError, ResolveErrorKind};
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -534,8 +534,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use hickory_resolver::error::{ResolveError, ResolveErrorKind};
-    use crate::sub_lib::channel_wrappers::FuturesChannelFactoryReal;
 
     struct StreamEstablisherFactoryMock {
         make_results: RefCell<Vec<StreamEstablisher>>,
@@ -572,8 +570,9 @@ mod tests {
             let system = System::new();
             let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
             let cryptde = main_cryptde();
-            let resolver_mock =
-                ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(ErrorKind::ConnectionRefused))));
+            let resolver_mock = ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(
+                ResolveErrorKind::Io(Error::from(ErrorKind::ConnectionRefused)),
+            ));
             let logger = Logger::new("dns_resolution_failure_sends_a_message_to_proxy_client");
             let establisher = StreamEstablisher {
                 cryptde,
@@ -609,7 +608,11 @@ mod tests {
                 originator_public_key: cryptde.public_key().clone(),
             };
 
-            StreamHandlerPoolReal::process_package(payload, None, Arc::new(tokio::sync::Mutex::new(inner)));
+            StreamHandlerPoolReal::process_package(
+                payload,
+                None,
+                Arc::new(tokio::sync::Mutex::new(inner)),
+            );
 
             system.run().unwrap();
         });
@@ -791,7 +794,7 @@ mod tests {
                 .read_result(Ok(first_read_result.to_vec()))
                 .read_result(Err(Error::from(ErrorKind::ConnectionAborted)));
             let writer = WriteHalfWrapperMock::new()
-                .write_params(&write_parameters_arc)// TODO: Do we use this?
+                .write_params(&write_parameters_arc) // TODO: Do we use this?
                 .write_result(Ok(first_read_result.len()))
                 .shutdown_result(Ok(()));
             let mut subject = StreamHandlerPoolReal::new(
@@ -983,8 +986,9 @@ mod tests {
                 client_request_payload.into(),
                 0,
             );
-            let resolver =
-                ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(ErrorKind::AddrInUse))));
+            let resolver = ResolverWrapperMock::new().lookup_ip_failure(ResolveError::from(
+                ResolveErrorKind::Io(Error::from(ErrorKind::AddrInUse)),
+            ));
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,
@@ -1276,15 +1280,17 @@ mod tests {
 
             let peer_addr = SocketAddr::from_str("3.4.5.6:80").unwrap();
             let disconnected_sender = SenderWrapperMock::new(peer_addr)
-                    .unbounded_send_result(make_send_error(sequenced_packet));
+                .unbounded_send_result(make_send_error(sequenced_packet));
 
             let (stream_killer_tx, stream_killer_rx) = unbounded();
             subject.stream_killer_rx = stream_killer_rx;
 
             {
                 let mut inner = subject.inner.lock().await;
-                let channel_factory = FuturesChannelFactoryMock::new()
-                    .make_result(disconnected_sender, ReceiverWrapperMock::new().recv_result(None));
+                let channel_factory = FuturesChannelFactoryMock::new().make_result(
+                    disconnected_sender,
+                    ReceiverWrapperMock::new().recv_result(None),
+                );
                 let establisher = StreamEstablisher {
                     cryptde,
                     stream_adder_tx,
@@ -1354,7 +1360,9 @@ mod tests {
             let mut lookup_ip_parameters = Arc::new(Mutex::new(vec![]));
             let resolver = ResolverWrapperMock::new()
                 .lookup_ip_params(&mut lookup_ip_parameters)
-                .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(ErrorKind::BrokenPipe))));
+                .lookup_ip_failure(ResolveError::from(ResolveErrorKind::Io(Error::from(
+                    ErrorKind::BrokenPipe,
+                ))));
             let subject = StreamHandlerPoolReal::new(
                 Box::new(resolver),
                 cryptde,

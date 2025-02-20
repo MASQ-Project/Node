@@ -3,6 +3,7 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
+use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -34,6 +35,10 @@ use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
+use async_trait::async_trait;
+use futures_util::future::join_all;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
@@ -54,11 +59,6 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
-use async_trait::async_trait;
-use futures_util::future::join_all;
-use futures_util::stream::FuturesUnordered;
-use futures_util::StreamExt;
-use crate::crash_test_dummy::CrashTestDummy;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -477,7 +477,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
                     }
                 }),
         );
-        futures.await.into_iter().for_each(|lh| self.listener_handlers.push(lh));
+        futures
+            .await
+            .into_iter()
+            .for_each(|lh| self.listener_handlers.push(lh));
         //
         // let mut futures = FuturesUnordered::new();
         // for (port, port_configuration) in port_configurations {
@@ -549,10 +552,13 @@ impl Bootstrapper {
     }
 
     pub async fn listen(&mut self) {
-        CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).await.expect("Could not create CrashTestDummy");
-        let futures = join_all(self.listener_handlers
-            .iter_mut()
-            .map(|f| f.handle_listeners())
+        CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new())
+            .await
+            .expect("Could not create CrashTestDummy");
+        let futures = join_all(
+            self.listener_handlers
+                .iter_mut()
+                .map(|f| f.handle_listeners()),
         );
         futures.await;
     }
@@ -771,7 +777,9 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
     use actix::System;
+    use async_trait::async_trait;
     use crossbeam_channel::unbounded;
+    use futures_util::stream::FuturesUnordered;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
@@ -794,8 +802,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use async_trait::async_trait;
-    use futures_util::stream::FuturesUnordered;
     use tokio;
 
     lazy_static! {
@@ -882,7 +888,8 @@ mod tests {
                             .try_send(add_stream_msg)
                             .expect("StreamHandlerPool is dead");
                     }
-                    if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
+                    if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt
+                    {
                         self.polling_setting.counter += 1;
                         if self.polling_setting.counter == desired_number {
                             break; //breaking the infinite looping
@@ -1188,7 +1195,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it() {
+    async fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it()
+    {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
@@ -1465,7 +1473,10 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .await
@@ -1514,7 +1525,10 @@ mod tests {
             .build();
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .await
@@ -1722,7 +1736,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
+    async fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool(
+    ) {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
@@ -1748,7 +1763,10 @@ mod tests {
             .config(config)
             .build();
         let multi_config = &make_simplified_multi_config(args);
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
 
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
@@ -1834,7 +1852,10 @@ mod tests {
         ];
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .await
