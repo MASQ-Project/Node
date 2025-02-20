@@ -8,7 +8,7 @@ use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFac
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::client_listener_thread::WSClientHandle;
+use crate::communications::websocket_client::WSClientHandle;
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
@@ -33,10 +33,10 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use soketto::connection::Error;
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::task::JoinError;
-use workflow_websocket::client::{Error, Handshake, Message, Result as ClientResult};
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -356,30 +356,26 @@ impl MockCommand {
 
 #[derive(Default)]
 pub struct WSClientHandleMock {
-    send_params: Arc<Mutex<Vec<Message>>>,
-    send_results: Mutex<Vec<std::result::Result<(), Arc<Error>>>>,
+    send_params: Arc<Mutex<Vec<MessageBody>>>,
+    send_results: Mutex<Vec<Result<(), Error>>>,
 }
 
 #[async_trait]
 impl WSClientHandle for WSClientHandleMock {
-    async fn send_msg(&self, msg: Message) -> std::result::Result<(), Arc<Error>> {
+    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error> {
         self.send_params.lock().unwrap().push(msg);
         self.send_results.lock().unwrap().remove(0)
     }
 
-    async fn disconnect(&self) -> ClientResult<()> {
-        unimplemented!("Not needed yet")
-    }
-
-    fn close_talker_half(&self) -> bool {
-        unimplemented!("Not needed yet")
+    async fn close(&self) -> Result<(), Error> {
+        todo!()
     }
 
     fn dismiss_event_loop(&self) {
         unimplemented!("Not needed yet")
     }
 
-    fn is_connection_open(&self) -> bool {
+    async fn is_connection_open(&mut self) -> bool {
         unimplemented!("Test-only method that has an effect only at the real one")
     }
 
@@ -389,12 +385,12 @@ impl WSClientHandle for WSClientHandleMock {
 }
 
 impl WSClientHandleMock {
-    pub fn send_params(mut self, params: &Arc<Mutex<Vec<Message>>>) -> Self {
+    pub fn send_params(mut self, params: &Arc<Mutex<Vec<MessageBody>>>) -> Self {
         self.send_params = params.clone();
         self
     }
 
-    pub fn send_result(self, result: std::result::Result<(), Arc<Error>>) -> Self {
+    pub fn send_result(self, result: Result<(), Error>) -> Self {
         self.send_results.lock().unwrap().push(result);
         self
     }

@@ -8,6 +8,7 @@ use crate::websockets_types::{WSSender, WSReceiver};
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use std::fmt::Debug;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::ops::Not;
 use std::sync::atomic::Ordering;
@@ -24,16 +25,19 @@ use soketto::{handshake::{Server, ClientRequest, server::Response}};
 use soketto::connection::{Sender, Receiver, Error, CloseReason};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use futures::io::{BufReader, BufWriter};
+use nix::libc::aio_return;
 use rustc_hex::ToHex;
+use tokio::sync::oneshot::Receiver as OneShotReceiver;
 use soketto::base::OpCode;
 use soketto::data::ByteSlice125;
+use tokio::sync::oneshot::error::RecvError;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum MWSSMessage {
+pub enum MWSSMessage {
     // If you have a MessageBody, put it in one of these.
     MessageBody (MessageBody),
     // If you have a non-MessageBody "response" that you want to be sent without being
@@ -185,32 +189,14 @@ impl MockWebSocketsServer {
             ).await;
             let mut data = Vec::new();
             Self::send_faf_messages(&mut sender, &mut responses).await;
-            loop {
-                data.clear();
-                let data_type = tokio::select! {
-                    data_type_res = receiver.receive_data(&mut data) => {
-                        match (data_type_res) {
-                            Ok(data_type) => data_type,
-                            Err(Error::Closed) => {
-                                Self::process_close(&requests_inner_arc);
-                                break;
-                            },
-                            Err(e) => panic!("Error receiving data from client: {}", e),
-                        }
-                    }
-                    stop_strategy = &mut termination_rx => {
-                        stop_strategy.expect("Error receiving termination signal").apply(sender).await;
-                        break;
-                    }
-                };
-                Self::process_data(
-                    &data_type,
-                    data.as_slice(),
-                    &mut sender,
-                    requests_inner_arc.clone(),
-                    &mut responses,
-                ).await;
-            }
+            Self::handling_loop(
+                sender,
+                &mut receiver,
+                &mut data,
+                &requests_inner_arc,
+                &mut responses,
+                &mut termination_rx
+            ).await
         };
 
         let join_handle = tokio::spawn(connection_future);
@@ -222,6 +208,174 @@ impl MockWebSocketsServer {
             proposed_protocols_arc,
             termination_tx,
             join_handle,
+        }
+    }
+
+    // async fn main_handling_loop(
+    //     sender: &mut WSSender,
+    //     receiver: &mut WSReceiver,
+    //     data: &mut Vec<u8>,
+    //     requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
+    //     responses: &mut Vec<MWSSMessage>,
+    //     termination_rx: &mut OneShotReceiver<StopStrategy>)
+    // {
+    //     let concurrent_future = termination_rx;
+    //
+    //     let run_upon_second_future_completion = |
+    //     sender: &mut WSSender,
+    //     receiver: &mut WSReceiver,
+    //     data: &mut Vec<u8>,
+    //     requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
+    //     responses: &mut Vec<MWSSMessage >,
+    //     result_second_future: Result<StopStrategy, RecvError>
+    //     |{
+    //
+    //
+    //         Box::new( async move {
+    //             let mut countdown_from_last_received_msg = tokio::time::sleep(Duration::from_millis(10));
+    //
+    //             let run_upon_second_future_completion = |sender: &mut WSSender,_, _,_, _, re  | async move{
+    //                panic!("bluh")
+    //                // result_second_future.expect("Error receiving termination signal").apply(sender).await
+    //             };
+    //
+    //             Self::handling_loop(
+    //             sender,
+    //             receiver,
+    //             data,
+    //             requests_inner_arc,
+    //             responses,
+    //             &mut countdown_from_last_received_msg,
+    //             run_upon_second_future_completion
+    //         )
+    //         })
+    //     };
+    //
+    //     Self::handling_loop(
+    //         sender,
+    //         receiver,
+    //         data,
+    //         requests_inner_arc,
+    //         responses,
+    //         concurrent_future,
+    //         run_upon_second_future_completion
+    //     ).await
+    // }
+
+    //
+    // async fn handling_loop<ConcurrentFuture, FutureOutput, ExecutedBlock>(
+    //     sender: &mut WSSender,
+    //     receiver: &mut WSReceiver,
+    //     data: &mut Vec<u8>,
+    //     requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
+    //     responses: &mut Vec<MWSSMessage>,
+    //     concurrent_future: &mut ConcurrentFuture,
+    //     executed_if_second_future_picked: ExecutedBlock
+    // ) where ConcurrentFuture: Future<Output = FutureOutput>,
+    //     ExecutedBlock: Fn(
+    //         &mut WSSender,
+    //         &mut WSReceiver,
+    //         &mut Vec<u8>,
+    //         &Arc<Mutex<Vec<MWSSMessage>>>,
+    //         &mut Vec<MWSSMessage>,
+    //         FutureOutput
+    //     ) -> Box<dyn Future<Output = ()>>
+    // {
+    //     loop {
+    //         data.clear();
+    //         let data_type = tokio::select! {
+    //                 data_type_res = receiver.receive_data(data) => {
+    //                     match data_type_res {
+    //                         Ok(data_type) => data_type,
+    //                         Err(Error::Closed) => {
+    //                             Self::process_close(&requests_inner_arc);
+    //                             return;
+    //                         },
+    //                         Err(e) => panic!("Error receiving data from client: {}", e),
+    //                     }
+    //                 }
+    //                 future_result = concurrent_future => {
+    //                         executed_if_second_future_picked(
+    //                             sender,
+    //                             receiver,
+    //                             data,
+    //                             requests_inner_arc,
+    //                             responses,
+    //                             future_result
+    //                         ).await;
+    //                         return
+    //                 }
+    //             };
+    //         Self::process_data(
+    //             &data_type,
+    //             data.as_slice(),
+    //             sender,
+    //             requests_inner_arc.clone(),
+    //             responses,
+    //         ).await;
+    //     }
+    // }
+
+
+    async fn handling_loop(
+        mut sender: WSSender,
+        receiver: &mut WSReceiver,
+        data: &mut Vec<u8>,
+        requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
+        responses: &mut Vec<MWSSMessage>,
+        termination_rx: &mut OneShotReceiver<StopStrategy>
+    ){
+        loop {
+            data.clear();
+            let data_type = tokio::select! {
+                    data_type_res = receiver.receive_data(data) => {
+                        match data_type_res {
+                            Ok(data_type) => data_type,
+                            Err(Error::Closed) => {
+                                Self::process_close(&requests_inner_arc);
+                                return;
+                            },
+                            Err(e) => panic!("Error receiving data from client: {}", e),
+                        }
+                    }
+                    stop_strategy = &mut *termination_rx => {
+                            let countdown_from_last_msg_received = ||tokio::time::sleep(Duration::from_millis(10));
+                            loop {
+                                data.clear();
+                                let data_type = tokio::select! {
+                                    data_type_res = receiver.receive_data(data) => {
+                                        match data_type_res {
+                                            Ok(data_type) => data_type,
+                                            Err(Error::Closed) => {
+                                                Self::process_close(&requests_inner_arc);
+                                                return;
+                                            },
+                                            Err(Error::UnexpectedOpCode(OpCode::Continue)) => continue,
+                                            Err(e) => panic!("Unexpected error: {:?}", e)
+                                        }
+                                    }
+                                    _ = countdown_from_last_msg_received() => {
+                                          stop_strategy.expect("Error receiving termination signal").apply(sender).await;
+                                          return;
+                                    }
+                                };
+                                Self::process_data(
+                                    &data_type,
+                                    data.as_slice(),
+                                    &mut sender,
+                                    requests_inner_arc.clone(),
+                                    responses,
+                                ).await;
+                            }
+                }
+            };
+            Self::process_data(
+                &data_type,
+                data.as_slice(),
+                &mut sender,
+                requests_inner_arc.clone(),
+                responses,
+            ).await;
         }
     }
 
@@ -592,5 +746,28 @@ mod tests {
             .transact::<UiChangePasswordRequest, UiChangePasswordResponse>(conversation_request)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn incoming_messages_always_beat_termination_signal() {
+        let attempt_count = 100;
+        let cluster_count = 100;
+        let mut actual_request_counts: Vec<usize> = vec![];
+        let mut expected_request_counts: Vec<usize> = vec![];
+        for i in 0..attempt_count {
+            let port = find_free_port();
+            let server = MockWebSocketsServer::new(port);
+            let server_handle = server.start().await;
+            let mut conn = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+
+            for j in 0..cluster_count {
+                conn.send_string("Booga!".to_string()).await;
+            }
+            let result = server_handle.stop(StopStrategy::Abort).await;
+
+            actual_request_counts.push(result.requests.len());
+            expected_request_counts.push(attempt_count);
+        }
+        assert_eq!(actual_request_counts, expected_request_counts);
     }
 }

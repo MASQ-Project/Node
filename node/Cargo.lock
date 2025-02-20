@@ -2679,6 +2679,7 @@ dependencies = [
  "time 0.3.37",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
 ]
 
 [[package]]

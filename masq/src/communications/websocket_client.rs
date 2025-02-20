@@ -11,6 +11,114 @@ use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::{AbortHandle, JoinHandle};
 use masq_lib::websockets_types::{WSReceiver, WSSender};
+use std::net::SocketAddr;
+use futures::io::{BufReader, BufWriter};
+use soketto::handshake::{Client, ServerResponse};
+use tokio_util::compat::TokioAsyncReadCompatExt;
+use masq_lib::messages::NODE_UI_PROTOCOL;
+use masq_lib::utils::localhost;
+
+// TODO assert me if preserved
+pub const WS_CONNECT_TIMEOUT_MS: u64 = 1500;
+
+#[derive(Debug)]
+pub enum ConnectError{
+    Error(Error),
+    Timeout
+}
+
+pub async fn make_connection(port: u16, timeout_ms: u64) -> Result<(WSSender, WSReceiver), ConnectError>{
+    let socket_addr = SocketAddr::new(localhost(), port);
+
+    let tcp_stream = match tokio::net::TcpStream::connect(socket_addr).await{
+        Ok(tcp) => tcp,
+        Err(e) => todo!()
+    };
+
+    let mut client = Client::new(BufReader::new(BufWriter::new(tcp_stream.compat())), "/", "/");
+
+    client.add_protocol(NODE_UI_PROTOCOL);
+
+    let result =  client.handshake().await;
+
+    let server_response = match result{
+        Ok(res) => res,
+        Err(e) => todo!()
+    };
+
+    match server_response {
+        ServerResponse::Accepted {protocol} => {
+            if let Some(_) = protocol {
+                Ok(client.into_builder().finish())
+            } else {
+                todo!()
+            }
+        },
+        ServerResponse::Rejected {status_code} => todo!(),
+        ServerResponse::Redirect {status_code, location} => todo!()
+    }
+}
+
+#[async_trait]
+pub trait WSClientHandle: Send {
+    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error>;
+    async fn close(&self) -> Result<(), Error>;
+    fn dismiss_event_loop(&self);
+    #[cfg(test)]
+    async fn is_connection_open(&mut self) -> bool;
+    #[cfg(test)]
+    fn is_event_loop_spinning(&self) -> bool;
+}
+
+pub struct WSClientHandleReal {
+    ws_sender: WSSender,
+    listener_event_loop_abort_handle: AbortHandle,
+}
+
+impl Drop for WSClientHandleReal {
+    fn drop(&mut self) {
+        self.dismiss_event_loop()
+    }
+}
+
+#[async_trait]
+impl WSClientHandle for WSClientHandleReal {
+    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error> {
+        let txt = UiTrafficConverter::new_marshal(msg);
+        //TODO untested
+        eprintln!("client sends: {}", txt);
+        self.ws_sender.send_text_owned(txt).await;
+        self.ws_sender.flush().await
+    }
+
+    async fn close(&self) -> Result<(), Error> {
+        todo!()
+    }
+
+    fn dismiss_event_loop(&self) {
+        self.listener_event_loop_abort_handle.abort()
+    }
+
+    #[cfg(test)]
+    async fn is_connection_open(&mut self) -> bool {
+        // Is this too big a hack?
+        self.ws_sender.flush().await.is_ok()
+    }
+
+    #[cfg(test)]
+    fn is_event_loop_spinning(&self) -> bool {
+        !self.listener_event_loop_abort_handle.is_finished()
+    }
+}
+
+impl WSClientHandleReal {
+    pub fn new(ws_sender: WSSender, listener_event_loop_abort_handle: AbortHandle) -> Self {
+        Self {
+            ws_sender,
+            listener_event_loop_abort_handle,
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ClientListenerError {
@@ -49,73 +157,6 @@ impl ClientListener {
         spawner.spawn().abort_handle()
         // let client_handle = WSClientHandleReal::new(self.websocket, abort_handle);
         // Box::new(client_handle)
-    }
-}
-
-#[async_trait]
-pub trait WSClientHandle: Send {
-    async fn send_msg(&mut self, msg: String) -> std::result::Result<(), Error>;
-    // This is unfortunate as we cannot get the library we're using to send a graceful Close msg.
-    // Without us to understand, they implemented a panic to unwind upon this message's arrival (on
-    // the server side - which also is built from the same library). All they provide is this
-    // disconnection which, however, results in a connection reset considered an error on
-    // the server's side. I'll have to leave it this way for timely reasons but a redesign should
-    // take place someday.
-    async fn disconnect(&self) -> ClientResult<()>;
-    fn close_talker_half(&self) -> bool;
-    fn dismiss_event_loop(&self);
-    #[cfg(test)]
-    fn is_connection_open(&self) -> bool;
-    #[cfg(test)]
-    fn is_event_loop_spinning(&self) -> bool;
-}
-
-pub struct WSClientHandleReal {
-    ws_sender: WSSender,
-    listener_event_loop_abort_handle: AbortHandle,
-}
-
-impl Drop for WSClientHandleReal {
-    fn drop(&mut self) {
-        self.dismiss_event_loop()
-    }
-}
-
-#[async_trait]
-impl WSClientHandle for WSClientHandleReal {
-    async fn send_msg(&mut self, msg: String) -> Result<(), Error> {
-        self.ws_sender.send_text_owned(msg).await.map(|_| ())
-    }
-
-    async fn disconnect(&self) -> ClientResult<()> {
-        self.websocket.disconnect().await
-    }
-
-    fn close_talker_half(&self) -> bool {
-        self.websocket.sender_tx().close()
-    }
-
-    fn dismiss_event_loop(&self) {
-        self.listener_event_loop_abort_handle.abort()
-    }
-
-    #[cfg(test)]
-    fn is_connection_open(&self) -> bool {
-        self.websocket.is_connected()
-    }
-
-    #[cfg(test)]
-    fn is_event_loop_spinning(&self) -> bool {
-        !self.listener_event_loop_abort_handle.is_finished()
-    }
-}
-
-impl WSClientHandleReal {
-    pub fn new(ws_sender: WSSender, listener_event_loop_abort_handle: AbortHandle) -> Self {
-        Self {
-            ws_sender,
-            listener_event_loop_abort_handle,
-        }
     }
 }
 
@@ -203,18 +244,14 @@ impl ClientListenerSpawner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use masq_lib::messages::{
-        FromMessageBody, ToMessageBody, UiCheckPasswordResponse, UiDescriptorRequest,
-        UiDescriptorResponse,
-    };
+    use masq_lib::messages::{FromMessageBody, ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorRequest, UiDescriptorResponse};
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::test_utils::mock_websockets_server::{MWSSMessage, MockWebSocketsServer, StopStrategy};
     use masq_lib::utils::find_free_port;
     use std::time::Duration;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::unbounded_channel;
     use tokio::time::Instant;
-    use crate::test_utils::websockets_utils::websocket_utils_with_masq_handshake;
 
     // TODO ditch me after you have Dan's server in
     // async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
@@ -226,63 +263,56 @@ mod tests {
 
     #[tokio::test]
     async fn listens_and_passes_data_through() {
-        let expected_message = UiShutdownResponse {};
+        let expected_message = UiConnectionChangeBroadcast { stage: UiConnectionStage::RouteFound };
         let port = find_free_port();
         let server =
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
-        let stop_handle = server.start().await;
-        let (websocket, _talker_half, _) = websocket_utils_with_masq_handshake(port).await;
+        let server_stop_handle = server.start().await;
+        let (talker_half, listener_half) = make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
+        let subject = ClientListener::new(listener_half);
+        let abort_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
 
         let message_body = message_body_rx.recv().await.unwrap().unwrap();
 
         assert_eq!(message_body, expected_message.tmb(1));
-        let is_spinning = !client_listener_handle.is_finished();
+        let is_spinning = !abort_handle.is_finished();
         assert_eq!(is_spinning, true);
+        server_stop_handle.stop(StopStrategy::Close).await;
     }
 
     #[tokio::test]
     async fn processes_incoming_close_correctly() {
         let port = find_free_port();
-        let server_handle = MockWebSocketsServer::new(port)
-            .queue_close()
+        let server_stop_handle = MockWebSocketsServer::new(port)
             .start()
             .await;
-        let (websocket, _talker_half, _listener_half) =
-            websocket_utils_with_masq_handshake(port).await;
+        let (mut talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_detector) = ClosingStageDetector::make_for_test();
-        let subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
+        let subject = ClientListener::new(listener_half);
+        let abort_handle = subject
             .start(close_detector.dup_receiver(), message_body_tx)
             .await;
 
-        // let server_response_trigger = ClientMessage::Text(UiTrafficConverter::new_marshal(
-        //     UiDescriptorRequest {}.tmb(1),
-        // ));
-        client_listener_handle
-            .send(server_response_trigger)
-            .await
-            .unwrap();
+        server_stop_handle.stop(StopStrategy::Close).await;
         let conn_closed_announcement = message_body_rx.recv().await.unwrap();
-        let disconnection_probe =
-            ClientMessage::Text(UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(2)));
-        let send_error = client_listener_handle
-            .send(disconnection_probe)
+        let disconnection_probe = UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(2));
+        let send_error = talker_half
+            .send_text_owned(disconnection_probe)
             .await
             .unwrap_err();
 
         assert_eq!(conn_closed_announcement, Err(ClientListenerError::Closed));
-        match send_error.as_ref() {
-            Error::NotConnected => (),
-            x => panic!("We expected Err(NotConnected) but got {:?}", x),
+        match send_error {
+            Error::Closed => (),
+            x => panic!("We expected Err(Closed) but got {:?}", x),
         };
-        let is_spinning = client_listener_handle.is_event_loop_spinning();
+        let is_spinning = !abort_handle.is_finished();
         assert_eq!(is_spinning, false);
         // Because not ordered from our side
         assert_eq!(close_signaler.is_closing(), false)
@@ -292,23 +322,21 @@ mod tests {
     async fn processes_broken_connection_correctly() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start().await;
-        let (websocket, _talker_half, listener_half) =
-            websocket_utils_with_masq_handshake(port).await;
+        let server_stop_handle = server.start().await;
+        let (talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
+        let subject = ClientListener::new(listener_half);
+        let abort_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
-        let closed = listener_half.close();
+        server_stop_handle.stop(StopStrategy::Abort).await;
 
         let error = message_body_rx.recv().await.unwrap().unwrap_err();
 
-        assert!(closed);
         assert_eq!(error, ClientListenerError::Broken("RecvError".to_string()));
-        wait_for_stop(client_listener_handle.as_ref()).await;
-        let is_spinning = client_listener_handle.is_event_loop_spinning();
+        let is_spinning = !abort_handle.is_finished();
         assert_eq!(is_spinning, false);
     }
 
@@ -316,42 +344,43 @@ mod tests {
     async fn processes_bad_owned_message_correctly() {
         let port = find_free_port();
         let server =
-            MockWebSocketsServer::new(port).queue_owned_message(ServerMessage::Binary(vec![]));
+            MockWebSocketsServer::new(port)
+                .queue_faf_owned_message(Data::Binary(10), b"BadMessage".to_vec());
         let stop_handle = server.start().await;
-        let websocket = establish_ws_conn_with_handshake(port).await;
+        let (talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
+        let subject = ClientListener::new(listener_half);
+        let abort_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
-        stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
-        let is_spinning = client_listener_handle.is_event_loop_spinning();
+        let is_spinning = !abort_handle.is_finished();
         assert_eq!(is_spinning, true);
     }
 
     #[tokio::test]
     async fn processes_bad_packet_correctly() {
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port).queue_string("booga");
+        let server = MockWebSocketsServer::new(port).queue_faf_owned_message(Data::Text(5),b"booga".to_vec());
         let stop_handle = server.start().await;
-        let websocket = establish_ws_conn_with_handshake(port).await;
+        let (talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
-        let subject = ClientListener::new(websocket);
-        let client_listener_handle = subject
+        let subject = ClientListener::new(listener_half);
+        let abort_handle = subject
             .start(close_sig.dup_receiver(), message_body_tx)
             .await;
-        stimulate_queued_response_from_server(client_listener_handle.as_ref()).await;
 
         let error = message_body_rx.recv().await.unwrap().err().unwrap();
 
         assert_eq!(error, ClientListenerError::UnexpectedPacket);
-        let is_running = client_listener_handle.is_event_loop_spinning();
+        let is_running = !abort_handle.is_finished();
         assert_eq!(is_running, true);
     }
 
@@ -360,7 +389,8 @@ mod tests {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let (websocket, _, _) = websocket_utils_with_masq_handshake(port).await;
+        let (talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let ref_counting_object = Arc::new(123);
         let cloned = ref_counting_object.clone();
         let join_handle = tokio::task::spawn(async move {
@@ -369,7 +399,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
+        let client_handle = WSClientHandleReal::new(talker_half, join_handle.abort_handle());
         let count_before = Arc::strong_count(&ref_counting_object);
 
         drop(client_handle);
@@ -392,8 +422,8 @@ mod tests {
             )
             .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
         let stop_handle = server.start().await;
-        let (websocket, _talker_half, listener_half) =
-            websocket_utils_with_masq_handshake(port).await;
+        let (mut talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListenerSpawner::new(
@@ -402,13 +432,14 @@ mod tests {
             close_sig.dup_receiver(),
         );
         let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
-        let client_handle = WSClientHandleReal::new(websocket, join_handle.abort_handle());
-        stimulate_queued_response_from_server(&client_handle).await;
+        let mut client_handle = WSClientHandleReal::new(talker_half, join_handle.abort_handle());
+        client_handle.send_msg(UiDescriptorRequest{}.tmb(1234)).await.unwrap();
         let received_msg_body = message_body_rx.recv().await.unwrap().unwrap();
         let (received_message, context_id) = UiDescriptorResponse::fmb(received_msg_body).unwrap();
 
         close_signaler.signalize_close();
-        stimulate_queued_response_from_server(&client_handle).await;
+        // Making the mock server send another msg
+        client_handle.send_msg(UiCheckPasswordRequest{ db_password_opt: None }.tmb(4321)).await.unwrap();
 
         let timeout = Duration::from_millis(1500);
         let start = Instant::now();
@@ -435,26 +466,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn close_talker_half_works() {
+    async fn close_works() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
-        let websocket = establish_ws_conn_with_handshake(port).await;
+        let (mut talker_half, listener_half) =
+            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
         let meaningless_event_loop_join_handle = tokio::task::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
         let subject =
-            WSClientHandleReal::new(websocket, meaningless_event_loop_join_handle.abort_handle());
-        let is_closed_before = subject.websocket.sender_tx().is_closed();
+            WSClientHandleReal::new(talker_half, meaningless_event_loop_join_handle.abort_handle());
 
-        let closed_successfully = subject.close_talker_half();
+        let result = subject.close().await;
 
-        let is_closed_after = subject.websocket.sender_tx().is_closed();
-        assert_eq!(is_closed_before, false);
-        assert_eq!(closed_successfully, true);
-        assert_eq!(is_closed_after, true);
+        assert!(matches!(result, Ok(())));
+        let requests = stop_handle.stop(StopStrategy::Abort).await;
+        assert_eq!(requests.requests, vec![MWSSMessage::Close])
     }
 
     #[test]
