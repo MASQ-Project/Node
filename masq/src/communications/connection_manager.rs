@@ -534,7 +534,7 @@ impl CentralEventLoop {
         inner
     }
 
-    async fn handle_close(inner: ConnectionDepartment) {
+    async fn handle_close(mut inner: ConnectionDepartment) {
         let _ = inner.ws_client_handle.close().await;
         // let _ = inner.ws_client_handle.disconnect().await;
         // let _ = inner.ws_client_handle.close_talker_half();
@@ -721,6 +721,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::utils::{find_free_port, localhost, running_test};
+    use std::fmt::Debug;
     use std::hash::Hash;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
@@ -1283,13 +1284,14 @@ mod tests {
             )),
         )
         .await;
-        let outgoing_messages = deamon_stop_handle.stop(StopStrategy::Abort).await;
+        let mut outgoing_messages = deamon_stop_handle.stop(StopStrategy::Abort).await;
+        let request = outgoing_messages.requests.remove(0);
         assert_eq!(
-            outgoing_messages.requests,
-            vec![MWSSMessage::MessageBody(
-                UiSetupRequest { values: vec![] }.tmb(4)
-            )]
-        )
+            UiSetupRequest::fmb(request.message_body()).unwrap(),
+            (UiSetupRequest { values: vec![] }, 4)
+        );
+        let none_other = outgoing_messages.requests.is_empty();
+        assert_eq!(none_other, true)
     }
 
     #[tokio::test]
@@ -1502,23 +1504,25 @@ mod tests {
         let outgoing_message = UiUnmarshalError {
             message: "".to_string(),
             bad_data: "".to_string(),
-        }
-        .tmb(0);
+        };
 
-        let _ = CentralEventLoop::handle_outgoing_message_body(
+        let _inner = CentralEventLoop::handle_outgoing_message_body(
             inner,
             Ok(OutgoingMessageType::FireAndForgetMessage(
-                outgoing_message.clone(),
+                outgoing_message.clone().tmb(0),
                 1,
             )),
         )
         .await;
 
-        let recorded = server_stop_handle.stop(StopStrategy::Abort).await;
+        let mut recorded = server_stop_handle.stop(StopStrategy::Abort).await;
+        let faf = recorded.requests.remove(0);
         assert_eq!(
-            recorded.requests,
-            vec![MWSSMessage::MessageBody(outgoing_message)]
-        )
+            UiUnmarshalError::fmb(faf.message_body()).unwrap().0,
+            outgoing_message
+        );
+        let none_other = recorded.requests.is_empty();
+        assert_eq!(none_other, true)
     }
 
     #[tokio::test]

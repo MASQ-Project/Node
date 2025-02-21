@@ -367,7 +367,7 @@ impl WSClientHandle for WSClientHandleMock {
         self.send_results.lock().unwrap().remove(0)
     }
 
-    async fn close(&self) -> Result<(), Error> {
+    async fn close(&mut self) -> Result<(), Error> {
         todo!()
     }
 

@@ -40,7 +40,8 @@ pub async fn make_connection(
 
     let mut client = Client::new(
         BufReader::new(BufWriter::new(tcp_stream.compat())),
-        "/",
+        // TODO talk to Dan about these args
+        "localhost",
         "/",
     );
 
@@ -72,7 +73,7 @@ pub async fn make_connection(
 #[async_trait]
 pub trait WSClientHandle: Send {
     async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error>;
-    async fn close(&self) -> Result<(), Error>;
+    async fn close(&mut self) -> Result<(), Error>;
     fn dismiss_event_loop(&self);
     #[cfg(test)]
     async fn is_connection_open(&mut self) -> bool;
@@ -95,14 +96,13 @@ impl Drop for WSClientHandleReal {
 impl WSClientHandle for WSClientHandleReal {
     async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error> {
         let txt = UiTrafficConverter::new_marshal(msg);
-        //TODO untested
-        eprintln!("client sends: {}", txt);
+        //TODO untested result
         self.ws_sender.send_text_owned(txt).await;
         self.ws_sender.flush().await
     }
 
-    async fn close(&self) -> Result<(), Error> {
-        todo!()
+    async fn close(&mut self) -> Result<(), Error> {
+        self.ws_sender.close().await
     }
 
     fn dismiss_event_loop(&self) {
@@ -501,7 +501,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let subject = WSClientHandleReal::new(
+        let mut subject = WSClientHandleReal::new(
             talker_half,
             meaningless_event_loop_join_handle.abort_handle(),
         );
