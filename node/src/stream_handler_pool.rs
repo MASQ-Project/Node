@@ -8,6 +8,9 @@ use crate::stream_messages::*;
 use crate::stream_reader::StreamReaderReal;
 use crate::stream_writer_sorted::StreamWriterSorted;
 use crate::stream_writer_unsorted::StreamWriterUnsorted;
+use crate::sub_lib::channel_wrappers::{
+    FuturesChannelFactory, FuturesChannelFactoryReal, SenderWrapper,
+};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
@@ -26,12 +29,14 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, MessageScheduler, NODE_MAILBOX_CAPACITY};
-use actix::{Addr, Supervised};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, supervisor_restarting, MessageScheduler, NODE_MAILBOX_CAPACITY,
+};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, AsyncContext};
+use actix::{Addr, Supervised};
 use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -41,7 +46,6 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
-use crate::sub_lib::channel_wrappers::{FuturesChannelFactory, FuturesChannelFactoryReal, SenderWrapper};
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
 // overseen by StreamHandlerPool will not (and should not) have StreamKeys. Don't let the
@@ -586,7 +590,7 @@ impl StreamHandlerPool {
             match stream_connector.connect(peer_addr, &logger).await {
                 Ok(connection_info) => {
                     success_handler.handle(connection_info);
-                },
+                }
                 Err(err) => {
                     // connection was unsuccessful
                     failure_handler.handle(err);
@@ -1745,9 +1749,7 @@ mod tests {
         let write_params_arc = Arc::new(Mutex::new(Vec::new()));
 
         let connection_info = ConnectionInfo {
-            reader: Box::new(
-                ReadHalfWrapperMock::new().read_result(Ok(vec![])),
-            ),
+            reader: Box::new(ReadHalfWrapperMock::new().read_result(Ok(vec![]))),
             writer: Box::new(
                 WriteHalfWrapperMock::new()
                     .write_result(Ok(0))
@@ -1844,9 +1846,7 @@ mod tests {
         let write_params_arc = Arc::new(Mutex::new(Vec::new()));
 
         let connection_info = ConnectionInfo {
-            reader: Box::new(
-                ReadHalfWrapperMock::new().read_result(Ok(vec![])),
-            ),
+            reader: Box::new(ReadHalfWrapperMock::new().read_result(Ok(vec![]))),
             writer: Box::new(
                 WriteHalfWrapperMock::new()
                     .write_params(&write_params_arc)

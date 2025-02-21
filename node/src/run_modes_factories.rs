@@ -12,13 +12,13 @@ use crate::node_configurator::{DirsWrapper, DirsWrapperReal, NodeConfigurator};
 use crate::server_initializer::{
     LoggerInitializerWrapper, LoggerInitializerWrapperReal, ServerInitializerReal,
 };
+use async_trait::async_trait;
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 use std::cell::RefCell;
-use async_trait::async_trait;
 use tokio::task::{JoinHandle, JoinSet};
 
 pub type RunModeResult = Result<(), ConfiguratorError>;
@@ -255,13 +255,13 @@ pub mod mocks {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, ChannelFactoryMock,
     };
+    use async_trait::async_trait;
     use masq_lib::command::StdStreams;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::ConfiguratorError;
     use std::cell::RefCell;
     use std::io;
     use std::sync::{Arc, Mutex};
-    use async_trait::async_trait;
     use tokio::task::{JoinHandle, JoinSet};
 
     pub fn test_clustered_params() -> DIClusteredParams {
@@ -407,8 +407,13 @@ pub mod mocks {
             self
         }
 
-        pub fn spawn_long_lived_services_result(self, result: JoinHandle<std::io::Result<()>>) -> Self {
-            self.spawn_long_lived_services_results.borrow_mut().push(result);
+        pub fn spawn_long_lived_services_result(
+            self,
+            result: JoinHandle<std::io::Result<()>>,
+        ) -> Self {
+            self.spawn_long_lived_services_results
+                .borrow_mut()
+                .push(result);
             self
         }
 
@@ -426,8 +431,13 @@ pub mod mocks {
         }
 
         fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>> {
-            self.spawn_long_lived_services_params.lock().unwrap().push(());
-            self.spawn_long_lived_services_results.borrow_mut().remove(0)
+            self.spawn_long_lived_services_params
+                .lock()
+                .unwrap()
+                .push(());
+            self.spawn_long_lived_services_results
+                .borrow_mut()
+                .remove(0)
         }
     }
 

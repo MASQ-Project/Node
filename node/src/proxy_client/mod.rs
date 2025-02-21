@@ -27,14 +27,16 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY,
+};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
-use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use actix::{Actor, Supervised, System};
 use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -250,7 +252,10 @@ impl ProxyClient {
             exit_byte_rate: config.exit_byte_rate,
             is_decentralized: config.is_decentralized,
             crashable: config.crashable,
-            runtime: tokio::runtime::Builder::new_current_thread().enable_all().build().expect("Failed to create runtime for ProxyClient"),
+            runtime: tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for ProxyClient"),
             logger: Logger::new("ProxyClient"),
         }
     }

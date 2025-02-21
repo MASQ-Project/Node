@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use async_trait::async_trait;
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
 use std::task::{Context, Poll};
-use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
@@ -83,10 +83,7 @@ impl ReadHalfWrapperReal {
 
 #[async_trait]
 impl WriteHalfWrapper for WriteHalfWrapperReal {
-    async fn write(
-        self: &mut Self,
-        buf: &[u8],
-    ) -> io::Result<usize> {
+    async fn write(self: &mut Self, buf: &[u8]) -> io::Result<usize> {
         self.delegate.write(&buf).await
     }
 
@@ -117,8 +114,7 @@ impl TokioListenerWrapperReal {
     }
 
     fn delegate(&self) -> &TcpListener {
-        self
-            .delegate
+        self.delegate
             .as_ref()
             .expect("TcpListener not initialized - bind to a SocketAddr")
     }

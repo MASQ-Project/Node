@@ -89,9 +89,11 @@ impl WTermInterface for InteractiveRWTermInterface {
 
 pub struct InteractiveWTermInterface {
     write_liso_arc: Arc<dyn LisoOutputWrapper>,
+    // Be aware that both writing utils contain a shared handle to Stdout (Liso doesn't operate in
+    // Stderr). Having them separate prevents mixing message fragments from provided stdout and
+    // stderr handles that are used on the higher level. (This division is meaningful to
+    // the non-interactive terminal interface.)
     stdout_utils: WritingUtils,
-    // In fact, this next utils also contain a handle to Stdout (Liso doesn't operate with Stderr).
-    // Keeping them separate, though, prevents mixing message fragments from both
     stderr_utils: WritingUtils,
 }
 
@@ -121,19 +123,21 @@ impl InteractiveWTermInterface {
     pub fn new(write_liso_box: Box<dyn LisoOutputWrapper>) -> Self {
         write_liso_box.prompt(MASQ_PROMPT, true, false);
         let write_liso_arc: Arc<dyn LisoOutputWrapper> = Arc::from(write_liso_box);
-        let flush_handle_inner_constructor = |output_chunks_receiver, stream_type| {
+
+        let construct_flush_handle_inner = |output_chunks_receiver, stream_type| {
             Arc::new(tokio::sync::Mutex::new(InteractiveFlushHandleInner::new(
                 stream_type,
                 write_liso_arc.clone(),
                 output_chunks_receiver,
             ))) as ArcMutexFlushHandleInner
         };
+
         let stdout_utils = WritingUtils::new(
-            flush_handle_inner_constructor.clone(),
+            construct_flush_handle_inner.clone(),
             WriteStreamType::Stdout,
         );
-        let stderr_utils =
-            WritingUtils::new(flush_handle_inner_constructor, WriteStreamType::Stderr);
+        let stderr_utils = WritingUtils::new(construct_flush_handle_inner, WriteStreamType::Stderr);
+
         Self {
             write_liso_arc,
             stdout_utils,
@@ -185,13 +189,14 @@ mod tests {
         UNINTERPRETABLE_COMMAND,
     };
     use crate::terminal::test_utils::{
-        test_writing_streams_of_particular_terminal, InteractiveInterfaceByUse,
-        LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock,
-        WritingTestInput, WritingTestInputByTermInterfaces,
+        test_write_streams_of_particular_terminal, InteractiveInterfaceByUse,
+        LisoFlushedAssertableStrings, LisoInputWrapperMock, LisoOutputWrapperMock, WriteInput,
+        WriteInputsByTermInterfaceKind,
     };
     use crate::terminal::{RWTermInterface, ReadError, ReadInput, WTermInterface};
     use liso::Response;
     use masq_lib::constants::MASQ_PROMPT;
+    use masq_lib::test_utils::fake_stream_holder::StringAssertableStdHandle;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -236,7 +241,11 @@ mod tests {
 
         let input_allowed = true;
         let clear_interrupted_input = false;
-        let expected_terminal_prompt_params = vec![(MASQ_PROMPT.to_string(), true, false)];
+        let expected_terminal_prompt_params = vec![(
+            MASQ_PROMPT.to_string(),
+            input_allowed,
+            clear_interrupted_input,
+        )];
         let mut initial_terminal_prompt_params = initial_terminal_prompt_params_arc.lock().unwrap();
         assert_eq!(
             *initial_terminal_prompt_params,
@@ -261,8 +270,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writing_works_for_interactive_terminal_interface_and_each_write_only_clone_or_reference(
-    ) {
+    async fn writing_works_for_interactive_term_interface_and_each_write_only_clone_or_reference() {
         let rw_liso_println_params = LisoFlushedAssertableStrings::default();
         let w_liso_println_params = LisoFlushedAssertableStrings::default();
         let cloned_w_liso_wrapper =
@@ -279,17 +287,17 @@ mod tests {
 
         let w_only_ref = rw_subject.write_only_ref();
 
-        test_writing_streams_of_particular_terminal(
-            WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
+        test_write_streams_of_particular_terminal(
+            WriteInputsByTermInterfaceKind::Interactive(WriteInput {
                 term_interface: InteractiveInterfaceByUse::RWPrimeInterface(&rw_subject),
                 streams_assertion_handles: rw_liso_println_params.clone(),
             }),
             "read-write subject",
         )
         .await;
-        test_writing_streams_of_particular_terminal(
-            WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
-                term_interface: InteractiveInterfaceByUse::WOnlyBackgroundInterface(
+        test_write_streams_of_particular_terminal(
+            WriteInputsByTermInterfaceKind::Interactive(WriteInput {
+                term_interface: InteractiveInterfaceByUse::WOnlyBroadcastsInterface(
                     w_only_clone.as_ref(),
                 ),
                 streams_assertion_handles: w_liso_println_params,
@@ -299,8 +307,8 @@ mod tests {
         .await;
         // Making sure the already asserted output is gone
         assert!(rw_liso_println_params.is_empty());
-        test_writing_streams_of_particular_terminal(
-            WritingTestInputByTermInterfaces::Interactive(WritingTestInput {
+        test_write_streams_of_particular_terminal(
+            WriteInputsByTermInterfaceKind::Interactive(WriteInput {
                 term_interface: InteractiveInterfaceByUse::WOnlyPrimeInterface(w_only_ref),
                 streams_assertion_handles: rw_liso_println_params,
             }),
@@ -350,22 +358,35 @@ mod tests {
                 }),
             ),
         ];
-        let (inputs_to_exercise, expected_translations): (Vec<_>, Vec<_>) =
+        let (inputs_to_exercise, expected_translated_inputs): (Vec<_>, Vec<_>) =
             possible_internal_responses_from_liso.into_iter().unzip();
-        let rw_liso_println_params = LisoFlushedAssertableStrings::default();
+        let liso_println_params = LisoFlushedAssertableStrings::default();
         let r_liso_wrapper = inputs_to_exercise
             .into_iter()
             .fold(LisoInputWrapperMock::default(), |mock, read_result| {
                 mock.read_async_result(read_result)
             });
-        let w_liso_wrapper = LisoOutputWrapperMock::default();
+        let w_liso_wrapper = LisoOutputWrapperMock::default().println_params(&liso_println_params);
         let mut subject =
             InteractiveRWTermInterface::new(Box::new(r_liso_wrapper), Box::new(w_liso_wrapper));
-        let mut subject_ref = &mut subject;
+        let mut result_and_expected = Vec::new();
 
-        for expected in expected_translations {
-            let result = subject_ref.read_line().await;
-            assert_eq!(result, expected)
+        for expected in expected_translated_inputs {
+            let result = subject.read_line().await;
+            result_and_expected.push((result, expected))
         }
+
+        result_and_expected
+            .into_iter()
+            .for_each(|(result, expected)| {
+                assert_eq!(
+                    result, expected,
+                    "We expected {:?} but got {:?}",
+                    expected, result
+                )
+            });
+        // We use the same Liso handle for both standard output streams, hence only a single assertion
+        let flushed_strings = liso_println_params.get_string();
+        assert_eq!(flushed_strings, String::new())
     }
 }

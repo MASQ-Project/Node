@@ -2,12 +2,12 @@
 
 pub mod utils;
 
-use tungstenite::Message;
 use crate::utils::CommandConfig;
 use masq_lib::messages::{ToMessageBody, UiCrashRequest};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::{find_free_port, localhost};
 use node_lib::daemon::launch_verifier::ClientWrapperReal;
+use tungstenite::Message;
 use websocket::{ClientBuilder, OwnedMessage};
 
 //we test only those actors who are subscribers of UiGateway who are:

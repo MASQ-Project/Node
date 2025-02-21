@@ -6,6 +6,7 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapper;
 use crate::sub_lib::tokio_wrappers::TokioListenerWrapperReal;
 use actix::Recipient;
+use async_trait::async_trait;
 use masq_lib::logger::Logger;
 use std::future::Future;
 use std::io;
@@ -15,7 +16,6 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use async_trait::async_trait;
 
 #[async_trait]
 pub trait ListenerHandler: Send {
@@ -27,8 +27,6 @@ pub trait ListenerHandler: Send {
     fn bind_subs(&mut self, add_stream_sub: Recipient<AddStreamMsg>);
 
     async fn handle_listeners(&mut self);
-
-
 }
 
 pub trait ListenerHandlerFactory: Send {
@@ -149,6 +147,7 @@ mod tests {
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLog;
     use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::utils::make_rt;
     use masq_lib::utils::{find_free_port, localhost};
     use std::cell::RefCell;
     use std::io::Error;
@@ -163,7 +162,6 @@ mod tests {
     use tokio;
     use tokio::net::TcpStream;
     use tokio::task;
-    use masq_lib::test_utils::utils::make_rt;
 
     struct TokioListenerWrapperMock {
         bind_params: Arc<Mutex<Vec<SocketAddr>>>,
@@ -226,10 +224,12 @@ mod tests {
         let mut subject = ListenerHandlerReal::new();
         subject.listener = Box::new(listener);
 
-        let result = subject.bind_port_and_configuration(
-            1234,
-            PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
-        ).await;
+        let result = subject
+            .bind_port_and_configuration(
+                1234,
+                PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
+            )
+            .await;
 
         assert_eq!(result.err().unwrap().kind(), ErrorKind::AddrNotAvailable);
     }
@@ -245,13 +245,19 @@ mod tests {
         let mut subject = ListenerHandlerReal::new();
         subject.listener = Box::new(listener);
 
-        let result = subject.bind_port_and_configuration(
-            2345,
-            PortConfiguration::new(vec![Box::new(discriminator_factory)], true),
-        ).await.unwrap();
+        let result = subject
+            .bind_port_and_configuration(
+                2345,
+                PortConfiguration::new(vec![Box::new(discriminator_factory)], true),
+            )
+            .await
+            .unwrap();
 
         let bind_params = bind_params_arc.lock().unwrap();
-        assert_eq!(*bind_params, vec![SocketAddr::from_str("0.0.0.0:2345").unwrap()]);
+        assert_eq!(
+            *bind_params,
+            vec![SocketAddr::from_str("0.0.0.0:2345").unwrap()]
+        );
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);
@@ -272,13 +278,19 @@ mod tests {
         let mut subject = ListenerHandlerReal::new();
         subject.listener = Box::new(listener);
 
-        let result = subject.bind_port_and_configuration(
-            2345,
-            PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
-        ).await.unwrap();
+        let result = subject
+            .bind_port_and_configuration(
+                2345,
+                PortConfiguration::new(vec![Box::new(discriminator_factory)], false),
+            )
+            .await
+            .unwrap();
 
         let bind_params = bind_params_arc.lock().unwrap();
-        assert_eq!(*bind_params, vec![SocketAddr::from_str("127.0.0.1:2345").unwrap()]);
+        assert_eq!(
+            *bind_params,
+            vec![SocketAddr::from_str("127.0.0.1:2345").unwrap()]
+        );
         assert_eq!(subject.port, Some(2345));
         let mut port_configuration = subject.port_configuration.unwrap();
         let factory = port_configuration.discriminator_factories.remove(0);

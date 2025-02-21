@@ -38,6 +38,7 @@ use crate::blockchain::blockchain_interface::{
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
+use crate::dispatcher::Dispatcher;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::DaoFactories;
 use crate::sub_lib::accountant::FinancialStatistics;
@@ -49,15 +50,17 @@ use crate::sub_lib::blockchain_bridge::{
     ConsumingWalletBalances, ReportAccountsPayable, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
-use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY,
+};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Actor, Supervised, System};
 use actix::Addr;
 use actix::AsyncContext;
 use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
+use actix::{Actor, Supervised, System};
 use itertools::Itertools;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -76,7 +79,6 @@ use std::rc::Rc;
 use std::thread::panicking;
 use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
-use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours

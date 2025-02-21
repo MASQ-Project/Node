@@ -5,13 +5,13 @@ use crate::daemon::launch_verifier::LaunchVerification::{
 };
 use masq_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
+use masq_lib::test_utils::utils::make_rt;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use sysinfo::{Pid, ProcessStatus, Signal};
 use workflow_websocket::client::{ConnectOptions, Error, Message, WebSocket};
-use masq_lib::test_utils::utils::make_rt;
 
 // Note: if the INTERVALs are half the DELAYs or greater, the tests below will need to change,
 // because they depend on being able to fail twice and still succeed.
@@ -221,17 +221,22 @@ impl ClientWrapper for ClientWrapperReal {
 
 impl ClientWrapperReal {
     fn new(url: &str) -> Result<Self, workflow_websocket::client::Error> {
-        let client = WebSocket::new(Some (url), None)?;
+        let client = WebSocket::new(Some(url), None)?;
         let future = client.connect(ConnectOptions::default());
         make_rt().block_on(future)?;
-        Ok(ClientWrapperReal {client})
+        Ok(ClientWrapperReal { client })
     }
 }
 
 pub trait ClientBuilderWrapper {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::Error>;
+    fn initiate_client_builder(
+        &mut self,
+        address: &str,
+    ) -> Result<(), workflow_websocket::client::Error>;
     fn add_protocol(&self, protocol: &str);
-    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error>;
+    fn connect_insecure(
+        &mut self,
+    ) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error>;
 }
 
 #[derive(Default)]
@@ -240,7 +245,10 @@ struct ClientBuilderWrapperReal {
 }
 
 impl ClientBuilderWrapper for ClientBuilderWrapperReal {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::Error> {
+    fn initiate_client_builder(
+        &mut self,
+        address: &str,
+    ) -> Result<(), workflow_websocket::client::Error> {
         self.address = address.to_string();
         Ok(())
     }
@@ -249,7 +257,9 @@ impl ClientBuilderWrapper for ClientBuilderWrapperReal {
         todo!("Figure out how to do protocols with workflow-websockets")
     }
 
-    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error> {
+    fn connect_insecure(
+        &mut self,
+    ) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::Error> {
         let client = ClientWrapperReal::new(self.address.as_str())?;
         Ok(Box::new(client))
     }
@@ -450,8 +460,9 @@ mod tests {
     fn can_connect_to_ui_gateway_panics_on_initiate_client_builder() {
         let port = 7889;
         let subject = VerifierToolsReal::new();
-        let client_builder = ClientBuilderWrapperMock::default()
-            .initiate_client_builder_result(Err(workflow_websocket::client::error::Error::InvalidMessageType));
+        let client_builder = ClientBuilderWrapperMock::default().initiate_client_builder_result(
+            Err(workflow_websocket::client::error::Error::InvalidMessageType),
+        );
         subject.client_builder.replace(Box::new(client_builder));
 
         subject.can_connect_to_ui_gateway(port);
@@ -461,8 +472,11 @@ mod tests {
     fn can_connect_to_ui_gateway_handles_close_message_send_failure() {
         let port = 6578;
         let subject = VerifierToolsReal::new();
-        let client = ClientWrapperMock::default()
-            .send_message_result(Err(Arc::new(workflow_websocket::client::error::Error::InvalidConnectStrategyArg("Bad protocol".to_string()))));
+        let client = ClientWrapperMock::default().send_message_result(Err(Arc::new(
+            workflow_websocket::client::error::Error::InvalidConnectStrategyArg(
+                "Bad protocol".to_string(),
+            ),
+        )));
         let client_builder = ClientBuilderWrapperMock::default()
             .initiate_client_builder_result(Ok(()))
             .connect_insecure_result(Ok(Box::new(client)));
@@ -480,7 +494,10 @@ mod tests {
 
         let result = subject.initiate_client_builder(url_address);
 
-        assert_eq!(format!("{:?}", result.err().unwrap()), "MissingUrl".to_string());
+        assert_eq!(
+            format!("{:?}", result.err().unwrap()),
+            "MissingUrl".to_string()
+        );
     }
 
     fn make_long_running_child() -> Child {

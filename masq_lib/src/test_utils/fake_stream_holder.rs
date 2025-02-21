@@ -5,9 +5,9 @@ use core::pin::Pin;
 use core::task::Poll;
 use itertools::{Either, Itertools};
 use std::cmp::min;
+use std::io::Error;
 use std::io::Read;
 use std::io::Write;
-use std::io::{Error};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::vec::IntoIter;
@@ -37,7 +37,7 @@ impl ByteArrayWriterInner {
     }
 
     pub fn get_bytes(&self) -> Vec<u8> {
-        match self.captured_writes.as_ref() {
+        match &self.captured_writes {
             Either::Left(bytes) => bytes.clone(),
             Either::Right(flushables) => flushables
                 .iter()
@@ -47,15 +47,11 @@ impl ByteArrayWriterInner {
         }
     }
 
-    pub fn get_string(&self) -> Option<String> {
-        match self.captured_writes.as_ref() {
-            Either::Left(bytes) => Some(String::from_utf8(bytes.clone()).unwrap()),
+    fn drain_flushed_strings(&mut self) -> Option<Vec<FlushableByteOutput>> {
+        match &mut self.captured_writes {
+            Either::Right(flushables) => Some(flushables.drain(..).collect()),
             _ => None,
         }
-    }
-
-    pub fn get_flushed_strings(&self) -> Option<Vec<String>> {
-        todo!()
     }
 }
 
@@ -72,28 +68,15 @@ impl ByteArrayWriter {
         self.inner_arc.clone()
     }
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc
-            .lock()
-            .unwrap()
-            .captured_writes
-            .as_ref()
-            .left()
-            .unwrap()
-            .clone()
+        self.inner_arc.lock().unwrap().get_bytes()
     }
     pub fn get_string(&self) -> String {
         String::from_utf8(self.get_bytes()).unwrap()
     }
     pub fn drain_flushed_strings(&self) -> FlushedStrings {
         let mut arc = self.inner_arc.lock().unwrap();
-        let outputs = arc
-            .captured_writes
-            .as_mut()
-            .right()
-            .unwrap()
-            .drain(..)
-            .collect();
-        FlushedStrings::from(drain_flushes(outputs))
+        let outputs = arc.drain_flushed_strings().unwrap();
+        FlushedStrings::from(timestamp_flushes(outputs))
     }
     pub fn reject_next_write(&mut self, error: Error) {
         self.inner_arc.lock().unwrap().next_error_opt = Some(error);
@@ -106,7 +89,7 @@ impl ByteArrayWriter {
     }
 }
 
-fn drain_flushes(outputs: Vec<FlushableByteOutput>) -> Vec<FlushedString> {
+fn timestamp_flushes(outputs: Vec<FlushableByteOutput>) -> Vec<FlushedString> {
     outputs
         .into_iter()
         .flat_map(|output| {
@@ -335,7 +318,7 @@ impl AsyncWrite for AsyncByteArrayWriter {
     }
 }
 
-pub trait StringAssertionMethods {
+pub trait StringAssertableStdHandle {
     fn get_string(&self) -> String;
     fn drain_flushed_strings(&self) -> FlushedStrings;
 }
@@ -360,40 +343,21 @@ impl AsyncByteArrayWriter {
         }
     }
     pub fn get_bytes(&self) -> Vec<u8> {
-        self.inner_arc
-            .lock()
-            .unwrap()
-            .captured_writes
-            .as_ref()
-            .left()
-            .unwrap()
-            .clone()
+        self.inner_arc.lock().unwrap().get_bytes()
     }
     pub fn reject_next_write(&mut self, error: Error) {
         self.inner_arc.lock().unwrap().next_error_opt = Some(error);
     }
 }
 
-impl StringAssertionMethods for AsyncByteArrayWriter {
+impl StringAssertableStdHandle for AsyncByteArrayWriter {
     fn get_string(&self) -> String {
-        match self.inner_arc.lock().unwrap().captured_writes.as_ref() {
-            Either::Left(bytes) => String::from_utf8(bytes.clone()).unwrap(),
-            Either::Right(flushes) => {
-                let drained = drain_flushes((*flushes).clone());
-                drained.iter().map(|flushed| &flushed.string).join("")
-            }
-        }
+        String::from_utf8(self.inner_arc.lock().unwrap().get_bytes()).unwrap()
     }
     fn drain_flushed_strings(&self) -> FlushedStrings {
         let mut arc = self.inner_arc.lock().unwrap();
-        let outputs = arc
-            .captured_writes
-            .as_mut()
-            .right()
-            .unwrap()
-            .drain(..)
-            .collect();
-        FlushedStrings::from(drain_flushes(outputs))
+        let outputs = arc.drain_flushed_strings().unwrap();
+        FlushedStrings::from(timestamp_flushes(outputs))
     }
 }
 
@@ -413,60 +377,50 @@ impl Default for AsyncByteArrayReader {
 impl AsyncRead for AsyncByteArrayReader {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        _cx: &mut std::task::Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+    ) -> Poll<Result<(), Error>> {
+        let mut inner = self.byte_array_reader_inner.lock().unwrap();
+        match inner.read_results.remove(0) {
+            Err(error) => Poll::Ready(Err(error)),
+            Ok(bytes) => {
+                buf.put_slice(&bytes);
+                Poll::Ready(Ok(()))
+            }
+        }
     }
 }
 
 impl AsyncByteArrayReader {
-    pub fn new(read_inputs: Vec<Vec<u8>>) -> Self {
+    pub fn new(read_inputs: Either<Vec<Vec<u8>>, Vec<Result<Vec<u8>, Error>>>) -> Self {
         Self {
             byte_array_reader_inner: Arc::new(Mutex::new(ByteArrayReaderInner::new(read_inputs))),
         }
-    }
-
-    pub fn add_input(&mut self, input: Vec<u8>) {
-        self.byte_array_reader_inner.lock().unwrap().byte_arrays.push(input);
-    }
-
-    pub fn reading_attempts(&self) -> usize {
-        self.byte_array_reader_inner
-            .lock()
-            .unwrap()
-            .byte_arrays
-            .len()
-    }
-
-    pub fn reject_next_write(&mut self, error: Error) {
-        todo!()
     }
 }
 
 #[derive(Default)]
 pub struct ByteArrayReaderInner {
-    byte_arrays: Vec<Vec<u8>>,
-    position: usize,
-    // TODO is it ever used somewhat well?
-    next_error: Option<Error>,
-    results_initially: usize,
+    read_results: Vec<Result<Vec<u8>, Error>>,
+    reads_initially: usize,
 }
 
 impl HandleToCountReads for ByteArrayReaderInner {
     fn count_reads(&self) -> usize {
-        self.results_initially - self.byte_arrays.len()
+        self.reads_initially - self.read_results.len()
     }
 }
 
 impl ByteArrayReaderInner {
-    pub fn new(byte_arrays: Vec<Vec<u8>>) -> Self {
-        let results_initially = byte_arrays.len();
+    pub fn new(inputs: Either<Vec<Vec<u8>>, Vec<Result<Vec<u8>, Error>>>) -> Self {
+        let read_results = match inputs {
+            Either::Left(byte_arrays) => byte_arrays.into_iter().map(Ok).collect_vec(),
+            Either::Right(read_results) => read_results,
+        };
+        let reads_initially = read_results.len();
         Self {
-            byte_arrays,
-            position: 0,
-            next_error: None,
-            results_initially,
+            read_results,
+            reads_initially,
         }
     }
 }

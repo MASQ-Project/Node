@@ -4,10 +4,7 @@ use crate::communications::connection_manager::{OutgoingMessageType, SyncCloseFl
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::Instant;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientError {
@@ -100,7 +97,7 @@ impl NodeConversation {
                 }
                 Ok(Err(NodeConversationTermination::Fatal)) => Ok(()),
                 Ok(Err(NodeConversationTermination::FiredAndForgotten)) => Ok(()),
-                Err(e) => panic!("Channel to ConnectionManager is already closed"), //TODO tested???
+                Err(_) => panic!("Channel to ConnectionManager is already closed"),
             },
             Err(_) => Err(ClientError::ConnectionDropped),
         }
@@ -129,16 +126,12 @@ impl NodeConversation {
         {
             Ok(_) => {
                 let fut = self.manager_to_conversation_rx.recv();
-                // (Duration::from_millis(timeout_millis))
-                let time_out = Instant::now() + Duration::from_millis(timeout_millis);
-                let recv_result = match tokio::time::timeout_at(time_out, fut).await {
-                    Ok(result) => result,
-                    Err(_) => return Err(ClientError::Timeout(timeout_millis)),
-                };
-                // let recv_result = self
-                //     .manager_to_conversation_rx
-                //     .recv_timeout(Duration::from_millis(timeout_millis));
-                //TODO go through all the cases and see if each fails on a panic as there is always a test relating to them
+                let recv_result =
+                    match tokio::time::timeout(Duration::from_millis(timeout_millis), fut).await {
+                        Ok(result) => result,
+                        Err(_) => return Err(ClientError::Timeout(timeout_millis)),
+                    };
+
                 match recv_result {
                     Ok(Ok(body)) => Ok(body),
                     Ok(Err(NodeConversationTermination::Graceful)) => {
@@ -182,8 +175,6 @@ mod tests {
     use masq_lib::messages::FromMessageBody;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse, UiUnmarshalError};
-    use masq_lib::test_utils::utils::make_rt;
-    use tokio::sync::mpsc::unbounded_channel;
 
     fn make_subject() -> (
         NodeConversation,
@@ -203,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn transact_handles_successful_transaction() {
-        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Ok(UiShutdownResponse {}.tmb(42)))
             .await
@@ -259,7 +250,7 @@ mod tests {
 
     #[tokio::test]
     async fn transact_handles_resend_order() {
-        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Err(NodeConversationTermination::Resend))
             .await
@@ -290,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn transact_handles_broken_connection() {
-        let (subject, message_body_receive_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, message_body_send_rx) = make_subject();
         message_body_receive_tx
             .send(Err(NodeConversationTermination::Fatal))
             .await
@@ -354,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_successful_transmission() {
-        let (mut subject, message_body_send_tx, mut message_body_send_rx) = make_subject();
+        let (subject, message_body_send_tx, message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -384,7 +375,7 @@ mod tests {
         expected = "Cannot use NodeConversation::send() to send message with MessagePath::Conversation(_). Use NodeConversation::transact() instead."
     )]
     async fn send_rejects_conversation_message() {
-        let (mut subject, _, _) = make_subject();
+        let (subject, _, _) = make_subject();
         let message = UiShutdownRequest {};
 
         let _ = subject.send(message.tmb(0)).await;
@@ -392,7 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_graceful() {
-        let (mut subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -409,7 +400,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_resend() {
-        let (mut subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -430,7 +421,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_handles_fatal() {
-        let (mut subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
+        let (subject, message_body_receive_tx, _message_body_send_rx) = make_subject();
         let message = UiUnmarshalError {
             message: "Message".to_string(),
             bad_data: "Data".to_string(),
@@ -443,5 +434,17 @@ mod tests {
         let result = subject.send(message.clone().tmb(0)).await;
 
         assert_eq!(result, Ok(()));
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "Channel to ConnectionManager is already closed")]
+    async fn send_handles_already_closed_channel() {
+        let (subject, _, _message_body_send_rx) = make_subject();
+        let message = UiUnmarshalError {
+            message: "Message".to_string(),
+            bad_data: "Data".to_string(),
+        };
+
+        let _ = subject.send(message.clone().tmb(0)).await;
     }
 }

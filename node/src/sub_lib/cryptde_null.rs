@@ -12,11 +12,11 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::ExpectValue;
 use rand::prelude::*;
 use rustc_hex::ToHex;
+use sha1::digest::{Output, Update};
+use sha1::{Digest, Sha1};
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use sha1::{Digest, Sha1};
-use sha1::digest::{Output, Update};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]

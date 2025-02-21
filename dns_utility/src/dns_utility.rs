@@ -50,7 +50,8 @@ impl DnsUtility {
                 writeln!(
                     streams.stderr,
                     "Don't know how to modify DNS settings on this system"
-                ).expect("writeln failed");
+                )
+                .expect("writeln failed");
                 return 1;
             }
             Some(m) => m,
@@ -67,8 +68,7 @@ impl DnsUtility {
         match result {
             Ok(_) => 0,
             Err(msg) => {
-                writeln!(streams.stderr, "Cannot {}: {}", name, msg)
-                    .expect("writeln failed");
+                writeln!(streams.stderr, "Cannot {}: {}", name, msg).expect("writeln failed");
                 1
             }
         }
@@ -88,8 +88,7 @@ impl DnsUtility {
                 e
             ),
         };
-        writeln!(stdout, "{}", status)
-            .expect("writeln failed");
+        writeln!(stdout, "{}", status).expect("writeln failed");
         Ok(())
     }
 
@@ -104,7 +103,8 @@ impl DnsUtility {
         writeln!(
             streams.stderr,
             "Usage: dns_utility [ subvert | revert | inspect | status ]"
-        ).expect("writeln failed");
+        )
+        .expect("writeln failed");
         1
     }
 }

@@ -14,7 +14,6 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 #[cfg(test)]
 use std::any::Any;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -260,8 +259,8 @@ pub fn recover_wallets_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};
     use std::vec;
@@ -524,7 +523,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -571,7 +570,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

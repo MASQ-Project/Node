@@ -12,7 +12,6 @@ use masq_lib::implement_as_any;
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
 #[cfg(test)]
 use std::any::Any;
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -88,8 +87,8 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
 
@@ -125,7 +124,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         assert_eq!(
             stream_handles.stdout_flushed_strings(),
@@ -148,7 +147,7 @@ mod tests {
     #[tokio::test]
     async fn wallet_addresses_handles_error_due_to_a_complain_from_database() {
         let mut context = CommandContextMock::new().transact_result(Err(
-            ContextError::PayloadError(4644, "bad bad bad thing".to_string()),
+            ContextError::PayloadError(4644, "bad thing".to_string()),
         ));
         let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
@@ -158,9 +157,10 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
-            Err(CommandError::Payload(4644, "bad bad bad thing".to_string()))
+            Err(CommandError::Payload(4644, "bad thing".to_string()))
         );
         stream_handles.assert_empty_stderr();
     }
@@ -179,9 +179,11 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::ConnectionProblem("tummyache".to_string()))
-        )
+        );
+        stream_handles.assert_empty_stderr()
     }
 }

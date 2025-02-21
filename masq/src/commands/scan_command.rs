@@ -9,7 +9,6 @@ use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
-use std::sync::Arc;
 
 pub const SCAN_COMMAND_TIMEOUT_MILLIS: u64 = 10000;
 
@@ -80,7 +79,8 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiScanRequest};
     use std::sync::{Arc, Mutex};
 
@@ -103,18 +103,18 @@ mod tests {
         let subject = factory
             .make(&["scan".to_string(), "payables".to_string()])
             .unwrap();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
         assert_eq!(result, Ok(()));
     }
 
-    #[test]
-    fn scan_command_works() {
-        scan_command_for_name("payables", ScanType::Payables);
-        scan_command_for_name("receivables", ScanType::Receivables);
-        scan_command_for_name("pendingpayables", ScanType::PendingPayables);
+    #[tokio::test]
+    async fn scan_command_works() {
+        scan_command_for_name("payables", ScanType::Payables).await;
+        scan_command_for_name("receivables", ScanType::Receivables).await;
+        scan_command_for_name("pendingpayables", ScanType::PendingPayables).await;
     }
 
     async fn scan_command_for_name(name: &str, scan_type: ScanType) {
@@ -130,6 +130,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -154,9 +155,12 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::ConnectionProblem("blah".to_string()))
-        )
+        );
+        stream_handles.assert_empty_stderr();
+        stream_handles.assert_empty_stdout();
     }
 }

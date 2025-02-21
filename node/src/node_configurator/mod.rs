@@ -184,8 +184,7 @@ mod tests {
             )),
         );
 
-        let result =
-            data_directory_from_context(&dirs_wrapper, &real_user, Chain::PolyMumbai);
+        let result = data_directory_from_context(&dirs_wrapper, &real_user, Chain::PolyMumbai);
 
         assert_eq!(
             result,

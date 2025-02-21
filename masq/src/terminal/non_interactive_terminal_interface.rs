@@ -1,22 +1,16 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::terminal::async_streams::AsyncStdStreamsFactory;
-use crate::terminal::liso_wrappers::LisoOutputWrapper;
 use crate::terminal::writing_utils::{ArcMutexFlushHandleInner, WritingUtils};
 use crate::terminal::{
     FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WriteResult, WriteStreamType,
 };
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
+use masq_lib::async_streams::AsyncStdStreamsFactory;
+use std::sync::Arc;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-pub struct NonInteractiveFlushHandle {}
-
-pub struct InteractiveFlushHandle {}
-
 pub struct NonInteractiveWTermInterface {
-    stream_factory: Arc<dyn AsyncStdStreamsFactory>,
     stdout_utils: WritingUtils,
     stderr_utils: WritingUtils,
 }
@@ -37,7 +31,6 @@ impl NonInteractiveWTermInterface {
         let stdout_utils = Self::prepare_utils(streams.stdout, WriteStreamType::Stdout);
         let stderr_utils = Self::prepare_utils(streams.stderr, WriteStreamType::Stderr);
         Self {
-            stream_factory,
             stdout_utils,
             stderr_utils,
         }
@@ -47,7 +40,7 @@ impl NonInteractiveWTermInterface {
         stream: Box<dyn AsyncWrite + Send + Sync + Unpin>,
         stream_type: WriteStreamType,
     ) -> WritingUtils {
-        let flush_handle_inner_constructor = |output_chunks_receiver, stream_type| {
+        let construct_flush_handle_inner = |output_chunks_receiver, stream_type| {
             let inner = NonInteractiveFlushHandleInner::new(
                 stream_type,
                 Arc::from(tokio::sync::Mutex::from(stream)),
@@ -55,7 +48,7 @@ impl NonInteractiveWTermInterface {
             );
             Arc::new(tokio::sync::Mutex::new(inner)) as ArcMutexFlushHandleInner
         };
-        WritingUtils::new(flush_handle_inner_constructor, stream_type)
+        WritingUtils::new(construct_flush_handle_inner, stream_type)
     }
 }
 
@@ -107,20 +100,15 @@ impl FlushHandleInner for NonInteractiveFlushHandleInner {
 mod tests {
     use crate::terminal::non_interactive_terminal_interface::NonInteractiveWTermInterface;
     use crate::terminal::test_utils::{
-        test_writing_streams_of_particular_terminal, NonInteractiveStreamsAssertionHandles,
-        WritingTestInput, WritingTestInputByTermInterfaces,
+        allow_flushed_writings_to_finish, test_write_streams_of_particular_terminal,
+        NonInteractiveStreamsAssertionHandles, WriteInput, WriteInputsByTermInterfaceKind,
     };
     use crate::terminal::{WTermInterface, WriteResult};
     use crate::test_utils::mocks::{
-        make_async_std_streams, make_async_std_streams_with_further_setup,
-        AsyncStdStreamsFactoryMock,
+        make_async_std_streams, make_async_std_streams_with_error_setup, AsyncStdStreamsFactoryMock,
     };
-    use itertools::Either;
-    use masq_lib::test_utils::utils::make_rt;
     use std::io::ErrorKind;
     use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     #[should_panic(expected = "Another Stdout FLushHandle not permitted, already referencing 1")]
@@ -147,15 +135,13 @@ mod tests {
     #[tokio::test]
     async fn writing_works_for_non_interactive_terminal_interface() {
         let (first_instance_std_streams, first_instance_handles) = make_async_std_streams(vec![]);
-        let (second_instance_std_streams, second_instance_handles) = make_async_std_streams(vec![]);
-        let std_streams_factory = AsyncStdStreamsFactoryMock::default()
-            .make_result(first_instance_std_streams)
-            .make_result(second_instance_std_streams);
+        let std_streams_factory =
+            AsyncStdStreamsFactoryMock::default().make_result(first_instance_std_streams);
 
         let subject = NonInteractiveWTermInterface::new(Arc::new(std_streams_factory));
 
-        test_writing_streams_of_particular_terminal(
-            WritingTestInputByTermInterfaces::NonInteractive(WritingTestInput {
+        test_write_streams_of_particular_terminal(
+            WriteInputsByTermInterfaceKind::NonInteractive(WriteInput {
                 term_interface: &subject,
                 streams_assertion_handles: NonInteractiveStreamsAssertionHandles {
                     stdout: first_instance_handles.stdout.left().unwrap(),
@@ -169,14 +155,14 @@ mod tests {
 
     #[tokio::test]
     async fn error_flushing_through_non_interactive_flush_handle() {
-        let (std_streams, stream_handles) = make_async_std_streams_with_further_setup(
-            Either::Left(vec![]),
+        let (std_streams, stream_handles) = make_async_std_streams_with_error_setup(
+            vec![],
             Some(std::io::Error::from(ErrorKind::BrokenPipe)),
             None,
         );
         let std_streams_factory = AsyncStdStreamsFactoryMock::default().make_result(std_streams);
         let subject = NonInteractiveWTermInterface::new(Arc::new(std_streams_factory));
-        let (writer, mut flush_handle) = subject.stdout();
+        let (_writer, mut flush_handle) = subject.stdout();
 
         let result = flush_handle
             .inner_arc_opt
@@ -187,10 +173,12 @@ mod tests {
             .write_internal("blah".to_string())
             .await;
 
+        allow_flushed_writings_to_finish().await;
         let err_kind = match result {
             Err(WriteResult::OSError(os_err)) => os_err.kind(),
             x => panic!("We expected OS error but got: {:?}", x),
         };
-        assert_eq!(err_kind, ErrorKind::BrokenPipe)
+        assert_eq!(err_kind, ErrorKind::BrokenPipe);
+        stream_handles.assert_empty_stdout();
     }
 }

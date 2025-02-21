@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use std::future::Future;
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
@@ -11,11 +10,12 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use masq_lib::logger::Logger;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::ops::DerefMut;
-use std::task::{Poll};
+use std::task::Poll;
 use std::time::SystemTime;
-use tokio::io::{AsyncReadExt};
+use tokio::io::AsyncReadExt;
 
 pub struct StreamReaderReal {
     stream: Box<dyn ReadHalfWrapper>,
@@ -133,22 +133,22 @@ impl StreamReaderReal {
             match self.stream.read(&mut buf).await {
                 Ok(0) => {
                     debug!(
-                            self.logger,
-                            "Stream {} has shut down (0-byte read)",
-                            Self::stringify(self.local_addr, self.peer_addr)
-                        );
+                        self.logger,
+                        "Stream {} has shut down (0-byte read)",
+                        Self::stringify(self.local_addr, self.peer_addr)
+                    );
                     self.shutdown();
                     break;
-                },
+                }
                 Ok(length) => {
                     debug!(
-                            self.logger,
-                            "Read {}-byte chunk from stream {}",
-                            length,
-                            Self::stringify(self.local_addr, self.peer_addr)
-                        );
+                        self.logger,
+                        "Read {}-byte chunk from stream {}",
+                        length,
+                        Self::stringify(self.local_addr, self.peer_addr)
+                    );
                     self.wrangle_discriminators(&buf, length)
-                },
+                }
                 Err(e) => {
                     if indicates_dead_stream(e.kind()) {
                         debug!(
@@ -316,8 +316,7 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new()
-            .read_ok(&[]);
+        let reader = ReadHalfWrapperMock::new().read_ok(&[]);
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -362,8 +361,8 @@ mod tests {
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
-        let reader = ReadHalfWrapperMock::new()
-            .read_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
+        let reader =
+            ReadHalfWrapperMock::new().read_result(Err(io::Error::from(ErrorKind::BrokenPipe)));
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),
@@ -448,8 +447,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> = vec![];
-        let reader = ReadHalfWrapperMock::new()
-            .read_result(Ok(vec![]));
+        let reader = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
 
         let _subject = StreamReaderReal::new(
             Box::new(reader),
@@ -574,7 +572,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced() {
+    async fn stream_reader_assigns_a_sequence_to_inbound_client_data_that_are_flagged_as_sequenced()
+    {
         let system = System::new();
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
@@ -656,8 +655,7 @@ mod tests {
                 .mask("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes())
                 .unwrap(),
         );
-        let reader = ReadHalfWrapperMock::new()
-            .read_final(request.as_slice());
+        let reader = ReadHalfWrapperMock::new().read_final(request.as_slice());
 
         let mut subject = StreamReaderReal::new(
             Box::new(reader),

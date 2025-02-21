@@ -3,13 +3,13 @@ use crate::entry_dns::processing;
 use crate::sub_lib::socket_server::{ConfiguredByPrivilege, SpawnableConfiguredByPrivilege};
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperReal;
 use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
+use async_trait::async_trait;
 use masq_lib::command::StdStreams;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::localhost;
 use std::net::SocketAddr;
-use async_trait::async_trait;
 
 const DNS_PORT: u16 = 53;
 
@@ -97,11 +97,13 @@ mod tests {
     use super::super::packet_facade::PacketFacade;
     use super::*;
     use crate::sub_lib::udp_socket_wrapper::UdpSocketWrapperTrait;
-    use crate::test_utils::unshared_test_utils::{make_simplified_multi_config};
+    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
+    use async_trait::async_trait;
     use hickory_proto::op::ResponseCode;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::utils::make_rt;
     use std::borrow::Borrow;
     use std::borrow::BorrowMut;
     use std::clone::Clone;
@@ -112,8 +114,6 @@ mod tests {
     use std::ops::DerefMut;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use async_trait::async_trait;
-    use masq_lib::test_utils::utils::make_rt;
 
     #[test]
     fn constants_have_correct_values() {

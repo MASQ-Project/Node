@@ -13,7 +13,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::io::{ReadBuf};
+use tokio::io::ReadBuf;
 
 pub struct StreamReader {
     stream_key: StreamKey,
@@ -55,21 +55,20 @@ impl StreamReader {
                     if len == 0 {
                         // see RETURN VALUE section of recv man page (Unix)
                         debug!(
-                        self.logger,
-                        "Stream from {} was closed: (0-byte read)", self.peer_addr
-                    );
+                            self.logger,
+                            "Stream from {} was closed: (0-byte read)", self.peer_addr
+                        );
                         self.shutdown();
                         return Ok(());
-                    }
-                    else {
+                    } else {
                         if self.logger.trace_enabled() {
                             trace!(
-                            self.logger,
-                            "Read {}-byte chunk from {}: {}",
-                            len,
-                            self.peer_addr,
-                            utils::to_string(&Vec::from(&buf[0..len]))
-                        );
+                                self.logger,
+                                "Read {}-byte chunk from {}: {}",
+                                len,
+                                self.peer_addr,
+                                utils::to_string(&Vec::from(&buf[0..len]))
+                            );
                         }
                         let stream_key = self.stream_key;
                         self.send_inbound_server_data(stream_key, Vec::from(&buf[0..len]), false);
@@ -147,7 +146,9 @@ mod tests {
         let mut stream = ReadHalfWrapperMock::new()
             .read_result(Ok(b"HTTP/1.1 200".to_vec()))
             .read_result(Ok(b" OK\r\n\r\nHTTP/1.1 40".to_vec()))
-            .read_result(Ok(b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec()))
+            .read_result(Ok(
+                b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n".to_vec(),
+            ))
             .read_result(Ok(vec![]));
 
         let (tx, rx) = unbounded();
@@ -216,7 +217,9 @@ mod tests {
         let mut stream = ReadHalfWrapperMock::new()
             .read_result(Ok(Vec::from(&b"HTTP/1.1 200"[..])))
             .read_result(Ok(Vec::from(&b" OK\r\n\r\nHTTP/1.1 40"[..])))
-            .read_result(Ok(Vec::from(&b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..])))
+            .read_result(Ok(Vec::from(
+                &b"4 File not found\r\n\r\nHTTP/1.1 503 Server error\r\n\r\n"[..],
+            )))
             .read_result(Err(Error::from(ErrorKind::BrokenPipe)));
         let (tx, rx) = unbounded();
         thread::spawn(move || {
@@ -287,8 +290,7 @@ mod tests {
         init_test_logging();
         let stream_key = make_meaningless_stream_key();
         let (stream_killer, kill_stream_params) = unbounded();
-        let mut stream = ReadHalfWrapperMock::new()
-            .read_result(Ok(vec![]));
+        let mut stream = ReadHalfWrapperMock::new().read_result(Ok(vec![]));
 
         let system = System::new();
         let peer_actors = peer_actors_builder().build();

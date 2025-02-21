@@ -10,12 +10,12 @@ use crate::run_modes_factories::{
 use actix::System;
 use clap::Error;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use tokio::{task};
-use tokio::task::JoinHandle;
-use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::make_rt;
+use tokio::task;
+use tokio::task::JoinHandle;
 use ProgramEntering::{Enter, Leave};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -158,7 +158,8 @@ impl RunModes {
             streams.stderr,
             "{}",
             Self::privilege_mismatch_message(mode, privilege_required)
-        ).expect("writeln failed")
+        )
+        .expect("writeln failed")
     }
 
     fn is_help_or_version(args: &[String]) -> bool {
@@ -172,9 +173,9 @@ impl RunModes {
             writeln!(
                 streams.stderr,
                 "{} - {}",
-                err_case.parameter,
-                err_case.reason
-            ).expect("writeln failed")
+                err_case.parameter, err_case.reason
+            )
+            .expect("writeln failed")
         })
     }
 
@@ -264,7 +265,7 @@ impl Runner for RunnerReal {
                 Err(e) => {
                     System::current().stop_with_code(1);
                     return Err(format!("{:?}", e));
-                },
+                }
             }
         });
         match system.run() {
@@ -280,7 +281,7 @@ impl Runner for RunnerReal {
                 }
                 /// TODO SPIKE
                 Err(RunnerError::Numeric(1))
-            },
+            }
         }
     }
 

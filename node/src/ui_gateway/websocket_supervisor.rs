@@ -1,6 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use actix::Recipient;
+use futures_util::future::join_all;
+use futures_util::io::{BufReader, BufWriter};
 use futures_util::{SinkExt, StreamExt};
+use itertools::Itertools;
 use masq_lib::constants::UNMARSHAL_ERROR;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiUnmarshalError, NODE_UI_PROTOCOL};
@@ -10,26 +13,26 @@ use masq_lib::ui_gateway::{MessageBody, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::ui_traffic_converter::UnmarshalError::{Critical, NonCritical};
 use masq_lib::utils::{localhost, ExpectValue};
+use masq_lib::websockets_types::{WSReceiver, WSSender};
+use rustc_hex::ToHex;
+use soketto::handshake::server::Response;
+use soketto::handshake::Server;
+use soketto::Incoming;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
-use futures_util::future::join_all;
-use futures_util::io::{BufReader, BufWriter};
-use itertools::Itertools;
-use rustc_hex::ToHex;
-use soketto::handshake::Server;
-use soketto::handshake::server::Response;
-use soketto::Incoming;
+use async_trait::async_trait;
 use tokio::net::TcpStream;
-use masq_lib::websockets_types::{WSReceiver, WSSender};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
+#[async_trait]
 pub trait WebSocketSupervisor: Send {
-    fn send_msg(&self, msg: NodeToUiMessage);
+    async fn send_msg(&self, msg: NodeToUiMessage);
 }
 
+#[async_trait]
 pub struct WebSocketSupervisorReal {
     #[allow(dead_code)]
     inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
@@ -47,9 +50,8 @@ struct WebSocketSupervisorInner {
 }
 
 impl WebSocketSupervisor for WebSocketSupervisorReal {
-    fn send_msg(&self, msg: NodeToUiMessage) -> () {
-        let inner_arc_clone = self.inner_arc.clone();
-        tokio::spawn(Self::send_msg_inner(inner_arc_clone, msg));
+    async fn send_msg(&self, msg: NodeToUiMessage) {
+        Self::send_msg_inner(self.inner_arc.clone(), msg).await;
     }
 }
 
@@ -67,7 +69,7 @@ impl WebSocketSupervisorReal {
             client_id_by_socket_addr: HashMap::new(),
             socket_addr_by_client_id: HashMap::new(),
             client_by_id: HashMap::new(),
-            logger
+            logger,
         }));
         let inner_arc_clone = inner_arc.clone();
         tokio::spawn(Self::listen_for_connections_on(
@@ -75,9 +77,7 @@ impl WebSocketSupervisorReal {
             inner_arc_clone,
             connections_to_accept,
         ));
-        WebSocketSupervisorReal {
-            inner_arc,
-        }
+        WebSocketSupervisorReal { inner_arc }
     }
 
     async fn listen_for_connections_on(
@@ -92,7 +92,10 @@ impl WebSocketSupervisorReal {
             if connections_to_accept == 0 {
                 break Ok(());
             }
-            let (stream, peer_addr) = tcp_listener.accept().await.expect("Error accepting incoming connection to MockWebsocketsServer");
+            let (stream, peer_addr) = tcp_listener
+                .accept()
+                .await
+                .expect("Error accepting incoming connection to MockWebsocketsServer");
             let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
             server.add_protocol(NODE_UI_PROTOCOL);
             let inner_arc_clone = inner_arc.clone();
@@ -107,28 +110,53 @@ impl WebSocketSupervisorReal {
         inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
     ) {
         let websocket_key = {
-            let req = server.receive_request().await.expect("Error receiving request from client");
+            let req = server
+                .receive_request()
+                .await
+                .expect("Error receiving request from client");
             if !req.protocols().contains(&NODE_UI_PROTOCOL) {
                 todo!("Send back a rejection message");
             }
             req.key()
         };
-        let accept = Response::Accept { key: websocket_key, protocol: Some(NODE_UI_PROTOCOL) };
-        server.send_response(&accept).await.expect("Error sending handshake acceptance to client");
+        let accept = Response::Accept {
+            key: websocket_key,
+            protocol: Some(NODE_UI_PROTOCOL),
+        };
+        server
+            .send_response(&accept)
+            .await
+            .expect("Error sending handshake acceptance to client");
         let (sender, receiver) = server.into_builder().finish();
         let (client_id, from_ui_message_sub, logger) = {
             let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is dead");
             let client_id = locked_inner.next_client_id;
             locked_inner.next_client_id += 1;
-            locked_inner.client_id_by_socket_addr.insert(peer_addr, client_id);
-            locked_inner.socket_addr_by_client_id.insert(client_id, peer_addr);
+            locked_inner
+                .client_id_by_socket_addr
+                .insert(peer_addr, client_id);
+            locked_inner
+                .socket_addr_by_client_id
+                .insert(client_id, peer_addr);
             locked_inner.client_by_id.insert(client_id, sender);
-            (client_id, locked_inner.from_ui_message_sub.clone(), locked_inner.logger.clone())
+            (
+                client_id,
+                locked_inner.from_ui_message_sub.clone(),
+                locked_inner.logger.clone(),
+            )
         };
-        let _ = Self::conduct_conversation (peer_addr, client_id, receiver, inner_arc, from_ui_message_sub, logger).await;
+        Self::conduct_conversation(
+            peer_addr,
+            client_id,
+            receiver,
+            inner_arc,
+            from_ui_message_sub,
+            logger,
+        )
+        .await;
     }
 
-    async fn conduct_conversation (
+    async fn conduct_conversation(
         peer_addr: SocketAddr,
         client_id: u64,
         mut receiver: WSReceiver,
@@ -151,91 +179,87 @@ impl WebSocketSupervisorReal {
                 }
             };
             match message_type {
-                Incoming::Data(data_type) => {
-                    match data_type {
-                        soketto::Data::Text(_) => {
-                            let text = match String::from_utf8(message.clone()) {
-                                Ok(text) => text,
-                                Err(e) => {
-                                    error!(
-                                        &logger,
-                                        "WebSocket text message is not UTF-8: {:?}",
-                                        e
-                                    );
-                                    return Err(());
-                                }
-                            };
-                            match UiTrafficConverter::new_unmarshal_from_ui(text.as_str(), client_id) {
-                                Ok(from_ui_message) => {
-                                    from_ui_message_sub
-                                        .try_send(from_ui_message)
-                                        .expect("UiGateway is dead");
-                                }
-                                Err(Critical(e)) => {
-                                    error!(
-                                        &logger,
-                                        "Bad message from client {} at {}: {:?}:\n{}\n",
-                                        client_id,
-                                        peer_addr,
-                                        Critical(e.clone()),
-                                        text
-                                    );
-                                    return Err(())
-                                }
-                                Err(NonCritical(opcode, context_id_opt, e)) => {
-                                    error!(
-                                        &logger,
-                                        "Bad message from client {} at {}: {:?}:\n{}\n",
-                                        client_id,
-                                        peer_addr,
-                                        NonCritical(opcode.clone(), context_id_opt, e.clone()),
-                                        text
-                                    );
-                                    {
-                                        let inner_arc_clone = inner_arc.clone();
-                                        match context_id_opt {
-                                            None => {
-                                                WebSocketSupervisorReal::send_msg_inner(
-                                                    inner_arc_clone,
-                                                    NodeToUiMessage {
-                                                        target: ClientId(client_id),
-                                                        body: UiUnmarshalError {
-                                                            message: e.to_string(),
-                                                            bad_data: message.to_hex(),
-                                                        }
-                                                            .tmb(0),
+                Incoming::Data(data_type) => match data_type {
+                    soketto::Data::Text(text_size) => {
+                        let text = match String::from_utf8(message.clone()) {
+                            Ok(text) => text,
+                            Err(e) => {
+                                error!(&logger, "WebSocket text message is not UTF-8: {:?}", e);
+                                return Err(());
+                            }
+                        };
+                        match UiTrafficConverter::new_unmarshal_from_ui(text.as_str(), client_id) {
+                            Ok(from_ui_message) => {
+                                from_ui_message_sub
+                                    .try_send(from_ui_message)
+                                    .expect("UiGateway is dead");
+                            }
+                            Err(Critical(e)) => {
+                                error!(
+                                    &logger,
+                                    "Bad message from client {} at {}: {:?}:\n{}\n",
+                                    client_id,
+                                    peer_addr,
+                                    Critical(e.clone()),
+                                    text
+                                );
+                                return (Err(()));
+                            }
+                            Err(NonCritical(opcode, context_id_opt, e)) => {
+                                error!(
+                                    &logger,
+                                    "Bad message from client {} at {}: {:?}:\n{}\n",
+                                    client_id,
+                                    peer_addr,
+                                    NonCritical(opcode.clone(), context_id_opt, e.clone()),
+                                    text
+                                );
+                                {
+                                    let locked_inner =
+                                        inner_arc.lock().expect("WebSocketSupervisor is dead");
+                                    match context_id_opt {
+                                        None => {
+                                            WebSocketSupervisorReal::send_msg_inner(
+                                                inner_arc.clone(),
+                                                NodeToUiMessage {
+                                                    target: ClientId(client_id),
+                                                    body: UiUnmarshalError {
+                                                        message: e.to_string(),
+                                                        bad_data: message.to_hex(),
+                                                    }
+                                                    .tmb(0),
+                                                },
+                                            )
+                                            .await
+                                        }
+                                        Some(context_id) => {
+                                            WebSocketSupervisorReal::send_msg_inner(
+                                                inner_arc.clone(),
+                                                NodeToUiMessage {
+                                                    target: ClientId(client_id),
+                                                    body: MessageBody {
+                                                        opcode,
+                                                        path: Conversation(context_id),
+                                                        payload: Err((
+                                                            UNMARSHAL_ERROR,
+                                                            e.to_string(),
+                                                        )),
                                                     },
-                                                )
-                                                .await
-                                            }
-                                            Some(context_id) => {
-                                                WebSocketSupervisorReal::send_msg_inner(
-                                                    inner_arc_clone,
-                                                    NodeToUiMessage {
-                                                        target: ClientId(client_id),
-                                                        body: MessageBody {
-                                                            opcode,
-                                                            path: Conversation(context_id),
-                                                            payload: Err((UNMARSHAL_ERROR, e.to_string())),
-                                                        },
-                                                    },
-                                                )
-                                                .await
-                                            }
+                                                },
+                                            )
+                                            .await
                                         }
                                     }
                                 }
                             }
                         }
-                        soketto::Data::Binary(_) => {
-                            error!(
-                                &logger,
-                                "Binary message from client {} at {}",
-                                client_id,
-                                peer_addr
-                            );
-                            return Err(());
-                        }
+                    }
+                    soketto::Data::Binary(_) => {
+                        error!(
+                            &logger,
+                            "Binary message from client {} at {}", client_id, peer_addr
+                        );
+                        return Err(());
                     }
                 },
                 Incoming::Closed(reason) => {
@@ -333,14 +357,14 @@ impl WebSocketSupervisorReal {
                     flush_result
                 };
                 (*client_id, result)
-            })).await;
+            },
+        ))
+        .await;
         let dead_client_ids = client_id_result_pairs
             .into_iter()
-            .flat_map(|(client_id, result)| {
-                match result {
-                    Ok(_) => None,
-                    Err(_error_with_message) => Some(client_id ),
-                }
+            .flat_map(|(client_id, result)| match result {
+                Ok(_) => None,
+                Err(_error_with_message) => Some(client_id),
             })
             .collect_vec();
         if dead_client_ids.is_empty() {
@@ -444,7 +468,10 @@ mod tests {
     use actix::{Actor, Addr};
     use crossbeam_channel::bounded;
     use masq_lib::constants::UNMARSHAL_ERROR;
-    use masq_lib::messages::{FromMessageBody, UiCheckPasswordRequest, UiDescriptorResponse, UiShutdownRequest, UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL, UiConfigurationChangedBroadcast};
+    use masq_lib::messages::{
+        FromMessageBody, UiCheckPasswordRequest, UiConfigurationChangedBroadcast,
+        UiDescriptorResponse, UiMessageError,UiShutdownRequest, UiStartOrder, UiUnmarshalError, NODE_UI_PROTOCOL,
+    };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::ui_connection::{UiConnection};
@@ -452,10 +479,10 @@ mod tests {
     use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage};
     use masq_lib::ui_traffic_converter::UiTrafficConverter;
     use masq_lib::utils::{find_free_port, localhost};
-    use std::net::{IpAddr, Ipv4Addr, TcpStream};
-    use std::time::Duration;
     use soketto::connection::Builder;
     use soketto::Mode;
+    use std::net::{IpAddr, Ipv4Addr, TcpStream};
+    use std::time::Duration;
     use tokio::sync::mpsc::{UnboundedReceiver};
     use workflow_websocket::client::message::Message;
 
@@ -473,54 +500,6 @@ mod tests {
             locked_inner.logger = logger;
         }
     }
-
-    // fn make_websocket_sink_pair() -> (WSSender, UnboundedReceiver<Message>) {
-    //     let (sender, receiver) = unbounded_channel::<Message>();
-    //     (sender.into(), receiver)
-    // }
-
-    /*
-    let ws = WebSocket::new(Some("ws://localhost:9090"), None)?;
-        ws.connect(ConnectOptions::default()).await?;
-
-        let ws_ = ws.clone();
-        workflow_core::task::spawn(async move {
-            let mut seq = 0;
-            loop {
-                log_info!("▷ sending message {seq}");
-                let msg = format!("message {seq}");
-                // let result = ws_.post(Message::Text(msg)).await;;
-                let result = ws_.send(Message::Text(msg)).await;
-                match result {
-                    Ok(_) => {}
-                    Err(err) => {
-                        log_error!("Error sending message: {}", err);
-                    }
-                }
-
-                workflow_core::task::sleep(message_delay).await;
-
-                seq += 1;
-            }
-        });
-
-        let ws_ = ws.clone();
-        loop {
-            let message = ws_.recv().await.unwrap();
-            log_info!("◁ receiving message: {:?}", message);
-        }     */
-
-    // async fn wait_for_client(port: u16, protocol: &str) -> WebSocket {
-    //     wait_for(100, 1000, || {
-    //         match make_client(port, protocol).await {
-    //             Ok(client) => Some(client),
-    //             Err(e) => {
-    //                 println!("Couldn't make client yet: {}", e);
-    //                 None
-    //             },
-    //         }
-    //     }).await
-    // }
 
     async fn wait_for_server(port: u16) {
         wait_for(Some(100), Some(1000), || {
@@ -577,7 +556,8 @@ mod tests {
         let subject = WebSocketSupervisorReal::new(port, recipient, 2);
         wait_for_server(port).await;
 
-        let mut ui_connection: UiConnection = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
+        let mut ui_connection: UiConnection =
+            UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
         {
             let inner = subject.inner_arc.lock().unwrap();
@@ -594,9 +574,11 @@ mod tests {
                 &1
             );
         }
-        ui_connection.send(UiCheckPasswordRequest {
-            db_password_opt: Some("booga".to_string()),
-        }).await;
+        ui_connection
+            .send(UiCheckPasswordRequest {
+                db_password_opt: Some("booga".to_string()),
+            })
+            .await;
         System::current().stop();
         system.run().unwrap();
         let recording = ui_gateway_recording_arc.lock().unwrap();
@@ -763,7 +745,8 @@ mod tests {
         client.send_string(bad_json.to_string()).await;
 
         let expected_traffic_conversion_message =
-            "Couldn't parse text as JSON: Error(\"expected value\", line: 1, column: 1)".to_string();
+            "Couldn't parse text as JSON: Error(\"expected value\", line: 1, column: 1)"
+                .to_string();
         let expected_unmarshal_message = format!(
             "Critical error unmarshalling unidentified message: {}",
             expected_traffic_conversion_message
@@ -771,8 +754,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             format!(
                 "ERROR: {}: Bad message from client 0 at 1.2.3.4:1234: {}",
-                test_name,
-                expected_unmarshal_message
+                test_name, expected_unmarshal_message
             )
             .as_str(),
         );
@@ -825,10 +807,9 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             format!(
                 "ERROR: {}: Bad message from client 4321 at localhost:1234: {}",
-                test_name,
-                expected_unmarshal_message
+                test_name, expected_unmarshal_message
             )
-                .as_str(),
+            .as_str(),
         );
         let actual_json = client.receive_string().await;
         let actual_struct =
@@ -866,8 +847,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             format!(
                 "ERROR: {}: Bad message from client 4321 at localhost:1234: {}",
-                test_name,
-                expected_unmarshal_message
+                test_name, expected_unmarshal_message
             )
             .as_str(),
         );
@@ -899,7 +879,10 @@ mod tests {
         let stream = tokio::net::TcpStream::connect(socket_addr)
             .await
             .expect("Couldn't connect to test socket");
-        let builder = Builder::new(BufReader::new(BufWriter::new(stream.compat())), Mode::Server);
+        let builder = Builder::new(
+            BufReader::new(BufWriter::new(stream.compat())),
+            Mode::Server,
+        );
         let mut client_by_id: HashMap<u64, WSSender> = HashMap::new();
         client_by_id.insert(123, builder.finish().0);
         let mut client_id_by_socket_addr: HashMap<SocketAddr, u64> = HashMap::new();
@@ -928,7 +911,10 @@ mod tests {
         WebSocketSupervisorReal::send_msg_inner(inner_arc_clone, msg).await;
 
         let assertable_inner = assertable_inner_arc.lock().unwrap();
-        assert_eq!(assertable_inner.client_id_by_socket_addr.get(&socket_addr), None);
+        assert_eq!(
+            assertable_inner.client_id_by_socket_addr.get(&socket_addr),
+            None
+        );
         assert_eq!(assertable_inner.client_by_id.get(&123).is_none(), true);
         assert_eq!(assertable_inner.socket_addr_by_client_id.get(&123), None)
     }
@@ -1033,7 +1019,9 @@ mod tests {
 
         subject.send_msg(msg.clone());
 
-        let _ = one_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        let _ = one_client
+            .receive_message::<UiConfigurationChangedBroadcast>(None)
+            .await;
         another_client.assert_nothing_waiting(100).await;
     }
 
@@ -1060,9 +1048,13 @@ mod tests {
 
         subject.send_msg(msg.clone());
 
-        let _ = one_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        let _ = one_client
+            .receive_message::<UiConfigurationChangedBroadcast>(None)
+            .await;
         another_client.assert_nothing_waiting(100).await;
-        let _ = third_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        let _ = third_client
+            .receive_message::<UiConfigurationChangedBroadcast>(None)
+            .await;
     }
 
     #[tokio::test]
@@ -1088,9 +1080,15 @@ mod tests {
 
         subject.send_msg(msg.clone());
 
-        let _ = one_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
-        let _ = another_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
-        let _ = third_client.receive_message::<UiConfigurationChangedBroadcast>(None).await;
+        let _ = one_client
+            .receive_message::<UiConfigurationChangedBroadcast>(None)
+            .await;
+        let _ = another_client
+            .receive_message::<UiConfigurationChangedBroadcast>(None)
+            .await;
+        let _ = third_client
+            .receive_message::<UiConfigurationChangedBroadcast>(None)
+            .await;
     }
 
     #[tokio::test]

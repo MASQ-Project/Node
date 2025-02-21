@@ -1614,12 +1614,10 @@ mod tests {
     async fn choose_clandestine_port_chooses_different_unused_ports_each_time() {
         for _ in 0..10 {
             let port = DbInitializerReal::choose_clandestine_port();
-            let listener = TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::from(0),
-                port,
-            )))
-            .await
-            .expect(&format!("Port {} was not free", port));
+            let listener =
+                TcpListener::bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port)))
+                    .await
+                    .expect(&format!("Port {} was not free", port));
         }
     }
 

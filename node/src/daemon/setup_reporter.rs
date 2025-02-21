@@ -212,21 +212,27 @@ impl SetupReporterReal {
 
     pub fn get_default_params() -> SetupCluster {
         let schema = shared_app(app_head());
-        schema.get_arguments().flat_map(|arg| {
-            let name = arg.get_long().expect("All our args must have long names");
-            let values = arg.get_default_values();
-            if values.len() == 0 {
-                None
-            }
-            else if values.len() == 1 {
-                let value = values[0].to_str().expect("expected valid UTF-8");
-                Some ((name.to_string(), UiSetupResponseValue::new(name, value, Default)))
-            }
-            else {
-                todo!("Multiple default values for argument: {}; figure this out", name);
-            }
-        })
-        .collect()
+        schema
+            .get_arguments()
+            .flat_map(|arg| {
+                let name = arg.get_long().expect("All our args must have long names");
+                let values = arg.get_default_values();
+                if values.len() == 0 {
+                    None
+                } else if values.len() == 1 {
+                    let value = values[0].to_str().expect("expected valid UTF-8");
+                    Some((
+                        name.to_string(),
+                        UiSetupResponseValue::new(name, value, Default),
+                    ))
+                } else {
+                    todo!(
+                        "Multiple default values for argument: {}; figure this out",
+                        name
+                    );
+                }
+            })
+            .collect()
     }
 
     fn real_user_from_str(s: &str) -> Option<crate::bootstrapper::RealUser> {
@@ -379,7 +385,8 @@ impl SetupReporterReal {
         Ok((
             real_user_opt,
             data_directory_opt,
-            BlockChain::from_str(chain_name.as_str()).expect("Invalid chain name allowed through validation"),
+            BlockChain::from_str(chain_name.as_str())
+                .expect("Invalid chain name allowed through validation"),
         ))
     }
 

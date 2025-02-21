@@ -14,18 +14,21 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::dispatcher::Dispatcher;
 use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
 use crate::sub_lib::blockchain_bridge::{
     BlockchainBridgeSubs, ReportAccountsPayable, RequestBalancesToPayPayables,
 };
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting};
+use crate::sub_lib::utils::{
+    db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting,
+};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Actor, Supervised, System};
 use actix::Context;
 use actix::Handler;
 use actix::Message;
+use actix::{Actor, Supervised, System};
 use actix::{Addr, Recipient};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -38,7 +41,6 @@ use std::time::SystemTime;
 use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 use web3::Transport;
-use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -239,16 +241,15 @@ impl BlockchainBridge {
         Box<dyn BlockchainInterface>,
         Box<dyn PersistentConfiguration>,
     ) {
-        let blockchain_interface: Box<dyn BlockchainInterface> =
-            {
-                match blockchain_service_url {
-                    Some(url) => match Http::new(&url) {
-                        Ok(http) => Box::new(BlockchainInterfaceWeb3::new(http, chain)),
-                        Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
-                    },
-                    None => Box::new(BlockchainInterfaceNull::default()),
-                }
-            };
+        let blockchain_interface: Box<dyn BlockchainInterface> = {
+            match blockchain_service_url {
+                Some(url) => match Http::new(&url) {
+                    Ok(http) => Box::new(BlockchainInterfaceWeb3::new(http, chain)),
+                    Err(e) => panic!("Invalid blockchain node URL: {:?}", e),
+                },
+                None => Box::new(BlockchainInterfaceNull::default()),
+            }
+        };
         let config_dao = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
                 .initialize(

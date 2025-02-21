@@ -1,11 +1,11 @@
 use crate::sub_lib::channel_wrappers::FuturesChannelFactory;
 use crate::sub_lib::channel_wrappers::ReceiverWrapper;
 use crate::sub_lib::channel_wrappers::SenderWrapper;
+use async_trait::async_trait;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
 use tokio::sync::mpsc::error::{SendError, TryRecvError};
 
 type FuturesChannelFactoryMockResult<T> = (Box<dyn SenderWrapper<T>>, Box<dyn ReceiverWrapper<T>>);
@@ -33,11 +33,18 @@ impl<T: 'static + Clone + Debug + Send> FuturesChannelFactory<T> for FuturesChan
 
 impl<T: 'static + Clone + Debug + Send> FuturesChannelFactoryMock<T> {
     pub fn new() -> Self {
-        Self { make_results: vec![] }
+        Self {
+            make_results: vec![],
+        }
     }
 
-    pub fn make_result(mut self, sender: SenderWrapperMock<T>, receiver: ReceiverWrapperMock<T>) -> Self {
-        self.make_results.push((Box::new(sender), Box::new(receiver)));
+    pub fn make_result(
+        mut self,
+        sender: SenderWrapperMock<T>,
+        receiver: ReceiverWrapperMock<T>,
+    ) -> Self {
+        self.make_results
+            .push((Box::new(sender), Box::new(receiver)));
         self
     }
 }

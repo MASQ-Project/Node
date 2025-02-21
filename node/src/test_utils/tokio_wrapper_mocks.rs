@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::cell::RefCell;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
+use async_trait::async_trait;
+use std::cell::RefCell;
 use std::io;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::task::{Poll};
-use async_trait::async_trait;
+use std::task::Poll;
 
 #[derive(Default)]
 pub struct ReadHalfWrapperMock {
@@ -37,10 +37,7 @@ impl ReadHalfWrapperMock {
         Default::default()
     }
 
-    pub fn read_result(
-        mut self,
-        result: io::Result<Vec<u8>>,
-    ) -> ReadHalfWrapperMock {
+    pub fn read_result(mut self, result: io::Result<Vec<u8>>) -> ReadHalfWrapperMock {
         self.read_results.push(result);
         self
     }
@@ -50,9 +47,7 @@ impl ReadHalfWrapperMock {
     }
 
     pub fn read_final(self, data: &[u8]) -> ReadHalfWrapperMock {
-        self
-            .read_ok(data)
-            .read_ok(&[])
+        self.read_ok(data).read_ok(&[])
     }
 }
 
@@ -109,10 +104,7 @@ impl WriteHalfWrapperMock {
         }
     }
 
-    pub fn write_params(
-        mut self,
-        params_arc: &Arc<Mutex<Vec<Vec<u8>>>>,
-    ) -> WriteHalfWrapperMock {
+    pub fn write_params(mut self, params_arc: &Arc<Mutex<Vec<Vec<u8>>>>) -> WriteHalfWrapperMock {
         self.write_params = params_arc.clone();
         self
     }
@@ -122,10 +114,7 @@ impl WriteHalfWrapperMock {
         self
     }
 
-    pub fn shutdown_params(
-        mut self,
-        params_arc: &Arc<Mutex<Vec<()>>>,
-    ) -> WriteHalfWrapperMock {
+    pub fn shutdown_params(mut self, params_arc: &Arc<Mutex<Vec<()>>>) -> WriteHalfWrapperMock {
         self.shutdown_params = params_arc.clone();
         self
     }

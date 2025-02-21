@@ -5,7 +5,7 @@ use hickory_resolver::config::ResolverOpts;
 use hickory_resolver::error::ResolveError;
 use hickory_resolver::lookup_ip::LookupIp;
 use hickory_resolver::name_server::{GenericConnector, TokioRuntimeProvider};
-use hickory_resolver::{AsyncResolver};
+use hickory_resolver::AsyncResolver;
 
 #[async_trait]
 pub trait ResolverWrapper: Send {

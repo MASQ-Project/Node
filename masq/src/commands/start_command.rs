@@ -9,7 +9,6 @@ use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
 use std::default::Default;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 const START_COMMAND_TIMEOUT_MILLIS: u64 = 15000;
 const START_SUBCOMMAND_ABOUT: &str =
@@ -60,8 +59,8 @@ impl StartCommand {
 mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use std::string::ToString;
@@ -93,7 +92,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

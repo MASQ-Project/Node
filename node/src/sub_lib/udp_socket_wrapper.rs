@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use async_trait::async_trait;
 use std::io;
 use std::marker::Send;
 use std::net::SocketAddr;
-use async_trait::async_trait;
-use tokio::net::{UdpSocket};
+use tokio::net::UdpSocket;
 
 #[async_trait]
 pub trait UdpSocketWrapperTrait: Sync + Send {

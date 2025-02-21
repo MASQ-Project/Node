@@ -33,8 +33,8 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use actix::{Actor, Addr, Arbiter};
 use actix::{Recipient, Supervisor};
-use actix::{Addr, Arbiter, Actor};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
@@ -391,8 +391,9 @@ impl ActorFactory for ActorFactoryReal {
         let node_descriptor = config.node_descriptor.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::new();
-        let addr: Addr<Dispatcher> =
-            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Dispatcher::new(node_descriptor, crashable));
+        let addr: Addr<Dispatcher> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
+            Dispatcher::new(node_descriptor, crashable)
+        });
         (
             Dispatcher::make_subs_from(&addr),
             addr.recipient::<PoolBindMessage>(),
@@ -426,7 +427,8 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_hopper(&self, config: HopperConfig) -> HopperSubs {
         let arbiter = Arbiter::new();
-        let addr: Addr<Hopper> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Hopper::new(config));
+        let addr: Addr<Hopper> =
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Hopper::new(config));
         Hopper::make_subs_from(&addr)
     }
 
@@ -437,8 +439,9 @@ impl ActorFactory for ActorFactoryReal {
     ) -> NeighborhoodSubs {
         let config_clone = config.clone();
         let arbiter = Arbiter::new();
-        let addr: Addr<Neighborhood> =
-            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| Neighborhood::new(cryptde, &config_clone));
+        let addr: Addr<Neighborhood> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
+            Neighborhood::new(cryptde, &config_clone)
+        });
         Neighborhood::make_subs_from(&addr)
     }
 
@@ -474,7 +477,8 @@ impl ActorFactory for ActorFactoryReal {
         let crashable = is_crashable(config);
         let ui_gateway = UiGateway::new(&config.ui_gateway_config, crashable);
         let arbiter = Arbiter::new();
-        let addr: Addr<UiGateway> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| ui_gateway);
+        let addr: Addr<UiGateway> =
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| ui_gateway);
         UiGateway::make_subs_from(&addr)
     }
 
@@ -486,14 +490,17 @@ impl ActorFactory for ActorFactoryReal {
             config.clandestine_discriminator_factories.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::new();
-        let addr: Addr<StreamHandlerPool> = Supervisor::start_in_arbiter(&arbiter.handle(),
-            move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
+        let addr: Addr<StreamHandlerPool> =
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
+                StreamHandlerPool::new(clandestine_discriminator_factories, crashable)
+            });
         StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
         let arbiter = Arbiter::new();
-        let addr: Addr<ProxyClient> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| ProxyClient::new(config));
+        let addr: Addr<ProxyClient> =
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| ProxyClient::new(config));
         ProxyClient::make_subs_from(&addr)
     }
 
@@ -510,19 +517,20 @@ impl ActorFactory for ActorFactoryReal {
         let data_directory = config.data_directory.clone();
         let chain_id = config.blockchain_bridge_config.chain;
         let arbiter = Arbiter::new();
-        let addr: Addr<BlockchainBridge> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
-            let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
-                blockchain_service_url_opt,
-                data_directory,
-                chain_id,
-            );
-            BlockchainBridge::new(
-                blockchain_interface,
-                persistent_config,
-                crashable,
-                wallet_opt,
-            )
-        });
+        let addr: Addr<BlockchainBridge> =
+            Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
+                let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
+                    blockchain_service_url_opt,
+                    data_directory,
+                    chain_id,
+                );
+                BlockchainBridge::new(
+                    blockchain_interface,
+                    persistent_config,
+                    crashable,
+                    wallet_opt,
+                )
+            });
         BlockchainBridge::make_subs_from(&addr)
     }
 
@@ -530,8 +538,9 @@ impl ActorFactory for ActorFactoryReal {
         let data_directory = config.data_directory.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::new();
-        let addr: Addr<Configurator> = Supervisor::start_in_arbiter(&arbiter.handle(),
-            move |_| Configurator::new(data_directory, crashable));
+        let addr: Addr<Configurator> = Supervisor::start_in_arbiter(&arbiter.handle(), move |_| {
+            Configurator::new(data_directory, crashable)
+        });
         ConfiguratorSubs {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -667,6 +676,7 @@ mod tests {
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
     use masq_lib::node_addr::NodeAddr;
+    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use masq_lib::test_utils::utils::{
         check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
         TEST_DEFAULT_CHAIN,
@@ -689,7 +699,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
     struct LogRecipientSetterNull {}
 

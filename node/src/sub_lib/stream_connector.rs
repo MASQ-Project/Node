@@ -3,13 +3,13 @@ use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapperReal;
+use async_trait::async_trait;
 use masq_lib::logger::Logger;
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::net::TcpStream as StdTcpStream;
 use std::time::Duration;
-use async_trait::async_trait;
 use tokio::io;
 use tokio::net::TcpStream;
 use tokio::time::{timeout_at, Instant};
@@ -25,7 +25,11 @@ pub struct ConnectionInfo {
 
 #[async_trait]
 pub trait StreamConnector: Send {
-    async fn connect(&self, socket_addr: SocketAddr, logger: &Logger) -> Result<ConnectionInfo, io::Error>;
+    async fn connect(
+        &self,
+        socket_addr: SocketAddr,
+        logger: &Logger,
+    ) -> Result<ConnectionInfo, io::Error>;
     fn connect_one(
         &self,
         ip_addrs: Vec<IpAddr>,
@@ -85,7 +89,9 @@ impl StreamConnector for StreamConnectorReal {
                 }
             },
         );
-        timeout_result.await.unwrap_or_else(|_| Err(io::Error::from(ErrorKind::TimedOut)))
+        timeout_result
+            .await
+            .unwrap_or_else(|_| Err(io::Error::from(ErrorKind::TimedOut)))
     }
 
     fn connect_one(

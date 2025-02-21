@@ -32,8 +32,6 @@ use masq_lib::messages::{
 };
 use masq_lib::utils::ExpectValue;
 use num::ToPrimitive;
-use std::io::{Stderr, Write};
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
@@ -296,8 +294,8 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
@@ -324,7 +322,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory.make(&["financials".to_string()]).unwrap();
 
         let result = subject.execute(&mut context, &mut term_interface).await;
@@ -352,7 +350,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -390,7 +388,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -428,7 +426,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -631,7 +629,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn financials_command_allows_shorthands_including_top_records() {
+    async fn financials_command_allows_shorthands_even_with_top_records() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
@@ -645,7 +643,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -672,7 +670,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn financials_command_allows_shorthands_including_custom_query() {
+    async fn financials_command_allows_shorthands_even_with_custom_query() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
@@ -686,7 +684,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -723,7 +721,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn financials_command_top_records_ordered_by_age_instead_of_balance() {
+    async fn financials_command_top_records_ordered_by_age_and_not_balance() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
@@ -736,7 +734,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
@@ -859,7 +857,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -890,7 +888,7 @@ mod tests {
 
     #[test]
     fn are_both_sets_to_be_displayed_works_for_top_records() {
-        //top records always print as a pair so it always consists of both sets
+        // Top records always print as paired sets
         let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--top",
@@ -904,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_payable() {
+    fn are_both_sets_to_be_displayed_works_for_custom_query_with_payable_only() {
         let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
@@ -918,7 +916,7 @@ mod tests {
     }
 
     #[test]
-    fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_receivable() {
+    fn are_both_sets_to_be_displayed_works_for_custom_query_with_receivable_only() {
         let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--receivable",
@@ -1021,7 +1019,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1090,7 +1088,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1161,7 +1159,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1235,7 +1233,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1328,7 +1326,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1399,7 +1397,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1484,7 +1482,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1593,7 +1591,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1681,7 +1679,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1760,7 +1758,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1810,7 +1808,7 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

@@ -1,12 +1,10 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::{CommandContext, CommandContextReal};
-use crate::command_processor::CommandProcessor;
 use crate::commands::commands_common::CommandError;
 use crate::communications::connection_manager::CMBootstrapper;
-use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
+use crate::terminal::WTermInterfaceDupAndSend;
 use async_trait::async_trait;
-use futures::FutureExt;
 
 #[async_trait(?Send)]
 pub trait CommandContextFactory {

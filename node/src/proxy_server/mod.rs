@@ -7,6 +7,7 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
+use crate::dispatcher::Dispatcher;
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
@@ -37,13 +38,15 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
-use crate::sub_lib::utils::{handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY,
+};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Addr, Supervised, System};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, MailboxError};
+use actix::{Addr, Supervised, System};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
@@ -52,7 +55,6 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::thread::panicking;
 use std::time::{Duration, SystemTime};
-use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -955,7 +957,8 @@ impl IBCDHelperReal {
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
                     payload_size,
-                )).await;
+                ))
+                .await;
             Self::resolve_route_query_response(tth_args, add_route_sub, route_result);
         });
         Ok(())
@@ -1059,7 +1062,6 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_meaningless_route};
     use crate::test_utils::{make_meaningless_stream_key, make_request_payload};
     use actix::System;
-    use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -1070,6 +1072,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
+    use crossbeam_channel::unbounded;
 
     #[test]
     fn constants_have_correct_values() {
