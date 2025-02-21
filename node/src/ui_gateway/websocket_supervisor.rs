@@ -21,7 +21,8 @@ use soketto::Incoming;
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::time::Duration;
 use async_trait::async_trait;
 use tokio::net::TcpStream;
@@ -34,7 +35,6 @@ pub trait WebSocketSupervisor: Send {
 
 #[async_trait]
 pub struct WebSocketSupervisorReal {
-    #[allow(dead_code)]
     inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
 }
 
@@ -308,32 +308,36 @@ impl WebSocketSupervisorReal {
         mut inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
         msg: NodeToUiMessage,
     ) {
-        let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is dead");
-        let clients = match msg.target {
-            ClientId(n) => {
-                let clients = Self::filter_clients(&mut locked_inner, |(id)| id == n);
-                if !clients.is_empty() {
-                    clients
-                } else {
-                    Self::log_absent_client(n);
-                    return;
+        let (clients, json) = {
+            let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is dead");
+            let clients = match msg.target {
+                ClientId(n) => {
+                    let clients = Self::filter_clients(&mut locked_inner, |(id)| id == n);
+                    if !clients.is_empty() {
+                        clients
+                    } else {
+                        Self::log_absent_client(n);
+                        return;
+                    }
                 }
-            }
-            AllExcept(n) => Self::filter_clients(&mut locked_inner, |(id)| id != n),
-            AllClients => Self::filter_clients(&mut locked_inner, |_| true),
+                AllExcept(n) => Self::filter_clients(&mut locked_inner, |(id)| id != n),
+                AllClients => Self::filter_clients(&mut locked_inner, |_| true),
+            };
+            let json = UiTrafficConverter::new_marshal(msg.body);
+            (clients, json)
         };
-        let json = UiTrafficConverter::new_marshal(msg.body);
+        let inner_arc_clone = inner_arc.clone();
         if let Some(dead_client_ids) = Self::send_to_clients(clients, json).await {
-            Self::handle_sink_errs(dead_client_ids, &mut locked_inner)
+            Self::handle_sink_errs(dead_client_ids, inner_arc_clone)
         }
     }
 
     fn handle_sink_errs(
         dead_client_ids: Vec<u64>,
-        locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
+        inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
     ) {
         dead_client_ids.into_iter().for_each(|client_id| {
-            Self::emergency_client_removal(client_id, locked_inner);
+            Self::emergency_client_removal(client_id, inner_arc);
             warning!(
                 Logger::new("WebSocketSupervisor"),
                 "Error sending to client {}; dropping the client",
@@ -376,8 +380,9 @@ impl WebSocketSupervisorReal {
 
     fn emergency_client_removal(
         client_id: u64,
-        locked_inner: &mut MutexGuard<WebSocketSupervisorInner>,
+        inner_arc: Arc<Mutex<WebSocketSupervisorInner>>,
     ) {
+        let mut locked_inner = inner_arc.lock().expect("WebSocketSupervisor is dead");
         locked_inner
             .client_by_id
             .remove(&client_id)
@@ -487,16 +492,16 @@ mod tests {
     use workflow_websocket::client::message::Message;
 
     impl WebSocketSupervisorReal {
-        fn inject_client(&self, sender: WSSender) -> u64 {
-            let mut locked_inner = self.inner_arc.lock().unwrap();
+        async fn inject_client(&self, sender: WSSender) -> u64 {
+            let mut locked_inner = self.inner_arc.lock().await;
             let client_id = locked_inner.next_client_id;
             locked_inner.next_client_id += 1;
             locked_inner.client_by_id.insert(client_id, sender);
             client_id
         }
 
-        fn inject_logger(&self, logger: Logger) {
-            let mut locked_inner = self.inner_arc.lock().unwrap();
+        async fn inject_logger(&self, logger: Logger) {
+            let mut locked_inner = self.inner_arc.lock().await;
             locked_inner.logger = logger;
         }
     }
@@ -560,7 +565,7 @@ mod tests {
             UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
         {
-            let inner = subject.inner_arc.lock().unwrap();
+            let inner = subject.inner_arc.lock().await;
             assert_eq!(inner.next_client_id, 2);
             assert_eq!(
                 inner.socket_addr_by_client_id.get(&1).unwrap(),

@@ -4,47 +4,42 @@ use crate::messages::NODE_UI_PROTOCOL;
 use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
-use crate::websockets_types::{WSReceiver, WSSender};
+use crate::websockets_types::{WSSender, WSReceiver};
 use async_trait::async_trait;
-use futures::io::{BufReader, BufWriter};
 use lazy_static::lazy_static;
-use nix::libc::aio_return;
-use rustc_hex::ToHex;
-use soketto::base::OpCode;
-use soketto::connection::{CloseReason, Error, Receiver, Sender};
-use soketto::data::ByteSlice125;
-use soketto::handshake::{server::Response, ClientRequest, Server};
-use soketto::Data as SokettoDataType;
-use soketto::Incoming as SokettoIncomingType;
 use std::fmt::Debug;
-use std::future::Future;
-use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::Not;
-use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
-use tokio::sync::oneshot::error::RecvError;
-use tokio::sync::oneshot::Receiver as OneShotReceiver;
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use std::io::Write;
+use soketto::Incoming as SokettoIncomingType;
+use soketto::Data as SokettoDataType;
+use soketto::{handshake::{Server, ClientRequest, server::Response}};
+use soketto::connection::{Sender, Receiver, Error, CloseReason};
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use futures::io::{BufReader, BufWriter};
+use rustc_hex::ToHex;
+use soketto::base::OpCode;
+use soketto::data::ByteSlice125;
+use tokio::time::Timeout;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum MWSSMessage {
+enum MWSSMessage {
     // If you have a MessageBody, put it in one of these.
-    MessageBody(MessageBody),
+    MessageBody (MessageBody),
     // If you have a non-MessageBody "response" that you want to be sent without being
     // specifically requested, put it here.
-    FAFData(SokettoDataType, Vec<u8>),
+    FAFData (SokettoDataType, Vec<u8>),
     // If you have a non-MessageBody request, or a non-MessageBody response that must be
     // triggered by a request, put it here.
     ConversationData(SokettoDataType, Vec<u8>),
@@ -55,7 +50,7 @@ pub enum MWSSMessage {
 impl MWSSMessage {
     pub fn is_fire_and_forget(&self) -> bool {
         match self {
-            MWSSMessage::MessageBody(body) => body.path == MessagePath::FireAndForget,
+            MWSSMessage::MessageBody (body) => body.path == MessagePath::FireAndForget,
             MWSSMessage::FAFData(_, _) => true,
             _ => false,
         }
@@ -63,7 +58,7 @@ impl MWSSMessage {
 
     pub fn message_body(self) -> MessageBody {
         match self {
-            MWSSMessage::MessageBody(body) => body,
+            MWSSMessage::MessageBody (body) => body,
             _ => panic!("Expected MWSSMessage::MessageBody, got {:?} instead", self),
         }
     }
@@ -82,13 +77,13 @@ impl MWSSMessage {
             }
             MWSSMessage::FAFData(data_type, data) => {
                 Self::send_data_message(sender, data_type, data).await;
-            }
+            },
             MWSSMessage::ConversationData(data_type, data) => {
                 Self::send_data_message(sender, data_type, data).await;
-            }
+            },
             MWSSMessage::Close => {
                 sender.close().await.expect("Failed to send close message");
-            }
+            },
         }
     }
 
@@ -127,15 +122,17 @@ pub struct MockWebsocketServerHandle {
 
 pub struct MockWebSocketsServer {
     port: u16,
+    expected_receive_count: usize,
     accepted_protocol_opt: Option<String>,
     responses: Vec<MWSSMessage>,
     do_log: bool,
 }
 
 impl MockWebSocketsServer {
-    pub fn new(port: u16) -> Self {
+    pub fn new(port: u16, expected_receive_count: usize) -> Self {
         Self {
             port,
+            expected_receive_count,
             accepted_protocol_opt: Some(NODE_UI_PROTOCOL.to_string()),
             responses: vec![],
             do_log: false,
@@ -189,6 +186,8 @@ impl MockWebSocketsServer {
         self
     }
 
+    // I marked it async to make obvious that it must be called inside a runtime context due to its
+    // reliance on spawning a background task
     pub async fn start(self) -> MockWebSocketsServerHandle {
         let logger = MWSSLogger::new(self.do_log);
         let requests_arc = Arc::new(Mutex::new(vec![]));
@@ -208,19 +207,14 @@ impl MockWebSocketsServer {
                 tcp_listener,
                 proposed_protocols_inner_arc,
                 self.accepted_protocol_opt.clone(),
-            )
-            .await;
-            let mut data = Vec::new();
-            Self::send_faf_messages(&mut sender, &mut responses).await;
-            Self::handling_loop(
+            ).await;
+            Self::handle_connection(
                 sender,
-                &mut receiver,
-                &mut data,
-                &requests_inner_arc,
-                &mut responses,
+                receiver,
+                requests_inner_arc,
+                responses,
                 termination_rx,
-            )
-            .await
+            ).await;
         };
 
         let join_handle = tokio::spawn(connection_future);
@@ -232,78 +226,6 @@ impl MockWebSocketsServer {
             proposed_protocols_arc,
             termination_tx,
             join_handle,
-        }
-    }
-
-    async fn handling_loop(
-        mut sender: WSSender,
-        receiver: &mut WSReceiver,
-        data: &mut Vec<u8>,
-        requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
-        responses: &mut Vec<MWSSMessage>,
-        termination_rx: OneShotReceiver<StopStrategy>,
-    ) {
-        let deadline_if_no_termination_received = Duration::from_millis(10_000);
-        let mut timeout = tokio::time::sleep(deadline_if_no_termination_received);
-        tokio::pin!(timeout);
-
-        type TerminationOrderFuture = Pin<Box<dyn Future<Output = Option<StopStrategy>> + Send>>;
-        let mut termination_order_future: TerminationOrderFuture = Box::pin(async {
-            Some(
-                termination_rx
-                    .await
-                    .expect("Error receiving termination signal"),
-            )
-        });
-        let mut ordered_stop_strategy_opt: Option<StopStrategy> = None;
-
-        loop {
-            data.clear();
-            let data_type = tokio::select! {
-                    data_type_res = receiver.receive_data(data) => {
-                        match data_type_res {
-                            Ok(data_type) => data_type,
-                            Err(Error::Closed) => {
-                                Self::process_close(&requests_inner_arc);
-                                return;
-                            },
-                            Err(Error::UnexpectedOpCode(OpCode::Continue)) => continue,
-                            Err(e) => panic!("Error receiving data from client: {}", e),
-                        }
-                    }
-
-                    _ = &mut timeout => {
-                        if let Some(stop_startegy) = ordered_stop_strategy_opt {
-                            stop_startegy.apply(sender).await;
-                            return;
-                        } else {
-                            panic!(
-                                "Reached global test timeout {} ms without receiving a proper \
-                                termination order", deadline_if_no_termination_received.as_millis()
-                            )
-                        }
-                    }
-
-                    stop_strategy = termination_order_future.as_mut() => {
-                        ordered_stop_strategy_opt = stop_strategy;
-                        // Resetting to a future which never resolves
-                        termination_order_future = Box::pin(std::future::pending());
-                        // Now we're giving time for processing any piled up messages in
-                        // the Websockets channel. Each unprocessed msg must be pulled within
-                        // this new timeout or the server terminates before all request were
-                        // recorded
-                        timeout.as_mut().reset(Instant::now() + Duration::from_millis(10));
-                        continue
-                    }
-            };
-            Self::process_data(
-                &data_type,
-                data.as_slice(),
-                &mut sender,
-                requests_inner_arc.clone(),
-                responses,
-            )
-            .await;
         }
     }
 
@@ -345,6 +267,47 @@ impl MockWebSocketsServer {
 
         let (sender, receiver) = server.into_builder().finish();
         (sender, receiver)
+    }
+
+    async fn handle_connection(
+        mut sender: WSSender,
+        mut receiver: WSReceiver,
+        requests_inner_arc: Arc<Mutex<Vec<MWSSMessage>>>,
+        mut responses: Vec<MWSSMessage>,
+        mut termination_rx: tokio::sync::oneshot::Receiver<StopStrategy>,
+    ) {
+        let mut data = Vec::new();
+        Self::send_faf_messages(&mut sender, &mut responses).await;
+        let x = tokio::time::sleep(Duration::from_secs(1));
+        loop { // TODO: Modify to use Strategy Utkarsh
+            data.clear();
+            let data_type = tokio::select! {
+                biased;
+                data_type_res = receiver.receive_data(&mut data) => {
+                    eprintln!("receive_data selected");
+                    match (data_type_res) {
+                        Ok(data_type) => data_type,
+                        Err(Error::Closed) => {
+                            Self::process_close(&requests_inner_arc);
+                            break;
+                        },
+                        Err(e) => panic!("Error receiving data from client: {}", e),
+                    }
+                }
+                stop_strategy = &mut termination_rx => {
+                    eprintln!("termination selected");
+                    stop_strategy.expect("Error receiving termination signal").apply(sender).await;
+                    break;
+                }
+            };
+            Self::process_data(
+                &data_type,
+                data.as_slice(),
+                &mut sender,
+                requests_inner_arc.clone(),
+                &mut responses,
+            ).await;
+        }
     }
 
     async fn process_data(
@@ -461,8 +424,8 @@ impl StopStrategy {
             .expect("Error closing WebSocket connection");
     }
 
-    fn abort(mut sender: WSSender) {
-        drop(sender);
+    async fn abort(mut sender: WSSender) {
+        drop (sender);
     }
 }
 
@@ -531,7 +494,7 @@ mod tests {
     async fn conversational_communication_happy_path_with_full_assertion() {
         let port = find_free_port();
         let expected_response = UiCheckPasswordResponse { matches: false };
-        let stop_handle = MockWebSocketsServer::new(port)
+        let stop_handle = MockWebSocketsServer::new(port, 1)
             .queue_response(expected_response.clone().tmb(123))
             .start()
             .await;
@@ -609,7 +572,7 @@ mod tests {
         let broadcast_number_three = UiNewPasswordBroadcast {}.tmb(0);
         ////////////////////////////////////////////////////////////////////////////////////////////
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port)
+        let server = MockWebSocketsServer::new(port, 4)
             .queue_response(conversation_number_one_response.clone().tmb(1))
             .queue_response(conversation_number_two_response.clone().tmb(2))
             .queue_response(broadcast_number_one)
@@ -694,7 +657,7 @@ mod tests {
     #[should_panic(expected = "The queue is empty; all messages are gone.")]
     async fn attempt_to_get_a_message_from_an_empty_queue_causes_a_panic() {
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port);
+        let server = MockWebSocketsServer::new(port, 1);
         let server_handle = server.start().await;
         let mut conn = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let conversation_request = UiChangePasswordRequest {
@@ -708,7 +671,7 @@ mod tests {
             .unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn incoming_messages_always_beat_termination_signal() {
         let attempt_count = 100;
         let cluster_count = 100;
@@ -716,7 +679,7 @@ mod tests {
         let mut expected_request_counts: Vec<usize> = vec![];
         for i in 0..attempt_count {
             let port = find_free_port();
-            let server = MockWebSocketsServer::new(port);
+            let server = MockWebSocketsServer::new(port, cluster_count);
             let server_handle = server.start().await;
             let mut conn = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 

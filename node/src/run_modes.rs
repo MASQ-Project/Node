@@ -248,7 +248,7 @@ impl Runner for RunnerReal {
         let mut server_initializer = self.server_initializer_factory.make();
         let args_inner = args.to_vec();
         // TODO Bert thinks the task::spawn() is overkill; wants system.block_on() instead
-        let join_handle: JoinHandle<Result<(), String>> = task::spawn(async move {
+        let result = make_rt().block_on(async move {
             match server_initializer.go(streams, &args_inner).await {
                 Ok(_) => (),
                 Err(e) => {
@@ -268,18 +268,17 @@ impl Runner for RunnerReal {
                 }
             }
         });
+        let logger = Logger::new("RunnerReal");
+        /// TODO SPIKE
+        match result {
+            Ok(_) => (),
+            Err(e) => error!(logger, "Node terminated with error, but we couldn't look for the error message: {:?}", e),
+        }
         match system.run() {
             Ok(()) => Ok(()),
             Err(e) => {
-                let result = make_rt().block_on(join_handle);
-                let logger = Logger::new("RunnerReal");
                 /// TODO SPIKE
-                match result {
-                    Ok(Ok(_)) => error!(logger, "Node terminated with error: {:?}", e),
-                    Ok(Err(e)) => error!(logger, "Node terminated with error, but we couldn't get the error message: {:?}", e),
-                    Err(e) => error!(logger, "Node terminated with error, but we couldn't look for the error message: {:?}", e),
-                }
-                /// TODO SPIKE
+                error!(logger, "Node terminated with error: {:?}", e);
                 Err(RunnerError::Numeric(1))
             }
         }
