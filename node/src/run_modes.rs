@@ -242,13 +242,29 @@ struct RunnerReal {
     daemon_initializer_factory: Box<dyn DaemonInitializerFactory>,
 }
 
+/*
+From master:
+
+    fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
+        let system = System::new("main");
+        let mut server_initializer = self.server_initializer_factory.make();
+        server_initializer.go(streams, args)?;
+        actix::spawn(server_initializer.map_err(|_| {
+            System::current().stop_with_code(1);
+        }));
+        match system.run() {
+            0 => Ok(()),
+            num_e => Err(RunnerError::Numeric(num_e)),
+        }
+    }
+ */
+
 impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new();
         let mut server_initializer = self.server_initializer_factory.make();
         let args_inner = args.to_vec();
-        // TODO Bert thinks the task::spawn() is overkill; wants system.block_on() instead
-        let result = make_rt().block_on(async move {
+        let initialization_future = async move {
             match server_initializer.go(streams, &args_inner).await {
                 Ok(_) => (),
                 Err(e) => {
@@ -267,7 +283,8 @@ impl Runner for RunnerReal {
                     return Err(format!("{:?}", e));
                 }
             }
-        });
+        };
+        let result: Result<(), String> = system.block_on(initialization_future);
         let logger = Logger::new("RunnerReal");
         /// TODO SPIKE
         match result {

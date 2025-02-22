@@ -57,7 +57,7 @@ impl SpawnableConfiguredByPrivilege for DnsSocketServer {
                         self.logger,
                         "Unrecoverable error receiving from UdpSocket: {}", e
                     );
-                    return Err(e);
+                    return Err(e); // TODO Maybe this should be continue, since the error comes in from outside
                 }
             };
             let response_length = processing::process(&mut buffer, len, &socket_addr, &self.logger);

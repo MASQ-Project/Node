@@ -481,21 +481,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
             .await
             .into_iter()
             .for_each(|lh| self.listener_handlers.push(lh));
-        //
-        // let mut futures = FuturesUnordered::new();
-        // for (port, port_configuration) in port_configurations {
-        //     let mut listener_handler = self.listener_handler_factory.make();
-        //     let future = async move {
-        //         if let Err(e) = listener_handler.bind_port_and_configuration(port, port_configuration).await {
-        //             panic!("Could not listen on port {}: {}", port, e);
-        //         }
-        //         listener_handler
-        //     };
-        //     futures.push(future);
-        // }
-        // while let Some(listener_handler) = futures.next().await {
-        //     self.listener_handlers.push(listener_handler);
-        // }
         Ok(())
     }
 
