@@ -136,7 +136,7 @@ mod tests {
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
     use masq_lib::messages::{
-        ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL,
+        FromMessageBody, ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL,
     };
     use masq_lib::messages::{UiCrashRequest, UiSetupRequest};
     use masq_lib::test_utils::mock_websockets_server::{
@@ -146,7 +146,6 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
     use masq_lib::utils::{find_free_port, running_test};
-    use tokio_tungstenite::tungstenite::Message;
 
     #[test]
     fn error_conversion_happy_path() {
@@ -239,7 +238,9 @@ mod tests {
 
         assert_eq!(result, Ok(expected_response));
         let mut recorded = server_stop_handle.stop(StopStrategy::Close).await;
-        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(request)]);
+        let request = recorded.requests.remove(0);
+        UiShutdownRequest::fmb(request.message_body()).unwrap();
+        assert!(recorded.requests.is_empty());
         assert_eq!(recorded.proposed_protocols, vec![NODE_UI_PROTOCOL])
     }
 

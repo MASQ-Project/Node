@@ -8,11 +8,12 @@ use masq_lib::ui_gateway::MessageBody;
 use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use masq_lib::utils::localhost;
 use masq_lib::websockets_types::{WSReceiver, WSSender};
-use soketto::connection::Error;
+use soketto::connection::Error as SokettoError;
 use soketto::handshake::{Client, ServerResponse};
 use soketto::Data;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::{AbortHandle, JoinHandle};
@@ -23,57 +24,69 @@ pub const WS_CONNECT_TIMEOUT_MS: u64 = 1500;
 
 #[derive(Debug)]
 pub enum ConnectError {
-    Error(Error),
+    Soketto(SokettoError),
     Timeout,
 }
 
-pub async fn make_connection(
+impl From<SokettoError> for ConnectError {
+    fn from(e: SokettoError) -> Self {
+        ConnectError::Soketto(e)
+    }
+}
+
+pub async fn make_connection_with_timeout(
     port: u16,
     timeout_ms: u64,
 ) -> Result<(WSSender, WSReceiver), ConnectError> {
-    let socket_addr = SocketAddr::new(localhost(), port);
+    let connect_fut = async move {
+        let socket_addr = SocketAddr::new(localhost(), port);
 
-    let tcp_stream = match tokio::net::TcpStream::connect(socket_addr).await {
-        Ok(tcp) => tcp,
-        Err(e) => todo!(),
-    };
+        let tcp_stream = match tokio::net::TcpStream::connect(socket_addr).await {
+            Ok(tcp) => tcp,
+            Err(e) => return Err(ConnectError::Soketto(SokettoError::Io(e))),
+        };
 
-    let mut client = Client::new(
-        BufReader::new(BufWriter::new(tcp_stream.compat())),
-        // TODO talk to Dan about these args
-        "localhost",
-        "/",
-    );
+        let mut client = Client::new(
+            BufReader::new(BufWriter::new(tcp_stream.compat())),
+            "localhost",
+            "/",
+        );
 
-    client.add_protocol(NODE_UI_PROTOCOL);
+        client.add_protocol(NODE_UI_PROTOCOL);
 
-    let result = client.handshake().await;
+        let result = client.handshake().await;
 
-    let server_response = match result {
-        Ok(res) => res,
-        Err(e) => todo!(),
-    };
+        let server_response = match result {
+            Ok(res) => res,
+            Err(e) => todo!("{:?}", e),
+        };
 
-    match server_response {
-        ServerResponse::Accepted { protocol } => {
-            if let Some(_) = protocol {
-                Ok(client.into_builder().finish())
-            } else {
-                todo!()
+        match server_response {
+            ServerResponse::Accepted { protocol } => {
+                if let Some(_) = protocol {
+                    Ok::<_, ConnectError>(client.into_builder().finish())
+                } else {
+                    todo!()
+                }
             }
+            ServerResponse::Rejected { status_code } => todo!(),
+            ServerResponse::Redirect {
+                status_code,
+                location,
+            } => todo!(),
         }
-        ServerResponse::Rejected { status_code } => todo!(),
-        ServerResponse::Redirect {
-            status_code,
-            location,
-        } => todo!(),
+    };
+
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), connect_fut).await {
+        Ok(res) => res,
+        Err(_) => Err(ConnectError::Timeout),
     }
 }
 
 #[async_trait]
 pub trait WSClientHandle: Send {
-    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error>;
-    async fn close(&mut self) -> Result<(), Error>;
+    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), SokettoError>;
+    async fn close(&mut self) -> Result<(), SokettoError>;
     fn dismiss_event_loop(&self);
     #[cfg(test)]
     async fn is_connection_open(&mut self) -> bool;
@@ -94,14 +107,14 @@ impl Drop for WSClientHandleReal {
 
 #[async_trait]
 impl WSClientHandle for WSClientHandleReal {
-    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error> {
+    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), SokettoError> {
         let txt = UiTrafficConverter::new_marshal(msg);
         //TODO untested result
         self.ws_sender.send_text_owned(txt).await;
         self.ws_sender.flush().await
     }
 
-    async fn close(&mut self) -> Result<(), Error> {
+    async fn close(&mut self) -> Result<(), SokettoError> {
         self.ws_sender.close().await
     }
 
@@ -163,10 +176,9 @@ impl ClientListener {
         close_sig: BroadcastReceiver<()>,
         message_body_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     ) -> AbortHandle {
-        let spawner = ClientListenerSpawner::new(self.ws_receiver, message_body_tx, close_sig);
-        spawner.spawn().abort_handle()
-        // let client_handle = WSClientHandleReal::new(self.websocket, abort_handle);
-        // Box::new(client_handle)
+        ClientListenerSpawner::new(self.ws_receiver, message_body_tx, close_sig)
+            .spawn()
+            .abort_handle()
     }
 }
 
@@ -234,7 +246,7 @@ impl ClientListenerSpawner {
                                 Err(_) => break,
                             }
                         }
-                        Err(Error::Closed) => {
+                        Err(SokettoError::Closed) => {
                             let _ = self.message_body_tx.send(Err(ClientListenerError::Closed));
                             break;
                         }
@@ -286,7 +298,9 @@ mod tests {
             MockWebSocketsServer::new(port).queue_response(expected_message.clone().tmb(1));
         let server_stop_handle = server.start().await;
         let (talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(listener_half);
@@ -307,7 +321,9 @@ mod tests {
         let port = find_free_port();
         let server_stop_handle = MockWebSocketsServer::new(port).start().await;
         let (mut talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_detector) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(listener_half);
@@ -325,7 +341,7 @@ mod tests {
 
         assert_eq!(conn_closed_announcement, Err(ClientListenerError::Closed));
         match send_error {
-            Error::Closed => (),
+            SokettoError::Closed => (),
             x => panic!("We expected Err(Closed) but got {:?}", x),
         };
         let is_spinning = !abort_handle.is_finished();
@@ -340,7 +356,9 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let server_stop_handle = server.start().await;
         let (talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(listener_half);
@@ -363,7 +381,9 @@ mod tests {
             .queue_faf_owned_message(Data::Binary(10), b"BadMessage".to_vec());
         let stop_handle = server.start().await;
         let (talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(listener_half);
@@ -385,7 +405,9 @@ mod tests {
             .queue_faf_owned_message(Data::Text(5), b"booga".to_vec());
         let stop_handle = server.start().await;
         let (talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (_close_tx, close_sig) = ClosingStageDetector::make_for_test();
         let subject = ClientListener::new(listener_half);
@@ -406,7 +428,9 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
         let (talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let ref_counting_object = Arc::new(123);
         let cloned = ref_counting_object.clone();
         let join_handle = tokio::task::spawn(async move {
@@ -439,7 +463,9 @@ mod tests {
             .queue_response(UiCheckPasswordResponse { matches: false }.tmb(4321));
         let stop_handle = server.start().await;
         let (mut talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let (message_body_tx, mut message_body_rx) = unbounded_channel();
         let (close_signaler, close_sig) = ClosingStageDetector::make_for_test();
         let subject =
@@ -495,7 +521,9 @@ mod tests {
         let server = MockWebSocketsServer::new(port);
         let stop_handle = server.start().await;
         let (mut talker_half, listener_half) =
-            make_connection(port, WS_CONNECT_TIMEOUT_MS).await.unwrap();
+            make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
+                .await
+                .unwrap();
         let meaningless_event_loop_join_handle = tokio::task::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(1000)).await;

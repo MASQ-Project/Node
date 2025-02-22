@@ -6,15 +6,14 @@ use crate::communications::broadcast_handlers::{
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::communications::websocket_client::{
-    make_connection, ClientListener, ClientListenerError, ConnectError, WSClientHandle,
-    WSClientHandleReal,
+    make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError,
+    WSClientHandle, WSClientHandleReal,
 };
 use crate::terminal::WTermInterfaceDupAndSend;
 use async_channel::RecvError;
 use futures::future::join_all;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
-use masq_lib::ui_traffic_converter::UiTrafficConverter;
 use soketto::connection::Error;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
@@ -123,7 +122,7 @@ impl CMBootstrapper {
         let broadcast_handles =
             BroadcastHandles::new(standard_broadcast_handler, redirect_broadcast_handle);
 
-        let inner = ConnectionDepartment {
+        let services = ConnectionServices {
             active_port_opt: Some(port),
             daemon_port: port,
             node_port_opt: None,
@@ -143,7 +142,7 @@ impl CMBootstrapper {
             close_sig,
         };
 
-        let central_even_loop_join_handle = CentralEventLoop::spawn(inner);
+        let central_even_loop_join_handle = CentralEventLoop::spawn(services);
 
         let internal_communications = CMChannelsToSubordinates::new(
             demand_tx,
@@ -267,15 +266,18 @@ async fn establish_client_listener(
     close_sig_rx: BroadcastReceiver<()>,
     timeout_millis: u64,
 ) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
-    let (talker_half, listener_half) = match make_connection(port, timeout_millis).await {
-        Ok(ws) => ws,
-        Err(ConnectError::Timeout) => {
-            return Err(ClientListenerError::Timeout {
-                elapsed_ms: timeout_millis,
-            })
-        }
-        Err(ConnectError::Error(e)) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
-    };
+    let (talker_half, listener_half) =
+        match make_connection_with_timeout(port, timeout_millis).await {
+            Ok(ws) => ws,
+            Err(ConnectError::Timeout) => {
+                return Err(ClientListenerError::Timeout {
+                    elapsed_ms: timeout_millis,
+                })
+            }
+            Err(ConnectError::Soketto(e)) => {
+                return Err(ClientListenerError::Broken(format!("{:?}", &e)))
+            }
+        };
 
     let client_listener = ClientListener::new(listener_half);
     let abort_handle = client_listener
@@ -287,7 +289,7 @@ async fn establish_client_listener(
     Ok(Box::new(client_handle))
 }
 
-struct ConnectionDepartment {
+struct ConnectionServices {
     active_port_opt: Option<u16>,
     daemon_port: u16,
     node_port_opt: Option<u16>,
@@ -311,16 +313,16 @@ struct ConnectionDepartment {
 pub struct CentralEventLoop {}
 
 impl CentralEventLoop {
-    fn spawn(mut inner: ConnectionDepartment) -> JoinHandle<()> {
+    fn spawn(mut services: ConnectionServices) -> JoinHandle<()> {
         tokio::task::spawn(async move {
             loop {
-                match inner.active_port_opt {
+                match services.active_port_opt {
                     None => {
-                        Self::send_daemon_crashed(&inner);
+                        Self::send_daemon_crashed(&services);
                         break;
                     }
-                    _ => match Self::loop_guts(inner).await {
-                        Some(returned_inner) => inner = returned_inner,
+                    _ => match Self::loop_guts(services).await {
+                        Some(returned_inner) => services = returned_inner,
                         None => break,
                     },
                 }
@@ -328,86 +330,87 @@ impl CentralEventLoop {
         })
     }
 
-    async fn loop_guts(mut inner: ConnectionDepartment) -> Option<ConnectionDepartment> {
+    // TODO can it be done somehow better, these Options?
+    async fn loop_guts(mut services: ConnectionServices) -> Option<ConnectionServices> {
         tokio::select! {
-            demand_result = inner.demand_rx.recv() => Self::handle_demand (inner, demand_result).await,
-            message_body_result_result = inner.conversations_to_manager_rx.recv() => Some(Self::handle_outgoing_message_body (inner, message_body_result_result).await),
-            redirect_order_result = inner.redirect_order_rx.recv() => Some(Self::handle_redirect_order (inner, redirect_order_result).await),
-            message_body_result_result = inner.listener_to_manager_rx.recv() => Some(Self::handle_incoming_message_body (inner, message_body_result_result).await),
+            demand_result = services.demand_rx.recv() => Self::handle_demand (services, demand_result).await,
+            message_body_result_result = services.conversations_to_manager_rx.recv() => Some(Self::handle_outgoing_message_body (services, message_body_result_result).await),
+            redirect_order_result = services.redirect_order_rx.recv() => Some(Self::handle_redirect_order (services, redirect_order_result).await),
+            message_body_result_result = services.listener_to_manager_rx.recv() => Some(Self::handle_incoming_message_body (services, message_body_result_result).await),
         }
     }
 
     async fn handle_demand(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         demand_opt: Option<Demand>,
-    ) -> Option<ConnectionDepartment> {
+    ) -> Option<ConnectionServices> {
         match demand_opt {
-            Some(Demand::Conversation) => Some(Self::handle_conversation_trigger(inner)),
-            Some(Demand::ActivePort) => Some(Self::handle_active_port_request(inner)),
+            Some(Demand::Conversation) => Some(Self::handle_conversation_trigger(services)),
+            Some(Demand::ActivePort) => Some(Self::handle_active_port_request(services)),
             Some(Demand::Close) => {
-                Self::handle_close(inner).await;
+                Self::handle_close(services).await;
                 None
             }
             None => {
-                inner.active_port_opt = None;
-                Some(inner)
+                services.active_port_opt = None;
+                Some(services)
             }
         }
     }
 
-    fn handle_conversation_trigger(mut inner: ConnectionDepartment) -> ConnectionDepartment {
+    fn handle_conversation_trigger(mut services: ConnectionServices) -> ConnectionServices {
         let (manager_to_conversation_tx, manager_to_conversation_rx) = async_channel::unbounded();
-        let context_id = inner.next_context_id;
-        inner.next_context_id += 1;
+        let context_id = services.next_context_id;
+        services.next_context_id += 1;
         let conversation = NodeConversation::new(
             context_id,
-            inner.conversations_to_manager_tx.clone(),
+            services.conversations_to_manager_tx.clone(),
             manager_to_conversation_rx,
-            inner.close_sig.sync_flag_ref().clone(),
+            services.close_sig.sync_flag_ref().clone(),
         );
-        inner
+        services
             .conversations
             .insert(context_id, manager_to_conversation_tx);
-        match inner.conversation_return_tx.send(conversation) {
+        match services.conversation_return_tx.send(conversation) {
             Ok(_) => (),
             Err(_) => {
-                inner.conversations.remove(&context_id);
+                services.conversations.remove(&context_id);
             }
         };
-        inner
+        services
     }
 
     async fn handle_incoming_message_body(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         msg_result_opt: Option<Result<MessageBody, ClientListenerError>>,
-    ) -> ConnectionDepartment {
+    ) -> ConnectionServices {
         match msg_result_opt {
             Some(msg_result) => match msg_result {
                 Ok(message_body) => match message_body.path {
                     MessagePath::Conversation(context_id) => {
                         if let Some(manager_to_conversation_tx) =
-                            inner.conversations.get(&context_id)
+                            services.conversations.get(&context_id)
                         {
                             match manager_to_conversation_tx.send(Ok(message_body)).await {
                                 Ok(_) => {
-                                    inner.conversations_waiting.remove(&context_id);
+                                    services.conversations_waiting.remove(&context_id);
                                 }
                                 Err(_) => {
                                     // The conversation waiting for this message died
-                                    let _ = inner.conversations.remove(&context_id);
-                                    let _ = inner.conversations_waiting.remove(&context_id);
+                                    let _ = services.conversations.remove(&context_id);
+                                    let _ = services.conversations_waiting.remove(&context_id);
                                 }
                             }
                         }
                     }
                     MessagePath::FireAndForget => {
-                        inner.broadcast_handles.handle_broadcast(message_body)
+                        services.broadcast_handles.handle_broadcast(message_body)
                     }
                 },
                 Err(e) => {
                     if e.is_fatal() {
                         // Fatal connection error: connection is dead, need to reestablish
-                        return Self::fallback(inner, NodeConversationTermination::Fatal).await;
+                        return Self::fallback(services, NodeConversationTermination::Fatal).await;
                     } else {
                         // Non-fatal connection error: connection to server is still up, but we have
                         // no idea which conversation the message was meant for
@@ -416,30 +419,30 @@ impl CentralEventLoop {
                 }
             },
             None => {
-                if !inner.close_sig.sync_flag.masq_is_closing() {
-                    return Self::fallback(inner, NodeConversationTermination::Fatal).await;
+                if !services.close_sig.sync_flag.masq_is_closing() {
+                    return Self::fallback(services, NodeConversationTermination::Fatal).await;
                 }
             }
         };
-        inner
+        services
     }
 
     async fn handle_outgoing_message_body(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         msg_opt: Result<OutgoingMessageType, RecvError>,
-    ) -> ConnectionDepartment {
+    ) -> ConnectionServices {
         match msg_opt {
             Err(_) => panic!("Conversations to manager channel died unexpectedly"),
             Ok(OutgoingMessageType::ConversationMessage (message_body)) => match message_body.path {
                 MessagePath::Conversation(context_id) => {
-                    if let Some(_) = inner.conversations.get(&context_id){
-                        let send_message_result = inner.ws_client_handle.send_msg(message_body).await;
+                    if let Some(_) = services.conversations.get(&context_id){
+                        let send_message_result = services.ws_client_handle.send_msg(message_body).await;
                         match send_message_result {
                             Ok(_) => {
-                                inner.conversations_waiting.insert(context_id);
+                                services.conversations_waiting.insert(context_id);
                             },
                             Err(_) => {
-                                inner = Self::fallback(inner, NodeConversationTermination::Fatal).await;
+                                services = Self::fallback(services, NodeConversationTermination::Fatal).await;
                             },
                         }
                     }
@@ -450,169 +453,168 @@ impl CentralEventLoop {
             },
             Ok(OutgoingMessageType::FireAndForgetMessage(message_body, context_id)) => match message_body.path {
                 MessagePath::FireAndForget => {
-                    match inner.ws_client_handle.send_msg(message_body).await {
+                    match services.ws_client_handle.send_msg(message_body).await {
                         Ok (_) => {
-                            if let Some(manager_to_conversation_tx) = inner.conversations.get(&context_id) {
+                            if let Some(manager_to_conversation_tx) = services.conversations.get(&context_id) {
                                 match manager_to_conversation_tx.send(Err(NodeConversationTermination::FiredAndForgotten)).await {
                                     Ok(_) => (),
                                     Err(_) => {
                                         // The conversation waiting for this message died
-                                        let _ = inner.conversations.remove(&context_id);
+                                        let _ = services.conversations.remove(&context_id);
                                     }
                                 }
                             }
                         },
-                        Err (_) => inner = Self::fallback(inner, NodeConversationTermination::Fatal).await,
+                        Err (_) => services = Self::fallback(services, NodeConversationTermination::Fatal).await,
                     }
                 }
                 MessagePath::Conversation(_) => panic!("NodeConversation should have prevented sending a Conversation message with send()"),
             },
             Ok(OutgoingMessageType::SignOff(context_id)) => {
-                let _ = inner.conversations.remove (&context_id);
-                let _ = inner.conversations_waiting.remove (&context_id);
+                let _ = services.conversations.remove (&context_id);
+                let _ = services.conversations_waiting.remove (&context_id);
             },
         };
-        inner
+        services
     }
 
     async fn handle_redirect_order(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         redirect_order_opt: Option<RedirectOrder>,
-    ) -> ConnectionDepartment {
+    ) -> ConnectionServices {
         let redirect_order = match redirect_order_opt {
             Some(ro) => ro,
-            None => return inner, // Sender died; ignore
+            None => return services, // Sender died; ignore
         };
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let talker_half = match establish_client_listener(
             redirect_order.port,
             listener_to_manager_tx,
-            inner.close_sig.async_signal.resubscribe(),
+            services.close_sig.async_signal.resubscribe(),
             redirect_order.timeout_millis,
         )
         .await
         {
             Ok(th) => th,
             Err(e) => {
-                let _ = inner
+                let _ = services
                     .redirect_response_tx
                     .send(Err(ClientListenerError::Broken(format!("{:?}", e))));
-                return inner;
+                return services;
             }
         };
-        inner.node_port_opt = Some(redirect_order.port);
-        inner.active_port_opt = Some(redirect_order.port);
-        inner.listener_to_manager_rx = listener_to_manager_rx;
-        inner.ws_client_handle = talker_half;
+        services.node_port_opt = Some(redirect_order.port);
+        services.active_port_opt = Some(redirect_order.port);
+        services.listener_to_manager_rx = listener_to_manager_rx;
+        services.ws_client_handle = talker_half;
         //TODO this is a working solution for conversations; know that a redirected fire-and-forget is just ignored and it does not resend if it's the absolutely first message: GH-487
-        join_all(inner.conversations_waiting.iter().map(|context_id| {
+        join_all(services.conversations_waiting.iter().map(|context_id| {
             let error = if *context_id == redirect_order.context_id {
                 NodeConversationTermination::Resend
             } else {
                 NodeConversationTermination::Graceful
             };
-            inner
+            services
                 .conversations
                 .get(context_id)
                 .expect("conversations_waiting mishandled")
                 .send(Err(error))
         }))
         .await;
-        inner.conversations_waiting.clear();
-        inner
+        services.conversations_waiting.clear();
+        services
             .redirect_response_tx
             .send(Ok(()))
             .expect("ConnectionManager is dead");
-        inner
+        services
     }
 
-    fn handle_active_port_request(inner: ConnectionDepartment) -> ConnectionDepartment {
-        inner
+    fn handle_active_port_request(services: ConnectionServices) -> ConnectionServices {
+        services
             .active_port_response_tx
-            .send(inner.active_port_opt)
+            .send(services.active_port_opt)
             .expect("ConnectionManager is dead");
-        inner
+        services
     }
 
-    async fn handle_close(mut inner: ConnectionDepartment) {
-        let _ = inner.ws_client_handle.close().await;
-        // let _ = inner.ws_client_handle.disconnect().await;
-        // let _ = inner.ws_client_handle.close_talker_half();
+    async fn handle_close(mut services: ConnectionServices) {
+        let _ = services.ws_client_handle.close().await;
     }
 
     async fn fallback(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         termination: NodeConversationTermination,
-    ) -> ConnectionDepartment {
-        inner.node_port_opt = None;
-        match &inner.active_port_opt {
+    ) -> ConnectionServices {
+        services.node_port_opt = None;
+        match &services.active_port_opt {
             None => {
-                inner = Self::disappoint_all_conversations(inner, termination).await;
-                return inner;
+                services = Self::disappoint_all_conversations(services, termination).await;
+                return services;
             }
-            Some(active_port) if *active_port == inner.daemon_port => {
-                inner.active_port_opt = None;
-                inner = Self::disappoint_all_conversations(inner, termination).await;
-                return inner;
+            Some(active_port) if *active_port == services.daemon_port => {
+                services.active_port_opt = None;
+                services = Self::disappoint_all_conversations(services, termination).await;
+                return services;
             }
-            Some(_) => inner.active_port_opt = Some(inner.daemon_port),
+            Some(_) => services.active_port_opt = Some(services.daemon_port),
         }
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
-        inner.listener_to_manager_rx = listener_to_manager_rx;
+        services.listener_to_manager_rx = listener_to_manager_rx;
         match establish_client_listener(
-            inner.active_port_opt.expect("Active port disappeared!"),
+            services.active_port_opt.expect("Active port disappeared!"),
             listener_to_manager_tx,
-            inner.close_sig.dup_receiver(),
+            services.close_sig.dup_receiver(),
             FALLBACK_TIMEOUT_MILLIS,
         )
         .await
         {
-            Ok(talker_half) => inner.ws_client_handle = talker_half,
+            Ok(talker_half) => services.ws_client_handle = talker_half,
             Err(e) => panic!("ClientListenerThread could not be restarted: {:?}", e),
         };
-        inner =
-            Self::disappoint_waiting_conversations(inner, NodeConversationTermination::Fatal).await;
-        inner
+        services =
+            Self::disappoint_waiting_conversations(services, NodeConversationTermination::Fatal)
+                .await;
+        services
     }
 
     async fn disappoint_waiting_conversations(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         error: NodeConversationTermination,
-    ) -> ConnectionDepartment {
-        join_all(inner.conversations_waiting.iter().map(|context_id| {
-            inner
+    ) -> ConnectionServices {
+        join_all(services.conversations_waiting.iter().map(|context_id| {
+            services
                 .conversations
                 .get(context_id)
                 .expect("conversations_waiting mishandled")
                 .send(Err(error))
         }))
         .await;
-        inner.conversations_waiting.clear();
-        inner
+        services.conversations_waiting.clear();
+        services
     }
 
     async fn disappoint_all_conversations(
-        mut inner: ConnectionDepartment,
+        mut services: ConnectionServices,
         error: NodeConversationTermination,
-    ) -> ConnectionDepartment {
+    ) -> ConnectionServices {
         join_all(
-            inner
+            services
                 .conversations
                 .iter()
                 .map(|(_, sender)| sender.send(Err(error))),
         )
         .await;
-        inner.conversations.clear();
-        inner.conversations_waiting.clear();
-        inner
+        services.conversations.clear();
+        services.conversations_waiting.clear();
+        services
     }
 
-    fn send_daemon_crashed(inner: &ConnectionDepartment) {
+    fn send_daemon_crashed(services: &ConnectionServices) {
         let crash_msg = UiNodeCrashedBroadcast {
             process_id: 0,
             crash_reason: CrashReason::DaemonCrashed,
         };
-        inner.broadcast_handles.notify(crash_msg)
+        services.broadcast_handles.notify(crash_msg)
     }
 }
 
@@ -630,7 +632,7 @@ impl CloseSignaler {
     }
 
     pub fn signalize_close(&self) {
-        self.sync_flag.inner.store(true, Ordering::Relaxed);
+        self.sync_flag.services.store(true, Ordering::Relaxed);
         let _ = self.async_signal.send(());
     }
 }
@@ -672,20 +674,20 @@ impl Clone for ClosingStageDetector {
 
 #[derive(Clone)]
 pub struct SyncCloseFlag {
-    inner: Arc<AtomicBool>,
+    services: Arc<AtomicBool>,
 }
 
 impl Default for SyncCloseFlag {
     fn default() -> Self {
         Self {
-            inner: Arc::new(AtomicBool::new(false)),
+            services: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
 impl SyncCloseFlag {
     pub fn masq_is_closing(&self) -> bool {
-        self.inner.load(Ordering::Relaxed)
+        self.services.load(Ordering::Relaxed)
     }
 }
 
@@ -707,9 +709,10 @@ mod tests {
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
     use crate::test_utils::mocks::{BroadcastHandleMock, WSClientHandleMock};
     use async_channel::TryRecvError;
+    use futures::io::{BufReader, BufWriter};
     use masq_lib::messages::{
         CrashReason, FromMessageBody, ToMessageBody, UiFinancialStatistics, UiNodeCrashedBroadcast,
-        UiSetupBroadcast,
+        UiSetupBroadcast, NODE_UI_PROTOCOL,
     };
     use masq_lib::messages::{
         UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest, UiSetupResponse,
@@ -721,6 +724,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::utils::{find_free_port, localhost, running_test};
+    use soketto::handshake::Server;
     use std::fmt::Debug;
     use std::hash::Hash;
     use std::io::ErrorKind;
@@ -729,10 +733,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use std::{io, thread, vec};
     use tokio::net::TcpListener;
-    use tokio_tungstenite::accept_hdr_async;
-    use tokio_tungstenite::tungstenite::handshake::server::{
-        Callback, ErrorResponse, Request, Response,
-    };
+    use tokio_util::compat::TokioAsyncReadCompatExt;
 
     impl ConnectionManager {
         pub fn is_closing(&self) -> bool {
@@ -750,7 +751,7 @@ mod tests {
         pub fn make_for_test() -> (CloseSignaler, ClosingStageDetector) {
             let (tx, rx) = tokio::sync::broadcast::channel(10);
             let sync_flag = SyncCloseFlag {
-                inner: Arc::new(AtomicBool::new(false)),
+                services: Arc::new(AtomicBool::new(false)),
             };
             let close_sig = ClosingStageDetector {
                 async_signal: rx,
@@ -793,11 +794,13 @@ mod tests {
 
     #[tokio::test]
     async fn handle_demand_brings_the_party_to_a_close_if_the_channel_fails() {
-        let inner = make_inner().await;
+        let services = make_inner().await;
 
-        let inner = CentralEventLoop::handle_demand(inner, None).await.unwrap();
+        let services = CentralEventLoop::handle_demand(services, None)
+            .await
+            .unwrap();
 
-        assert_eq!(inner.active_port_opt, None);
+        assert_eq!(services.active_port_opt, None);
     }
 
     #[tokio::test]
@@ -885,25 +888,27 @@ mod tests {
         let message1 = UiUnmarshalError {
             message: "Message 1".to_string(),
             bad_data: "Data 1".to_string(),
-        }
-        .tmb(0);
+        };
         let message2 = UiUnmarshalError {
             message: "Message 2".to_string(),
             bad_data: "Data 2".to_string(),
-        }
-        .tmb(0);
+        };
 
-        conversation.send(message1.clone()).await.unwrap();
-        conversation.send(message2.clone()).await.unwrap();
+        conversation.send(message1.clone().tmb(0)).await.unwrap();
+        conversation.send(message2.clone().tmb(0)).await.unwrap();
 
-        let mut outgoing_messages = stop_handle.stop(StopStrategy::Abort).await;
+        let mut recorded = stop_handle.stop(StopStrategy::Abort).await;
+        let faf_1 = recorded.requests.remove(0);
         assert_eq!(
-            outgoing_messages.requests,
-            vec![
-                MWSSMessage::MessageBody(message1),
-                MWSSMessage::MessageBody(message2)
-            ]
+            UiUnmarshalError::fmb(faf_1.message_body()).unwrap().0,
+            message1
         );
+        let faf_2 = recorded.requests.remove(0);
+        assert_eq!(
+            UiUnmarshalError::fmb(faf_2.message_body()).unwrap().0,
+            message2
+        );
+        assert!(recorded.requests.is_empty());
     }
 
     #[tokio::test]
@@ -927,25 +932,25 @@ mod tests {
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (conversation_return_tx, mut conversation_return_rx) = unbounded_channel();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
-        let mut inner = make_inner().await;
-        inner.next_context_id = 1;
-        inner.conversation_return_tx = conversation_return_tx;
-        inner.listener_to_manager_rx = listener_to_manager_rx;
-        inner.conversations_to_manager_tx = conversations_to_manager_tx;
-        inner.conversations_to_manager_rx = conversations_to_manager_rx;
-        inner.ws_client_handle = client_listener_handle;
-        inner.redirect_order_rx = redirect_order_rx;
-        inner.demand_rx = demand_rx;
+        let mut services = make_inner().await;
+        services.next_context_id = 1;
+        services.conversation_return_tx = conversation_return_tx;
+        services.listener_to_manager_rx = listener_to_manager_rx;
+        services.conversations_to_manager_tx = conversations_to_manager_tx;
+        services.conversations_to_manager_rx = conversations_to_manager_rx;
+        services.ws_client_handle = client_listener_handle;
+        services.redirect_order_rx = redirect_order_rx;
+        services.demand_rx = demand_rx;
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
         let conversation1 = conversation_return_rx.try_recv().unwrap();
         let (conversation1_tx, conversation1_rx) = conversation1.tx_rx();
         demand_tx.send(Demand::Conversation).unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
         let conversation2 = conversation_return_rx.try_recv().unwrap();
         let (conversation2_tx, conversation2_rx) = conversation2.tx_rx();
-        let get_existing_keys = |inner: &ConnectionDepartment| {
-            inner
+        let get_existing_keys = |services: &ConnectionServices| {
+            services
                 .conversations
                 .iter()
                 .map(|(k, _)| *k)
@@ -953,8 +958,8 @@ mod tests {
         };
 
         // Conversations 1 and 2, nobody waiting
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![1, 2]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![]));
 
         // Send request from Conversation 1 and process it
         conversation1_tx
@@ -963,11 +968,11 @@ mod tests {
             ))
             .await
             .unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap(); // send request 1
+        services = CentralEventLoop::loop_guts(services).await.unwrap(); // send request 1
 
         // Conversations 1 and 2, 1 waiting
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![1]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![1, 2]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![1]));
 
         // Send request from Conversation 2 and process it
         conversation2_tx
@@ -976,73 +981,73 @@ mod tests {
             ))
             .await
             .unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
 
         // Conversations 1 and 2, 1 and 2 waiting
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![1, 2]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![1, 2]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![1, 2]));
 
         // Receive response for Conversation 2, process it, pull it out
         let response2 = UiShutdownResponse {}.tmb(2);
         assert_eq!(response2.path, MessagePath::Conversation(2));
         listener_to_manager_tx.send(Ok(response2)).unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
         let result2 = conversation2_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, 1 still waiting
         assert_eq!(result2, UiShutdownResponse {}.tmb(2));
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![1]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![1, 2]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![1]));
 
         // Receive response for Conversation 1, process it, pull it out
         let response1 = UiShutdownResponse {}.tmb(1);
         assert_eq!(response1.path, MessagePath::Conversation(1));
         listener_to_manager_tx.send(Ok(response1)).unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
         let result1 = conversation1_rx.try_recv().unwrap().unwrap();
 
         // Conversations 1 and 2, nobody waiting
         assert_eq!(result1, UiShutdownResponse {}.tmb(1));
         assert_eq!(result2, UiShutdownResponse {}.tmb(2));
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![1, 2]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![]));
 
         // Conversation 1 signals exit; process it
         conversation1_tx
             .send(OutgoingMessageType::SignOff(1))
             .await
             .unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
 
         // Only Conversation 2, nobody waiting
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![2]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![2]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![]));
 
         // Conversation 2 signals exit; process it
         conversation2_tx
             .send(OutgoingMessageType::SignOff(2))
             .await
             .unwrap();
-        inner = CentralEventLoop::loop_guts(inner).await.unwrap();
+        services = CentralEventLoop::loop_guts(services).await.unwrap();
 
         // No more conversations, nobody waiting
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![]));
-        assert_eq!(inner.conversations_waiting, vec_to_set(vec![]));
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![]));
+        assert_eq!(services.conversations_waiting, vec_to_set(vec![]));
     }
 
     #[tokio::test]
     async fn when_fallback_fails_daemon_crash_broadcast_is_sent() {
-        let mut inner = make_inner().await;
+        let mut services = make_inner().await;
         let broadcast_handle_send_params_arc = Arc::new(Mutex::new(vec![]));
         let standard_broadcast_handle =
             BroadcastHandleMock::default().send_params(&broadcast_handle_send_params_arc);
-        inner.active_port_opt = None;
-        inner.broadcast_handles = BroadcastHandles::new(
+        services.active_port_opt = None;
+        services.broadcast_handles = BroadcastHandles::new(
             Box::new(standard_broadcast_handle),
             Box::new(BroadcastHandleMock::default()),
         );
 
-        CentralEventLoop::spawn(inner).await.unwrap();
+        CentralEventLoop::spawn(services).await.unwrap();
 
         let mut broadcast_handle_send_params = broadcast_handle_send_params_arc.lock().unwrap();
         let message_body: MessageBody = (*broadcast_handle_send_params).remove(0);
@@ -1058,15 +1063,15 @@ mod tests {
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let (decoy_tx, decoy_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.active_port_opt = Some(node_port);
-        inner.daemon_port = daemon_port;
-        inner.node_port_opt = Some(node_port);
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations.insert(5, decoy_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.active_port_opt = Some(node_port);
+        services.daemon_port = daemon_port;
+        services.node_port_opt = Some(node_port);
+        services.conversations.insert(4, conversation_tx);
+        services.conversations.insert(5, decoy_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::handle_incoming_message_body(inner, None).await;
+        let services = CentralEventLoop::handle_incoming_message_body(services, None).await;
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1074,12 +1079,12 @@ mod tests {
             Err(NodeConversationTermination::Fatal)
         );
         assert_eq!(decoy_rx.try_recv().is_err(), true); // no disconnect notification sent to conversation not waiting
-        assert_eq!(inner.active_port_opt, Some(daemon_port));
-        assert_eq!(inner.daemon_port, daemon_port);
-        assert_eq!(inner.node_port_opt, None);
-        assert_eq!(inner.conversations_waiting.is_empty(), true);
+        assert_eq!(services.active_port_opt, Some(daemon_port));
+        assert_eq!(services.daemon_port, daemon_port);
+        assert_eq!(services.node_port_opt, None);
+        assert_eq!(services.conversations_waiting.is_empty(), true);
         let _inner = CentralEventLoop::handle_outgoing_message_body(
-            inner,
+            services,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
             )),
@@ -1099,15 +1104,16 @@ mod tests {
         let unoccupied_port = find_free_port();
         let (waiting_conversation_tx, waiting_conversation_rx) = async_channel::unbounded();
         let (idle_conversation_tx, idle_conversation_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.daemon_port = unoccupied_port;
-        inner.active_port_opt = Some(unoccupied_port);
-        inner.node_port_opt = None;
-        inner.conversations.insert(4, waiting_conversation_tx);
-        inner.conversations.insert(5, idle_conversation_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.daemon_port = unoccupied_port;
+        services.active_port_opt = Some(unoccupied_port);
+        services.node_port_opt = None;
+        services.conversations.insert(4, waiting_conversation_tx);
+        services.conversations.insert(5, idle_conversation_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
+        let services =
+            CentralEventLoop::fallback(services, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1119,9 +1125,9 @@ mod tests {
             disconnect_notification,
             Err(NodeConversationTermination::Fatal)
         );
-        assert_eq!(inner.daemon_port, unoccupied_port);
-        assert_eq!(inner.active_port_opt, None);
-        assert_eq!(inner.node_port_opt, None);
+        assert_eq!(services.daemon_port, unoccupied_port);
+        assert_eq!(services.active_port_opt, None);
+        assert_eq!(services.node_port_opt, None);
     }
 
     #[tokio::test]
@@ -1129,15 +1135,16 @@ mod tests {
         let unoccupied_port = find_free_port();
         let (waiting_conversation_tx, waiting_conversation_rx) = async_channel::unbounded();
         let (idle_conversation_tx, idle_conversation_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.daemon_port = unoccupied_port;
-        inner.active_port_opt = None;
-        inner.node_port_opt = None;
-        inner.conversations.insert(4, waiting_conversation_tx);
-        inner.conversations.insert(5, idle_conversation_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.daemon_port = unoccupied_port;
+        services.active_port_opt = None;
+        services.node_port_opt = None;
+        services.conversations.insert(4, waiting_conversation_tx);
+        services.conversations.insert(5, idle_conversation_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::fallback(inner, NodeConversationTermination::Fatal).await;
+        let services =
+            CentralEventLoop::fallback(services, NodeConversationTermination::Fatal).await;
 
         let disconnect_notification = waiting_conversation_rx.try_recv().unwrap();
         assert_eq!(
@@ -1149,20 +1156,20 @@ mod tests {
             disconnect_notification,
             Err(NodeConversationTermination::Fatal)
         );
-        assert_eq!(inner.daemon_port, unoccupied_port);
-        assert_eq!(inner.active_port_opt, None);
-        assert_eq!(inner.node_port_opt, None);
+        assert_eq!(services.daemon_port, unoccupied_port);
+        assert_eq!(services.active_port_opt, None);
+        assert_eq!(services.node_port_opt, None);
     }
 
     #[tokio::test]
     async fn handle_redirect_order_handles_rejection_from_node() {
         let node_port = find_free_port(); // won't put anything on this port
         let (redirect_response_tx, mut redirect_response_rx) = unbounded_channel();
-        let mut inner = make_inner().await;
-        inner.redirect_response_tx = redirect_response_tx;
+        let mut services = make_inner().await;
+        services.redirect_response_tx = redirect_response_tx;
 
         CentralEventLoop::handle_redirect_order(
-            inner,
+            services,
             Some(RedirectOrder::new(node_port, 0, 1000)),
         )
         .await;
@@ -1189,28 +1196,28 @@ mod tests {
             .into_iter()
             .collect();
         let conversations_waiting = vec_to_set(vec![1, 2]);
-        let mut inner = make_inner().await;
-        inner.redirect_response_tx = redirect_response_tx;
-        inner.conversations = conversations;
-        inner.conversations_waiting = conversations_waiting;
+        let mut services = make_inner().await;
+        services.redirect_response_tx = redirect_response_tx;
+        services.conversations = conversations;
+        services.conversations_waiting = conversations_waiting;
 
-        inner = CentralEventLoop::handle_redirect_order(
-            inner,
+        services = CentralEventLoop::handle_redirect_order(
+            services,
             Some(RedirectOrder::new(node_port, 1, 1000)),
         )
         .await;
 
         //TODO remove the commented out code
-        // wait_on_establishing_connection(inner.ws_client_handle.as_ref()).await;
-        let get_existing_keys = |inner: &ConnectionDepartment| {
-            inner
+        // wait_on_establishing_connection(services.ws_client_handle.as_ref()).await;
+        let get_existing_keys = |services: &ConnectionServices| {
+            services
                 .conversations
                 .iter()
                 .map(|(k, _)| *k)
                 .collect::<HashSet<u64>>()
         };
-        assert_eq!(get_existing_keys(&inner), vec_to_set(vec![1, 2]));
-        assert_eq!(inner.conversations_waiting.is_empty(), true);
+        assert_eq!(get_existing_keys(&services), vec_to_set(vec![1, 2]));
+        assert_eq!(services.conversations_waiting.is_empty(), true);
         assert_eq!(
             conversation1_rx.recv().await.unwrap(),
             Err(NodeConversationTermination::Resend)
@@ -1227,15 +1234,15 @@ mod tests {
         let daemon_port = find_free_port();
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let (decoy_tx, decoy_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.active_port_opt = Some(daemon_port);
-        inner.daemon_port = daemon_port;
-        inner.node_port_opt = None;
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations.insert(5, decoy_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.active_port_opt = Some(daemon_port);
+        services.daemon_port = daemon_port;
+        services.node_port_opt = None;
+        services.conversations.insert(4, conversation_tx);
+        services.conversations.insert(5, decoy_tx);
+        services.conversations_waiting.insert(4);
 
-        let _ = CentralEventLoop::handle_incoming_message_body(inner, None).await;
+        let _ = CentralEventLoop::handle_incoming_message_body(services, None).await;
 
         let disappointment = conversation_rx.try_recv().unwrap();
         assert_eq!(disappointment, Err(NodeConversationTermination::Fatal));
@@ -1251,34 +1258,34 @@ mod tests {
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
         let (decoy_tx, decoy_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.active_port_opt = Some(node_port);
-        inner.daemon_port = daemon_port;
-        inner.node_port_opt = Some(node_port);
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations.insert(5, decoy_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.active_port_opt = Some(node_port);
+        services.daemon_port = daemon_port;
+        services.node_port_opt = Some(node_port);
+        services.conversations.insert(4, conversation_tx);
+        services.conversations.insert(5, decoy_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::handle_incoming_message_body(
-            inner,
+        let services = CentralEventLoop::handle_incoming_message_body(
+            services,
             Some(Err(ClientListenerError::Broken("Booga".to_string()))),
         )
         .await;
 
         // TODO remove the commented out code
-        // wait_on_establishing_connection(inner.ws_client_handle.as_ref()).await;
+        // wait_on_establishing_connection(services.ws_client_handle.as_ref()).await;
         let disconnect_notification = conversation_rx.try_recv().unwrap();
         assert_eq!(
             disconnect_notification,
             Err(NodeConversationTermination::Fatal)
         );
         assert_eq!(decoy_rx.try_recv().is_err(), true); // no disconnect notification sent to conversation not waiting
-        assert_eq!(inner.active_port_opt, Some(daemon_port));
-        assert_eq!(inner.daemon_port, daemon_port);
-        assert_eq!(inner.node_port_opt, None);
-        assert_eq!(inner.conversations_waiting.is_empty(), true);
+        assert_eq!(services.active_port_opt, Some(daemon_port));
+        assert_eq!(services.daemon_port, daemon_port);
+        assert_eq!(services.node_port_opt, None);
+        assert_eq!(services.conversations_waiting.is_empty(), true);
         let _inner = CentralEventLoop::handle_outgoing_message_body(
-            inner,
+            services,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(4),
             )),
@@ -1299,24 +1306,24 @@ mod tests {
         let daemon_port = find_free_port();
         let node_port = find_free_port();
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.active_port_opt = Some(node_port);
-        inner.daemon_port = daemon_port;
-        inner.node_port_opt = Some(node_port);
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.active_port_opt = Some(node_port);
+        services.daemon_port = daemon_port;
+        services.node_port_opt = Some(node_port);
+        services.conversations.insert(4, conversation_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::handle_incoming_message_body(
-            inner,
+        let services = CentralEventLoop::handle_incoming_message_body(
+            services,
             Some(Err(ClientListenerError::UnexpectedPacket)),
         )
         .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no disconnect notification sent
-        assert_eq!(inner.active_port_opt, Some(node_port));
-        assert_eq!(inner.daemon_port, daemon_port);
-        assert_eq!(inner.node_port_opt, Some(node_port));
-        assert_eq!(inner.conversations_waiting.is_empty(), false);
+        assert_eq!(services.active_port_opt, Some(node_port));
+        assert_eq!(services.daemon_port, daemon_port);
+        assert_eq!(services.node_port_opt, Some(node_port));
+        assert_eq!(services.conversations_waiting.is_empty(), false);
     }
 
     #[tokio::test]
@@ -1331,22 +1338,22 @@ mod tests {
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let standard_broadcast_handle =
             BroadcastHandleMock::default().send_params(&send_params_arc);
-        let mut inner = make_inner().await;
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations_waiting.insert(4);
-        inner.broadcast_handles = BroadcastHandles::new(
+        let mut services = make_inner().await;
+        services.conversations.insert(4, conversation_tx);
+        services.conversations_waiting.insert(4);
+        services.broadcast_handles = BroadcastHandles::new(
             Box::new(standard_broadcast_handle),
             Box::new(BroadcastHandleMock::default()),
         );
 
-        let inner = CentralEventLoop::handle_incoming_message_body(
-            inner,
+        let services = CentralEventLoop::handle_incoming_message_body(
+            services,
             Some(Ok(incoming_message.clone())),
         )
         .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no message to any conversation
-        assert_eq!(inner.conversations_waiting.is_empty(), false);
+        assert_eq!(services.conversations_waiting.is_empty(), false);
         let send_params = send_params_arc.lock().unwrap();
         assert_eq!(*send_params, vec![incoming_message]);
     }
@@ -1376,7 +1383,8 @@ mod tests {
         let node_stop_handle = node_server.start().await;
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new (daemon_port)
-            .queue_response (UiRedirect {
+            .opening_faf_on_trigger()
+            .queue_response(UiRedirect {
                 port: node_port,
                 opcode: "financials".to_string(),
                 context_id: Some(1),
@@ -1387,22 +1395,28 @@ mod tests {
             stats_required: true,
             top_records_opt: None,
             custom_queries_opt: None,
-        }
-        .tmb(1);
+        };
         let bootstrapper = CMBootstrapper::default();
         let subject = bootstrapper
             .establish_connection_manager(daemon_port, None)
             .await
             .unwrap();
         let active_ui_port_before_redirect = subject.active_ui_port().await.unwrap();
-        // TODO remove this commented out code
-        //daemon_stop_handle.await_conn_established(None).await;
         let conversation = subject.start_conversation().await;
 
-        let result = conversation.transact(request.clone(), 1000).await.unwrap();
+        let result = conversation
+            .transact(request.clone().tmb(1), 1000)
+            .await
+            .unwrap();
 
-        let requests = node_stop_handle.stop(StopStrategy::Abort).await;
-        assert_eq!(requests.requests, vec![MWSSMessage::MessageBody(request)]);
+        let active_ui_port_after_redirect = subject.active_ui_port().await.unwrap();
+        let mut recorded = node_stop_handle.stop(StopStrategy::Abort).await;
+        let recorded_request = recorded.requests.remove(0);
+        assert_eq!(
+            UiFinancialsRequest::fmb(recorded_request.message_body()).unwrap(),
+            (request, 1)
+        );
+        assert!(recorded.requests.is_empty());
         let (response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         assert_eq!(
             response,
@@ -1417,7 +1431,6 @@ mod tests {
             }
         );
         assert_eq!(context_id, 1);
-        let active_ui_port_after_redirect = subject.active_ui_port().await.unwrap();
         assert_eq!(active_ui_port_before_redirect, daemon_port);
         assert_eq!(active_ui_port_after_redirect, node_port)
     }
@@ -1431,18 +1444,18 @@ mod tests {
         }
         .tmb(3);
         let (conversation_tx, conversation_rx) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.conversations.insert(4, conversation_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::handle_incoming_message_body(
-            inner,
+        let services = CentralEventLoop::handle_incoming_message_body(
+            services,
             Some(Ok(incoming_message.clone())),
         )
         .await;
 
         assert_eq!(conversation_rx.try_recv().is_err(), true); // no message to any conversation
-        assert_eq!(inner.conversations_waiting.is_empty(), false);
+        assert_eq!(services.conversations_waiting.is_empty(), false);
     }
 
     #[tokio::test]
@@ -1454,31 +1467,31 @@ mod tests {
         }
         .tmb(4);
         let (conversation_tx, _) = async_channel::unbounded();
-        let mut inner = make_inner().await;
-        inner.conversations.insert(4, conversation_tx);
-        inner.conversations_waiting.insert(4);
+        let mut services = make_inner().await;
+        services.conversations.insert(4, conversation_tx);
+        services.conversations_waiting.insert(4);
 
-        let inner = CentralEventLoop::handle_incoming_message_body(
-            inner,
+        let services = CentralEventLoop::handle_incoming_message_body(
+            services,
             Some(Ok(incoming_message.clone())),
         )
         .await;
 
-        assert_eq!(inner.conversations.is_empty(), true);
-        assert_eq!(inner.conversations_waiting.is_empty(), true);
+        assert_eq!(services.conversations.is_empty(), true);
+        assert_eq!(services.conversations_waiting.is_empty(), true);
     }
 
     #[tokio::test]
     async fn handles_failed_conversation_requester() {
-        let mut inner = make_inner().await;
+        let mut services = make_inner().await;
         let (conversation_return_tx, _) = unbounded_channel();
-        inner.next_context_id = 42;
-        inner.conversation_return_tx = conversation_return_tx;
+        services.next_context_id = 42;
+        services.conversation_return_tx = conversation_return_tx;
 
-        let inner = CentralEventLoop::handle_conversation_trigger(inner);
+        let services = CentralEventLoop::handle_conversation_trigger(services);
 
-        assert_eq!(inner.next_context_id, 43);
-        assert_eq!(inner.conversations.is_empty(), true);
+        assert_eq!(services.next_context_id, 43);
+        assert_eq!(services.conversations.is_empty(), true);
     }
 
     #[tokio::test]
@@ -1494,20 +1507,20 @@ mod tests {
                 .unwrap();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
         let (_redirect_order_tx, redirect_order_rx) = unbounded_channel();
-        let mut inner = make_inner().await;
-        inner.next_context_id = 1;
-        inner.conversations_to_manager_tx = conversations_to_manager_tx;
-        inner.conversations_to_manager_rx = conversations_to_manager_rx;
-        inner.listener_to_manager_rx = listener_to_manager_rx;
-        inner.ws_client_handle = client_listener_handle;
-        inner.redirect_order_rx = redirect_order_rx;
+        let mut services = make_inner().await;
+        services.next_context_id = 1;
+        services.conversations_to_manager_tx = conversations_to_manager_tx;
+        services.conversations_to_manager_rx = conversations_to_manager_rx;
+        services.listener_to_manager_rx = listener_to_manager_rx;
+        services.ws_client_handle = client_listener_handle;
+        services.redirect_order_rx = redirect_order_rx;
         let outgoing_message = UiUnmarshalError {
             message: "".to_string(),
             bad_data: "".to_string(),
         };
 
         let _inner = CentralEventLoop::handle_outgoing_message_body(
-            inner,
+            services,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 outgoing_message.clone().tmb(0),
                 1,
@@ -1543,14 +1556,14 @@ mod tests {
         let send_error = Err(Error::Io(io::Error::from(ErrorKind::NotConnected)));
         let client_listener_handle =
             Box::new(WSClientHandleMock::default().send_result(send_error));
-        let mut inner = make_inner().await;
-        inner.daemon_port = daemon_port;
-        inner.conversations = conversations;
-        inner.conversations_waiting = vec_to_set(vec![2, 3]);
-        inner.ws_client_handle = client_listener_handle;
+        let mut services = make_inner().await;
+        services.daemon_port = daemon_port;
+        services.conversations = conversations;
+        services.conversations_waiting = vec_to_set(vec![2, 3]);
+        services.ws_client_handle = client_listener_handle;
 
-        inner = CentralEventLoop::handle_outgoing_message_body(
-            inner,
+        services = CentralEventLoop::handle_outgoing_message_body(
+            services,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(2),
             )),
@@ -1566,7 +1579,7 @@ mod tests {
             conversation3_rx.recv().await,
             Ok(Err(NodeConversationTermination::Fatal))
         ); // innocent bystander
-        assert_eq!(inner.conversations_waiting.is_empty(), true);
+        assert_eq!(services.conversations_waiting.is_empty(), true);
     }
 
     #[tokio::test]
@@ -1577,20 +1590,20 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashMap<u64, ManagerToConversationSender>>();
-        let mut inner = make_inner().await;
-        inner.conversations = conversations;
-        inner.conversations_waiting = vec_to_set(vec![1]);
+        let mut services = make_inner().await;
+        services.conversations = conversations;
+        services.conversations_waiting = vec_to_set(vec![1]);
 
-        inner = CentralEventLoop::handle_outgoing_message_body(
-            inner,
+        services = CentralEventLoop::handle_outgoing_message_body(
+            services,
             Ok(OutgoingMessageType::ConversationMessage(
                 UiSetupRequest { values: vec![] }.tmb(42),
             )),
         )
         .await;
 
-        assert_eq!(inner.conversations.len(), 2);
-        assert_eq!(inner.conversations_waiting.len(), 1);
+        assert_eq!(services.conversations.len(), 2);
+        assert_eq!(services.conversations_waiting.len(), 1);
     }
 
     #[tokio::test]
@@ -1610,24 +1623,24 @@ mod tests {
         .collect::<HashMap<u64, ManagerToConversationSender>>();
         let send_error = Err(Error::Io(io::Error::from(ErrorKind::NotConnected)));
         let ws_client_handle = Box::new(WSClientHandleMock::default().send_result(send_error));
-        let mut inner = make_inner().await;
-        inner.daemon_port = daemon_port;
-        inner.conversations = conversations;
-        inner.conversations_waiting = vec_to_set(vec![2, 3]);
-        inner.ws_client_handle = ws_client_handle;
+        let mut services = make_inner().await;
+        services.daemon_port = daemon_port;
+        services.conversations = conversations;
+        services.conversations_waiting = vec_to_set(vec![2, 3]);
+        services.ws_client_handle = ws_client_handle;
         //TODO remove me if it works on MasOs without
         // #[cfg(target_os = "macos")]
         // {
         //     // macOS doesn't fail sends until some time after the pipe is broken: weird! Sick!
-        //     let _ = inner.talker_half.sender.send_message(
-        //         &mut inner.talker_half.stream,
+        //     let _ = services.talker_half.sender.send_message(
+        //         &mut services.talker_half.stream,
         //         &OwnedMessage::Text("booga".to_string()),
         //     );
         //     thread::sleep(Duration::from_millis(500));
         // }
 
-        inner = CentralEventLoop::handle_outgoing_message_body(
-            inner,
+        services = CentralEventLoop::handle_outgoing_message_body(
+            services,
             Ok(OutgoingMessageType::FireAndForgetMessage(
                 UiUnmarshalError {
                     message: String::new(),
@@ -1648,7 +1661,7 @@ mod tests {
             conversation3_rx.try_recv(),
             Ok(Err(NodeConversationTermination::Fatal))
         ); // innocent bystander
-        assert_eq!(inner.conversations_waiting.is_empty(), true);
+        assert_eq!(services.conversations_waiting.is_empty(), true);
     }
 
     #[tokio::test]
@@ -1712,37 +1725,31 @@ mod tests {
         };
     }
 
-    struct LanguishingHandshakeCallback {}
-
-    impl Callback for LanguishingHandshakeCallback {
-        fn on_request(
-            self,
-            request: &Request,
-            _response: Response,
-        ) -> Result<Response, ErrorResponse> {
-            thread::sleep(Duration::from_millis(10));
-            panic!("We shouldn't get to see this panic")
-        }
-    }
-
     #[tokio::test]
     async fn establish_client_listener_times_out() {
         let port = find_free_port();
         let (tx, _rx) = unbounded_channel();
         let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+        let (background_task_ready_tx, background_task_ready_rx) = tokio::sync::oneshot::channel();
+        let (finish_background_task_tx, finish_background_task_rx) =
+            tokio::sync::oneshot::channel();
         let timeout_ms = 1;
         let _server = tokio::task::spawn(async move {
+            background_task_ready_tx.send(()).unwrap();
             let listener = TcpListener::bind(SocketAddr::new(localhost(), port))
                 .await
                 .unwrap();
-            let (tcp, _) = listener.accept().await.unwrap();
-            accept_hdr_async(tcp, LanguishingHandshakeCallback {})
-                .await
-                .unwrap()
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
+            server.add_protocol(NODE_UI_PROTOCOL);
+            let req = server.receive_request().await;
+            finish_background_task_rx.await
         });
+        background_task_ready_rx.await.unwrap();
 
         let result = establish_client_listener(port, tx, close_rx, timeout_ms).await;
 
+        finish_background_task_tx.send(()).unwrap();
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("We expected an error but got ok"),
@@ -1753,9 +1760,9 @@ mod tests {
     #[tokio::test]
     #[should_panic(expected = "Conversations to manager channel died unexpectedly")]
     async fn handle_outgoing_message_body_detects_dead_channel() {
-        let inner = make_inner().await;
+        let services = make_inner().await;
 
-        let _ = CentralEventLoop::handle_outgoing_message_body(inner, Err(RecvError)).await;
+        let _ = CentralEventLoop::handle_outgoing_message_body(services, Err(RecvError)).await;
     }
 
     #[tokio::test]
@@ -1806,12 +1813,12 @@ mod tests {
         )
     }
 
-    async fn make_inner() -> ConnectionDepartment {
+    async fn make_inner() -> ConnectionServices {
         let broadcast_handles = BroadcastHandles::new(
             Box::new(BroadcastHandleMock::default()),
             Box::new(BroadcastHandleMock::default()),
         );
-        ConnectionDepartment {
+        ConnectionServices {
             active_port_opt: Some(0),
             daemon_port: 0,
             node_port_opt: None,

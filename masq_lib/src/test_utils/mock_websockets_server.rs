@@ -1,38 +1,30 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::NODE_UI_PROTOCOL;
-use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
+use crate::ui_gateway::{MessageBody, MessagePath};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crate::websockets_types::{WSReceiver, WSSender};
-use async_trait::async_trait;
 use futures::io::{BufReader, BufWriter};
 use lazy_static::lazy_static;
-use nix::libc::aio_return;
 use rustc_hex::ToHex;
 use soketto::base::OpCode;
-use soketto::connection::{CloseReason, Error, Receiver, Sender};
-use soketto::data::ByteSlice125;
-use soketto::handshake::{server::Response, ClientRequest, Server};
+use soketto::connection::Error;
+use soketto::handshake::{server::Response, Server};
 use soketto::Data as SokettoDataType;
-use soketto::Incoming as SokettoIncomingType;
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::Not;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::oneshot::Receiver as OneShotReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -71,7 +63,6 @@ impl MWSSMessage {
     pub async fn send(self, sender: &mut WSSender) {
         match self {
             MWSSMessage::MessageBody(body) => {
-                let opcode = body.opcode.clone();
                 let json = UiTrafficConverter::new_marshal(body);
                 Self::send_data_message(
                     sender,
@@ -128,6 +119,7 @@ pub struct MockWebsocketServerHandle {
 pub struct MockWebSocketsServer {
     port: u16,
     accepted_protocol_opt: Option<String>,
+    opening_faf_on_trigger: bool,
     responses: Vec<MWSSMessage>,
     do_log: bool,
 }
@@ -137,6 +129,7 @@ impl MockWebSocketsServer {
         Self {
             port,
             accepted_protocol_opt: Some(NODE_UI_PROTOCOL.to_string()),
+            opening_faf_on_trigger: false,
             responses: vec![],
             do_log: false,
         }
@@ -148,6 +141,12 @@ impl MockWebSocketsServer {
 
     pub fn accepted_protocol(mut self, protocol_opt: Option<&str>) -> Self {
         self.accepted_protocol_opt = protocol_opt.map(|p| p.to_string());
+        self
+    }
+
+    // E.g. required for testing a redirect where a conversational message is followed by a faf msg
+    pub fn opening_faf_on_trigger(mut self) -> Self {
+        self.opening_faf_on_trigger = true;
         self
     }
 
@@ -203,6 +202,7 @@ impl MockWebSocketsServer {
         let proposed_protocols_inner_arc = proposed_protocols_arc.clone();
         let requests_inner_arc = requests_arc.clone();
         let mut responses = self.responses;
+        let opening_faf_on_trigger = self.opening_faf_on_trigger;
         let connection_future = async move {
             let (mut sender, mut receiver) = Self::make_connection(
                 tcp_listener,
@@ -211,7 +211,9 @@ impl MockWebSocketsServer {
             )
             .await;
             let mut data = Vec::new();
-            Self::send_faf_messages(&mut sender, &mut responses).await;
+            if !opening_faf_on_trigger {
+                Self::send_faf_messages(&mut sender, &mut responses).await;
+            }
             Self::handling_loop(
                 sender,
                 &mut receiver,
@@ -381,6 +383,16 @@ impl MockWebSocketsServer {
             }
         };
         requests_arc.lock().unwrap().push(message);
+    }
+
+    async fn send_opening_faf_messages(
+        &self,
+        sender: &mut WSSender,
+        responses: &mut Vec<MWSSMessage>,
+    ) {
+        if !self.opening_faf_on_trigger {
+            Self::send_faf_messages(sender, responses).await
+        }
     }
 
     async fn send_faf_messages(sender: &mut WSSender, responses: &mut Vec<MWSSMessage>) {
