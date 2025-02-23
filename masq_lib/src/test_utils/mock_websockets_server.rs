@@ -11,7 +11,7 @@ use rustc_hex::ToHex;
 use soketto::base::OpCode;
 use soketto::connection::Error;
 use soketto::handshake::{server::Response, Server};
-use soketto::Data as SokettoDataType;
+use soketto::{Data as SokettoDataType, Incoming};
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::Write;
@@ -119,8 +119,9 @@ pub struct MockWebsocketServerHandle {
 pub struct MockWebSocketsServer {
     port: u16,
     accepted_protocol_opt: Option<String>,
-    opening_faf_on_trigger: bool,
     responses: Vec<MWSSMessage>,
+    opening_faf_triggered_by_msg: bool,
+    await_close_handshake_completion: bool,
     do_log: bool,
 }
 
@@ -129,8 +130,9 @@ impl MockWebSocketsServer {
         Self {
             port,
             accepted_protocol_opt: Some(NODE_UI_PROTOCOL.to_string()),
-            opening_faf_on_trigger: false,
             responses: vec![],
+            opening_faf_triggered_by_msg: false,
+            await_close_handshake_completion: false,
             do_log: false,
         }
     }
@@ -145,8 +147,13 @@ impl MockWebSocketsServer {
     }
 
     // E.g. required for testing a redirect where a conversational message is followed by a faf msg
-    pub fn opening_faf_on_trigger(mut self) -> Self {
-        self.opening_faf_on_trigger = true;
+    pub fn opening_faf_triggered_by_msg(mut self) -> Self {
+        self.opening_faf_triggered_by_msg = true;
+        self
+    }
+
+    pub fn await_close_handshake_completion(mut self) -> Self {
+        self.await_close_handshake_completion = true;
         self
     }
 
@@ -202,7 +209,9 @@ impl MockWebSocketsServer {
         let proposed_protocols_inner_arc = proposed_protocols_arc.clone();
         let requests_inner_arc = requests_arc.clone();
         let mut responses = self.responses;
-        let opening_faf_on_trigger = self.opening_faf_on_trigger;
+        let opening_faf_triggered_by_msg = self.opening_faf_triggered_by_msg;
+        let await_close_handshake_completion = self.await_close_handshake_completion;
+
         let connection_future = async move {
             let (mut sender, mut receiver) = Self::make_connection(
                 tcp_listener,
@@ -210,17 +219,16 @@ impl MockWebSocketsServer {
                 self.accepted_protocol_opt.clone(),
             )
             .await;
-            let mut data = Vec::new();
-            if !opening_faf_on_trigger {
+            if !opening_faf_triggered_by_msg {
                 Self::send_faf_messages(&mut sender, &mut responses).await;
             }
             Self::handling_loop(
                 sender,
-                &mut receiver,
-                &mut data,
-                &requests_inner_arc,
+                receiver,
+                requests_inner_arc,
                 &mut responses,
                 termination_rx,
+                await_close_handshake_completion,
             )
             .await
         };
@@ -239,11 +247,11 @@ impl MockWebSocketsServer {
 
     async fn handling_loop(
         mut sender: WSSender,
-        receiver: &mut WSReceiver,
-        data: &mut Vec<u8>,
-        requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
+        mut receiver: WSReceiver,
+        requests_inner_arc: Arc<Mutex<Vec<MWSSMessage>>>,
         responses: &mut Vec<MWSSMessage>,
         termination_rx: OneShotReceiver<StopStrategy>,
+        await_close_handshake_completion: bool,
     ) {
         let deadline_if_no_termination_received = Duration::from_millis(10_000);
         let mut timeout = tokio::time::sleep(deadline_if_no_termination_received);
@@ -258,11 +266,12 @@ impl MockWebSocketsServer {
             )
         });
         let mut ordered_stop_strategy_opt: Option<StopStrategy> = None;
+        let mut data = Vec::new();
 
         loop {
             data.clear();
             let data_type = tokio::select! {
-                    data_type_res = receiver.receive_data(data) => {
+                    data_type_res = receiver.receive_data(&mut data) => {
                         match data_type_res {
                             Ok(data_type) => data_type,
                             Err(Error::Closed) => {
@@ -276,7 +285,7 @@ impl MockWebSocketsServer {
 
                     _ = &mut timeout => {
                         if let Some(stop_startegy) = ordered_stop_strategy_opt {
-                            stop_startegy.apply(sender).await;
+                            Self::handle_server_stop(sender, stop_startegy, receiver, requests_inner_arc, await_close_handshake_completion).await;
                             return;
                         } else {
                             panic!(
@@ -300,7 +309,7 @@ impl MockWebSocketsServer {
             };
             Self::process_data(
                 &data_type,
-                data.as_slice(),
+                &data,
                 &mut sender,
                 requests_inner_arc.clone(),
                 responses,
@@ -390,7 +399,7 @@ impl MockWebSocketsServer {
         sender: &mut WSSender,
         responses: &mut Vec<MWSSMessage>,
     ) {
-        if !self.opening_faf_on_trigger {
+        if !self.opening_faf_triggered_by_msg {
             Self::send_faf_messages(sender, responses).await
         }
     }
@@ -438,6 +447,51 @@ impl MockWebSocketsServer {
             }
         }
     }
+
+    async fn handle_server_stop(
+        sender: WSSender,
+        stop_strategy: StopStrategy,
+        receiver: WSReceiver,
+        requests_inner_arc: Arc<Mutex<Vec<MWSSMessage>>>,
+        await_close_handshake_completion: bool,
+    ) {
+        let complete_close_handshake = stop_strategy.is_close() && await_close_handshake_completion;
+
+        stop_strategy.apply(sender).await;
+
+        if complete_close_handshake {
+            Self::try_record_close_response(receiver, requests_inner_arc).await
+        }
+    }
+
+    async fn try_record_close_response(
+        mut receiver: WSReceiver,
+        requests_arc: Arc<Mutex<Vec<MWSSMessage>>>,
+    ) {
+        let fut = async move {
+            let mut msg = Vec::new();
+            loop {
+                match receiver.receive(&mut msg).await {
+                    Err(Error::Closed) => {requests_arc.lock().unwrap().push(MWSSMessage::Close); break},
+                    Err(Error::UnexpectedOpCode(OpCode::Continue)) => continue,
+                    Ok(Incoming::Closed(_)) => panic!("Received new Close from the Client, but we expected Err(Error::Closed) handled by Soketto"),
+                    Ok(x) => panic!(
+                        "Unexpected msg received when waiting for the Client to finish the Close handshake: {:?}",
+                        x
+                    ),
+                    Err(e) => panic!("Unexpected error reading incoming data when waiting for the Client to finish the Close handshake: {:?}", e)
+                }
+            }
+        };
+
+        let timeout = Duration::from_millis(1_500);
+        if let Err(_) = tokio::time::timeout(timeout, fut).await {
+            panic!(
+                "Timeout elapsed waiting for the Client to finish the Close handshake after: {}ms",
+                timeout.as_millis()
+            )
+        }
+    }
 }
 
 pub type ServerJoinHandle = JoinHandle<workflow_websocket::server::result::Result<()>>;
@@ -473,8 +527,12 @@ impl StopStrategy {
             .expect("Error closing WebSocket connection");
     }
 
-    fn abort(mut sender: WSSender) {
+    fn abort(sender: WSSender) {
         drop(sender);
+    }
+
+    fn is_close(&self) -> bool {
+        matches!(self, StopStrategy::Close)
     }
 }
 

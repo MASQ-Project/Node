@@ -280,14 +280,6 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
     use tokio::time::Instant;
 
-    // TODO ditch me after you have Dan's server in
-    // async fn stimulate_queued_response_from_server(client_talker_half: &dyn WSClientHandle) {
-    //     let message = Message::Text(UiTrafficConverter::new_marshal(
-    //         UiShutdownRequest {}.tmb(345678),
-    //     ));
-    //     client_talker_half.send_msg(message).await.unwrap();
-    // }
-
     #[tokio::test]
     async fn listens_and_passes_data_through() {
         let expected_message = UiConnectionChangeBroadcast {
@@ -334,16 +326,10 @@ mod tests {
         server_stop_handle.stop(StopStrategy::Close).await;
         let conn_closed_announcement = message_body_rx.recv().await.unwrap();
         let disconnection_probe = UiTrafficConverter::new_marshal(UiShutdownRequest {}.tmb(2));
-        let send_error = talker_half
-            .send_text_owned(disconnection_probe)
-            .await
-            .unwrap_err();
 
+        // This error would travel to the handler of the incoming messages where a close is called
+        // on the talker half of the websockets connection
         assert_eq!(conn_closed_announcement, Err(ClientListenerError::Closed));
-        match send_error {
-            SokettoError::Closed => (),
-            x => panic!("We expected Err(Closed) but got {:?}", x),
-        };
         let is_spinning = !abort_handle.is_finished();
         assert_eq!(is_spinning, false);
         // Because not ordered from our side

@@ -409,6 +409,9 @@ impl CentralEventLoop {
                 },
                 Err(e) => {
                     if e.is_fatal() {
+                        if e == ClientListenerError::Closed {
+                            let _ = services.ws_client_handle.close().await;
+                        }
                         // Fatal connection error: connection is dead, need to reestablish
                         return Self::fallback(services, NodeConversationTermination::Fatal).await;
                     } else {
@@ -1383,7 +1386,7 @@ mod tests {
         let node_stop_handle = node_server.start().await;
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new (daemon_port)
-            .opening_faf_on_trigger()
+            .opening_faf_triggered_by_msg()
             .queue_response(UiRedirect {
                 port: node_port,
                 opcode: "financials".to_string(),
@@ -1687,8 +1690,6 @@ mod tests {
             .establish_connection_manager(port, None)
             .await
             .unwrap();
-        // TODO remove this commented out code
-        //server_handle.await_conn_established(None).await;
         let conversation1 = subject.start_conversation().await;
         let conversation2 = subject.start_conversation().await;
 
@@ -1723,6 +1724,23 @@ mod tests {
                 x
             ),
         };
+    }
+
+    #[tokio::test]
+    async fn handles_close_from_server() {
+        running_test();
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port).await_close_handshake_completion();
+        let server_stop_handle = server.start().await;
+        let bootstrapper = CMBootstrapper::default();
+        let _subject = bootstrapper
+            .establish_connection_manager(port, None)
+            .await
+            .unwrap();
+
+        let recorded = server_stop_handle.stop(StopStrategy::Close).await;
+
+        assert_eq!(recorded.requests, vec![MWSSMessage::Close])
     }
 
     #[tokio::test]
