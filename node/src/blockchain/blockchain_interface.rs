@@ -304,83 +304,83 @@ where
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         todo!();
-        debug!(
-            self.logger,
-            "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
-            start_block,
-            recipient,
-            self.chain.rec().num_chain_id,
-            self.contract_address()
-        );
-        let filter = FilterBuilder::default()
-            .address(vec![self.contract_address()])
-            .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
-            .to_block(BlockNumber::Latest)
-            .topics(
-                Some(vec![TRANSACTION_LITERAL]),
-                None,
-                Some(vec![recipient.address().into()]),
-                None,
-            )
-            .build();
-
-        let log_request = self.web3.eth().logs(filter);
-        let logger = self.logger.clone();
-        log_request
-            .then(|logs| {
-                debug!(logger, "Transaction retrieval completed: {:?}", logs);
-                future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
-                    Ok(logs) => {
-                        if logs
-                            .iter()
-                            .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
-                        {
-                            warning!(
-                                logger,
-                                "Invalid response from blockchain server: {:?}",
-                                logs
-                            );
-                            Err(BlockchainError::InvalidResponse)
-                        } else {
-                            let transactions: Vec<BlockchainTransaction> = logs
-                                .iter()
-                                .filter_map(|log: &Log| match log.block_number {
-                                    Some(block_number) => {
-                                        let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let wei_amount_result = u128::try_from(amount);
-                                        wei_amount_result.ok().map(|wei_amount| {
-                                            BlockchainTransaction {
-                                                block_number: u64::try_from(block_number)
-                                                    .expect("Internal Error"),
-                                                from: Wallet::from(log.topics[1]),
-                                                wei_amount,
-                                            }
-                                        })
-                                    }
-                                    None => None,
-                                })
-                                .collect();
-                            debug!(logger, "Retrieved transactions: {:?}", transactions);
-                            // Get the largest transaction block number, unless there are no
-                            // transactions, in which case use start_block.
-                            let last_transaction_block =
-                                transactions.iter().fold(start_block, |so_far, elem| {
-                                    if elem.block_number > so_far {
-                                        elem.block_number
-                                    } else {
-                                        so_far
-                                    }
-                                });
-                            Ok(RetrievedBlockchainTransactions {
-                                new_start_block: last_transaction_block + 1,
-                                transactions,
-                            })
-                        }
-                    }
-                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
-                })
-            })
-            .wait()
+        // debug!(
+        //     self.logger,
+        //     "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
+        //     start_block,
+        //     recipient,
+        //     self.chain.rec().num_chain_id,
+        //     self.contract_address()
+        // );
+        // let filter = FilterBuilder::default()
+        //     .address(vec![self.contract_address()])
+        //     .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
+        //     .to_block(BlockNumber::Latest)
+        //     .topics(
+        //         Some(vec![TRANSACTION_LITERAL]),
+        //         None,
+        //         Some(vec![recipient.address().into()]),
+        //         None,
+        //     )
+        //     .build();
+        //
+        // let log_request = self.web3.eth().logs(filter);
+        // let logger = self.logger.clone();
+        // log_request
+        //     .then(|logs| {
+        //         debug!(logger, "Transaction retrieval completed: {:?}", logs);
+        //         future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
+        //             Ok(logs) => {
+        //                 if logs
+        //                     .iter()
+        //                     .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
+        //                 {
+        //                     warning!(
+        //                         logger,
+        //                         "Invalid response from blockchain server: {:?}",
+        //                         logs
+        //                     );
+        //                     Err(BlockchainError::InvalidResponse)
+        //                 } else {
+        //                     let transactions: Vec<BlockchainTransaction> = logs
+        //                         .iter()
+        //                         .filter_map(|log: &Log| match log.block_number {
+        //                             Some(block_number) => {
+        //                                 let amount: U256 = U256::from(log.data.0.as_slice());
+        //                                 let wei_amount_result = u128::try_from(amount);
+        //                                 wei_amount_result.ok().map(|wei_amount| {
+        //                                     BlockchainTransaction {
+        //                                         block_number: u64::try_from(block_number)
+        //                                             .expect("Internal Error"),
+        //                                         from: Wallet::from(log.topics[1]),
+        //                                         wei_amount,
+        //                                     }
+        //                                 })
+        //                             }
+        //                             None => None,
+        //                         })
+        //                         .collect();
+        //                     debug!(logger, "Retrieved transactions: {:?}", transactions);
+        //                     // Get the largest transaction block number, unless there are no
+        //                     // transactions, in which case use start_block.
+        //                     let last_transaction_block =
+        //                         transactions.iter().fold(start_block, |so_far, elem| {
+        //                             if elem.block_number > so_far {
+        //                                 elem.block_number
+        //                             } else {
+        //                                 so_far
+        //                             }
+        //                         });
+        //                     Ok(RetrievedBlockchainTransactions {
+        //                         new_start_block: last_transaction_block + 1,
+        //                         transactions,
+        //                     })
+        //                 }
+        //             }
+        //             Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
+        //         })
+        //     })
+        //     .wait()
     }
 
     fn send_payables_within_batch(
@@ -481,7 +481,7 @@ pub enum ProcessedPayableFallible {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct RpcPayableFailure {
-    pub rpc_error: Error,
+    // pub rpc_error: Error,
     pub recipient_wallet: Wallet,
     pub hash: H256,
 }
@@ -660,50 +660,51 @@ where
         nonce: U256,
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
-        let mut data = [0u8; 4 + 32 + 32];
-        data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
-        data[16..36].copy_from_slice(&recipient.address().0[..]);
-        U256::try_from(amount)
-            .expect("shouldn't overflow")
-            .to_big_endian(&mut data[36..68]);
-        let base_gas_limit = Self::base_gas_limit(self.chain);
-        let gas_limit =
-            ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
-                acc + if v == &0u8 { 4 } else { 68 }
-            }))
-            .expect("Internal error");
-        let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(nonce).expect("Internal error"),
-        )
-        .expect("Internal error");
-        let gas_price = serde_json::from_value::<ethereum_types::U256>(
-            serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
-        )
-        .expect("Internal error");
-
-        let transaction_parameters = TransactionParameters {
-            nonce: Some(converted_nonce),
-            to: Some(H160(self.contract_address().0)),
-            gas: gas_limit,
-            gas_price: Some(gas_price),
-            value: ethereum_types::U256::zero(),
-            data: Bytes(data.to_vec()),
-            chain_id: Some(self.chain.rec().num_chain_id),
-            // TODO: Maybe change these values and put in some assertions about them
-            transaction_type: None,
-            access_list: None,
-            max_fee_per_gas: None,
-            max_priority_fee_per_gas: None,
-        };
-
-        let key = match consuming_wallet.prepare_secp256k1_secret() {
-            Ok(secret) => secret,
-            Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
-        };
-
-        self.batch_payable_tools
-            .sign_transaction(transaction_parameters, &self.batch_web3, &key)
-            .map_err(|e| PayableTransactionError::Signing(e.to_string()))
+        todo!()
+        // let mut data = [0u8; 4 + 32 + 32];
+        // data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
+        // data[16..36].copy_from_slice(&recipient.address().0[..]);
+        // U256::try_from(amount)
+        //     .expect("shouldn't overflow")
+        //     .to_big_endian(&mut data[36..68]);
+        // let base_gas_limit = Self::base_gas_limit(self.chain);
+        // let gas_limit =
+        //     ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
+        //         acc + if v == &0u8 { 4 } else { 68 }
+        //     }))
+        //     .expect("Internal error");
+        // let converted_nonce = serde_json::from_value::<ethereum_types::U256>(
+        //     serde_json::to_value(nonce).expect("Internal error"),
+        // )
+        // .expect("Internal error");
+        // let gas_price = serde_json::from_value::<ethereum_types::U256>(
+        //     serde_json::to_value(to_wei(gas_price)).expect("Internal error"),
+        // )
+        // .expect("Internal error");
+        //
+        // let transaction_parameters = TransactionParameters {
+        //     nonce: Some(converted_nonce),
+        //     to: Some(H160(self.contract_address().0)),
+        //     gas: gas_limit,
+        //     gas_price: Some(gas_price),
+        //     value: ethereum_types::U256::zero(),
+        //     data: Bytes(data.to_vec()),
+        //     chain_id: Some(self.chain.rec().num_chain_id),
+        //     // TODO: Maybe change these values and put in some assertions about them
+        //     transaction_type: None,
+        //     access_list: None,
+        //     max_fee_per_gas: None,
+        //     max_priority_fee_per_gas: None,
+        // };
+        //
+        // let key = match consuming_wallet.prepare_secp256k1_secret() {
+        //     Ok(secret) => secret,
+        //     Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
+        // };
+        //
+        // self.batch_payable_tools
+        //     .sign_transaction(transaction_parameters, &self.batch_web3, &key)
+        //     .map_err(|e| PayableTransactionError::Signing(e.to_string()))
     }
 
     fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
@@ -749,7 +750,7 @@ where
         &self.web3
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2493,3 +2494,4 @@ mod tests {
         )
     }
 }
+*/

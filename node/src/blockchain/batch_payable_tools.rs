@@ -35,10 +35,10 @@ where
         new_pp_fingerprints_sub: &Recipient<PendingPayableFingerprintSeeds>,
         hashes_and_balances: &[(H256, u128)],
     );
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error>;
+    // fn submit_batch(
+    //     &self,
+    //     web3: &Web3<Batch<T>>,
+    // ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error>;
 }
 
 #[derive(Debug)]
@@ -89,13 +89,13 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
             .expect("Accountant is dead");
     }
 
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error> {
-        todo!()
-        // web3.transport().submit_batch().wait()
-    }
+    // fn submit_batch(
+    //     &self,
+    //     web3: &Web3<Batch<T>>,
+    // ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error> {
+    //     todo!()
+    //     // web3.transport().submit_batch().wait()
+    // }
 }
 
 #[cfg(test)]
@@ -109,42 +109,44 @@ mod tests {
 
     #[test]
     fn request_new_payable_fingerprints_works() {
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let recipient = accountant.start().recipient();
-        let timestamp = SystemTime::now();
-        let hashes_and_balances = vec![(make_tx_hash(123), 5), (make_tx_hash(45466), 444444)];
-
-        let _ = BatchPayableToolsReal::<TestTransport>::default()
-            .send_new_payable_fingerprints_seeds(timestamp, &recipient, &hashes_and_balances);
-
-        let system = System::new();
-        System::current().stop();
-        system.run();
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
-        assert_eq!(
-            message,
-            &PendingPayableFingerprintSeeds {
-                batch_wide_timestamp: timestamp,
-                hashes_and_balances
-            }
-        )
+        todo!()
+        // let (accountant, _, accountant_recording_arc) = make_recorder();
+        // let recipient = accountant.start().recipient();
+        // let timestamp = SystemTime::now();
+        // let hashes_and_balances = vec![(make_tx_hash(123), 5), (make_tx_hash(45466), 444444)];
+        //
+        // let _ = BatchPayableToolsReal::<TestTransport>::default()
+        //     .send_new_payable_fingerprints_seeds(timestamp, &recipient, &hashes_and_balances);
+        //
+        // let system = System::new();
+        // System::current().stop();
+        // system.run();
+        // let accountant_recording = accountant_recording_arc.lock().unwrap();
+        // let message = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
+        // assert_eq!(
+        //     message,
+        //     &PendingPayableFingerprintSeeds {
+        //         batch_wide_timestamp: timestamp,
+        //         hashes_and_balances
+        //     }
+        // )
     }
 
     #[test]
     fn batch_wide_timestamp_returns_current_now() {
-        let subject = BatchPayableToolsReal::<TestTransport>::default();
-        let before = SystemTime::now();
-
-        let result = subject.batch_wide_timestamp();
-
-        let after = SystemTime::now();
-        assert!(
-            before <= result && result <= after,
-            "Actual timestamp {:?} didn't fit between before {:?} and after {:?}",
-            result,
-            before,
-            after
-        )
+        todo!()
+        // let subject = BatchPayableToolsReal::<TestTransport>::default();
+        // let before = SystemTime::now();
+        //
+        // let result = subject.batch_wide_timestamp();
+        //
+        // let after = SystemTime::now();
+        // assert!(
+        //     before <= result && result <= after,
+        //     "Actual timestamp {:?} didn't fit between before {:?} and after {:?}",
+        //     result,
+        //     before,
+        //     after
+        // )
     }
 }

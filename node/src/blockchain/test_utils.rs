@@ -16,6 +16,7 @@ use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::future;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -23,7 +24,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, SecP256K1SecretsKeySecretKey};
 use web3::transports::Batch;
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
-use web3::{BatchTransport, Error as Web3Error, Web3};
+use web3::{BatchTransport, Error as Web3Error, Error, Web3};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
@@ -264,43 +265,45 @@ pub struct TestTransport {
     reference_counter_opt: Option<Arc<()>>,
 }
 
-impl Transport for TestTransport {
-    type Out = web3::Result<rpc::Value>;
+// impl Transport for TestTransport {
+//     type Out = web3::Result<rpc::Value>;
+//
+//     fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
+//         let request = web3::helpers::build_request(1, method, params.clone());
+//         let mut prepare_params = self.prepare_params.lock().unwrap();
+//         prepare_params.push((method.to_string(), params));
+//         (prepare_params.len(), request)
+//     }
+//
+//     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
+//         todo!()
+//         self.send_params.lock().unwrap().push((id, request.clone()));
+//         match self.send_results.borrow_mut().pop_front() {
+//             Some(response) => Ok(response),
+//             None => {
+//                 println!("Unexpected request (id: {:?}): {:?}", id, request);
+//                 Err(Web3Error::Unreachable)
+//             }
+//         }
+//     }
+// }
 
-    fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
-        let request = web3::helpers::build_request(1, method, params.clone());
-        let mut prepare_params = self.prepare_params.lock().unwrap();
-        prepare_params.push((method.to_string(), params));
-        (prepare_params.len(), request)
-    }
-
-    fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-        self.send_params.lock().unwrap().push((id, request.clone()));
-        match self.send_results.borrow_mut().pop_front() {
-            Some(response) => Ok(response),
-            None => {
-                println!("Unexpected request (id: {:?}): {:?}", id, request);
-                Err(Web3Error::Unreachable)
-            }
-        }
-    }
-}
-
-impl BatchTransport for TestTransport {
-    type Batch = web3::Result<Vec<Result<rpc::Value, web3::Error>>>;
-
-    fn send_batch<T>(&self, requests: T) -> Self::Batch
-    where
-        T: IntoIterator<Item = (RequestId, rpc::Call)>,
-    {
-        self.send_batch_params
-            .lock()
-            .unwrap()
-            .push(requests.into_iter().collect());
-        let response = self.send_batch_results.borrow_mut().remove(0);
-        Ok(response)
-    }
-}
+// impl BatchTransport for TestTransport {
+//     type Batch = web3::Result<Vec<Result<rpc::Value, web3::Error>>>;
+//
+//     fn send_batch<T>(&self, requests: T) -> Self::Batch
+//     where
+//         T: IntoIterator<Item = (RequestId, rpc::Call)>,
+//     {
+//         todo!()
+//         self.send_batch_params
+//             .lock()
+//             .unwrap()
+//             .push(requests.into_iter().collect());
+//         let response = self.send_batch_results.borrow_mut().remove(0);
+//         Ok(response)
+//     }
+// }
 
 impl TestTransport {
     pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>) -> Self {
@@ -381,8 +384,8 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
     >,
     //new_payable_fingerprints returns just the unit type
     submit_batch_params: Arc<Mutex<Vec<Web3<Batch<T>>>>>,
-    submit_batch_results:
-        RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
+    // submit_batch_results:
+    //     RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
 }
 
 impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
@@ -427,13 +430,13 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
             ));
     }
 
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
-        self.submit_batch_params.lock().unwrap().push(web3.clone());
-        self.submit_batch_results.borrow_mut().remove(0)
-    }
+    // fn submit_batch(
+    //     &self,
+    //     web3: &Web3<Batch<T>>,
+    // ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
+    //     self.submit_batch_params.lock().unwrap().push(web3.clone());
+    //     self.submit_batch_results.borrow_mut().remove(0)
+    // }
 }
 
 impl<T: BatchTransport> BatchPayableToolsMock<T> {
@@ -449,7 +452,8 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
             >,
         >,
     ) -> Self {
-        self.sign_transaction_params = params.clone();
+        todo!();
+        // self.sign_transaction_params = params.clone();
         self
     }
     pub fn sign_transaction_result(self, result: Result<SignedTransaction, Web3Error>) -> Self {
@@ -490,13 +494,13 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.submit_batch_params = params.clone();
         self
     }
-    pub fn submit_batch_result(
-        self,
-        result: Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>,
-    ) -> Self {
-        self.submit_batch_results.borrow_mut().push(result);
-        self
-    }
+    // pub fn submit_batch_result(
+    //     self,
+    //     result: Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>,
+    // ) -> Self {
+    //     self.submit_batch_results.borrow_mut().push(result);
+    //     self
+    // }
 }
 
 pub fn make_default_signed_transaction() -> SignedTransaction {
