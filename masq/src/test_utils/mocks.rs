@@ -8,7 +8,7 @@ use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFac
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::websocket_client::WSClientHandle;
+use crate::communications::websockets_client::WSClientHandle;
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
@@ -16,7 +16,6 @@ use crate::terminal::{
     FlushHandle, RWTermInterface, ReadError, ReadInput, TerminalWriter, WTermInterface,
     WTermInterfaceDupAndSend, WriteStreamType,
 };
-use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};

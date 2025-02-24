@@ -6,7 +6,6 @@ use crate::test_utils::ui_connection::ReceiveResult::{
 };
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::Conversation;
-use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::{MessagePath, MessageTarget, NodeToUiMessage};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
@@ -23,7 +22,6 @@ use std::{fmt, io};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use workflow_websocket::client::{Error, Message, WebSocket};
 
 pub struct UiConnection {
     context_id: u64,

@@ -5,7 +5,7 @@ use crate::communications::broadcast_handlers::{
     StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::communications::websocket_client::{
+use crate::communications::websockets_client::{
     make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError,
     WSClientHandle, WSClientHandleReal,
 };
@@ -722,19 +722,18 @@ mod tests {
         UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse, UiUnmarshalError,
     };
     use masq_lib::test_utils::mock_websockets_server::{
-        MWSSMessage, MockWebSocketsServer, MockWebSocketsServerHandle, StopStrategy,
+        MWSSMessage, MockWebSocketsServer, MockWebSocketsServerHandle,
     };
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::utils::{find_free_port, localhost, running_test};
     use soketto::handshake::Server;
-    use std::fmt::Debug;
     use std::hash::Hash;
     use std::io::ErrorKind;
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
-    use std::{io, thread, vec};
+    use std::time::Duration;
+    use std::{io, vec};
     use tokio::net::TcpListener;
     use tokio_util::compat::TokioAsyncReadCompatExt;
 
@@ -832,7 +831,7 @@ mod tests {
                 }
                 .tmb(2),
             );
-        let (subject, stop_handle) = make_subject(server).await;
+        let (subject, _server_stop_handle) = make_subject(server).await;
         let conversation1 = subject.start_conversation().await;
         let conversation2 = subject.start_conversation().await;
 
@@ -900,7 +899,7 @@ mod tests {
         conversation.send(message1.clone().tmb(0)).await.unwrap();
         conversation.send(message2.clone().tmb(0)).await.unwrap();
 
-        let mut recorded = stop_handle.stop(StopStrategy::Abort).await;
+        let mut recorded = stop_handle.stop().await;
         let faf_1 = recorded.requests.remove(0);
         assert_eq!(
             UiUnmarshalError::fmb(faf_1.message_body()).unwrap().0,
@@ -918,9 +917,7 @@ mod tests {
     async fn conversations_waiting_is_set_correctly_for_normal_operation() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        // .queue_string("irrelevant")
-        // .queue_string("irrelevant");
-        let stop_handle = server.start().await;
+        let _server_stop_handle = server.start().await;
         let (_, close_sig) = ClosingStageDetector::make_for_test();
         let (demand_tx, demand_rx) = unbounded_channel();
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
@@ -1093,7 +1090,7 @@ mod tests {
             )),
         )
         .await;
-        let requests = deamon_stop_handle.stop(StopStrategy::Abort).await;
+        let requests = deamon_stop_handle.stop().await;
         assert_eq!(
             requests.requests,
             vec![MWSSMessage::MessageBody(
@@ -1191,7 +1188,7 @@ mod tests {
     async fn handle_redirect_order_disappoints_waiting_conversations_with_resend_or_graceful() {
         let node_port = find_free_port();
         let server = MockWebSocketsServer::new(node_port);
-        let server_stop_handle = server.start().await;
+        let _server_stop_handle = server.start().await;
         let (redirect_response_tx, mut redirect_response_rx) = unbounded_channel();
         let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
         let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
@@ -1210,8 +1207,6 @@ mod tests {
         )
         .await;
 
-        //TODO remove the commented out code
-        // wait_on_establishing_connection(services.ws_client_handle.as_ref()).await;
         let get_existing_keys = |services: &ConnectionServices| {
             services
                 .conversations
@@ -1294,7 +1289,7 @@ mod tests {
             )),
         )
         .await;
-        let mut outgoing_messages = deamon_stop_handle.stop(StopStrategy::Abort).await;
+        let mut outgoing_messages = deamon_stop_handle.stop().await;
         let request = outgoing_messages.requests.remove(0);
         assert_eq!(
             UiSetupRequest::fmb(request.message_body()).unwrap(),
@@ -1393,7 +1388,7 @@ mod tests {
                 context_id: Some(1),
                 payload: r#"{"payableMinimumAmount":12,"payableMaximumAge":23,"receivableMinimumAmount":34,"receivableMaximumAge":45}"#.to_string()
             }.tmb(0));
-        let daemon_stop_handle = daemon_server.start().await;
+        let _daemon_stop_handle = daemon_server.start().await;
         let request = UiFinancialsRequest {
             stats_required: true,
             top_records_opt: None,
@@ -1413,7 +1408,7 @@ mod tests {
             .unwrap();
 
         let active_ui_port_after_redirect = subject.active_ui_port().await.unwrap();
-        let mut recorded = node_stop_handle.stop(StopStrategy::Abort).await;
+        let mut recorded = node_stop_handle.stop().await;
         let recorded_request = recorded.requests.remove(0);
         assert_eq!(
             UiFinancialsRequest::fmb(recorded_request.message_body()).unwrap(),
@@ -1531,7 +1526,7 @@ mod tests {
         )
         .await;
 
-        let mut recorded = server_stop_handle.stop(StopStrategy::Abort).await;
+        let mut recorded = server_stop_handle.stop().await;
         let faf = recorded.requests.remove(0);
         assert_eq!(
             UiUnmarshalError::fmb(faf.message_body()).unwrap().0,
@@ -1545,7 +1540,7 @@ mod tests {
     async fn handles_outgoing_conversation_messages_to_dead_server() {
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new(daemon_port);
-        let daemon_stop_handle = daemon_server.start().await;
+        let _daemon_stop_handle = daemon_server.start().await;
         let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
         let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
         let (conversation3_tx, conversation3_rx) = async_channel::unbounded();
@@ -1613,7 +1608,7 @@ mod tests {
     async fn handles_outgoing_fire_and_forget_messages_to_dead_server() {
         let daemon_port = find_free_port();
         let daemon_server = MockWebSocketsServer::new(daemon_port);
-        let daemon_stop_handle = daemon_server.start().await;
+        let _daemon_stop_handle = daemon_server.start().await;
         let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
         let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
         let (conversation3_tx, conversation3_rx) = async_channel::unbounded();
@@ -1710,7 +1705,7 @@ mod tests {
             )
             .await;
         assert_eq!(result, Err(ClientError::ClosingStage));
-        let recorded = server_handle.stop(StopStrategy::Abort).await;
+        let recorded = server_handle.stop().await;
         assert_eq!(recorded.requests, vec![MWSSMessage::Close]);
         match tokio::time::timeout(
             Duration::from_secs(1),
@@ -1738,7 +1733,7 @@ mod tests {
             .await
             .unwrap();
 
-        let recorded = server_stop_handle.stop(StopStrategy::Close).await;
+        let recorded = server_stop_handle.stop().await;
 
         assert_eq!(recorded.requests, vec![MWSSMessage::Close])
     }
@@ -1760,7 +1755,7 @@ mod tests {
             let (stream, _) = listener.accept().await.unwrap();
             let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
             server.add_protocol(NODE_UI_PROTOCOL);
-            let req = server.receive_request().await;
+            let _req = server.receive_request().await;
             finish_background_task_rx.await
         });
         background_task_ready_rx.await.unwrap();
@@ -1854,25 +1849,6 @@ mod tests {
             redirect_response_tx: unbounded_channel().0,
             active_port_response_tx: unbounded_channel().0,
             close_sig: ClosingStageDetector::make_for_test().1,
-        }
-    }
-
-    async fn wait_on_establishing_connection(handle: &mut dyn WSClientHandle) {
-        let start = SystemTime::now();
-        let hard_limit = Duration::from_millis(2_000);
-        loop {
-            if handle.is_connection_open().await {
-                break;
-            }
-
-            if start.elapsed().expect("travelling in time") < hard_limit {
-                tokio::time::sleep(Duration::from_millis(50)).await
-            } else {
-                panic!(
-                    "Waiting for connection to establish in test but {} ms wasn't enough",
-                    hard_limit.as_millis()
-                )
-            }
         }
     }
 
