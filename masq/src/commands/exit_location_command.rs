@@ -121,7 +121,11 @@ impl Command for SetExitLocationCommand {
                         locations: exit_location_response.exit_locations,
                     };
                     if !exit_location_response.missing_countries.is_empty() {
-                        short_writeln!(context.stdout(), "Following countries are missing in Database: {:?}", exit_location_response.missing_countries);
+                        short_writeln!(
+                            context.stdout(),
+                            "Following countries are missing in Database: {:?}",
+                            exit_location_response.missing_countries
+                        );
                         short_writeln!(
                             context.stderr(),
                             "code: {}\nmessage: {:?}",
@@ -130,7 +134,9 @@ impl Command for SetExitLocationCommand {
                         );
                     }
                     short_writeln!(context.stdout(), "Exit location set: {}", location_set);
-                } else if exit_location_response.fallback_routing && exit_location_response.exit_locations.is_empty() {
+                } else if exit_location_response.fallback_routing
+                    && exit_location_response.exit_locations.is_empty()
+                {
                     short_writeln!(context.stdout(), "Exit location is Unset.");
                 }
                 Ok(())
@@ -291,10 +297,7 @@ pub mod tests {
             stderr.lock().unwrap().get_string(),
             "Error: Something went wrong!\n".to_string()
         );
-        assert_eq!(
-            result,
-            Err(Payload(9223372036854775816, "".to_string()))
-        );
+        assert_eq!(result, Err(Payload(9223372036854775816, "".to_string())));
     }
 
     #[test]
@@ -350,7 +353,7 @@ pub mod tests {
                     ExitLocation {
                         country_codes: vec!["PL".to_string()],
                         priority: 3,
-                    }
+                    },
                 ],
                 exit_countries: None,
                 missing_countries: vec![],
@@ -406,12 +409,10 @@ pub mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: false,
-                exit_locations: vec![
-                    ExitLocation {
-                        country_codes: vec!["CZ".to_string()],
-                        priority: 1,
-                    }
-                ],
+                exit_locations: vec![ExitLocation {
+                    country_codes: vec!["CZ".to_string()],
+                    priority: 1,
+                }],
                 exit_countries: None,
                 missing_countries: vec![],
             }
@@ -481,7 +482,10 @@ pub mod tests {
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
         let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location is Unset.\n");
+        assert_eq!(
+            &stdout.get_string(),
+            "Fallback Routing is set.\nExit location is Unset.\n"
+        );
     }
 
     #[test]
@@ -521,6 +525,9 @@ pub mod tests {
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
         let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Countries available for exit-location: [\"CZ\"]\n");
+        assert_eq!(
+            &stdout.get_string(),
+            "Countries available for exit-location: [\"CZ\"]\n"
+        );
     }
 }

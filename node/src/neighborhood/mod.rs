@@ -62,24 +62,24 @@ use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::EXIT_COUNTRY_MISSING_COUNTRIES_ERROR;
+use masq_lib::crash_point::CrashPoint;
+use masq_lib::logger::Logger;
 use masq_lib::messages::{
     ExitLocation, ExitLocationSet, FromMessageBody, ToMessageBody, UiConnectionStage,
     UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse,
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
+use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
+use neighborhood_database::NeighborhoodDatabase;
+use node_record::NodeRecord;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::string::ToString;
-use masq_lib::crash_point::CrashPoint;
-use masq_lib::logger::Logger;
-use masq_lib::ui_gateway::MessagePath::Conversation;
-use neighborhood_database::NeighborhoodDatabase;
-use node_record::NodeRecord;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -1819,10 +1819,7 @@ impl Neighborhood {
                 body: MessageBody {
                     opcode: "exitLocation".to_string(),
                     path: Conversation(context_id),
-                    payload: Err((
-                        EXIT_COUNTRY_MISSING_COUNTRIES_ERROR,
-                        missing_message,
-                    )),
+                    payload: Err((EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, missing_message)),
                 },
             }
         }
@@ -2265,8 +2262,13 @@ mod tests {
         let first_neighbor = make_node_record(1111, true);
         let second_neighbor = make_node_record(2222, true);
 
-        subject.neighborhood_database.add_node(first_neighbor.clone()).unwrap();
-        subject.neighborhood_database.add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
+        subject
+            .neighborhood_database
+            .add_node(first_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
         let mut gossip_db = subject.neighborhood_database.clone();
 
         gossip_db.this_node = first_neighbor.public_key().clone();
@@ -2274,12 +2276,18 @@ mod tests {
         gossip_db.add_node(root_node).unwrap();
         gossip_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), &root_node_key);
         gossip_db.add_node(second_neighbor.clone()).unwrap();
-        gossip_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), second_neighbor.public_key());
+        gossip_db
+            .add_arbitrary_full_neighbor(first_neighbor.public_key(), second_neighbor.public_key());
         gossip_db.root_mut().inner.version = 1;
-        let resigner = gossip_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
+        let resigner = gossip_db
+            .node_by_key_mut(first_neighbor.public_key())
+            .unwrap();
         resigner.resign();
 
-        let standard_gossip = GossipBuilder::new(&gossip_db).node(first_neighbor.public_key(), true).node(second_neighbor.public_key(), false).build();
+        let standard_gossip = GossipBuilder::new(&gossip_db)
+            .node(first_neighbor.public_key(), true)
+            .node(second_neighbor.public_key(), false)
+            .build();
 
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
@@ -2293,7 +2301,10 @@ mod tests {
         );
 
         assert_eq!(exit_nodes_before_gossip, vec!["US".to_string()]);
-        assert_eq!(subject.user_exit_preferences.db_countries, vec!["FR".to_string(), "US".to_string()]);
+        assert_eq!(
+            subject.user_exit_preferences.db_countries,
+            vec!["FR".to_string(), "US".to_string()]
+        );
     }
 
     #[test]
@@ -2314,7 +2325,8 @@ mod tests {
 
         let introduction_gossip = GossipBuilder::new(&introducer_db)
             .node(&introducer_root_key, true)
-            .node(introducee.public_key(), true).build();
+            .node(introducee.public_key(), true)
+            .build();
         let peer_actors = peer_actors_builder().build();
         debut_subject.min_hops = Hops::OneHop;
         let exit_nodes_before_gossip = debut_subject.init_db_countries();
@@ -2327,7 +2339,10 @@ mod tests {
         );
 
         assert!(exit_nodes_before_gossip.is_empty());
-        assert_eq!(debut_subject.user_exit_preferences.db_countries, vec!["AU".to_string()]);
+        assert_eq!(
+            debut_subject.user_exit_preferences.db_countries,
+            vec!["AU".to_string()]
+        );
     }
 
     #[test]
@@ -3206,9 +3221,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 400,
-        ));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 400));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3224,9 +3237,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 430,
-        ));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 430));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3442,9 +3453,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 5000,
-        ));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 5000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3539,12 +3548,8 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2000,
-        ));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 3000,
-        ));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 3000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -5901,14 +5906,21 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(1234, true);
         let neighbor = make_node_record(1050, true);
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
-        subject.neighborhood_database.root_mut().inner.country_code_opt = Some("AU".to_string());
+        subject
+            .neighborhood_database
+            .root_mut()
+            .inner
+            .country_code_opt = Some("AU".to_string());
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
             new_ip: new_public_ip,
         });
 
-        assert_eq!(subject.neighborhood_database.root().inner.country_code_opt, Some("US".to_string()));
+        assert_eq!(
+            subject.neighborhood_database.root().inner.country_code_opt,
+            Some("US".to_string())
+        );
         assert_eq!(
             subject.neighborhood_database.root().inner.country_code_opt,
             Some(
@@ -7562,7 +7574,8 @@ mod tests {
     fn make_debut_subject() -> Neighborhood {
         let root_node = make_global_cryptde_node_record(9999, true);
         let mut subject = neighborhood_from_nodes(&root_node, None);
-        let persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
+        let persistent_config =
+            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
         subject.persistent_config_opt = Some(Box::new(persistent_config));
         subject
     }

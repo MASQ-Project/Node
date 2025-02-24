@@ -1647,10 +1647,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -2471,10 +2468,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
     }
 
@@ -3078,10 +3072,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - AddRouteResultMessage Error: Failed to find route to nowhere.com"
@@ -3257,10 +3248,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(
-                Some("nowhere.com".to_string()),
-                47
-            )
+            &RouteQueryMessage::data_indefinite_route_request(Some("nowhere.com".to_string()), 47)
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: No route found for hostname: Some(\"nowhere.com\") - stream key {stream_key} - retries left: 3 - AddRouteResultMessage Error: Failed to find route to nowhere.com"
