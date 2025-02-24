@@ -1187,7 +1187,6 @@ impl IBCDHelper for IBCDHelperReal {
             neighborhood_sub
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
-                    None,
                     payload_size,
                 ))
                 .then(move |route_result| {
@@ -1650,7 +1649,6 @@ mod tests {
             record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("nowhere.com".to_string()),
-                None,
                 47
             )
         );
@@ -1774,7 +1772,6 @@ mod tests {
             neighborhood_record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("realdomain.nu".to_string()),
-                None,
                 12
             )
         );
@@ -2168,7 +2165,6 @@ mod tests {
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
                 hostname_opt: Some("nowhere.com".to_string()),
-                target_country_opt: None,
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2248,7 +2244,6 @@ mod tests {
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 16,
                 hostname_opt: None,
-                target_country_opt: None,
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2478,7 +2473,6 @@ mod tests {
             record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("nowhere.com".to_string()),
-                None,
                 47
             )
         );
@@ -3086,7 +3080,6 @@ mod tests {
             record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("nowhere.com".to_string()),
-                None,
                 47
             )
         );
@@ -3266,7 +3259,6 @@ mod tests {
             record,
             &RouteQueryMessage::data_indefinite_route_request(
                 Some("nowhere.com".to_string()),
-                None,
                 47
             )
         );

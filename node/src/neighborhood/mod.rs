@@ -877,8 +877,10 @@ impl Neighborhood {
                 self.gossip_to_neighbors()
             }
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
-                //TODO investigate: Do we adding debutant to DB ? should we fetch country_codes here?
-                self.user_exit_preferences.db_countries = self.init_db_countries();
+                //TODO also ensure init_db_countries on hop change
+                if self.min_hops == Hops::OneHop {
+                    self.user_exit_preferences.db_countries = self.init_db_countries();
+                }
                 self.handle_gossip_reply(next_debut, &target_key, &target_node_addr)
             }
             GossipAcceptanceResult::Failed(failure, target_key, target_node_addr) => {
@@ -965,7 +967,6 @@ impl Neighborhood {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
-            target_country_opt: None,
         };
         if self.handle_route_query_message(msg).is_some() {
             debug!(
@@ -2255,7 +2256,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wtih_debut_allways_have_half_neighborship_in_handle_gossip() {
+    fn test_wtih_standard_have_new_exit_node_in_database() {
         init_test_logging();
         //TODO 788 finish this test and find out where to update exit_locations
         let mut subject = make_standard_subject();
@@ -2263,12 +2264,10 @@ mod tests {
         let root_node = subject.neighborhood_database.root().clone();
         let first_neighbor = make_node_record(1111, true);
         let second_neighbor = make_node_record(2222, true);
-        let debutant = make_node_record(3333, true);
 
         subject.neighborhood_database.add_node(first_neighbor.clone()).unwrap();
         subject.neighborhood_database.add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
         let mut gossip_db = subject.neighborhood_database.clone();
-        let mut debut_db = subject.neighborhood_database.clone();
 
         gossip_db.this_node = first_neighbor.public_key().clone();
         gossip_db.remove_node(&root_node_key);
@@ -2280,18 +2279,12 @@ mod tests {
         let resigner = gossip_db.node_by_key_mut(first_neighbor.public_key()).unwrap();
         resigner.resign();
 
-        debut_db.this_node = debutant.public_key().clone();
-        debut_db.add_node(debutant.clone()).unwrap();
-        debut_db.remove_node(&root_node_key);
-        let debut_resigner = debut_db.node_by_key_mut(debutant.public_key()).unwrap();
-        debut_resigner.resign();
-
         let standard_gossip = GossipBuilder::new(&gossip_db).node(first_neighbor.public_key(), true).node(second_neighbor.public_key(), false).build();
-        let debut_gossip = GossipBuilder::new(&debut_db).node(debutant.public_key(), true).build();
 
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
         subject.min_hops = Hops::OneHop;
+        let exit_nodes_before_gossip = subject.init_db_countries();
 
         subject.handle_gossip(
             standard_gossip,
@@ -2299,17 +2292,42 @@ mod tests {
             make_cpm_recipient().0,
         );
 
-        subject.handle_gossip(
-            debut_gossip,
+        assert_eq!(exit_nodes_before_gossip, vec!["US".to_string()]);
+        assert_eq!(subject.user_exit_preferences.db_countries, vec!["FR".to_string(), "US".to_string()]);
+    }
+
+    #[test]
+    fn test_with_introduction_always_have_half_neighborship_in_handle_gossip() {
+        //TODO 788 finish this test and find out where to update exit_locations
+        let mut debut_subject = make_debut_subject();
+        let debut_root_key = debut_subject.neighborhood_database.root_key().clone();
+        let introducer_node = make_node_record(3333, true);
+        let introducee = make_node_record(2222, true);
+        let introducer_root_key = introducer_node.public_key().clone();
+        let mut introducer_db = debut_subject.neighborhood_database.clone();
+
+        introducer_db.this_node = introducer_root_key.clone();
+        introducer_db.add_node(introducer_node).unwrap();
+        introducer_db.add_arbitrary_half_neighbor(&introducer_root_key, &debut_root_key);
+        introducer_db.add_node(introducee.clone()).unwrap();
+        introducer_db.add_arbitrary_full_neighbor(&introducer_root_key, introducee.public_key());
+
+        let introduction_gossip = GossipBuilder::new(&introducer_db)
+            .node(&introducer_root_key, true)
+            .node(introducee.public_key(), true).build();
+        let peer_actors = peer_actors_builder().build();
+        debut_subject.min_hops = Hops::OneHop;
+        let exit_nodes_before_gossip = debut_subject.init_db_countries();
+        debut_subject.handle_bind_message(BindMessage { peer_actors });
+
+        debut_subject.handle_gossip(
+            introduction_gossip,
             SocketAddr::from_str("3.3.3.3:3333").unwrap(),
             make_cpm_recipient().0,
         );
 
-        print!("db after: {:?}\n", subject.neighborhood_database.to_dot_graph());
-        println!("db_countries: {:?}", subject.user_exit_preferences.db_countries);
-        // TestLogHandler::new()
-        //     .exists_log_containing(&format!("Gossip from {} accepted", SocketAddr::from_str("1.1.1.1:1111").unwrap()));
-        assert_eq!(subject.user_exit_preferences.db_countries, vec!["FR".to_string(), "US".to_string(), "AU".to_string()]);
+        assert!(exit_nodes_before_gossip.is_empty());
+        assert_eq!(debut_subject.user_exit_preferences.db_countries, vec!["AU".to_string()]);
     }
 
     #[test]
@@ -3189,7 +3207,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 400,
+            None, 400,
         ));
 
         System::current().stop_with_code(0);
@@ -3207,7 +3225,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 430,
+            None, 430,
         ));
 
         System::current().stop_with_code(0);
@@ -3248,7 +3266,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, None, 54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 54000);
 
         let future = sub.send(msg);
 
@@ -3308,7 +3326,7 @@ mod tests {
         subject.min_hops = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, None, 20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
 
         let future = sub.send(msg);
 
@@ -3328,7 +3346,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 12345,
+            None, 12345,
         ));
 
         System::current().stop_with_code(0);
@@ -3425,7 +3443,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 5000,
+            None, 5000,
         ));
 
         System::current().stop_with_code(0);
@@ -3522,10 +3540,10 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 2000,
+            None, 2000,
         ));
         let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, None, 3000,
+            None, 3000,
         ));
 
         System::current().stop_with_code(0);
@@ -6576,7 +6594,6 @@ mod tests {
             return_component_opt: None,
             payload_size: 10000,
             hostname_opt: None,
-            target_country_opt: None,
         };
         let unsuccessful_three_hop_route = addr.send(three_hop_route_request);
         let asserted_node_record = a.clone();
@@ -6943,7 +6960,6 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
-            target_country_opt: None,
         });
 
         assert_eq!(
@@ -6989,7 +7005,6 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
-            target_country_opt: None,
         });
 
         let next_door_neighbor_cryptde =
@@ -7044,7 +7059,6 @@ mod tests {
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
-            target_country_opt: None,
         });
 
         let assert_hops = |cryptdes: Vec<CryptDENull>, route: &[CryptData]| {
@@ -7146,7 +7160,6 @@ mod tests {
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size,
                 hostname_opt: None,
-                target_country_opt: None,
             })
             .unwrap();
 
@@ -7542,6 +7555,14 @@ mod tests {
         let neighbor_node = make_node_record(9998, true);
         let mut subject = neighborhood_from_nodes(&root_node, Some(&neighbor_node));
         let persistent_config = PersistentConfigurationMock::new();
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        subject
+    }
+
+    fn make_debut_subject() -> Neighborhood {
+        let root_node = make_global_cryptde_node_record(9999, true);
+        let mut subject = neighborhood_from_nodes(&root_node, None);
+        let persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
         subject.persistent_config_opt = Some(Box::new(persistent_config));
         subject
     }
