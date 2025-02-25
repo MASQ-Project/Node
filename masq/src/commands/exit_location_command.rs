@@ -527,7 +527,7 @@ pub mod tests {
         let stdout = stdout_arc.lock().unwrap();
         assert_eq!(
             &stdout.get_string(),
-            "Countries available for exit-location: [\"CZ\"]\n"
+            "Countries available for exit-location: [\"CZ\"]\nFallback Routing NOT set.\n"
         );
     }
 }
