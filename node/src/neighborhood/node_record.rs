@@ -379,7 +379,6 @@ mod tests {
     #[test]
     fn can_create_node_record_with_node_location_opt_none() {
         let mut node_record_wo_location = make_node_record(2222, false);
-        node_record_wo_location.inner.country_code_opt = None;
         node_record_wo_location.inner.accepts_connections = false;
         let no_location_db = db_from_node(&node_record_wo_location);
         let no_location_gossip =

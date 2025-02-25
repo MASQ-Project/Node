@@ -2253,9 +2253,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wtih_standard_have_new_exit_node_in_database() {
-        init_test_logging();
-        //TODO 788 finish this test and find out where to update exit_locations
+    fn test_wtih_standard_gossip_have_new_exit_node_in_database() {
         let mut subject = make_standard_subject();
         let root_node_key = subject.neighborhood_database.root_key().clone();
         let root_node = subject.neighborhood_database.root().clone();
@@ -2271,7 +2269,7 @@ mod tests {
             .add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
         let mut gossip_db = subject.neighborhood_database.clone();
 
-        gossip_db.this_node = first_neighbor.public_key().clone();
+        gossip_db.set_root_key(first_neighbor.public_key());
         gossip_db.remove_node(&root_node_key);
         gossip_db.add_node(root_node).unwrap();
         gossip_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), &root_node_key);
@@ -2309,7 +2307,6 @@ mod tests {
 
     #[test]
     fn test_with_introduction_always_have_half_neighborship_in_handle_gossip() {
-        //TODO 788 finish this test and find out where to update exit_locations
         let mut debut_subject = make_debut_subject();
         let debut_root_key = debut_subject.neighborhood_database.root_key().clone();
         let introducer_node = make_node_record(3333, true);
@@ -2317,7 +2314,7 @@ mod tests {
         let introducer_root_key = introducer_node.public_key().clone();
         let mut introducer_db = debut_subject.neighborhood_database.clone();
 
-        introducer_db.this_node = introducer_root_key.clone();
+        introducer_db.set_root_key(&introducer_root_key);
         introducer_db.add_node(introducer_node).unwrap();
         introducer_db.add_arbitrary_half_neighbor(&introducer_root_key, &debut_root_key);
         introducer_db.add_node(introducee.clone()).unwrap();
@@ -4030,10 +4027,10 @@ mod tests {
         subject.logger = Logger::new(test_name);
         let cz = &mut make_node_record(3456, true);
         cz.inner.country_code_opt = Some("CZ".to_string());
-        let r = &make_node_record(4567, false);
-        let fr = &mut make_node_record(5678, false);
+        let r = &make_node_record(4567, true);
+        let fr = &mut make_node_record(5678, true);
         fr.inner.country_code_opt = Some("FR".to_string());
-        let t = &make_node_record(7777, false);
+        let t = &make_node_record(7777, true);
         let db = &mut subject.neighborhood_database.clone();
         db.add_node(cz.clone()).unwrap();
         db.add_node(t.clone()).unwrap();
@@ -5955,7 +5952,8 @@ mod tests {
         let first_neighbor = make_node_record(1050, true);
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&first_neighbor));
         let second_neighbor = make_node_record(1234, false);
-        let new_neighbor = make_node_record(2345, false);
+        let mut new_neighbor = make_node_record(2345, false);
+        new_neighbor.inner.country_code_opt = Some("FR".to_string());
         let first_key = subject
             .neighborhood_database
             .add_node(first_neighbor)
@@ -5977,7 +5975,7 @@ mod tests {
 
         let mut neighbor_db = subject.neighborhood_database.clone();
         neighbor_db.add_node(new_neighbor.clone()).unwrap();
-        neighbor_db.this_node = first_key.clone();
+        neighbor_db.set_root_key(&first_key);
         neighbor_db.add_arbitrary_full_neighbor(&second_key, new_neighbor.public_key());
         let mut new_second_neighbor = neighbor_db.node_by_key_mut(&second_key).unwrap();
         new_second_neighbor.inner.version = 2;

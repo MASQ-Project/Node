@@ -697,7 +697,8 @@ Length: 4 (0x4) bytes
         source_node.inner.public_key = PublicKey::new(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[..]);
         let mut target_node = make_node_record(2345, true);
         target_node.inner.public_key = PublicKey::new(&b"ZYXWVUTSRQPONMLKJIHGFEDCBA"[..]);
-        let neighbor = make_node_record(3456, false);
+        let mut neighbor = make_node_record(3456, false);
+        neighbor.inner.country_code_opt = Some("FR".to_string());
         let mut db = db_from_node(&source_node);
         db.add_node(target_node.clone()).unwrap();
         db.add_node(neighbor.clone()).unwrap();

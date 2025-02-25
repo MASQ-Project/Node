@@ -84,12 +84,15 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
     let (_ip, country_code, free_world_bit) = pick_country_code_record(n % 6);
-    let location_opt = match country_code.is_empty() {
-        false => Some(NodeLocation {
-            country_code,
-            free_world_bit,
-        }),
-        true => None,
+    let location_opt = match has_ip {
+        true => match country_code.is_empty() {
+            false => Some(NodeLocation {
+                country_code,
+                free_world_bit,
+            }),
+            true => None,
+        },
+        false => None,
     };
 
     NodeRecord::new_for_tests(
