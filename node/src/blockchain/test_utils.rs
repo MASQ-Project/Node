@@ -2,6 +2,8 @@
 
 #![cfg(test)]
 
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::blockchain::batch_payable_tools::{BatchPayableTools, SecP256K1SecretsKeySecretKey};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
@@ -12,16 +14,16 @@ use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
 use jsonrpc_core as rpc;
+use jsonrpc_core::Call;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::blockchain::batch_payable_tools::{BatchPayableTools, SecP256K1SecretsKeySecretKey};
-use web3::transports::{Batch};
+use web3::transports::Batch;
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
@@ -275,14 +277,15 @@ impl Transport for TestTransport {
     }
 
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-        self.send_params.lock().unwrap().push((id, request.clone()));
-        match self.send_results.borrow_mut().pop_front() {
-            Some(response) => Ok(response),
-            None => {
-                println!("Unexpected request (id: {:?}): {:?}", id, request);
-                Err(Web3Error::Unreachable)
-            }
-        }
+        todo!("this structure has been removed in GH-744");
+        // self.send_params.lock().unwrap().push((id, request.clone()));
+        // match self.send_results.borrow_mut().pop_front() {
+        //     Some(response) => Ok(response),
+        //     None => {
+        //         println!("Unexpected request (id: {:?}): {:?}", id, request);
+        //         Err(Web3Error::Unreachable)
+        //     }
+        // }
     }
 }
 
@@ -381,8 +384,8 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
     >,
     //new_payable_fingerprints returns just the unit type
     submit_batch_params: Arc<Mutex<Vec<Web3<Batch<T>>>>>,
-    submit_batch_results:
-        RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
+    // submit_batch_results:
+    //     RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
 }
 
 impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
@@ -427,12 +430,10 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
             ));
     }
 
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
-        self.submit_batch_params.lock().unwrap().push(web3.clone());
-        self.submit_batch_results.borrow_mut().remove(0)
+    fn submit_batch(&self, web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error> {
+        todo!("this structure has been removed in GH-744")
+        // self.submit_batch_params.lock().unwrap().push(web3.clone());
+        // self.submit_batch_results.borrow_mut().remove(0)
     }
 }
 
@@ -449,8 +450,9 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
             >,
         >,
     ) -> Self {
-        self.sign_transaction_params = params.clone();
-        self
+        todo!("this structure has been removed in GH-744");
+        // self.sign_transaction_params = params.clone();
+        // self
     }
     pub fn sign_transaction_result(self, result: Result<SignedTransaction, Web3Error>) -> Self {
         self.sign_transaction_results.borrow_mut().push(result);
@@ -490,12 +492,10 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self.submit_batch_params = params.clone();
         self
     }
-    pub fn submit_batch_result(
-        self,
-        result: Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>,
-    ) -> Self {
-        self.submit_batch_results.borrow_mut().push(result);
-        self
+    pub fn submit_batch_result(self, result: Result<Vec<()>, Web3Error>) -> Self {
+        todo!("this structure has been removed in GH-744");
+        // self.submit_batch_results.borrow_mut().push(result);
+        // self
     }
 }
 

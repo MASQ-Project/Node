@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
-use actix::{Recipient};
+use actix::Recipient;
 use serde_json::Value;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -11,7 +11,7 @@ use web3::types::{Bytes, SignedTransaction, TransactionParameters, H256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 
 pub enum Web3TransportsResult<O> {
-    Ok(O)
+    Ok(O),
 }
 
 #[derive(Clone)]
@@ -35,10 +35,7 @@ where
         new_pp_fingerprints_sub: &Recipient<PendingPayableFingerprintSeeds>,
         hashes_and_balances: &[(H256, u128)],
     );
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error>;
+    fn submit_batch(&self, web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error>;
 }
 
 #[derive(Debug)]
@@ -89,12 +86,8 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
             .expect("Accountant is dead");
     }
 
-    fn submit_batch(
-        &self,
-        web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<Web3TransportsResult<Value>>, Web3Error> {
-        todo!()
-        // web3.transport().submit_batch().wait()
+    fn submit_batch(&self, web3: &Web3<Batch<T>>) -> Result<Vec<()>, Web3Error> {
+        todo!("this structure has been removed in GH-744")
     }
 }
 
