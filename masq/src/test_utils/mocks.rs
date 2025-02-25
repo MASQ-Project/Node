@@ -8,7 +8,7 @@ use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFac
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::websockets_client::{WSClientHandle, WSSenderWrapper};
+use crate::communications::websockets_client::WSSenderWrapper;
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
@@ -349,44 +349,6 @@ impl MockCommand {
 
     pub fn execute_result(self, result: Result<(), CommandError>) -> Self {
         self.execute_results.lock().unwrap().push(result);
-        self
-    }
-}
-
-#[derive(Default)]
-pub struct WSClientHandleMock {
-    send_params: Arc<Mutex<Vec<MessageBody>>>,
-    send_results: Mutex<Vec<Result<(), Error>>>,
-}
-
-#[async_trait]
-impl WSClientHandle for WSClientHandleMock {
-    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error> {
-        self.send_params.lock().unwrap().push(msg);
-        self.send_results.lock().unwrap().remove(0)
-    }
-
-    async fn close(&mut self) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn dismiss_event_loop(&self) {
-        unimplemented!("Not needed yet")
-    }
-
-    fn is_event_loop_spinning(&self) -> bool {
-        unimplemented!("Test-only method that has an effect only at the real one")
-    }
-}
-
-impl WSClientHandleMock {
-    pub fn send_params(mut self, params: &Arc<Mutex<Vec<MessageBody>>>) -> Self {
-        self.send_params = params.clone();
-        self
-    }
-
-    pub fn send_result(self, result: Result<(), Error>) -> Self {
-        self.send_results.lock().unwrap().push(result);
         self
     }
 }
@@ -900,10 +862,8 @@ impl TerminalInterfaceFactoryMock {
 }
 
 #[derive(Default)]
-pub struct WSSenderWrapperMock{
+pub struct WSSenderWrapperMock {
     send_text_owned_result: Arc<Mutex<Vec<Result<(), Error>>>>,
-    flush_result: Arc<Mutex<Vec<Result<(), Error>>>>,
-    close_result: Arc<Mutex<Vec<Result<(), Error>>>>
 }
 
 #[async_trait]
@@ -913,25 +873,17 @@ impl WSSenderWrapper for WSSenderWrapperMock {
     }
 
     async fn flush(&mut self) -> Result<(), Error> {
-        todo!()
+        unimplemented!("implicitly tested in prod code")
     }
 
     async fn close(&mut self) -> Result<(), Error> {
-        todo!()
+        unimplemented!("error ignored in prod code")
     }
 }
 
 impl WSSenderWrapperMock {
-    pub fn send_text_owned_result(self, result: Result<(), Error>) -> Self{
+    pub fn send_text_owned_result(self, result: Result<(), Error>) -> Self {
         self.send_text_owned_result.lock().unwrap().push(result);
         self
-    }
-
-    pub fn flush_result(self, result: Result<(), Error>) -> Self{
-        todo!()
-    }
-
-    pub fn close_result(mut self, result: Result<(), Error>) -> Self {
-        todo!()
     }
 }

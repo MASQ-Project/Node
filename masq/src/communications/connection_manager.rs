@@ -5,7 +5,10 @@ use crate::communications::broadcast_handlers::{
     StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::communications::websockets_client::{make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError, WSClientHandle, WSClientHandleReal, WSSenderWrapperReal};
+use crate::communications::websockets_client::{
+    make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError,
+    WSClientHandle, WSSenderWrapperReal,
+};
 use crate::terminal::WTermInterfaceDupAndSend;
 use async_channel::RecvError;
 use futures::future::join_all;
@@ -262,7 +265,7 @@ async fn establish_client_listener(
     listener_to_manager_tx: UnboundedSender<Result<MessageBody, ClientListenerError>>,
     close_sig_rx: BroadcastReceiver<()>,
     timeout_millis: u64,
-) -> Result<Box<dyn WSClientHandle>, ClientListenerError> {
+) -> Result<WSClientHandle, ClientListenerError> {
     let (talker_half, listener_half) =
         match make_connection_with_timeout(port, timeout_millis).await {
             Ok(ws) => ws,
@@ -283,9 +286,9 @@ async fn establish_client_listener(
 
     let sender_wrapper = Box::new(WSSenderWrapperReal::new(talker_half));
 
-    let client_handle = WSClientHandleReal::new(sender_wrapper, abort_handle);
+    let handle = WSClientHandle::new(sender_wrapper, abort_handle);
 
-    Ok(Box::new(client_handle))
+    Ok(handle)
 }
 
 struct ConnectionServices {
@@ -301,7 +304,7 @@ struct ConnectionServices {
     conversations_to_manager_tx: async_channel::Sender<OutgoingMessageType>,
     conversations_to_manager_rx: async_channel::Receiver<OutgoingMessageType>,
     listener_to_manager_rx: UnboundedReceiver<Result<MessageBody, ClientListenerError>>,
-    ws_client_handle: Box<dyn WSClientHandle>,
+    ws_client_handle: WSClientHandle,
     broadcast_handles: BroadcastHandles,
     redirect_order_rx: UnboundedReceiver<RedirectOrder>,
     redirect_response_tx: UnboundedSender<Result<(), ClientListenerError>>,
@@ -709,7 +712,7 @@ impl Default for Timeouts {
 mod tests {
     use super::*;
     use crate::communications::node_conversation::{ClientError, ManagerToConversationSender};
-    use crate::test_utils::mocks::{BroadcastHandleMock, WSClientHandleMock};
+    use crate::test_utils::mocks::{BroadcastHandleMock, WSSenderWrapperMock};
     use async_channel::TryRecvError;
     use futures::io::{BufReader, BufWriter};
     use masq_lib::messages::{
@@ -1551,8 +1554,11 @@ mod tests {
         .into_iter()
         .collect::<HashMap<u64, ManagerToConversationSender>>();
         let send_error = Err(Error::Io(io::Error::from(ErrorKind::NotConnected)));
-        let client_listener_handle =
-            Box::new(WSClientHandleMock::default().send_result(send_error));
+        let abort_handle = tokio::spawn(async {}).abort_handle();
+        let client_listener_handle = WSClientHandle::new(
+            Box::new(WSSenderWrapperMock::default().send_text_owned_result(send_error)),
+            abort_handle,
+        );
         let mut services = make_inner().await;
         services.daemon_port = daemon_port;
         services.conversations = conversations;
@@ -1619,7 +1625,11 @@ mod tests {
         .into_iter()
         .collect::<HashMap<u64, ManagerToConversationSender>>();
         let send_error = Err(Error::Io(io::Error::from(ErrorKind::NotConnected)));
-        let ws_client_handle = Box::new(WSClientHandleMock::default().send_result(send_error));
+        let abort_handle = tokio::spawn(async {}).abort_handle();
+        let ws_client_handle = WSClientHandle::new(
+            Box::new(WSSenderWrapperMock::default().send_text_owned_result(send_error)),
+            abort_handle,
+        );
         let mut services = make_inner().await;
         services.daemon_port = daemon_port;
         services.conversations = conversations;
@@ -1826,6 +1836,7 @@ mod tests {
     }
 
     async fn make_inner() -> ConnectionServices {
+        let abort_handle = tokio::spawn(async {}).abort_handle();
         let broadcast_handles = BroadcastHandles::new(
             Box::new(BroadcastHandleMock::default()),
             Box::new(BroadcastHandleMock::default()),
@@ -1842,7 +1853,10 @@ mod tests {
             conversations_to_manager_tx: async_channel::unbounded().0,
             conversations_to_manager_rx: async_channel::unbounded().1,
             listener_to_manager_rx: unbounded_channel().1,
-            ws_client_handle: Box::new(WSClientHandleMock::default()),
+            ws_client_handle: WSClientHandle::new(
+                Box::new(WSSenderWrapperMock::default()),
+                abort_handle,
+            ),
             broadcast_handles,
             redirect_order_rx: unbounded_channel().1,
             redirect_response_tx: unbounded_channel().0,
