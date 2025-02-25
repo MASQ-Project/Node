@@ -473,7 +473,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProcessedPayableFallible {
     Correct(PendingPayable),
     Failed(RpcPayableFailure),
@@ -484,6 +484,15 @@ pub struct RpcPayableFailure {
     pub rpc_error: Error,
     pub recipient_wallet: Wallet,
     pub hash: H256,
+}
+
+impl PartialEq for RpcPayableFailure {
+    fn eq(&self, other: &Self) -> bool {
+        unimplemented!()
+        // self.rpc_error == other.rpc_error
+        //     && self.recipient_wallet == other.recipient_wallet
+        //     && self.hash == other.hash
+    }
 }
 
 type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;

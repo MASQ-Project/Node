@@ -13,9 +13,11 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
+use futures_util::future::BoxFuture;
 use jsonrpc_core as rpc;
 use jsonrpc_core::Call;
 use lazy_static::lazy_static;
+use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -267,7 +269,7 @@ pub struct TestTransport {
 }
 
 impl Transport for TestTransport {
-    type Out = web3::Result<rpc::Value>;
+    type Out = BoxFuture<'static, web3::Result<Value>>;
 
     fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
         let request = web3::helpers::build_request(1, method, params.clone());
@@ -290,18 +292,19 @@ impl Transport for TestTransport {
 }
 
 impl BatchTransport for TestTransport {
-    type Batch = web3::Result<Vec<Result<rpc::Value, web3::Error>>>;
+    type Batch = BoxFuture<'static, web3::Result<Vec<web3::Result<Value>>>>;
 
     fn send_batch<T>(&self, requests: T) -> Self::Batch
     where
         T: IntoIterator<Item = (RequestId, rpc::Call)>,
     {
-        self.send_batch_params
-            .lock()
-            .unwrap()
-            .push(requests.into_iter().collect());
-        let response = self.send_batch_results.borrow_mut().remove(0);
-        Ok(response)
+        todo!("This code will disappear once GH-744 gets in.")
+        // self.send_batch_params
+        //     .lock()
+        //     .unwrap()
+        //     .push(requests.into_iter().collect());
+        // let response = self.send_batch_results.borrow_mut().remove(0);
+        // Ok(response)
     }
 }
 
