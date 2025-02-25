@@ -5,10 +5,7 @@ use crate::communications::broadcast_handlers::{
     StandardBroadcastHandlerFactoryReal,
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
-use crate::communications::websockets_client::{
-    make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError,
-    WSClientHandle, WSClientHandleReal,
-};
+use crate::communications::websockets_client::{make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError, WSClientHandle, WSClientHandleReal, WSSenderWrapperReal};
 use crate::terminal::WTermInterfaceDupAndSend;
 use async_channel::RecvError;
 use futures::future::join_all;
@@ -284,7 +281,9 @@ async fn establish_client_listener(
         .start(close_sig_rx, listener_to_manager_tx)
         .await;
 
-    let client_handle = WSClientHandleReal::new(talker_half, abort_handle);
+    let sender_wrapper = Box::new(WSSenderWrapperReal::new(talker_half));
+
+    let client_handle = WSClientHandleReal::new(sender_wrapper, abort_handle);
 
     Ok(Box::new(client_handle))
 }

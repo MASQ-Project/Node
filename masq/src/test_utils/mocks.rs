@@ -8,7 +8,7 @@ use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFac
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::websockets_client::WSClientHandle;
+use crate::communications::websockets_client::{WSClientHandle, WSSenderWrapper};
 use crate::run_modes::CLIProgramEntering;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
@@ -372,10 +372,6 @@ impl WSClientHandle for WSClientHandleMock {
 
     fn dismiss_event_loop(&self) {
         unimplemented!("Not needed yet")
-    }
-
-    async fn is_connection_open(&mut self) -> bool {
-        unimplemented!("Test-only method that has an effect only at the real one")
     }
 
     fn is_event_loop_spinning(&self) -> bool {
@@ -900,5 +896,42 @@ impl TerminalInterfaceFactoryMock {
     ) -> Self {
         self.make_results.borrow_mut().push(result);
         self
+    }
+}
+
+#[derive(Default)]
+pub struct WSSenderWrapperMock{
+    send_text_owned_result: Arc<Mutex<Vec<Result<(), Error>>>>,
+    flush_result: Arc<Mutex<Vec<Result<(), Error>>>>,
+    close_result: Arc<Mutex<Vec<Result<(), Error>>>>
+}
+
+#[async_trait]
+impl WSSenderWrapper for WSSenderWrapperMock {
+    async fn send_text_owned(&mut self, _data: String) -> Result<(), Error> {
+        self.send_text_owned_result.lock().unwrap().remove(0)
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        todo!()
+    }
+
+    async fn close(&mut self) -> Result<(), Error> {
+        todo!()
+    }
+}
+
+impl WSSenderWrapperMock {
+    pub fn send_text_owned_result(self, result: Result<(), Error>) -> Self{
+        self.send_text_owned_result.lock().unwrap().push(result);
+        self
+    }
+
+    pub fn flush_result(self, result: Result<(), Error>) -> Self{
+        todo!()
+    }
+
+    pub fn close_result(mut self, result: Result<(), Error>) -> Self {
+        todo!()
     }
 }

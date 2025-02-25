@@ -89,13 +89,11 @@ pub trait WSClientHandle: Send {
     async fn close(&mut self) -> Result<(), SokettoError>;
     fn dismiss_event_loop(&self);
     #[cfg(test)]
-    async fn is_connection_open(&mut self) -> bool;
-    #[cfg(test)]
     fn is_event_loop_spinning(&self) -> bool;
 }
 
 pub struct WSClientHandleReal {
-    ws_sender: WSSender,
+    ws_sender: Box<dyn WSSenderWrapper>,
     listener_event_loop_abort_handle: AbortHandle,
 }
 
@@ -106,11 +104,42 @@ impl Drop for WSClientHandleReal {
 }
 
 #[async_trait]
+pub trait WSSenderWrapper: Send {
+    async fn send_text_owned(&mut self, data: String)-> Result<(), SokettoError>;
+    async fn flush(&mut self) -> Result<(), SokettoError>;
+    async fn close(&mut self) -> Result<(), SokettoError>;
+}
+
+pub struct WSSenderWrapperReal {
+    sender: WSSender
+}
+
+#[async_trait]
+impl WSSenderWrapper for WSSenderWrapperReal {
+    async fn send_text_owned(&mut self, data: String) -> Result<(), SokettoError> {
+        self.sender.send_text_owned(data).await
+    }
+
+    async fn flush(&mut self) -> Result<(), SokettoError> {
+        self.sender.flush().await
+    }
+
+    async fn close(&mut self) -> Result<(), SokettoError> {
+        self.sender.close().await
+    }
+}
+
+impl WSSenderWrapperReal {
+    pub fn new(sender: WSSender) -> Self {
+        Self {sender}
+    }
+}
+
+#[async_trait]
 impl WSClientHandle for WSClientHandleReal {
     async fn send_msg(&mut self, msg: MessageBody) -> Result<(), SokettoError> {
         let txt = UiTrafficConverter::new_marshal(msg);
-        //TODO untested result
-        self.ws_sender.send_text_owned(txt).await;
+        self.ws_sender.send_text_owned(txt).await?;
         self.ws_sender.flush().await
     }
 
@@ -123,19 +152,13 @@ impl WSClientHandle for WSClientHandleReal {
     }
 
     #[cfg(test)]
-    async fn is_connection_open(&mut self) -> bool {
-        // Is this too big a hack?
-        self.ws_sender.flush().await.is_ok()
-    }
-
-    #[cfg(test)]
     fn is_event_loop_spinning(&self) -> bool {
         !self.listener_event_loop_abort_handle.is_finished()
     }
 }
 
 impl WSClientHandleReal {
-    pub fn new(ws_sender: WSSender, listener_event_loop_abort_handle: AbortHandle) -> Self {
+    pub fn new(ws_sender: Box<dyn WSSenderWrapper>, listener_event_loop_abort_handle: AbortHandle) -> Self {
         Self {
             ws_sender,
             listener_event_loop_abort_handle,
@@ -277,10 +300,13 @@ mod tests {
     use soketto::handshake::Server;
     use std::os::fd::AsRawFd;
     use std::time::Duration;
+    use soketto::base;
+    use soketto::connection::Error;
     use tokio::net::TcpListener;
     use tokio::sync::mpsc::error::TryRecvError;
     use tokio::sync::mpsc::unbounded_channel;
     use tokio::time::Instant;
+    use crate::test_utils::mocks::WSSenderWrapperMock;
 
     #[tokio::test]
     async fn listens_and_passes_data_through() {
@@ -522,7 +548,8 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
-        let client_handle = WSClientHandleReal::new(talker_half, join_handle.abort_handle());
+        let sender_wrapper = Box::new(WSSenderWrapperReal::new(talker_half));
+        let client_handle = WSClientHandleReal::new(sender_wrapper, join_handle.abort_handle());
         let count_before = Arc::strong_count(&ref_counting_object);
 
         drop(client_handle);
@@ -554,7 +581,8 @@ mod tests {
         let subject =
             ClientListenerSpawner::new(listener_half, message_body_tx, close_sig.dup_receiver());
         let join_handle = tokio::task::spawn(async { subject.loop_guts().await });
-        let mut client_handle = WSClientHandleReal::new(talker_half, join_handle.abort_handle());
+        let sender_wrapper = Box::new(WSSenderWrapperReal::new(talker_half));
+        let mut client_handle = WSClientHandleReal::new(sender_wrapper, join_handle.abort_handle());
         client_handle
             .send_msg(UiDescriptorRequest {}.tmb(1234))
             .await
@@ -602,7 +630,7 @@ mod tests {
     async fn close_works() {
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let stop_handle = server.start().await;
+        let server_stop_handle = server.start().await;
         let (talker_half, _listener_half) =
             make_connection_with_timeout(port, WS_CONNECT_TIMEOUT_MS)
                 .await
@@ -612,15 +640,16 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         });
+        let sender_wrapper = Box::new(WSSenderWrapperReal::new(talker_half));
         let mut subject = WSClientHandleReal::new(
-            talker_half,
+            sender_wrapper,
             meaningless_event_loop_join_handle.abort_handle(),
         );
 
         let result = subject.close().await;
 
         assert!(matches!(result, Ok(())));
-        let requests = stop_handle.stop().await;
+        let requests = server_stop_handle.stop().await;
         assert_eq!(requests.requests, vec![MWSSMessage::Close])
     }
 
@@ -633,5 +662,24 @@ mod tests {
             true
         );
         assert_eq!(ClientListenerError::UnexpectedPacket.is_fatal(), false);
+    }
+
+    #[tokio::test]
+    async fn send_msg_error_at_sending_is_handled(){
+        let sender = WSSenderWrapperMock::default().send_text_owned_result(Err(Error::Codec(base::Error::InvalidControlFrameLen)));
+        let meaningless_event_loop_join_handle = tokio::task::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        });
+        let mut subject = WSClientHandleReal::new(
+            Box::new(sender),
+            meaningless_event_loop_join_handle.abort_handle(),
+        );
+        let msg = UiDescriptorRequest{}.tmb(1);
+
+        let result = subject.send_msg(msg).await;
+
+        assert!(matches!(result, Err(Error::Codec(base::Error::InvalidControlFrameLen))));
     }
 }
