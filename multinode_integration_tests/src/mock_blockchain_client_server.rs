@@ -405,7 +405,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("Thank you and good night", 40)
+            .ok_response("Thank you and good night", 40)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let chunks = vec![
@@ -435,8 +436,9 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("Welcome, and thanks for coming!", 39)
-            .response("Thank you and good night", 40)
+            .ok_response("Welcome, and thanks for coming!", 39)
+            .ok_response("Thank you and good night", 40)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         client.write(b"POST /biddle HTTP/1.1\r\nContent-Length: 5\r\n\r\nfirstPOST /biddle HTTP/1.1\r\nContent-Length: 6\r\n\r\nsecond").unwrap();
@@ -459,7 +461,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("irrelevant".to_string(), 42)
+            .ok_response("irrelevant".to_string(), 42)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request = b"POST /biddle HTTP/1.1\r\n\r\nbody";
@@ -475,7 +478,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("irrelevant".to_string(), 42)
+            .ok_response("irrelevant".to_string(), 42)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request = b"GET /booga\r\nContent-Length: 4\r\n\r\nbody";
@@ -491,7 +495,8 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
-            .response("irrelevant".to_string(), 42)
+            .ok_response("irrelevant".to_string(), 42)
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request = b"GET /booga HTTP/2.0\r\nContent-Length: 4\r\n\r\nbody";
@@ -509,10 +514,10 @@ mod tests {
         let subject = MockBlockchainClientServer::builder(port)
             .notifier(notifier)
             .begin_batch()
-            .response(1234u64, 40)
+            .ok_response(1234u64, 40)
             .error(1234, "My tummy hurts", None as Option<()>)
             .end_batch()
-            .response(
+            .ok_response(
                 Person {
                     name: "Billy".to_string(),
                     age: 15,
@@ -527,6 +532,7 @@ mod tests {
                     age: 37,
                 }),
             )
+            .run_in_docker()
             .start();
         let mut client = connect(port);
 
@@ -581,13 +587,14 @@ mod tests {
         let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let subject = MockBlockchainClientServer::builder(port)
-            .response(
+            .ok_response(
                 Person {
                     name: "Billy".to_string(),
                     age: 15,
                 },
                 42,
             )
+            .run_in_docker()
             .start();
         let mut client = connect(port);
         let request =
