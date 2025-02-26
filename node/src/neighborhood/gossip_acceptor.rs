@@ -755,6 +755,8 @@ impl IntroductionHandler {
                 )));
             }
         }
+        // TODO: Another validation that should be done here is to ensure that the introducer
+        // already has (at least?) a half neighborship to this Node.
         None
     }
 

@@ -5,8 +5,8 @@ use node_lib::entry_dns::packet_facade::PacketFacade;
 use serial_test_derive::serial;
 use std::net::UdpSocket;
 use std::time::Duration;
-use trust_dns::op::{OpCode, ResponseCode};
-use trust_dns::rr::{DNSClass, RecordType};
+use hickory_proto::op::{ResponseCode, OpCode};
+use hickory_proto::rr::{DNSClass, RecordType};
 
 #[test]
 #[serial(port53)]

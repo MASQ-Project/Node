@@ -16,11 +16,12 @@ use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, Rec
 use node_lib::accountant::gwei_to_wei;
 use node_lib::test_utils::make_wallet;
 use std::time::SystemTime;
+use masq_lib::ui_gateway::MessagePath;
 use utils::MASQNode;
 
-#[test]
-fn financials_command_retrieves_payable_and_receivable_records() {
-    fdlimit::raise_fd_limit();
+#[tokio::test]
+async fn financials_command_retrieves_payable_and_receivable_records() {
+    fdlimit::raise_fd_limit().unwrap();
     let port = find_free_port();
     let home_dir = ensure_node_home_directory_exists(
         "financials_test",
@@ -70,11 +71,11 @@ fn financials_command_retrieves_payable_and_receivable_records() {
         }),
         custom_queries_opt: None,
     };
-    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
     let before = SystemTime::now();
 
-    client.send(financials_request);
-    let response: UiFinancialsResponse = client.skip_until_received().unwrap();
+    client.send(financials_request).await;
+    let (_path, response): (MessagePath, UiFinancialsResponse) = client.skip_until_received().await.unwrap();
 
     let after = SystemTime::now();
     assert_eq!(response.stats_opt, None);
