@@ -2217,7 +2217,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
-                hostname_opt: Some("nowhere.com".to_string())
+                hostname_opt: Some("nowhere.com".to_string()),
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2297,7 +2297,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 16,
-                hostname_opt: None
+                hostname_opt: None,
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();

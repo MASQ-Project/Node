@@ -12,6 +12,7 @@ use node_lib::database::db_initializer::{
 };
 use node_lib::database::rusqlite_wrappers::ConnectionWrapper;
 use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
+use node_lib::neighborhood::node_location::get_node_location;
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
@@ -134,10 +135,16 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
                 accepts_connections: masq_node.accepts_connections(),
                 routes_data: masq_node.routes_data(),
                 version: 0,
+                country_code_opt: None,
             },
             node_addr_opt: Some(masq_node.node_addr()),
             signed_gossip: PlainData::new(b""),
             signature: CryptData::new(b""),
+        };
+        let ip_addr = masq_node.node_addr().ip_addr();
+        let country_code = get_node_location(Some(ip_addr));
+        if let Some(cc) = country_code {
+            agr.inner.country_code_opt = Some(cc.country_code)
         };
         agr.regenerate_signed_gossip(cryptde);
         agr

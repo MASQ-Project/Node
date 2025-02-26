@@ -393,7 +393,6 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
-    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -489,6 +488,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
+    use ip_country_lib::countries::INDEX_BY_ISO3166;
     use regex::Regex;
     use std::net::IpAddr;
     use std::str::FromStr;
@@ -523,6 +523,44 @@ pub mod common_validators {
             Ok(clandestine_port) if clandestine_port >= LOWEST_USABLE_INSECURE_PORT => Ok(()),
             _ => Err(clandestine_port),
         }
+    }
+
+    pub fn validate_country_code(country_code: &str) -> Result<(), String> {
+        match INDEX_BY_ISO3166.contains_key(country_code) {
+            true => Ok(()),
+            false => Err(format!(
+                "'{}' is not a valid ISO3166 country code",
+                country_code
+            )),
+        }
+    }
+
+    pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
+        validate_pipe_separated_values(exit_location, |country: String| {
+            let mut collect_fails = "".to_string();
+            country.split(',').into_iter().for_each(|country_code| {
+                match validate_country_code(country_code) {
+                    Ok(_) => (),
+                    Err(e) => collect_fails.push_str(&e),
+                }
+            });
+            match collect_fails.is_empty() {
+                true => Ok(()),
+                false => Err(collect_fails),
+            }
+        })
+    }
+
+    pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
+        validate_pipe_separated_values(values, |segment: String| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
+                        .to_string()
+                })
+                .map(|_| ())
+        })
     }
 
     pub fn validate_private_key(key: String) -> Result<(), String> {
@@ -611,16 +649,24 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
-        values_with_delimiters.split('|').try_for_each(|segment| {
-            segment
-                .parse::<u64>()
-                .map_err(|_| {
-                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
-                        .to_string()
-                })
-                .map(|_| ())
-        })
+    fn validate_pipe_separated_values(
+        values_with_delimiters: String,
+        closure: fn(String) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut error_collection = vec![];
+        values_with_delimiters
+            .split('|')
+            .into_iter()
+            .for_each(|segment| {
+                match closure(segment.to_string()) {
+                    Ok(_) => (),
+                    Err(msg) => error_collection.push(msg),
+                };
+            });
+        match error_collection.is_empty() {
+            true => Ok(()),
+            false => Err(error_collection.into_iter().collect::<String>()),
+        }
     }
 }
 
@@ -933,6 +979,23 @@ mod tests {
     }
 
     #[test]
+    fn validate_exit_key_fails_on_not_valid_country_code() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR"));
+
+        assert_eq!(
+            result,
+            Err("'RR' is not a valid ISO3166 country code".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_exit_key_success() {
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK"));
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
     fn validate_private_key_requires_a_key_that_is_64_characters_long() {
         let result = common_validators::validate_private_key(String::from("42"));
 
@@ -1082,7 +1145,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1094,7 +1157,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1106,7 +1169,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
