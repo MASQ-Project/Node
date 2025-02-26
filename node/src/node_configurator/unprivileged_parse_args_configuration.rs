@@ -718,7 +718,6 @@ mod tests {
                     DEFAULT_RATE_PACK
                 ),
                 min_hops: Hops::OneHop,
-
             })
         );
     }

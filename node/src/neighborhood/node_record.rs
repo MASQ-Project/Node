@@ -15,7 +15,7 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
-//TODO create special serializer for NodeRecordInner_0v1 to simplify public_key, earning_wallet, rate_pack and neighbors
+//TODO #584 create special serializer for NodeRecordInner_0v1
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct NodeRecordInner_0v1 {
@@ -348,7 +348,7 @@ pub struct NodeRecordMetadata {
     pub unreachable_hosts: HashSet<String>,
     pub node_location_opt: Option<NodeLocation>,
     pub country_undesirability: u32,
-    //TODO introduce various scores for latency, reliability and so
+    //TODO introduce scores for latency #582 and reliability #583
 }
 
 impl NodeRecordMetadata {

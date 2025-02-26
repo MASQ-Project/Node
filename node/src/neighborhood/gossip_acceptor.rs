@@ -282,7 +282,6 @@ impl DebutHandler {
         let mut debuting_node = NodeRecord::from(debuting_agr);
         match user_exit_preferences_opt {
             Some(user_exit_preferences) => {
-                //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                 user_exit_preferences.assign_nodes_country_undesirability(&mut debuting_node);
             }
             None => (),
@@ -891,7 +890,6 @@ impl IntroductionHandler {
             None => {
                 let mut new_introducer = NodeRecord::from(introducer);
                 match user_exit_preferences_opt {
-                    //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                     Some(user_exit_preferences) => user_exit_preferences
                         .assign_nodes_country_undesirability(&mut new_introducer),
                     None => (),
@@ -1143,7 +1141,6 @@ impl StandardGossipHandler {
                 let mut node_record = NodeRecord::from(agr);
                 match user_exit_preferences_opt {
                     Some(user_exit_preferences) => {
-                        //TODO 788 check if country code is present in Neighborhood DB and if yes, perform assign country code to exit_countries without duplication
                         user_exit_preferences.assign_nodes_country_undesirability(&mut node_record)
                     }
                     None => (),

@@ -215,8 +215,7 @@ impl TryFrom<(&dyn CryptDE, &str)> for NodeDescriptor {
         let node_addr_opt = if str_node_addr == ":" {
             None
         } else {
-            let node_addr = NodeAddr::from_str(str_node_addr)?;
-            Some(node_addr)
+            Some(NodeAddr::from_str(str_node_addr)?)
         };
         Ok(NodeDescriptor {
             blockchain,
