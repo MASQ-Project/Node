@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::NODE_UI_PROTOCOL;
+use crate::test_utils::forced_tcp_reset::SocketHandle;
 use crate::ui_gateway::{MessageBody, MessagePath};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
@@ -17,6 +18,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot::Receiver as OneShotReceiver;
 use tokio::task::JoinHandle;
@@ -106,10 +108,8 @@ impl MWSSMessage {
 
 pub struct MockWebSocketsServer {
     port: u16,
-    accepted_protocol_opt: Option<String>,
     responses: Vec<MWSSMessage>,
-    opening_faf_triggered_by_msg: bool,
-    await_close_handshake_completion: bool,
+    edge_cases: EdgeCaseConfig,
     do_log: bool,
 }
 
@@ -117,10 +117,8 @@ impl MockWebSocketsServer {
     pub fn new(port: u16) -> Self {
         Self {
             port,
-            accepted_protocol_opt: Some(NODE_UI_PROTOCOL.to_string()),
             responses: vec![],
-            opening_faf_triggered_by_msg: false,
-            await_close_handshake_completion: false,
+            edge_cases: EdgeCaseConfig::default(),
             do_log: false,
         }
     }
@@ -129,19 +127,37 @@ impl MockWebSocketsServer {
         self.port
     }
 
-    pub fn accepted_protocol(mut self, protocol_opt: Option<&str>) -> Self {
-        self.accepted_protocol_opt = protocol_opt.map(|p| p.to_string());
+    pub fn send_unexpected_http_when_tcp_established(mut self, http_response: String) -> Self {
+        self.edge_cases.unexpected_http_when_tcp_established_opt = Some(http_response);
+        self
+    }
+
+    pub fn send_specific_handshake_response(
+        mut self,
+        response: MockServerHandshakeResponse,
+    ) -> Self {
+        self.edge_cases.specific_handshake_response_opt = Some(response);
         self
     }
 
     // E.g. required for testing a redirect where a conversational message is followed by a faf msg
     pub fn opening_faf_triggered_by_msg(mut self) -> Self {
-        self.opening_faf_triggered_by_msg = true;
+        self.edge_cases.opening_faf_triggered_by_msg = true;
         self
     }
 
     pub fn await_close_handshake_completion(mut self) -> Self {
-        self.await_close_handshake_completion = true;
+        self.edge_cases.await_close_handshake_completion = true;
+        self
+    }
+
+    pub fn drop_conn_during_handshake(mut self) -> Self {
+        self.edge_cases.drop_conn_during_handshake = true;
+        self
+    }
+
+    pub fn set_socket_to_no_linger(mut self) -> Self {
+        self.edge_cases.set_socket_to_no_linger = true;
         self
     }
 
@@ -183,7 +199,7 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub async fn start(self) -> MockWebSocketsServerHandle {
+    pub async fn start(mut self) -> MockWebSocketsServerHandle {
         let logger = MWSSLogger::new(self.do_log);
         let requests_arc = Arc::new(Mutex::new(vec![]));
         let proposed_protocols_arc = Arc::new(Mutex::new(vec![]));
@@ -196,27 +212,25 @@ impl MockWebSocketsServer {
 
         let proposed_protocols_inner_arc = proposed_protocols_arc.clone();
         let requests_inner_arc = requests_arc.clone();
-        let mut responses = self.responses;
-        let opening_faf_triggered_by_msg = self.opening_faf_triggered_by_msg;
-        let await_close_handshake_completion = self.await_close_handshake_completion;
 
         let connection_future = async move {
-            let (mut sender, receiver) = Self::make_connection(
-                tcp_listener,
-                proposed_protocols_inner_arc,
-                self.accepted_protocol_opt.clone(),
-            )
-            .await;
-            if !opening_faf_triggered_by_msg {
-                Self::send_faf_messages(&mut sender, &mut responses).await;
+            let (mut sender, receiver) = match self
+                .make_connection(tcp_listener, proposed_protocols_inner_arc)
+                .await
+            {
+                ConnectionResult::ComponentsInitialized { sender, receiver } => (sender, receiver),
+                ConnectionResult::IntentionalExit => return,
+            };
+            if !self.edge_cases.opening_faf_triggered_by_msg {
+                Self::send_faf_messages(&mut sender, &mut self.responses).await;
             }
             Self::handling_loop(
                 sender,
                 receiver,
                 requests_inner_arc,
-                &mut responses,
+                &mut self.responses,
                 termination_rx,
-                await_close_handshake_completion,
+                self.edge_cases,
             )
             .await
         };
@@ -239,7 +253,7 @@ impl MockWebSocketsServer {
         requests_inner_arc: Arc<Mutex<Vec<MWSSMessage>>>,
         responses: &mut Vec<MWSSMessage>,
         termination_rx: OneShotReceiver<()>,
-        await_close_handshake_completion: bool,
+        edge_cases: EdgeCaseConfig,
     ) {
         let deadline_if_no_termination_received = Duration::from_millis(10_000);
         let timeout = tokio::time::sleep(deadline_if_no_termination_received);
@@ -271,7 +285,7 @@ impl MockWebSocketsServer {
 
                     _ = &mut timeout => {
                         if stop_already_ordered {
-                            Self::handle_server_stop(sender, receiver, requests_inner_arc, await_close_handshake_completion).await;
+                            Self::handle_server_stop(sender, receiver, requests_inner_arc, edge_cases.await_close_handshake_completion).await;
                             return;
                         } else {
                             panic!(
@@ -305,20 +319,38 @@ impl MockWebSocketsServer {
     }
 
     async fn make_connection(
+        &self,
         tcp_listener: TcpListener,
         proposed_protocols_arc: Arc<Mutex<Vec<String>>>,
-        accepted_protocol_opt: Option<String>,
-    ) -> (WSSender, WSReceiver) {
-        // TODO: Eventually add the capability to abort at any important stage along in here so that
-        // we can test client code against misbehaving servers.
-        let (stream, _) = tcp_listener
+    ) -> ConnectionResult {
+        let (mut stream, _) = tcp_listener
             .accept()
             .await
             .expect("Error accepting incoming connection to MockWebsocketsServer");
-        let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
-        if let Some(protocol) = accepted_protocol_opt.as_ref() {
-            server.add_protocol(protocol.as_str());
+
+        if self.edge_cases.set_socket_to_no_linger {
+            SocketHandle::new(&stream).set_socket_to_no_linger();
         }
+
+        if let Some(http) = self
+            .edge_cases
+            .unexpected_http_when_tcp_established_opt
+            .as_ref()
+        {
+            stream.write_all(http.as_bytes()).await.unwrap();
+            stream.flush().await.unwrap()
+        }
+
+        let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
+
+        let protocol = if let Some(protocol) = self.arbitrary_protocol_opt() {
+            protocol
+        } else {
+            NODE_UI_PROTOCOL
+        };
+
+        server.add_protocol(protocol);
+
         let websocket_key = {
             let req = server
                 .receive_request()
@@ -331,17 +363,61 @@ impl MockWebSocketsServer {
             req.key()
         };
 
-        let accept = Response::Accept {
-            key: websocket_key,
-            protocol: accepted_protocol_opt.as_ref().map(|p| p.as_str()),
-        };
+        if self.edge_cases.drop_conn_during_handshake {
+            // Dropping server and thus the connection terminates
+            // (You may want to combine it with set_socket_to_no_linger() for a violate reset)
+            return ConnectionResult::IntentionalExit;
+        }
+
+        let server_response =
+            if let Some(response) = &self.edge_cases.specific_handshake_response_opt {
+                match response {
+                    MockServerHandshakeResponse::Accept {
+                        accepted_protocol_opt,
+                        replace_correct_websocket_key_with_opt,
+                    } => Response::Accept {
+                        key: if let Some(key) = replace_correct_websocket_key_with_opt {
+                            key.clone()
+                        } else {
+                            websocket_key
+                        },
+                        protocol: accepted_protocol_opt.as_ref().map(|p| p.as_str()),
+                    },
+                    MockServerHandshakeResponse::Reject { status_code } => Response::Reject {
+                        status_code: *status_code,
+                    },
+                }
+            } else {
+                Response::Accept {
+                    key: websocket_key,
+                    protocol: Some(NODE_UI_PROTOCOL),
+                }
+            };
+
         server
-            .send_response(&accept)
+            .send_response(&server_response)
             .await
             .expect("Error sending handshake acceptance to client");
 
         let (sender, receiver) = server.into_builder().finish();
-        (sender, receiver)
+
+        ConnectionResult::ComponentsInitialized { sender, receiver }
+    }
+
+    fn arbitrary_protocol_opt(&self) -> Option<&str> {
+        if let Some(response) = &self.edge_cases.specific_handshake_response_opt {
+            if let MockServerHandshakeResponse::Accept {
+                accepted_protocol_opt,
+                ..
+            } = response
+            {
+                if let Some(protocol) = accepted_protocol_opt {
+                    return Some(protocol.as_str());
+                }
+            }
+        }
+
+        None
     }
 
     async fn process_data(
@@ -508,6 +584,46 @@ impl MockWebSocketsServerHandle {
             proposed_protocols: (*(self.proposed_protocols_arc.lock().unwrap())).clone(),
         }
     }
+}
+
+pub enum MockServerHandshakeResponse {
+    Accept {
+        accepted_protocol_opt: Option<String>,
+        replace_correct_websocket_key_with_opt: Option<[u8; 24]>,
+    },
+    Reject {
+        status_code: u16,
+    },
+}
+
+struct EdgeCaseConfig {
+    opening_faf_triggered_by_msg: bool,
+    await_close_handshake_completion: bool,
+    drop_conn_during_handshake: bool,
+    set_socket_to_no_linger: bool,
+    specific_handshake_response_opt: Option<MockServerHandshakeResponse>,
+    unexpected_http_when_tcp_established_opt: Option<String>,
+}
+
+impl Default for EdgeCaseConfig {
+    fn default() -> Self {
+        Self {
+            opening_faf_triggered_by_msg: false,
+            await_close_handshake_completion: false,
+            drop_conn_during_handshake: false,
+            set_socket_to_no_linger: false,
+            specific_handshake_response_opt: None,
+            unexpected_http_when_tcp_established_opt: None,
+        }
+    }
+}
+
+enum ConnectionResult {
+    ComponentsInitialized {
+        sender: WSSender,
+        receiver: WSReceiver,
+    },
+    IntentionalExit,
 }
 
 #[derive(Clone)]

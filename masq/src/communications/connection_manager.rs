@@ -6,8 +6,8 @@ use crate::communications::broadcast_handlers::{
 };
 use crate::communications::node_conversation::{NodeConversation, NodeConversationTermination};
 use crate::communications::websockets_client::{
-    make_connection_with_timeout, ClientListener, ClientListenerError, ConnectError,
-    WSClientHandle, WSSenderWrapperReal,
+    make_connection_with_timeout, ClientListener, ClientListenerError, WSClientHandle,
+    WSHandshakeError, WSSenderWrapperReal,
 };
 use crate::terminal::WTermInterfaceDupAndSend;
 use async_channel::RecvError;
@@ -25,7 +25,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
-pub const STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS: u64 = 1000;
+pub const CLIENT_WS_CONNECT_TIMEOUT_MS: u64 = 1500;
 pub const FALLBACK_TIMEOUT_MILLIS: u64 = 5000; //used to be 1000; but we have suspicion that Actions doesn't make it and needs more
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +60,7 @@ impl RedirectOrder {
 }
 
 #[derive(Debug)]
-pub enum ServicesDeploymentError {
+pub enum BootstrapperError {
     ClientListener(ClientListenerError),
 }
 
@@ -85,7 +85,7 @@ impl CMBootstrapper {
         self,
         port: u16,
         terminal_interface_opt: Option<Box<dyn WTermInterfaceDupAndSend>>,
-    ) -> Result<ConnectionManager, ServicesDeploymentError> {
+    ) -> Result<ConnectionManager, BootstrapperError> {
         let (listener_to_manager_tx, listener_to_manager_rx) = unbounded_channel();
         let close_sync_flag = SyncCloseFlag::default();
         let (async_close_signal_tx, async_close_signal_rx) = tokio::sync::broadcast::channel(10);
@@ -97,12 +97,12 @@ impl CMBootstrapper {
             port,
             listener_to_manager_tx,
             close_sig_client_listener,
-            STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS,
+            CLIENT_WS_CONNECT_TIMEOUT_MS,
         )
         .await
         {
             Ok(ch) => ch,
-            Err(e) => return Err(ServicesDeploymentError::ClientListener(e)),
+            Err(e) => return Err(BootstrapperError::ClientListener(e)),
         };
 
         let standard_broadcast_handler = self
@@ -269,14 +269,12 @@ async fn establish_client_listener(
     let (talker_half, listener_half) =
         match make_connection_with_timeout(port, timeout_millis).await {
             Ok(ws) => ws,
-            Err(ConnectError::Timeout) => {
+            Err(WSHandshakeError::Timeout) => {
                 return Err(ClientListenerError::Timeout {
                     elapsed_ms: timeout_millis,
                 })
             }
-            Err(ConnectError::Soketto(e)) => {
-                return Err(ClientListenerError::Broken(format!("{:?}", &e)))
-            }
+            Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", &e))),
         };
 
     let client_listener = ClientListener::new(listener_half);
@@ -502,9 +500,8 @@ impl CentralEventLoop {
         {
             Ok(th) => th,
             Err(e) => {
-                let _ = services
-                    .redirect_response_tx
-                    .send(Err(ClientListenerError::Broken(format!("{:?}", e))));
+                // TODO is this ever tested?
+                let _ = services.redirect_response_tx.send(Err(e));
                 return services;
             }
         };
@@ -724,7 +721,7 @@ mod tests {
         UiShutdownRequest, UiShutdownResponse, UiStartOrder, UiStartResponse, UiUnmarshalError,
     };
     use masq_lib::test_utils::mock_websockets_server::{
-        MWSSMessage, MockWebSocketsServer, MockWebSocketsServerHandle,
+        MWSSMessage, MockServerHandshakeResponse, MockWebSocketsServer, MockWebSocketsServerHandle,
     };
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
@@ -771,7 +768,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(COMPONENT_RESPONSE_TIMEOUT_MILLIS, 100);
-        assert_eq!(STANDARD_CLIENT_CONNECT_TIMEOUT_MILLIS, 1000);
+        assert_eq!(CLIENT_WS_CONNECT_TIMEOUT_MS, 1500);
         assert_eq!(FALLBACK_TIMEOUT_MILLIS, 5000);
     }
 
@@ -1777,6 +1774,135 @@ mod tests {
             Ok(_) => panic!("We expected an error but got ok"),
         };
         assert_eq!(err, ClientListenerError::Timeout { elapsed_ms: 1 })
+    }
+
+    #[tokio::test]
+    async fn make_connection_with_timeout_connection_reset_during_handshake() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let _server_stop_handle = server
+            .set_socket_to_no_linger()
+            .drop_conn_during_handshake()
+            .start()
+            .await;
+        let (tx, _rx) = unbounded_channel();
+        let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+
+        let result = establish_client_listener(port, tx, close_rx, 5000).await;
+
+        match result {
+            Err(ClientListenerError::Broken(msg)) => {
+                assert!(
+                    msg.contains("Socketto(\"Io(")
+                        && msg.contains("kind: ConnectionReset, message:"),
+                    "We expected ConnectionReset error but got {}",
+                    msg
+                )
+            }
+            Err(e) => panic!("We expected WSHandshakeError::Socketto but got {:?}", e),
+            Ok(_) => {
+                panic!("We expected ConnectionReset error but got Ok()")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn make_connection_with_timeout_server_replies_without_selected_protocol() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let _server_stop_handle = server
+            .send_specific_handshake_response(MockServerHandshakeResponse::Accept {
+                accepted_protocol_opt: None,
+                replace_correct_websocket_key_with_opt: None,
+            })
+            .start()
+            .await;
+        let (tx, _rx) = unbounded_channel();
+        let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+
+        let result = establish_client_listener(port, tx, close_rx, 5000).await;
+
+        assert_error_msg(result, "ServerResponse(\"Accept contains no protocol\")")
+    }
+
+    #[tokio::test]
+    async fn make_connection_with_timeout_server_replies_without_mismatched_protocol() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let _server_stop_handle = server
+            .send_specific_handshake_response(MockServerHandshakeResponse::Accept {
+                accepted_protocol_opt: Some("Blah".to_string()),
+                replace_correct_websocket_key_with_opt: None,
+            })
+            .start()
+            .await;
+        let (tx, _rx) = unbounded_channel();
+        let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+
+        let result = establish_client_listener(port, tx, close_rx, 5000).await;
+
+        assert_error_msg(result, "Socketto(\"UnsolicitedProtocol\")")
+    }
+
+    #[tokio::test]
+    async fn make_connection_with_timeout_server_replies_by_rejection() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let _server_stop_handle = server
+            .send_specific_handshake_response(MockServerHandshakeResponse::Reject {
+                status_code: 410,
+            })
+            .start()
+            .await;
+        let (tx, _rx) = unbounded_channel();
+        let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+
+        let result = establish_client_listener(port, tx, close_rx, 5000).await;
+
+        assert_error_msg(result, "ServerResponse(\"Rejected with code 410\")")
+    }
+
+    #[tokio::test]
+    async fn make_connection_with_timeout_server_replies_by_redirect() {
+        let port = find_free_port();
+        let server = MockWebSocketsServer::new(port);
+        let http_redirect = "\
+        HTTP/1.1 301 Moved Permanently\n\
+        Server: someserver\n\
+        Connection: keep-alive\n\
+        Location: https://www.someserver2.com/\n\n";
+        let _server_stop_handle = server
+            .send_unexpected_http_when_tcp_established(http_redirect.to_string())
+            .start()
+            .await;
+        let (tx, _rx) = unbounded_channel();
+        let (_close_tx, close_rx) = tokio::sync::broadcast::channel(10);
+
+        let result = establish_client_listener(port, tx, close_rx, 5000).await;
+
+        assert_error_msg(
+            result,
+            "ServerResponse(\"Redirect with code 301 to https://www.someserver2.com/\")",
+        )
+    }
+
+    fn assert_error_msg(
+        result: Result<WSClientHandle, ClientListenerError>,
+        expected_err_msg: &str,
+    ) {
+        match result {
+            Err(ClientListenerError::Broken(msg)) => {
+                assert_eq!(
+                    msg, expected_err_msg,
+                    "We expected {} but got {}",
+                    expected_err_msg, msg
+                )
+            }
+            Err(e) => panic!("We expected WSHandshakeError::Socketto but got {:?}", e),
+            Ok(_) => {
+                panic!("We expected ConnectionReset error but got Ok()")
+            }
+        }
     }
 
     #[tokio::test]
