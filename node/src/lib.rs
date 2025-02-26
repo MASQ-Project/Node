@@ -6,6 +6,7 @@ pub mod sub_lib;
 
 #[macro_use]
 extern crate masq_lib;
+extern crate core;
 
 extern crate ip_country_lib;
 

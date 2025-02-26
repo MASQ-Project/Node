@@ -1,14 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::ops::Add;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
-
 use log::Level;
-use serde_derive::Serialize;
-
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
-use masq_lib::test_utils::utils::is_running_under_github_actions;
+use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;
+use masq_lib::test_utils::utils::{is_running_under_github_actions, LogObject, UrlHolder};
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
@@ -16,13 +11,14 @@ use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
-use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{
     config_dao, node_chain_specific_data_directory, open_all_file_permissions, receivable_dao,
-    UrlHolder,
 };
 use node_lib::accountant::db_access_objects::utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
+use std::ops::Add;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
@@ -148,7 +144,7 @@ fn debtors_are_credited_once_but_not_twice() {
         assert_eq!(receivable_accounts.len(), 1);
         assert_eq!(receivable_accounts[0].balance_wei, 9_000_000_000);
     }
-    // Use the config DAO to verify that the start block has been advanced to 2001
+    // Use the config DAO to verify that the start block has been advanced to 2501
     {
         let config_dao = config_dao(&node_name);
         assert_eq!(
@@ -169,28 +165,9 @@ fn blockchain_bridge_starts_properly_on_bootstrap() {
             .build(),
     );
 
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         subject.name(),
         "DEBUG: BlockchainBridge: Received BindMessage",
         Duration::from_millis(1000),
     )
-}
-
-#[derive(Serialize)]
-struct LogObject {
-    // Strings are all hexadecimal
-    removed: bool,
-    #[serde(rename = "logIndex")]
-    log_index: Option<String>,
-    #[serde(rename = "transactionIndex")]
-    transaction_index: Option<String>,
-    #[serde(rename = "transactionHash")]
-    transaction_hash: Option<String>,
-    #[serde(rename = "blockHash")]
-    block_hash: Option<String>,
-    #[serde(rename = "blockNumber")]
-    block_number: Option<String>,
-    address: String,
-    data: String,
-    topics: Vec<String>,
 }
