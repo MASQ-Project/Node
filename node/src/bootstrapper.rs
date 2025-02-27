@@ -49,7 +49,7 @@ use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::test_utils::utils::{make_rt, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
@@ -59,6 +59,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
+use tokio::runtime::Handle;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -211,6 +212,16 @@ impl FromStr for RealUser {
             },
         );
         Ok(real_user)
+    }
+}
+
+impl From<masq_lib::shared_schema::RealUser> for RealUser {
+    fn from(value: masq_lib::shared_schema::RealUser) -> Self {
+        RealUser::new(
+            Some(value.uid as i32),
+            Some(value.gid as i32),
+            Some(value.home_dir),
+        )
     }
 }
 
@@ -494,7 +505,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
-        let _ = self.set_up_clandestine_port().await;
+        let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
         let cryptdes = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
@@ -634,7 +645,7 @@ impl Bootstrapper {
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
     }
 
-    async fn set_up_clandestine_port(&mut self) -> Option<u16> {
+    fn set_up_clandestine_port(&mut self) -> Option<u16> {
         let clandestine_port_opt =
             if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
                 &self.config.neighborhood_config.mode
@@ -651,17 +662,20 @@ impl Bootstrapper {
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
                 let mut listener_handler = self.listener_handler_factory.make();
-                listener_handler
-                    .bind_port_and_configuration(
-                        clandestine_port,
-                        PortConfiguration {
-                            discriminator_factories: vec![
-                                Box::new(JsonDiscriminatorFactory::new()),
-                            ],
-                            is_clandestine: true,
-                        },
-                    )
-                    .await
+                let future = async {
+                    listener_handler
+                        .bind_port_and_configuration(
+                            clandestine_port,
+                            PortConfiguration {
+                                discriminator_factories: vec![
+                                    Box::new(JsonDiscriminatorFactory::new()),
+                                ],
+                                is_clandestine: true,
+                            },
+                        ).await
+                };
+                Handle::current()
+                    .block_on(future)
                     .expect("Failed to bind ListenerHandler to clandestine port");
                 self.listener_handlers.push(listener_handler);
                 self.config.neighborhood_config.mode = NeighborhoodMode::Standard(
@@ -1014,6 +1028,22 @@ mod tests {
     #[test]
     fn real_user_from_all_parts() {
         let subject = RealUser::from_str("123:456:booga").unwrap();
+
+        assert_eq!(
+            subject,
+            RealUser::new(Some(123), Some(456), Some("booga".into()))
+        )
+    }
+
+    #[test]
+    fn real_user_from_clap_real_user () {
+        let input = masq_lib::shared_schema::RealUser {
+            uid: 123,
+            gid: 456,
+            home_dir: PathBuf::from("booga"),
+        };
+
+        let subject = RealUser::from (input);
 
         assert_eq!(
             subject,
@@ -1863,8 +1893,8 @@ mod tests {
         assert_contains(&actual_ports, &String::from("Some(443)"));
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
+    #[test]
+    fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
         let port = find_free_port();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1900,7 +1930,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, Some(port));
         let config_dao = ConfigDaoReal::new(conn);
@@ -1937,8 +1967,8 @@ mod tests {
         assert_eq!(0, clandestine_discriminators.len()); // Used to be 1, now 0 after removal
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
+    #[test]
+    fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1970,7 +2000,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1988,8 +2018,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_originate_only() {
+    #[test]
+    fn set_up_clandestine_port_handles_originate_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2017,7 +2047,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, None);
         assert!(subject
@@ -2028,8 +2058,8 @@ mod tests {
             .is_none());
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_consume_only() {
+    #[test]
+    fn set_up_clandestine_port_handles_consume_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2054,7 +2084,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, None);
         assert!(subject
@@ -2065,8 +2095,8 @@ mod tests {
             .is_none());
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_zero_hop() {
+    #[test]
+    fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "set_up_clandestine_port_handles_zero_hop",
@@ -2084,7 +2114,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, None);
         assert!(subject
@@ -2269,7 +2299,7 @@ mod tests {
                 };
 
                 tx.send(stream_handler_pool_cluster).unwrap();
-                system.run();
+                system.run().unwrap();
             });
             let stream_handler_pool_cluster = rx.recv().unwrap();
             ActorSystemFactoryActiveMock {

@@ -607,13 +607,13 @@ pub mod unshared_test_utils {
                 Either::Left((message_start, message_end)) => {
                     assert!(
                         panic_message_str.contains(message_start),
-                        "We expected this message {} to start with {}",
+                        "We expected this message ('{}') to start with '{}'",
                         panic_message_str,
                         message_start
                     );
                     assert!(
                         panic_message_str.ends_with(message_end),
-                        "We expected this message {} to end with {}",
+                        "We expected this message ('{}') to end with '{}'",
                         panic_message_str,
                         message_end
                     );

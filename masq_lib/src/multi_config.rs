@@ -9,6 +9,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
+use clap::parser::ValueSource;
 use toml::value::Table;
 use toml::Value;
 
@@ -148,11 +149,8 @@ impl MultiConfig {
         )
     }
 
-    pub fn occurrences_of(&self, parameter: &str) -> usize {
-        match self.arg_matches.get_occurrences::<String>(parameter) {
-            None => 0,
-            Some(collection) => collection.count(),
-        }
+    pub fn is_present(&self, parameter: &str) -> bool {
+        self.arg_matches.value_source(parameter) == Some(ValueSource::CommandLine)
     }
 
     pub fn arg_matches_ref(&self) -> &ArgMatches {

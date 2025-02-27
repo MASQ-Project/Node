@@ -423,7 +423,7 @@ mod tests {
         subject_addr.try_send(msg.clone()).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         let random_actor_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(random_actor_recording.len(), 0);
         payload.truncate(100);

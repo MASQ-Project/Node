@@ -570,8 +570,11 @@ pub mod tests {
                 .map(|key| {
                     multi_config
                         .arg_matches_ref()
-                        .get_one::<String>(key)
+                        .get_raw(key)
                         .unwrap()
+                        .next()
+                        .unwrap()
+                        .to_string_lossy()
                         .to_string()
                 })
                 .collect();
@@ -744,9 +747,9 @@ pub mod tests {
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
-    fn server_initializer_dns_socket_server_panics() {
+    async fn server_initializer_dns_socket_server_panics() {
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
@@ -764,9 +767,9 @@ pub mod tests {
         let _ = subject.spawn_long_lived_services();
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "BootstrapperMock was instructed to panic")]
-    fn server_initializer_bootstrapper_panics() {
+    async fn server_initializer_bootstrapper_panics() {
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
@@ -790,7 +793,7 @@ pub mod tests {
         let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let bootstrapper = ConfiguredByPrivilegeMock::default()
+        let make_mock = || ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
@@ -799,15 +802,8 @@ pub mod tests {
                 "dns-servers",
                 "real-user",
             ]));
-        let dns_socket_server = ConfiguredByPrivilegeMock::default()
-            .initialize_as_privileged_result(Ok(()))
-            .initialize_as_unprivileged_result(Ok(()))
-            .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
-            .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
-                "dns-servers",
-                "real-user",
-            ]));
+        let bootstrapper = make_mock();
+        let dns_socket_server = make_mock();
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let chown_params_arc = Arc::new(Mutex::new(vec![]));

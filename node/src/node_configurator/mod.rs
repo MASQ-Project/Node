@@ -17,14 +17,12 @@ use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
-use masq_lib::shared_schema::{
-    chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
-    DATA_DIRECTORY_HELP,
-};
+use masq_lib::shared_schema::{chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfigFile, ConfiguratorError, DATA_DIRECTORY_HELP};
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use masq_lib::shared_schema::RealUser as ClapRealUser;
 
 pub trait NodeConfigurator<T> {
     fn configure(&self, multi_config: &MultiConfig) -> Result<T, ConfiguratorError>;
@@ -56,9 +54,9 @@ pub fn determine_fundamentals(
     .collect();
     let orientation_vcl = CommandLineVcl::from(orientation_args);
     let multi_config = make_new_multi_config(&orientation_schema, vec![Box::new(orientation_vcl)])?;
-    let config_file_path = value_m!(multi_config, "config-file", PathBuf)
-        .expect("config-file parameter is not properly defaulted by clap");
-    let user_specified = multi_config.occurrences_of("config-file") > 0;
+    let config_file_path = value_m!(multi_config, "config-file", ConfigFile)
+        .expect("config-file parameter is not properly defaulted by clap").path;
+    let user_specified = multi_config.is_present("config-file");
     let (real_user, data_directory_path, chain) =
         real_user_data_directory_path_and_chain(dirs_wrapper, &multi_config);
     let data_directory = match data_directory_path {
@@ -88,9 +86,12 @@ pub fn real_user_from_multi_config_or_populate(
     multi_config: &MultiConfig,
     dirs_wrapper: &dyn DirsWrapper,
 ) -> RealUser {
-    match value_m!(multi_config, "real-user", RealUser) {
+    match value_m!(multi_config, "real-user", ClapRealUser) {
         None => RealUser::new(None, None, None).populate(dirs_wrapper),
-        Some(real_user) => real_user.populate(dirs_wrapper),
+        Some(clap_real_user) => {
+            let real_user = RealUser::from(clap_real_user);
+            real_user.populate(dirs_wrapper)
+        },
     }
 }
 

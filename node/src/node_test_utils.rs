@@ -292,10 +292,7 @@ pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<
 pub fn make_stream_handler_pool_subs_from(
     stream_handler_pool_opt: Option<Recorder>,
 ) -> StreamHandlerPoolSubs {
-    let recorder = match stream_handler_pool_opt {
-        Some(recorder) => recorder,
-        None => Recorder::new(),
-    };
+    let recorder = stream_handler_pool_opt.unwrap_or_else(|| Recorder::new());
     let addr = recorder.start();
     make_stream_handler_pool_subs_from_recorder(&addr)
 }

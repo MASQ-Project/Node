@@ -46,10 +46,10 @@ async fn ui_requests_something_and_gets_corresponding_response() {
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
     client.send(check_password_request).await;
-    let (path, response): (MessagePath, UiCheckPasswordResponse) = client.skip_until_received().await.unwrap();
+    let (_path, response): (MessagePath, UiCheckPasswordResponse) = client.skip_until_received().await.unwrap();
 
     assert_eq!(response, UiCheckPasswordResponse { matches: true });
-    client.send(UiShutdownRequest {});
+    client.send(UiShutdownRequest {}).await;
     node.wait_for_exit();
 }
 
