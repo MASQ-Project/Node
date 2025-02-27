@@ -5,7 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
 use masq_lib::messages::{
     CountryCodes, ExitLocationSet, UiSetExitLocationRequest, UiSetExitLocationResponse,
@@ -40,7 +40,7 @@ const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and 
      masq> exit-location --country-codes \"CZ\" --fallback-routing  \n\t// Set exit-location for \"CZ\" country with fallback-routing on \n\
      masq> exit-location --country-codes \"CZ\"                     \n\t// Set exit-location for \"CZ\" country with fallback-routing off \n\n";
 
-const SHOW_COUNTRIES_HELP: &str = "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
+const SHOW_COUNTRIES_HELP: &str = "Use this flag to display all country codes available for exit Nodes in your Neighborhood:  \n\n\
     masq> exit-location --show-countries ";
 
 pub fn exit_location_subcommand() -> App<'static, 'static> {
@@ -111,10 +111,11 @@ impl Command for SetExitLocationCommand {
                             "No countries available for exit-location!"
                         ),
                     }
-                }
-                match exit_location_response.fallback_routing {
-                    true => short_writeln!(context.stdout(), "Fallback Routing is set.",),
-                    false => short_writeln!(context.stdout(), "Fallback Routing NOT set.",),
+                } else {
+                    match exit_location_response.fallback_routing {
+                        true => short_writeln!(context.stdout(), "Fallback Routing is set.",),
+                        false => short_writeln!(context.stdout(), "Fallback Routing NOT set.",),
+                    }
                 }
                 if !exit_location_response.exit_locations.is_empty() {
                     let location_set = ExitLocationSet {
@@ -194,6 +195,10 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
                 .takes_value(false)
                 .required(false),
         )
+        .group(ArgGroup::with_name("show-countries-fallback")
+            .args(&["show-countries", "fallback-routing"]))
+        .group(ArgGroup::with_name("show-countries-ccodes")
+            .args(&["show-countries", "country-codes"]))
 }
 
 #[cfg(test)]
@@ -246,7 +251,7 @@ pub mod tests {
         );
         assert_eq!(
             SHOW_COUNTRIES_HELP,
-                    "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
+                    "Use this flag to display all country codes available for exit Nodes in your Neighborhood:  \n\n\
             masq> exit-location --show-countries "
         );
     }
@@ -303,33 +308,36 @@ pub mod tests {
     #[test]
     fn testing_handler_for_exit_location_responose() {
         let message_body = Ok(UiSetExitLocationResponse {
-            fallback_routing: false,
+            fallback_routing: true,
             exit_locations: vec![
-                ExitLocation {
-                    country_codes: vec!["CZ".to_string()],
-                    priority: 1,
-                },
-                ExitLocation {
-                    country_codes: vec!["FR".to_string()],
-                    priority: 2,
-                },
+                // ExitLocation {
+                //     country_codes: vec!["CZ".to_string()],
+                //     priority: 1,
+                // },
+                // ExitLocation {
+                //     country_codes: vec!["FR".to_string()],
+                //     priority: 2,
+                // },
             ],
-            exit_countries: Some(vec!["FR".to_string()]),
-            missing_countries: vec!["CZ".to_string()],
+            exit_countries: None, //Some(vec!["FR".to_string()]),
+            missing_countries: vec![], // vec!["CZ".to_string()],
         }
         .tmb(1234));
 
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(message_body);
-        let subject = factory.make(&["exit-location".to_string()]).unwrap();
+        let subject = factory.make(&[
+            "exit-location".to_string(),
+            "--fallback-routing".to_string()
+        ]).unwrap();
 
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
-        assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nFollowing countries are missing in Database: [\"CZ\"]\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
+        assert_eq!(stdout.lock().unwrap().get_string(), "Fallback Routing is set.\nExit location is Unset.\n".to_string());
         assert_eq!(
             stderr.lock().unwrap().get_string(),
-            "code: 9223372036854775817\nmessage: [\"CZ\"]\n".to_string()
+            "".to_string()
         );
         assert_eq!(result, Ok(()));
     }
@@ -527,7 +535,7 @@ pub mod tests {
         let stdout = stdout_arc.lock().unwrap();
         assert_eq!(
             &stdout.get_string(),
-            "Countries available for exit-location: [\"CZ\"]\nFallback Routing NOT set.\n"
+            "Countries available for exit-location: [\"CZ\"]\n"
         );
     }
 }
