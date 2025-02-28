@@ -12,7 +12,6 @@ use crate::terminal::terminal_interface_factory::{
     TerminalInterfaceFactory, TerminalInterfaceFactoryReal,
 };
 use crate::terminal::{RWTermInterface, WTermInterface};
-use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::async_streams::{
     AsyncStdStreams, AsyncStdStreamsFactory, AsyncStdStreamsFactoryReal,
@@ -169,13 +168,9 @@ pub enum CLIProgramEntering {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context::CommandContext;
-    use crate::command_context::ContextError::Other;
-    use crate::commands::commands_common;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
-    use crate::masq_short_writeln;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::terminal::{ReadError, ReadInput};
     use crate::test_utils::mocks::{
@@ -190,15 +185,10 @@ mod tests {
         ProcessorTerminalInterfaceAssertion, StdStreamsAssertion, TerminalInterfaceAssertion,
     };
     use masq_lib::constants::DEFAULT_UI_PORT;
-    use masq_lib::messages::{
-        ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse,
-        UiShutdownRequest, UiStartResponse,
-    };
+    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse, UiShutdownRequest, UiShutdownResponse, UiStartResponse};
     use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
-    use std::any::Any;
-    use std::fmt::Debug;
     use std::sync::{Arc, Mutex};
 
     #[cfg(target_os = "windows")]
@@ -234,7 +224,7 @@ mod tests {
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
-        let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
+        let command = MockCommand::default().request(UiShutdownRequest {}.tmb(1)).stdout_output("MockCommand output".to_string()).stderr_output("MockCommand error".to_string()).execute_result(Ok(()));
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(command)));
@@ -311,7 +301,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Err(Other("not really an error".to_string())));
+            .transact_result(Ok(UiShutdownResponse{}.tmb(1)));
         let (mut w_term_interface, term_interface_stream_handles) =
             TermInterfaceMock::new_non_interactive();
 
@@ -319,7 +309,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(Transmission("Other(\"not really an error\")".to_string()))
+            Ok(())
         );
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(*transact_params, vec![(UiShutdownRequest {}.tmb(1), 1000)]);
@@ -327,8 +317,8 @@ mod tests {
             ProcessorTerminalInterfaceAssertion::new(TerminalInterfaceAssertion::new(
                 &term_interface_stream_handles,
                 FlushesWriteStreamsAssertion::default()
-                    .stdout(vec!["MockCommand output"])
-                    .stderr(vec!["MockCommand error"]),
+                    .stdout(vec!["MockCommand output\n"])
+                    .stderr(vec!["MockCommand error\n"]),
             ));
         StdStreamsAssertion::default()
             .incidental_std_streams(Assert::NotUsed(&incidental_std_stream_handles))
@@ -430,9 +420,10 @@ mod tests {
             .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
-        let command = MockCommand::new(UiShutdownRequest {}.tmb(1));
+        let command_arbitrary_id_stamp = ArbitraryIdStamp::new();
+        let command = MockCommand::default().request(UiShutdownRequest {}.tmb(1)).set_arbitrary_id_stamp(command_arbitrary_id_stamp);
         let command_factory =
-            CommandFactoryMock::default().make_result(Ok(Box::new(command.clone())));
+            CommandFactoryMock::default().make_result(Ok(Box::new(command)));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -488,7 +479,7 @@ mod tests {
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
         let (dyn_command, _, _) = execute_command_params.remove(0);
         let actual_command = dyn_command.as_any().downcast_ref::<MockCommand>().unwrap();
-        assert_eq!(actual_command.message, command.message);
+        assert_eq!(actual_command.arbitrary_id_stamp(), Some(command_arbitrary_id_stamp));
         assert!(execute_command_params.is_empty());
         assert_eq!(result, 1);
     }
@@ -710,35 +701,6 @@ mod tests {
         )
     }
 
-    #[derive(Debug)]
-    struct FakeCommand {
-        output: String,
-    }
-
-    #[async_trait(?Send)]
-    impl commands_common::Command for FakeCommand {
-        async fn execute(
-            self: Box<Self>,
-            _context: &dyn CommandContext,
-            term_interface: &dyn WTermInterface,
-        ) -> Result<(), CommandError> {
-            let (writer, _flush_handle) = term_interface.stdout();
-            masq_short_writeln!(writer, "{}", self.output);
-            Ok(())
-        }
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-    }
-
-    impl FakeCommand {
-        pub fn new(output: &str) -> Self {
-            Self {
-                output: output.to_string(),
-            }
-        }
-    }
-
     #[tokio::test]
     async fn interactive_mode_works_when_everything_is_copacetic() {
         let make_term_interface_params_arc = Arc::new(Mutex::new(vec![]));
@@ -770,9 +732,9 @@ mod tests {
             .make_result(Either::Right(Box::new(rw_term_interface)));
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
-            .make_result(Ok(Box::new(FakeCommand::new("setup command"))))
-            .make_result(Ok(Box::new(FakeCommand::new("start command"))));
-        let command_context = CommandContextMock::new();
+            .make_result(Ok(Box::new(MockCommand::default().use_sentinel_request().stdout_output("setup command".to_string()).execute_result(Ok(())))))
+            .make_result(Ok(Box::new(MockCommand::default().use_sentinel_request().stdout_output("start command".to_string()).execute_result(Ok(())))));
+        let command_context = CommandContextMock::new().use_sentinel_transact_response().use_sentinel_transact_response();
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));

@@ -24,7 +24,7 @@ use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, HandleToCountReads, StdinReadCounter,
     StringAssertableStdHandle,
 };
-use masq_lib::ui_gateway::MessageBody;
+use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, set_arbitrary_id_stamp_in_mock_impl,
 };
@@ -144,6 +144,14 @@ impl CommandContextMock {
     pub fn transact_result(self, result: Result<MessageBody, ContextError>) -> Self {
         self.transact_results.borrow_mut().push(result);
         self
+    }
+
+    pub fn use_sentinel_transact_response(self) -> Self {
+        self.transact_result(Ok(MessageBody{
+            opcode: "blahResponse".to_string(),
+            path: MessagePath::Conversation(1),
+            payload: Ok("blah".to_string()),
+        }))
     }
 
     pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
@@ -307,10 +315,13 @@ impl InitialArgsParserMock {
     }
 }
 
-#[derive(Clone)]
+#[derive(Default)]
 pub struct MockCommand {
-    pub message: MessageBody,
-    pub execute_results: Arc<Mutex<Vec<Result<(), CommandError>>>>,
+    request_opt: Option<MessageBody>,
+    stdout_output_opt: Option<String>,
+    stderr_output_opt: Option<String>,
+    execute_results: Arc<Mutex<Vec<Result<(), CommandError>>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>
 }
 
 impl std::fmt::Debug for MockCommand {
@@ -328,9 +339,14 @@ impl Command for MockCommand {
     ) -> Result<(), CommandError> {
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
-        stdout.write("MockCommand output").await;
-        stderr.write("MockCommand error").await;
-        match context.transact(self.message.clone(), 1000).await {
+        if let Some(stdout_output) = self.stdout_output_opt{
+            stdout.writeln(&stdout_output).await
+        };
+        if let Some(stderr_output) = self.stderr_output_opt{
+            stderr.writeln(&stderr_output).await
+        };
+        let request = self.request_opt.expect("request was not provided");
+        match context.transact(request, 1000).await {
             Ok(_) => self.execute_results.lock().unwrap().remove(0),
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }
@@ -340,17 +356,39 @@ impl Command for MockCommand {
 }
 
 impl MockCommand {
-    pub fn new(message: MessageBody) -> Self {
-        Self {
-            message,
-            execute_results: Arc::new(Mutex::new(vec![])),
-        }
+    pub fn request(mut self, request: MessageBody) -> Self {
+        self.request_opt = Some(request);
+        self
+    }
+
+    pub fn use_sentinel_request(mut self) -> Self {
+        self.request(MessageBody{
+            opcode: "blahRequest".to_string(),
+            path: MessagePath::Conversation(1),
+            payload: Ok("blah".to_string()),
+        })
+    }
+
+    pub fn stdout_output(mut self, stdout: String) -> Self {
+        self.stdout_output_opt = Some(stdout);
+        self
+    }
+
+    pub fn stderr_output(mut self, stderr: String) -> Self {
+        self.stderr_output_opt = Some(stderr);
+        self
     }
 
     pub fn execute_result(self, result: Result<(), CommandError>) -> Self {
         self.execute_results.lock().unwrap().push(result);
         self
     }
+
+    pub fn arbitrary_id_stamp(&self) -> Option<ArbitraryIdStamp> {
+        self.arbitrary_id_stamp_opt
+    }
+
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 pub fn make_terminal_writer() -> (TerminalWriter, TerminalWriterTestReceiver) {

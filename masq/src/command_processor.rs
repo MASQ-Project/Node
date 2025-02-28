@@ -297,11 +297,11 @@ pub trait CommandExecutionHelper {
         &self,
         command: Box<dyn Command>,
         context: &dyn CommandContext,
-        // Consider sticking in only the streams, dropping the handles outside the actual 'execute()'
         term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError>;
 }
 
+#[derive(Default)]
 pub struct CommandExecutionHelperReal {}
 
 #[async_trait(?Send)]
@@ -347,13 +347,11 @@ mod tests {
     use crate::command_context_factory::CommandContextFactoryReal;
     use crate::command_factory::CommandFactoryReal;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
-    use crate::test_utils::mocks::{
-        AsyncTestStreamHandles, CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock,
-        TermInterfaceMock,
-    };
+    use crate::test_utils::mocks::{AsyncTestStreamHandles, CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock, MockCommand, TermInterfaceMock};
     use futures::FutureExt;
     use masq_lib::utils::{find_free_port, running_test};
     use std::panic::AssertUnwindSafe;
+    use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
         let ui_port = find_free_port();
@@ -478,6 +476,51 @@ mod tests {
                 "seventh eighth\tninth  ".to_string(),
             ]
         )
+    }
+
+    #[tokio::test]
+    async fn non_interactive_mode_handle_command_common_ensures_flushing_output_from_command_execution(){
+        let (terminal_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let create_processor = move |command_processor_common: CommandProcessorCommon| -> Box<dyn CommandProcessor> {Box::new(CommandProcessorNonInteractive::new(
+            command_processor_common,
+            Box::new(terminal_interface),
+        ))};
+
+        test_output_is_always_flushed(create_processor, stream_handles).await
+    }
+
+    #[tokio::test]
+    async fn interactive_mode_handle_command_common_ensures_flushing_output_from_command_execution(){
+        let (terminal_interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![]);
+        let create_processor = move |command_processor_common: CommandProcessorCommon| -> Box<dyn CommandProcessor> {
+            Box::new(CommandProcessorInteractive::new(
+                command_processor_common,
+                Box::new(terminal_interface),
+            ))};
+
+        test_output_is_always_flushed(create_processor, stream_handles).await
+    }
+
+    async fn test_output_is_always_flushed<F>(create_processor: F, async_test_stream_handles: AsyncTestStreamHandles) where F: FnOnce(CommandProcessorCommon)->Box<dyn CommandProcessor> {
+        let command_context = Box::new(CommandContextMock::default().transact_result(Ok(UiDescriptorResponse{ node_descriptor_opt: None }.tmb(1))));
+        let expected_stdout = "Job is successfully over";
+        let expected_stderr = "Hit no issues on the way";
+        let command = MockCommand::default().request(UiDescriptorResponse{ node_descriptor_opt: None }.tmb(1)).stdout_output(expected_stdout.to_string()).stderr_output(expected_stderr.to_string()).execute_result(Ok(()));
+        let command_factory = Box::new(CommandFactoryMock::default().make_result(Ok(Box::new(command))));
+        let command_execution_helper = Box::new(CommandExecutionHelperReal::default());
+        let command_processor_common =
+            CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
+        let irrelevant_args = vec!["subcommand".to_string(), "arg".to_string()];
+        let mut processor = create_processor(command_processor_common);
+
+        let result = processor.handle_command_common(&irrelevant_args, ).await;
+
+        assert_eq!(result, Ok(()));
+        allow_flushed_writings_to_finish().await;
+        let stdout = async_test_stream_handles.stdout_flushed_strings();
+        assert_eq!(stdout, vec![format!("{}\n",expected_stdout)]);
+        let stderr = async_test_stream_handles.stderr_flushed_strings();
+        assert_eq!(stderr, vec![format!("{}\n", expected_stderr)])
     }
 
     #[tokio::test]
