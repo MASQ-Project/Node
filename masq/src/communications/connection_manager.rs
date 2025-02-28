@@ -115,7 +115,6 @@ impl CMBootstrapper {
 
         let (demand_tx, demand_rx) = unbounded_channel();
         let (conversation_return_tx, conversation_return_rx) = unbounded_channel();
-        let (redirect_response_tx, redirect_response_rx) = unbounded_channel();
         let (active_port_response_tx, active_port_response_rx) = unbounded_channel();
         let (conversations_to_manager_tx, conversations_to_manager_rx) = async_channel::unbounded();
 
@@ -137,7 +136,6 @@ impl CMBootstrapper {
             ws_client_handle,
             broadcast_handles,
             redirect_order_rx,
-            redirect_response_tx,
             active_port_response_tx,
             close_sig,
         };
@@ -147,7 +145,6 @@ impl CMBootstrapper {
         let internal_communications = CMChannelsToSubordinates::new(
             demand_tx,
             conversation_return_rx,
-            redirect_response_rx,
             active_port_response_rx,
         );
 
@@ -170,8 +167,7 @@ struct CMChannelsToSubordinates {
 
 struct CMReceivers {
     conversation_return_rx: UnboundedReceiver<NodeConversation>,
-    // TODO We don't do anything useful with this
-    redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
+
     active_port_response_rx: UnboundedReceiver<Option<u16>>,
 }
 
@@ -179,12 +175,10 @@ impl CMChannelsToSubordinates {
     fn new(
         demand_tx: UnboundedSender<Demand>,
         conversation_return_rx: UnboundedReceiver<NodeConversation>,
-        redirect_response_rx: UnboundedReceiver<Result<(), ClientListenerError>>,
         active_port_response_rx: UnboundedReceiver<Option<u16>>,
     ) -> Self {
         let receivers = RefCell::new(CMReceivers {
             conversation_return_rx,
-            redirect_response_rx,
             active_port_response_rx,
         });
         Self {
@@ -305,7 +299,6 @@ struct ConnectionServices {
     ws_client_handle: WSClientHandle,
     broadcast_handles: BroadcastHandles,
     redirect_order_rx: UnboundedReceiver<RedirectOrder>,
-    redirect_response_tx: UnboundedSender<Result<(), ClientListenerError>>,
     active_port_response_tx: UnboundedSender<Option<u16>>,
     close_sig: ClosingStageDetector,
 }
@@ -500,9 +493,7 @@ impl CentralEventLoop {
         {
             Ok(th) => th,
             Err(e) => {
-                // TODO is this ever tested?
-                let _ = services.redirect_response_tx.send(Err(e));
-                return services;
+                panic!("Redirect to the Node failed for: {:?}", e)
             }
         };
         services.node_port_opt = Some(redirect_order.port);
@@ -524,10 +515,6 @@ impl CentralEventLoop {
         }))
         .await;
         services.conversations_waiting.clear();
-        services
-            .redirect_response_tx
-            .send(Ok(()))
-            .expect("ConnectionManager is dead");
         services
     }
 
@@ -1161,26 +1148,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_redirect_order_handles_rejection_from_node() {
-        let node_port = find_free_port(); // won't put anything on this port
-        let (redirect_response_tx, mut redirect_response_rx) = unbounded_channel();
-        let mut services = make_inner().await;
-        services.redirect_response_tx = redirect_response_tx;
+    // The asserted string is using such an excessive escaping because it was formed gradually by
+    // multiple passes through Debug formatting, with a simple string message in the origin. Each
+    // new pass adds another pair of backslashes to those coming in from the previous one.
+    #[should_panic(
+        expected = "Redirect to the Node failed for: Broken(\"TcpConnect(\\\"Os { code: 111,\
+     kind: ConnectionRefused, message: \\\\\\\"Connection refused\\\\\\\" }\\\")\")"
+    )]
+    async fn handle_redirect_order_panics_on_rejection_from_node() {
+        let node_port = find_free_port();
+        let services = make_inner().await;
 
-        CentralEventLoop::handle_redirect_order(
+        let _inner = CentralEventLoop::handle_redirect_order(
             services,
             Some(RedirectOrder::new(node_port, 0, 1000)),
         )
         .await;
-
-        let response = redirect_response_rx.try_recv().unwrap();
-        match response {
-            Err(ClientListenerError::Broken(_)) => (), //the string pasted in is OS-dependent
-            x => panic!(
-                "we expected ClientListenerError::Broken but got this: {:?}",
-                x
-            ),
-        }
     }
 
     #[tokio::test]
@@ -1188,7 +1171,6 @@ mod tests {
         let node_port = find_free_port();
         let server = MockWebSocketsServer::new(node_port);
         let _server_stop_handle = server.start().await;
-        let (redirect_response_tx, mut redirect_response_rx) = unbounded_channel();
         let (conversation1_tx, conversation1_rx) = async_channel::unbounded();
         let (conversation2_tx, conversation2_rx) = async_channel::unbounded();
         let conversations = vec![(1, conversation1_tx), (2, conversation2_tx)]
@@ -1196,7 +1178,6 @@ mod tests {
             .collect();
         let conversations_waiting = vec_to_set(vec![1, 2]);
         let mut services = make_inner().await;
-        services.redirect_response_tx = redirect_response_tx;
         services.conversations = conversations;
         services.conversations_waiting = conversations_waiting;
 
@@ -1223,7 +1204,6 @@ mod tests {
             conversation2_rx.recv().await.unwrap(),
             Err(NodeConversationTermination::Graceful)
         );
-        assert_eq!(redirect_response_rx.recv().await.unwrap(), Ok(()));
     }
 
     #[tokio::test]
@@ -1943,12 +1923,10 @@ mod tests {
     fn make_disconnected_subject() -> ConnectionManager {
         let (demand_tx, _) = tokio::sync::mpsc::unbounded_channel();
         let (_, conversation_return_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (_, redirect_response_rx) = tokio::sync::mpsc::unbounded_channel();
         let (_, active_port_response_rx) = tokio::sync::mpsc::unbounded_channel();
         let internal_communications = CMChannelsToSubordinates::new(
             demand_tx,
             conversation_return_rx,
-            redirect_response_rx,
             active_port_response_rx,
         );
         let meaningless_spawn_handle = tokio::spawn(async {});
@@ -1985,7 +1963,6 @@ mod tests {
             ),
             broadcast_handles,
             redirect_order_rx: unbounded_channel().1,
-            redirect_response_tx: unbounded_channel().0,
             active_port_response_tx: unbounded_channel().0,
             close_sig: ClosingStageDetector::make_for_test().1,
         }
