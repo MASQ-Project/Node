@@ -140,7 +140,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: true }.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
@@ -174,7 +174,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiCheckPasswordResponse { matches: false }.tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let factory = CommandFactoryReal::new();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
@@ -208,7 +208,7 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, _stdout_flush_handle) = term_interface.stdout();
         let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject =

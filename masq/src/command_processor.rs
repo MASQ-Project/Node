@@ -8,6 +8,7 @@ use crate::masq_short_writeln;
 use crate::terminal::{FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
+use liso::History;
 use masq_lib::utils::exit_process;
 use std::sync::Arc;
 
@@ -182,18 +183,7 @@ impl CommandProcessorNonInteractive {
 pub struct CommandProcessorInteractive {
     command_processor_common: CommandProcessorCommon,
     terminal_interface: Box<dyn RWTermInterface>,
-}
-
-impl CommandProcessorInteractive {
-    fn new(
-        command_processor_common: CommandProcessorCommon,
-        terminal_interface: Box<dyn RWTermInterface>,
-    ) -> CommandProcessorInteractive {
-        Self {
-            command_processor_common,
-            terminal_interface,
-        }
-    }
+    command_history: History,
 }
 
 #[async_trait(?Send)]
@@ -203,40 +193,10 @@ impl CommandProcessor for CommandProcessorInteractive {
         _initial_subcommand_opt: Option<&[String]>,
     ) -> Result<(), ()> {
         loop {
-            let args = match self.terminal_interface.read_line().await {
-                Ok(read_input) => match read_input {
-                    ReadInput::Line(cmd) => split_possibly_quoted_cml(cmd),
-                    ReadInput::Quit => {
-                        let (stderr, stderr_flush_handle) =
-                            self.terminal_interface.write_only_ref().stderr();
-
-                        masq_short_writeln!(stderr, "MASQ interrupted");
-                        // Flushing the err msg
-                        drop(stderr_flush_handle);
-
-                        exit_process(1, "")
-                    }
-                    ReadInput::Ignored { msg_opt } => {
-                        let (stdout, _stdout_flush_handle) =
-                            self.terminal_interface.write_only_ref().stdout();
-
-                        let description = match msg_opt {
-                            Some(msg) => format!(" ({})", msg),
-                            None => "".to_string(),
-                        };
-                        masq_short_writeln!(stdout, "Ignored instruction{}", description);
-
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    let (stderr, _stderr_flush_handle) =
-                        self.terminal_interface.write_only_ref().stderr();
-
-                    masq_short_writeln!(stderr, "Terminal read error: {}", e);
-
-                    break Err(());
-                }
+            let args = if let Some(args) = self.handle_new_read().await? {
+                args
+            } else {
+                continue;
             };
 
             if let [single_arg] = args[..].as_ref() {
@@ -269,6 +229,70 @@ impl CommandProcessor for CommandProcessorInteractive {
         masq_short_writeln!(writer, "MASQ is terminating...");
 
         self.command_processor_common.command_context.close();
+    }
+}
+
+impl CommandProcessorInteractive {
+    fn new(
+        command_processor_common: CommandProcessorCommon,
+        terminal_interface: Box<dyn RWTermInterface>,
+    ) -> CommandProcessorInteractive {
+        Self {
+            command_processor_common,
+            terminal_interface,
+            command_history: Default::default(),
+        }
+    }
+
+    async fn handle_new_read(&mut self) -> Result<Option<Vec<String>>, ()> {
+        match self.terminal_interface.read_line().await {
+            Ok(read_input) => match read_input {
+                ReadInput::Line(cmd) => {
+                    if let Err(e) = self.command_history.add_line(cmd.clone()) {
+                        let (stderr, _flush_handle) =
+                            self.terminal_interface.write_only_ref().stderr();
+                        masq_short_writeln!(
+                            stderr,
+                            "Command history error adding \"{}\": {:?}",
+                            cmd,
+                            e
+                        )
+                    };
+
+                    Ok(Some(split_possibly_quoted_cml(cmd)))
+                }
+                ReadInput::Quit => {
+                    let (stderr, stderr_flush_handle) =
+                        self.terminal_interface.write_only_ref().stderr();
+
+                    masq_short_writeln!(stderr, "MASQ interrupted");
+                    // Flushing the err msg
+                    drop(stderr_flush_handle);
+
+                    exit_process(1, "")
+                }
+                ReadInput::Ignored { msg_opt } => {
+                    let (stdout, _stdout_flush_handle) =
+                        self.terminal_interface.write_only_ref().stdout();
+
+                    let description = match msg_opt {
+                        Some(msg) => format!(" ({})", msg),
+                        None => "".to_string(),
+                    };
+                    masq_short_writeln!(stdout, "Ignored instruction{}", description);
+
+                    Ok(None)
+                }
+            },
+            Err(e) => {
+                let (stderr, _stderr_flush_handle) =
+                    self.terminal_interface.write_only_ref().stderr();
+
+                masq_short_writeln!(stderr, "Terminal read error: {}", e);
+
+                Err(())
+            }
+        }
     }
 }
 
@@ -355,7 +379,10 @@ mod tests {
     };
     use futures::FutureExt;
     use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
-    use masq_lib::utils::{find_free_port, running_test};
+    use masq_lib::utils::{find_free_port, running_test, slice_of_strs_to_vec_of_strings};
+    use std::io;
+    use std::io::ErrorKind;
+    use std::num::NonZeroUsize;
     use std::panic::AssertUnwindSafe;
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
@@ -651,6 +678,73 @@ mod tests {
         assert_eq!(
             stream_handles.stderr_all_in_one(),
             "Unrecognized command: \"bluh\"\n"
+        )
+    }
+
+    #[tokio::test]
+    async fn interactive_command_processor_keeps_history_of_commands() {
+        let command_processor_common = make_command_processor_common();
+        let (terminal_interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![Ok(
+            ReadInput::Line("subcommand arg val flag".to_string()),
+        )]);
+        let mut subject = CommandProcessorInteractive::new(
+            command_processor_common,
+            Box::new(terminal_interface),
+        );
+        let history_before = subject.command_history.get_lines().to_vec();
+
+        let result = subject.handle_new_read().await;
+
+        allow_flushed_writings_to_finish(None, None).await;
+        assert_eq!(
+            result,
+            Ok(Some(slice_of_strs_to_vec_of_strings(&[
+                "subcommand",
+                "arg",
+                "val",
+                "flag"
+            ])))
+        );
+        assert_eq!(history_before, Vec::<String>::new());
+        let history_after = subject.command_history.get_lines();
+        assert_eq!(history_after, vec!["subcommand arg val flag"]);
+        stream_handles.assert_empty_stdout();
+        stream_handles.assert_empty_stderr()
+    }
+
+    #[tokio::test]
+    async fn adding_new_command_entry_to_history_fails() {
+        let command_processor_common = make_command_processor_common();
+        let (terminal_interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![Ok(
+            ReadInput::Line("subcommand arg val flag".to_string()),
+        )]);
+        let mut subject = CommandProcessorInteractive::new(
+            command_processor_common,
+            Box::new(terminal_interface),
+        );
+        let autosave_handler = |_history: &History| Err(io::Error::from(ErrorKind::InvalidInput));
+        subject
+            .command_history
+            .set_autosave_interval(Some(NonZeroUsize::new(1).unwrap()))
+            .set_autosave_handler(Some(Box::new(autosave_handler)));
+
+        let result = subject.handle_new_read().await;
+
+        allow_flushed_writings_to_finish(None, None).await;
+        assert_eq!(
+            result,
+            Ok(Some(slice_of_strs_to_vec_of_strings(&[
+                "subcommand",
+                "arg",
+                "val",
+                "flag"
+            ])))
+        );
+        stream_handles.assert_empty_stdout();
+        let stderr_output = stream_handles.stderr_flushed_strings();
+        assert_eq!(
+            stderr_output,
+            vec!["Command history error adding \"subcommand arg val flag\": Kind(InvalidInput)\n"]
         )
     }
 
