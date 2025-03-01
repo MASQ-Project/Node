@@ -2660,7 +2660,7 @@ dependencies = [
  "lazy_static",
  "liso",
  "masq_lib",
- "nix 0.23.2",
+ "nix 0.29.0",
  "num",
  "regex",
  "soketto",

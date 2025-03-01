@@ -37,10 +37,6 @@ impl RWTermInterface for InteractiveRWTermInterface {
     async fn read_line(&mut self) -> Result<ReadInput, ReadError> {
         match self.read_liso.read_async().await {
             Response::Input(line) => {
-                // TODO ??? History can probably be set by:
-                // let mut current = swap_history(History::default());
-                // current.add_line(line);
-                // swap_history(current)
                 Ok(ReadInput::Line(line))
             }
             Response::Dead => Err(ReadError::TerminalOutputInputDisconnected),

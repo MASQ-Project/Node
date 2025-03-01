@@ -195,7 +195,7 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let factory = CommandFactoryReal::new();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = factory

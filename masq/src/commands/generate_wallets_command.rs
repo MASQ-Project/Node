@@ -889,8 +889,8 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
         let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
-        let (stdout, stdout_flush_handle) = term_interface.stdout();
-        let (stderr, stderr_flush_handle) = term_interface.stderr();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,

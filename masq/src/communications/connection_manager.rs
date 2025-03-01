@@ -315,7 +315,7 @@ impl CentralEventLoop {
                         break;
                     }
                     _ => match Self::loop_guts(services).await {
-                        Some(returned_inner) => services = returned_inner,
+                        Some(returned_services) => services = returned_services,
                         None => break,
                     },
                 }
@@ -323,7 +323,6 @@ impl CentralEventLoop {
         })
     }
 
-    // TODO can it be done somehow better, these Options?
     async fn loop_guts(mut services: ConnectionServices) -> Option<ConnectionServices> {
         tokio::select! {
             demand_result = services.demand_rx.recv() => Self::handle_demand (services, demand_result).await,
@@ -1249,8 +1248,6 @@ mod tests {
         )
         .await;
 
-        // TODO remove the commented out code
-        // wait_on_establishing_connection(services.ws_client_handle.as_ref()).await;
         let disconnect_notification = conversation_rx.try_recv().unwrap();
         assert_eq!(
             disconnect_notification,

@@ -214,7 +214,7 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(42)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stdout, stdout_flush_handle) = term_interface.stdout();
         let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = ConnectionStatusCommand::new();
