@@ -73,10 +73,9 @@ impl Command for ChangePasswordCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiChangePasswordRequest {
             old_password_opt: self.old_password.clone(),
             new_password: self.new_password.clone(),
@@ -157,14 +156,17 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let factory = CommandFactoryReal::new();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = factory
             .make(&["set-password".to_string(), "abracadabra".to_string()])
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         assert_eq!(
             stream_handles.stdout_all_in_one(),
@@ -193,6 +195,9 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiChangePasswordResponse {}.tmb(0)));
         let factory = CommandFactoryReal::new();
+        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = factory
             .make(&[
                 "change-password".to_string(),
@@ -200,11 +205,11 @@ mod tests {
                 "boringPassword".to_string(),
             ])
             .unwrap();
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         assert_eq!(
             stream_handles.stdout_all_in_one(),

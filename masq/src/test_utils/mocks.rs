@@ -147,7 +147,7 @@ impl CommandContextMock {
     }
 
     pub fn use_sentinel_transact_response(self) -> Self {
-        self.transact_result(Ok(MessageBody{
+        self.transact_result(Ok(MessageBody {
             opcode: "blahResponse".to_string(),
             path: MessagePath::Conversation(1),
             payload: Ok("blah".to_string()),
@@ -321,7 +321,7 @@ pub struct MockCommand {
     stdout_output_opt: Option<String>,
     stderr_output_opt: Option<String>,
     execute_results: Arc<Mutex<Vec<Result<(), CommandError>>>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl std::fmt::Debug for MockCommand {
@@ -335,14 +335,13 @@ impl Command for MockCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
-        if let Some(stdout_output) = self.stdout_output_opt{
+        if let Some(stdout_output) = self.stdout_output_opt {
             stdout.writeln(&stdout_output).await
         };
-        if let Some(stderr_output) = self.stderr_output_opt{
+        if let Some(stderr_output) = self.stderr_output_opt {
             stderr.writeln(&stderr_output).await
         };
         let request = self.request_opt.expect("request was not provided");
@@ -362,7 +361,7 @@ impl MockCommand {
     }
 
     pub fn use_sentinel_request(mut self) -> Self {
-        self.request(MessageBody{
+        self.request(MessageBody {
             opcode: "blahRequest".to_string(),
             path: MessagePath::Conversation(1),
             payload: Ok("blah".to_string()),

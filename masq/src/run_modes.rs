@@ -185,7 +185,10 @@ mod tests {
         ProcessorTerminalInterfaceAssertion, StdStreamsAssertion, TerminalInterfaceAssertion,
     };
     use masq_lib::constants::DEFAULT_UI_PORT;
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse, UiShutdownRequest, UiShutdownResponse, UiStartResponse};
+    use masq_lib::messages::{
+        ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage, UiDescriptorResponse,
+        UiShutdownRequest, UiShutdownResponse, UiStartResponse,
+    };
     use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
     use masq_lib::utils::find_free_port;
@@ -224,7 +227,11 @@ mod tests {
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_params(&make_term_interface_params_arc)
             .make_result(Either::Left(Box::new(w_term_interface)));
-        let command = MockCommand::default().request(UiShutdownRequest {}.tmb(1)).stdout_output("MockCommand output".to_string()).stderr_output("MockCommand error".to_string()).execute_result(Ok(()));
+        let command = MockCommand::default()
+            .request(UiShutdownRequest {}.tmb(1))
+            .stdout_output("MockCommand output".to_string())
+            .stderr_output("MockCommand error".to_string())
+            .execute_result(Ok(()));
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
             .make_result(Ok(Box::new(command)));
@@ -301,16 +308,17 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiShutdownResponse{}.tmb(1)));
-        let (mut w_term_interface, term_interface_stream_handles) =
+            .transact_result(Ok(UiShutdownResponse {}.tmb(1)));
+        let (w_term_interface, term_interface_stream_handles) =
             TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = w_term_interface.stdout();
+        let (stderr, stderr_flush_handle) = w_term_interface.stderr();
 
-        let result = command.execute(&mut context, &mut w_term_interface).await;
+        let result = command.execute(&mut context, stdout, stderr).await;
 
-        assert_eq!(
-            result,
-            Ok(())
-        );
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
+        assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(*transact_params, vec![(UiShutdownRequest {}.tmb(1), 1000)]);
         let processor_assertion =
@@ -421,9 +429,10 @@ mod tests {
                 DEFAULT_UI_PORT,
             )));
         let command_arbitrary_id_stamp = ArbitraryIdStamp::new();
-        let command = MockCommand::default().request(UiShutdownRequest {}.tmb(1)).set_arbitrary_id_stamp(command_arbitrary_id_stamp);
-        let command_factory =
-            CommandFactoryMock::default().make_result(Ok(Box::new(command)));
+        let command = MockCommand::default()
+            .request(UiShutdownRequest {}.tmb(1))
+            .set_arbitrary_id_stamp(command_arbitrary_id_stamp);
+        let command_factory = CommandFactoryMock::default().make_result(Ok(Box::new(command)));
         let (incidental_std_streams, incidental_std_stream_handles) =
             make_async_std_streams(vec![]);
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -479,7 +488,10 @@ mod tests {
         let mut execute_command_params = execute_command_params_arc.lock().unwrap();
         let (dyn_command, _, _) = execute_command_params.remove(0);
         let actual_command = dyn_command.as_any().downcast_ref::<MockCommand>().unwrap();
-        assert_eq!(actual_command.arbitrary_id_stamp(), Some(command_arbitrary_id_stamp));
+        assert_eq!(
+            actual_command.arbitrary_id_stamp(),
+            Some(command_arbitrary_id_stamp)
+        );
         assert!(execute_command_params.is_empty());
         assert_eq!(result, 1);
     }
@@ -732,9 +744,21 @@ mod tests {
             .make_result(Either::Right(Box::new(rw_term_interface)));
         let command_factory = CommandFactoryMock::default()
             .make_params(&make_command_params_arc)
-            .make_result(Ok(Box::new(MockCommand::default().use_sentinel_request().stdout_output("setup command".to_string()).execute_result(Ok(())))))
-            .make_result(Ok(Box::new(MockCommand::default().use_sentinel_request().stdout_output("start command".to_string()).execute_result(Ok(())))));
-        let command_context = CommandContextMock::new().use_sentinel_transact_response().use_sentinel_transact_response();
+            .make_result(Ok(Box::new(
+                MockCommand::default()
+                    .use_sentinel_request()
+                    .stdout_output("setup command".to_string())
+                    .execute_result(Ok(())),
+            )))
+            .make_result(Ok(Box::new(
+                MockCommand::default()
+                    .use_sentinel_request()
+                    .stdout_output("start command".to_string())
+                    .execute_result(Ok(())),
+            )));
+        let command_context = CommandContextMock::new()
+            .use_sentinel_transact_response()
+            .use_sentinel_transact_response();
         let command_context_factory = CommandContextFactoryMock::new()
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
@@ -930,7 +954,7 @@ mod tests {
 
         let result = subject.go(&["masq".to_string()]).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         assert_eq!(result, 0);
         let first_stdout = format!(
             "MASQNode successfully started in process 1234 on port {}\n",

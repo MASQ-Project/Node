@@ -46,10 +46,9 @@ impl Command for FinancialsCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
@@ -323,9 +322,11 @@ mod tests {
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
         let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = factory.make(&["financials".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -350,7 +351,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -360,7 +363,7 @@ mod tests {
             ]))
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -388,7 +391,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -398,7 +403,7 @@ mod tests {
             ]))
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -426,7 +431,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = factory
             .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
@@ -438,7 +445,7 @@ mod tests {
             ]))
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
@@ -643,11 +650,13 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
         assert_eq!(result, Ok(()));
@@ -685,10 +694,12 @@ mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
         let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
         assert_eq!(result, Ok(()));
@@ -734,11 +745,13 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
         assert_eq!(result, Ok(()));
@@ -849,15 +862,18 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1012,14 +1028,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1081,14 +1100,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1152,14 +1174,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1226,14 +1251,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1319,14 +1347,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1390,14 +1421,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1475,14 +1509,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1584,14 +1621,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1672,14 +1712,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1751,14 +1794,17 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = FinancialsCommand::new(&args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -1800,15 +1846,18 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ConnectionDropped("Booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let args = &["financials".to_string()];
         let subject = FinancialsCommand::new(args).unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Err(ConnectionProblem("Booga".to_string())));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

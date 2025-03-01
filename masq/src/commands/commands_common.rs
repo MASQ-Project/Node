@@ -56,7 +56,8 @@ pub trait Command: Debug {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError>;
 
     declare_as_any!();
@@ -140,8 +141,7 @@ mod tests {
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        drop(flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, Some(flush_handle)).await;
         assert_eq!(result, Err(ConnectionProblem("booga".to_string())));
         stream_handles.assert_empty_stderr()
     }
@@ -156,8 +156,7 @@ mod tests {
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        drop(flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, Some(flush_handle)).await;
         assert_eq!(result, Err(Payload(10, "booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -173,8 +172,7 @@ mod tests {
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        drop(flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, Some(flush_handle)).await;
         assert_eq!(result, Err(Transmission("booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -194,8 +192,7 @@ mod tests {
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
-        drop(flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, Some(flush_handle)).await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

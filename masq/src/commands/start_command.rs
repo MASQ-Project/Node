@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::masq_short_writeln;
-use crate::terminal::WTermInterface;
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -27,10 +27,9 @@ impl Command for StartCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let out_message = UiStartOrder {};
         let result: Result<UiStartResponse, CommandError> =
             transaction(out_message, context, &stderr, START_COMMAND_TIMEOUT_MILLIS).await;
@@ -60,6 +59,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::start_command::{START_COMMAND_TIMEOUT_MILLIS, START_SUBCOMMAND_ABOUT};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
@@ -86,13 +86,16 @@ mod tests {
                 redirect_ui_port: 4321,
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["start".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

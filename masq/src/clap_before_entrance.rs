@@ -86,7 +86,7 @@ mod tests {
             )
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
@@ -110,7 +110,7 @@ mod tests {
             )
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
@@ -202,7 +202,7 @@ mod tests {
                 )
                 .await;
 
-            allow_flushed_writings_to_finish().await;
+            allow_flushed_writings_to_finish(None, None).await;
             match result {
                 CLIProgramEntering::Leave(1) => (),
                 x => panic!("we expected Leave with exit code 1 but got {:?}", x),

@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
-use crate::terminal::WTermInterface;
+use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
@@ -98,10 +98,9 @@ impl Command for RecoverWalletsCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiRecoverWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self
@@ -507,7 +506,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -520,10 +521,11 @@ mod tests {
         };
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -558,7 +560,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiRecoverWalletsResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = RecoverWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -567,10 +571,11 @@ mod tests {
         };
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
