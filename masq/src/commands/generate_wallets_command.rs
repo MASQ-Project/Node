@@ -11,7 +11,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
@@ -355,6 +355,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,

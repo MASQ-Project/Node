@@ -23,7 +23,7 @@ use crate::commands::financials_command::pretty_print_utils::restricted::{
 };
 use crate::commands::parameter_columns_formatting::dump_parameter_line;
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::ArgMatches;
 use masq_lib::messages::{
@@ -294,6 +294,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::commands::financials_command::args_validation::financials_subcommand;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use atty::Stream;
     use masq_lib::messages::{

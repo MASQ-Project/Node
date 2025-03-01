@@ -8,6 +8,16 @@ pub struct AsyncStdStreams {
     pub stderr: Box<dyn AsyncWrite + Send + Sync + Unpin>,
 }
 
+impl Default for AsyncStdStreams {
+    fn default() -> Self {
+        Self {
+            stdin: Box::new(tokio::io::stdin()),
+            stdout: Box::new(tokio::io::stdout()),
+            stderr: Box::new(tokio::io::stderr()),
+        }
+    }
+}
+
 pub trait AsyncStdStreamsFactory {
     fn make(&self) -> AsyncStdStreams;
 }
@@ -17,7 +27,7 @@ pub struct AsyncStdStreamsFactoryReal {}
 
 impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryReal {
     fn make(&self) -> AsyncStdStreams {
-        todo!()
+        AsyncStdStreams::default()
     }
 }
 

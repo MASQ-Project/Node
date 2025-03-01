@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::run_modes::Main;
-use std::io;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

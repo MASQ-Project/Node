@@ -2,7 +2,9 @@
 
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
+#[cfg(test)]
 use masq_lib::intentionally_blank;
+#[cfg(test)]
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use std::fmt::{Display, Formatter};
 use std::io::Error;

@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
@@ -87,6 +87,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};

@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
@@ -259,6 +259,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{ToMessageBody, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
     use std::sync::{Arc, Mutex};

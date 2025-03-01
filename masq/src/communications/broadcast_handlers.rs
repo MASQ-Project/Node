@@ -2,9 +2,7 @@
 
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::setup_command::SetupCommand;
-use crate::communications::connection_manager::{
-    BroadcastReceiver, ClosingStageDetector, RedirectOrder,
-};
+use crate::communications::connection_manager::{BroadcastReceiver, RedirectOrder};
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
@@ -18,7 +16,9 @@ use masq_lib::messages::{
 use masq_lib::ui_gateway::MessageBody;
 use std::cell::RefCell;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio::task::{JoinError, JoinHandle};
+#[cfg(test)]
+use tokio::task::JoinError;
+use tokio::task::JoinHandle;
 
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
 
@@ -85,6 +85,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandleInactive {
 
 pub struct StandardBroadcastHandle {
     message_tx: UnboundedSender<MessageBody>,
+    #[allow(dead_code)]
     spawn_join_handle_opt: RefCell<Option<JoinHandle<()>>>,
 }
 
@@ -302,6 +303,7 @@ mod tests {
     use crate::communications::broadcast_handlers::tests::StreamTypeAndTestHandles::{
         Stderr, Stdout,
     };
+    use crate::communications::connection_manager::ClosingStageDetector;
     use crate::test_utils::mocks::{
         AsyncTestStreamHandles, BroadcastHandleMock, TermInterfaceMock,
     };

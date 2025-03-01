@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send_non_conversational_msg, Command, CommandError};
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
@@ -99,6 +99,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};

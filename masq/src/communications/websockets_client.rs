@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::communications::connection_manager::ClosingStageDetector;
 use async_trait::async_trait;
 use futures::io::{BufReader, BufWriter};
 use masq_lib::messages::NODE_UI_PROTOCOL;
@@ -12,7 +11,6 @@ use soketto::connection::Error as SokettoError;
 use soketto::handshake::{Client, ServerResponse};
 use soketto::Data;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -283,7 +281,9 @@ impl ClientListenerSpawner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::communications::connection_manager::CLIENT_WS_CONNECT_TIMEOUT_MS;
+    use crate::communications::connection_manager::{
+        ClosingStageDetector, CLIENT_WS_CONNECT_TIMEOUT_MS,
+    };
     use crate::test_utils::mocks::WSSenderWrapperMock;
     use masq_lib::messages::{
         FromMessageBody, ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse,
@@ -296,6 +296,7 @@ mod tests {
     use soketto::connection::Error;
     use soketto::handshake::server::Response;
     use soketto::handshake::Server;
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::net::TcpListener;
     use tokio::sync::mpsc::error::TryRecvError;

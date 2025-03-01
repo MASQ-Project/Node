@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use futures::future::join_all;
@@ -189,6 +189,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{make_terminal_writer, CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;

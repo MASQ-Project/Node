@@ -14,7 +14,6 @@ use async_channel::RecvError;
 use futures::future::join_all;
 use masq_lib::messages::{CrashReason, UiNodeCrashedBroadcast};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
-use soketto::connection::Error;
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -195,6 +194,7 @@ impl CMChannelsToSubordinates {
 pub struct ConnectionManager {
     internal_communications: CMChannelsToSubordinates,
     closing_signaler: CloseSignaler,
+    #[allow(dead_code)]
     central_even_loop_join_handle: JoinHandle<()>,
     timeouts: Timeouts,
 }
@@ -712,6 +712,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     use masq_lib::test_utils::utils::is_running_under_github_actions;
     use masq_lib::utils::{find_free_port, localhost, running_test};
+    use soketto::connection::Error;
     use soketto::handshake::Server;
     use std::hash::Hash;
     use std::io::ErrorKind;

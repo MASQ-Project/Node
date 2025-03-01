@@ -20,7 +20,7 @@ impl CommandProcessorFactory {
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         command_context_factory: &dyn CommandContextFactory,
         command_execution_helper_factory: &dyn CommandExecutionHelperFactory,
-        command_factory: Box<dyn CommandFactory>,
+        command_factory: Arc<dyn CommandFactory>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let background_term_interface_opt = match &term_interface {
@@ -112,14 +112,14 @@ pub trait ProcessorProvidingCommonComponents {
 
 pub struct CommandProcessorCommon {
     command_context: Box<dyn CommandContext>,
-    command_factory: Box<dyn CommandFactory>,
+    command_factory: Arc<dyn CommandFactory>,
     command_execution_helper: Box<dyn CommandExecutionHelper>,
 }
 
 impl CommandProcessorCommon {
     fn new(
         command_context: Box<dyn CommandContext>,
-        command_factory: Box<dyn CommandFactory>,
+        command_factory: Arc<dyn CommandFactory>,
         command_execution_helper: Box<dyn crate::command_processor::CommandExecutionHelper>,
     ) -> Self {
         Self {
@@ -397,7 +397,7 @@ mod tests {
         };
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
-        let command_factory = Box::new(CommandFactoryReal::default());
+        let command_factory = Arc::new(CommandFactoryReal::default());
 
         let result = Arc::new(subject)
             .make(
@@ -565,7 +565,7 @@ mod tests {
             .stderr_output(expected_stderr.to_string())
             .execute_result(Ok(()));
         let command_factory =
-            Box::new(CommandFactoryMock::default().make_result(Ok(Box::new(command))));
+            Arc::new(CommandFactoryMock::default().make_result(Ok(Box::new(command))));
         let command_execution_helper = Box::new(CommandExecutionHelperReal::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -586,7 +586,7 @@ mod tests {
     async fn interactive_command_processor_handles_quit_signals() {
         running_test();
         let command_context = Box::new(CommandContextMock::default());
-        let command_factory = Box::new(CommandFactoryReal::new());
+        let command_factory = Arc::new(CommandFactoryReal::new());
         let command_execution_helper = Box::new(CommandExecutionHelperMock::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -635,7 +635,7 @@ mod tests {
     ) {
         running_test();
         let command_context = Box::new(CommandContextMock::default());
-        let command_factory = Box::new(CommandFactoryReal::new());
+        let command_factory = Arc::new(CommandFactoryReal::new());
         let command_execution_helper = Box::new(CommandExecutionHelperMock::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -659,7 +659,7 @@ mod tests {
     #[tokio::test]
     async fn handling_command_line_in_interactive_command_processor_handles_error() {
         let command_context = Box::new(CommandContextMock::default());
-        let command_factory = Box::new(CommandFactoryReal::new());
+        let command_factory = Arc::new(CommandFactoryReal::new());
         let command_execution_helper = Box::new(CommandExecutionHelperMock::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -751,7 +751,7 @@ mod tests {
     fn make_command_processor_common() -> CommandProcessorCommon {
         CommandProcessorCommon::new(
             Box::new(CommandContextMock::default()),
-            Box::new(CommandFactoryMock::default()),
+            Arc::new(CommandFactoryMock::default()),
             Box::new(CommandExecutionHelperMock::default()),
         )
     }

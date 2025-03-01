@@ -10,7 +10,7 @@ use crate::commands::parameter_columns_formatting::{
     add_char_after, dump_parameter_line, dump_single_line_parameters,
 };
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -356,6 +356,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
     use masq_lib::messages::{

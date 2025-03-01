@@ -2,7 +2,6 @@
 
 use crate::clap_before_entrance::{InitialArgsParser, InitialArgsParserReal, InitializationArgs};
 use crate::command_context_factory::{CommandContextFactory, CommandContextFactoryReal};
-use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
 use crate::command_factory::{CommandFactory, CommandFactoryReal};
 use crate::command_processor::{
     CommandExecutionHelperFactory, CommandExecutionHelperFactoryReal, CommandProcessor,
@@ -18,14 +17,14 @@ use masq_lib::async_streams::{
 };
 use masq_lib::write_async_stream_and_flush;
 use std::ops::Not;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 
 pub struct Main {
-    std_streams_factory: Box<dyn AsyncStdStreamsFactory>,
+    std_streams_factory_arc: Arc<dyn AsyncStdStreamsFactory>,
     initial_args_parser: Box<dyn InitialArgsParser>,
     term_interface_factory: Box<dyn TerminalInterfaceFactory>,
-    // Optional in order to allow a vacancy after pulling the value out
-    command_factory_opt: Option<Box<dyn CommandFactory>>,
+    command_factory_arc: Arc<dyn CommandFactory>,
     command_context_factory: Box<dyn CommandContextFactory>,
     command_execution_helper_factory: Box<dyn CommandExecutionHelperFactory>,
     command_processor_factory: CommandProcessorFactory,
@@ -34,10 +33,10 @@ pub struct Main {
 impl Default for Main {
     fn default() -> Self {
         Self {
-            std_streams_factory: Box::new(AsyncStdStreamsFactoryReal::default()),
+            std_streams_factory_arc: Arc::new(AsyncStdStreamsFactoryReal::default()),
             initial_args_parser: Box::new(InitialArgsParserReal::default()),
             term_interface_factory: Box::new(TerminalInterfaceFactoryReal::default()),
-            command_factory_opt: Some(Box::new(CommandFactoryReal::default())),
+            command_factory_arc: Arc::new(CommandFactoryReal::default()),
             command_context_factory: Box::new(CommandContextFactoryReal::default()),
             command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
             command_processor_factory: Default::default(),
@@ -47,27 +46,20 @@ impl Default for Main {
 
 impl Main {
     pub async fn go(&mut self, args: &[String]) -> u8 {
-        let std_streams_factory = &self.std_streams_factory;
+        let std_streams_factory = Arc::clone(&self.std_streams_factory_arc);
         let mut incidental_streams = std_streams_factory.make();
         let initialization_args = match self
             .initial_args_parser
             .parse_initialization_args(args, &mut incidental_streams)
             .await
         {
-            CLIProgramEntering::Enter(init_args) => init_args,
-            CLIProgramEntering::Leave(exit_code) => {
-                write_async_stream_and_flush!(
-                    incidental_streams.stderr,
-                    "Incorrect arguments for MASQ, it is terminating...\n"
-                );
-                return exit_code;
-            }
+            EntryCheck::Enter(init_args) => init_args,
+            EntryCheck::Exit(exit_code) => return exit_code,
         };
         let initial_subcommand_opt = Self::extract_subcommand(args);
-        let term_interface = self.term_interface_factory.make(
-            initial_subcommand_opt.is_none(),
-            std_streams_factory.as_ref(),
-        );
+        let term_interface = self
+            .term_interface_factory
+            .make(initial_subcommand_opt.is_none(), std_streams_factory);
 
         match self
             .process_commands(
@@ -111,10 +103,7 @@ impl Main {
     ) -> Result<Box<dyn CommandProcessor>, ()> {
         let command_context_factory = self.command_context_factory.as_ref();
         let execution_helper_factory = self.command_execution_helper_factory.as_ref();
-        let command_factory = self
-            .command_factory_opt
-            .take()
-            .expect("CommandFactory wasn't prepared properly");
+        let command_factory = self.command_factory_arc.clone();
 
         match self
             .command_processor_factory
@@ -160,14 +149,15 @@ impl Main {
 }
 
 #[derive(Debug)]
-pub enum CLIProgramEntering {
+pub enum EntryCheck {
     Enter(InitializationArgs),
-    Leave(u8),
+    Exit(u8),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
     use crate::commands::commands_common::CommandError;
     use crate::commands::commands_common::CommandError::Transmission;
     use crate::commands::setup_command::SetupCommand;
@@ -209,7 +199,7 @@ mod tests {
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -248,10 +238,10 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(command_factory)),
+            command_factory_arc: Arc::new(command_factory),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
             command_processor_factory: Default::default(),
@@ -349,7 +339,7 @@ mod tests {
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -378,10 +368,10 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(command_factory)),
+            command_factory_arc: Arc::new(command_factory),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
             command_processor_factory: Default::default(),
@@ -425,7 +415,7 @@ mod tests {
         let make_command_context_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let execute_command_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let command_arbitrary_id_stamp = ArbitraryIdStamp::new();
@@ -454,10 +444,10 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(command_factory)),
+            command_factory_arc: Arc::new(command_factory),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
             command_processor_factory: Default::default(),
@@ -500,7 +490,7 @@ mod tests {
     async fn go_works_when_daemon_is_not_running() {
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -519,10 +509,10 @@ mod tests {
             .make_result(Err(CommandError::ConnectionProblem("booga".to_string())));
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default();
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(CommandFactoryMock::default())),
+            command_factory_arc: Arc::new(CommandFactoryMock::default()),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
             command_processor_factory: Default::default(),
@@ -585,10 +575,10 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(command_execution_helper));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserReal::default()),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(command_factory)),
+            command_factory_arc: Arc::new(command_factory),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
             command_processor_factory: Default::default(),
@@ -637,10 +627,10 @@ mod tests {
         let std_streams_factory =
             AsyncStdStreamsFactoryMock::default().make_result(incidental_std_streams);
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(InitialArgsParserReal::default()),
             term_interface_factory: Box::new(TerminalInterfaceFactoryMock::default()),
-            command_factory_opt: Some(Box::new(CommandFactoryMock::default())),
+            command_factory_arc: Arc::new(CommandFactoryMock::default()),
             command_context_factory: Box::new(CommandContextFactoryMock::default()),
             command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryMock::default()),
             command_processor_factory: Default::default(),
@@ -657,13 +647,9 @@ mod tests {
         assert_eq!(result, 1);
         incidental_std_stream_handles.assert_empty_stdout();
         let mut stderr_flushes = incidental_std_stream_handles.stderr_flushed_strings();
-        let first_msg = stderr_flushes.remove(0);
-        assert!(first_msg.contains("unexpected argument '--ui-puerto-rico' found"));
-        let second_msg = stderr_flushes.remove(0);
-        assert_eq!(
-            second_msg,
-            "Incorrect arguments for MASQ, it is terminating...\n"
-        )
+        let msg = stderr_flushes.remove(0);
+        assert!(msg.contains("unexpected argument '--ui-puerto-rico' found"));
+        assert!(stderr_flushes.is_empty())
     }
 
     #[test]
@@ -719,7 +705,7 @@ mod tests {
         let make_command_params_arc = Arc::new(Mutex::new(vec![]));
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -763,10 +749,10 @@ mod tests {
             .make_params(&make_command_context_params_arc)
             .make_result(Ok(Box::new(command_context)));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(command_factory)),
+            command_factory_arc: Arc::new(command_factory),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
             command_processor_factory: Default::default(),
@@ -822,7 +808,7 @@ mod tests {
         let make_command_context_params_arc = Arc::new(Mutex::new(vec![]));
         let close_params_arc = Arc::new(Mutex::new(vec![]));
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 DEFAULT_UI_PORT,
             )));
         let (incidental_std_streams, incidental_std_stream_handles) =
@@ -848,10 +834,10 @@ mod tests {
         let command_execution_helper_factory = CommandExecutionHelperFactoryMock::default()
             .make_result(Box::new(CommandExecutionHelperMock::default()));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(CommandFactoryMock::default())),
+            command_factory_arc: Arc::new(CommandFactoryMock::default()),
             command_context_factory: Box::new(command_context_factory),
             command_execution_helper_factory: Box::new(command_execution_helper_factory),
             command_processor_factory: Default::default(),
@@ -920,7 +906,7 @@ mod tests {
             .queue_response(descriptor_response);
         let _server_handle = node.start().await;
         let initial_args_parser_mock = InitialArgsParserMock::default()
-            .parse_initialization_args_result(CLIProgramEntering::Enter(InitializationArgs::new(
+            .parse_initialization_args_result(EntryCheck::Enter(InitializationArgs::new(
                 node_ui_port,
             )));
         let (processor_aspiring_std_streams, processor_aspiring_std_stream_handles) =
@@ -943,10 +929,10 @@ mod tests {
         let terminal_interface_factory = TerminalInterfaceFactoryMock::default()
             .make_result(Either::Right(Box::new(rw_term_interface)));
         let mut subject = Main {
-            std_streams_factory: Box::new(std_streams_factory),
+            std_streams_factory_arc: Arc::new(std_streams_factory),
             initial_args_parser: Box::new(initial_args_parser_mock),
             term_interface_factory: Box::new(terminal_interface_factory),
-            command_factory_opt: Some(Box::new(CommandFactoryReal::default())),
+            command_factory_arc: Arc::new(CommandFactoryReal::default()),
             command_context_factory: Box::new(CommandContextFactoryReal::default()),
             command_execution_helper_factory: Box::new(CommandExecutionHelperFactoryReal::default()),
             command_processor_factory: Default::default(),

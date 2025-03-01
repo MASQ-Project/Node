@@ -76,18 +76,18 @@ impl MasqProcess {
     }
 
     pub fn start_interactive(self, port: u16, fake_terminal: bool) -> StopHandle {
-        todo!()
+        // TODO delete these lines
         // if fake_terminal {
         //     std::env::set_var(MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE)
         // };
-        // let mut command = Command::new(executable_path(executable_name("masq")));
-        // let command = command.arg("--ui-port").arg(port.to_string());
-        // eprintln!("About to start masq using {:?}", command);
-        // let child = child_from_command(command);
-        // StopHandle {
-        //     name: "masq".to_string(),
-        //     child,
-        // }
+        let mut command = Command::new(executable_path(executable_name("masq")));
+        let command = command.arg("--ui-port").arg(port.to_string());
+        eprintln!("About to start masq using {:?}", command);
+        let child = child_from_command(command);
+        StopHandle {
+            name: "masq".to_string(),
+            child,
+        }
     }
 }
 

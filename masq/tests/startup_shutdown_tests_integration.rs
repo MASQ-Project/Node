@@ -34,13 +34,16 @@ fn masq_terminates_immediately_after_clap_gets_furious_about_params_which_it_doe
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
     assert_eq!(&stdout, "", "{}", stdout);
-    assert!(stderr.contains("Found argument 'uninvented-command' which wasn't expected, or isn't valid in this context"),
+    assert!(
+        stderr.contains("error: unrecognized subcommand 'uninvented-command'")
+            && stderr.contains("Usage: masq [OPTIONS] [COMMAND]"),
         "we got: {}",
         stderr
     );
     assert_eq!(exit_code.unwrap(), 1);
 }
 
+// TODO this test is probably not relevant anymore...wait until you have a reliable Node binary around, testing the interactive mode on it
 #[test]
 fn masq_propagates_errors_related_to_default_terminal_integration() {
     //the port is irrelevant; it hits the error before it gets to trying to connect to the Daemon
@@ -48,7 +51,7 @@ fn masq_propagates_errors_related_to_default_terminal_integration() {
 
     let (stdout, stderr, exit_code) = masq_handle.stop();
 
-    assert_eq!(exit_code.unwrap(), 1);
+    assert_eq!(exit_code.unwrap(), 101);
     let regex = Regex::new(r"\x1B\[\?\d\d[lh]").unwrap();
     assert_eq!(regex.replace_all(&stdout, ""), "", "{}", stdout);
     #[cfg(not(target_os = "windows"))]

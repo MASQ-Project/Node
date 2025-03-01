@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use async_trait::async_trait;
-use liso::{InputOutput, Output, Response};
+use liso::{InputOutput, OutputOnly, Response};
 
 #[async_trait(?Send)]
 pub trait LisoInputWrapper {
@@ -18,12 +18,9 @@ pub struct LisoInputWrapperReal {
     handle: InputOutput,
 }
 
-impl Default for LisoInputWrapperReal {
-    fn default() -> Self {
-        // Self {
-        //     handle: InputOutput::new(),
-        // }
-        todo!("drive in by integration tests")
+impl LisoInputWrapperReal {
+    pub fn new(handle: InputOutput) -> Self {
+        Self { handle }
     }
 }
 
@@ -36,15 +33,12 @@ impl LisoInputWrapper for LisoInputWrapperReal {
 }
 
 pub struct LisoOutputWrapperReal {
-    handle: Output,
+    handle: OutputOnly,
 }
 
 impl LisoOutputWrapperReal {
-    pub fn new(liso_output: Output) -> Self {
-        // Self {
-        //     handle: liso_output
-        // }
-        todo!("drive in by integration tests")
+    pub fn new(handle: OutputOnly) -> Self {
+        Self { handle }
     }
 }
 
@@ -56,7 +50,7 @@ impl LisoOutputWrapper for LisoOutputWrapperReal {
 
     fn prompt(&self, appearance: &str, input_allowed: bool, clear_input: bool) {
         //self.handle.prompt(appearance, input_allowed, clear_input)
-        todo!("drive in by integration tests")
+        todo!()
     }
 
     fn clone_output(&self) -> Box<dyn LisoOutputWrapper> {

@@ -1,7 +1,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::ValueRange;
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
@@ -95,6 +95,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
