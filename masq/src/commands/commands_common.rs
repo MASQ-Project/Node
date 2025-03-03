@@ -7,14 +7,12 @@ use crate::commands::commands_common::CommandError::{
 use crate::masq_short_writeln;
 use crate::terminal::{TerminalWriter, WTermInterface};
 use async_trait::async_trait;
-use futures::future::join_all;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::{declare_as_any, intentionally_blank};
 use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::io::Write;
 
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
@@ -94,7 +92,6 @@ where
     let response: O = match O::fmb(message) {
         Ok((r, _)) => r,
         Err(e) => {
-            //TODO do I want to flush it here?
             masq_short_writeln!(stderr, "Node or Daemon is acting erratically: {}", e);
             return Err(UnexpectedResponse(e));
         }
@@ -121,12 +118,11 @@ mod tests {
     use crate::commands::commands_common::CommandError::{
         Other, Payload, Reception, Transmission, UnexpectedResponse,
     };
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{UiStartOrder, UiStartResponse};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
-    use std::time::Duration;
 
     #[test]
     fn constants_have_correct_values() {
@@ -138,13 +134,14 @@ mod tests {
     async fn two_way_transaction_passes_dropped_connection_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::ConnectionDropped("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
-        let (stderr, mut flush_handle) = term_interface.stderr();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(ConnectionProblem("booga".to_string())));
         stream_handles.assert_empty_stderr()
     }
@@ -153,13 +150,14 @@ mod tests {
     async fn two_way_transaction_passes_payload_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::PayloadError(10, "booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
-        let (stderr, mut flush_handle) = term_interface.stderr();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(Payload(10, "booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -169,13 +167,14 @@ mod tests {
     async fn two_way_transaction_passes_other_error() {
         let mut context = CommandContextMock::new()
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
-        let (stderr, mut flush_handle) = term_interface.stderr();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Err(Transmission("booga".to_string())));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -189,14 +188,14 @@ mod tests {
             payload: Ok("unparseable".to_string()),
         };
         let mut context = CommandContextMock::new().transact_result(Ok(message_body.clone()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
         let (stderr, flush_handle) = term_interface.stderr();
 
         let result: Result<UiStartResponse, CommandError> =
             transaction(UiStartOrder {}, &mut context, &stderr, 1000).await;
 
         drop(flush_handle);
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(UnexpectedResponse(UiMessageError::UnexpectedMessage(

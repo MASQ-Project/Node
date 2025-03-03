@@ -19,9 +19,7 @@ use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTOR
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
-use std::io::Write;
 use std::iter::Iterator;
-use std::sync::Arc;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -191,17 +189,14 @@ impl SetupCommand {
 mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::terminal::test_utils::allow_writtings_to_finish;
-    use crate::test_utils::mocks::{
-        make_terminal_writer, CommandContextMock, MockTerminalMode, TermInterfaceMock,
-    };
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{make_terminal_writer, CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{
         Configured, Default as DefaultStatus, Set,
     };
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
-    use masq_lib::test_utils::fake_stream_holder::StringAssertionMethods;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -263,7 +258,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -331,7 +326,7 @@ scans                         off                                               
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
-        allow_writtings_to_finish().await;
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

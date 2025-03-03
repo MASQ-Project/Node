@@ -9,7 +9,6 @@ use masq_lib::messages::{RangeQuery, TopRecordsOrdering};
 use num::ToPrimitive;
 use regex::{Captures, Regex};
 use std::fmt::Debug;
-use std::io::Write;
 use std::str::FromStr;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =

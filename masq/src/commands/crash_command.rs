@@ -8,7 +8,6 @@ use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::messages::UiCrashRequest;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct CrashCommand {
@@ -98,7 +97,8 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
-    use crate::test_utils::mocks::{CommandContextMock, MockTerminalMode, TermInterfaceMock};
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
 
@@ -135,7 +135,7 @@ mod tests {
     async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
         let subject = factory
             .make(&[
                 "crash".to_string(),
@@ -167,6 +167,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -193,6 +194,7 @@ mod tests {
 
         let result = subject.execute(&mut context, &mut term_interface).await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -223,9 +225,12 @@ mod tests {
             .execute(&mut context, &mut term_interface)
             .await;
 
+        allow_flushed_writings_to_finish().await;
         assert_eq!(
             result,
             Err(CommandError::ConnectionProblem("blah".to_string()))
-        )
+        );
+        stream_handles.assert_empty_stderr();
+        stream_handles.assert_empty_stdout()
     }
 }

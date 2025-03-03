@@ -3,6 +3,7 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
+use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -34,6 +35,10 @@ use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
 use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
+use async_trait::async_trait;
+use futures_util::future::join_all;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 use itertools::Itertools;
 use log::LevelFilter;
 use masq_lib::blockchains::chains::Chain;
@@ -44,7 +49,7 @@ use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::test_utils::utils::{make_rt, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::AutomapProtocol;
 use std::collections::HashMap;
 use std::env::var;
@@ -54,11 +59,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
-use async_trait::async_trait;
-use futures_util::future::join_all;
-use futures_util::stream::FuturesUnordered;
-use futures_util::StreamExt;
-use crate::crash_test_dummy::CrashTestDummy;
+use tokio::runtime::Handle;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -211,6 +212,16 @@ impl FromStr for RealUser {
             },
         );
         Ok(real_user)
+    }
+}
+
+impl From<masq_lib::shared_schema::RealUser> for RealUser {
+    fn from(value: masq_lib::shared_schema::RealUser) -> Self {
+        RealUser::new(
+            Some(value.uid as i32),
+            Some(value.gid as i32),
+            Some(value.home_dir),
+        )
     }
 }
 
@@ -477,22 +488,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
                     }
                 }),
         );
-        futures.await.into_iter().for_each(|lh| self.listener_handlers.push(lh));
-        //
-        // let mut futures = FuturesUnordered::new();
-        // for (port, port_configuration) in port_configurations {
-        //     let mut listener_handler = self.listener_handler_factory.make();
-        //     let future = async move {
-        //         if let Err(e) = listener_handler.bind_port_and_configuration(port, port_configuration).await {
-        //             panic!("Could not listen on port {}: {}", port, e);
-        //         }
-        //         listener_handler
-        //     };
-        //     futures.push(future);
-        // }
-        // while let Some(listener_handler) = futures.next().await {
-        //     self.listener_handlers.push(listener_handler);
-        // }
+        futures
+            .await
+            .into_iter()
+            .for_each(|lh| self.listener_handlers.push(lh));
         Ok(())
     }
 
@@ -506,7 +505,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
-        let _ = self.set_up_clandestine_port().await;
+        let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
         let cryptdes = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
@@ -549,10 +548,13 @@ impl Bootstrapper {
     }
 
     pub async fn listen(&mut self) {
-        CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new()).await.expect("Could not create CrashTestDummy");
-        let futures = join_all(self.listener_handlers
-            .iter_mut()
-            .map(|f| f.handle_listeners())
+        CrashTestDummy::new(self.config.crash_point, BootstrapperConfig::new())
+            .await
+            .expect("Could not create CrashTestDummy");
+        let futures = join_all(
+            self.listener_handlers
+                .iter_mut()
+                .map(|f| f.handle_listeners()),
         );
         futures.await;
     }
@@ -643,7 +645,7 @@ impl Bootstrapper {
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
     }
 
-    async fn set_up_clandestine_port(&mut self) -> Option<u16> {
+    fn set_up_clandestine_port(&mut self) -> Option<u16> {
         let clandestine_port_opt =
             if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
                 &self.config.neighborhood_config.mode
@@ -660,17 +662,20 @@ impl Bootstrapper {
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
                 let mut listener_handler = self.listener_handler_factory.make();
-                listener_handler
-                    .bind_port_and_configuration(
-                        clandestine_port,
-                        PortConfiguration {
-                            discriminator_factories: vec![
-                                Box::new(JsonDiscriminatorFactory::new()),
-                            ],
-                            is_clandestine: true,
-                        },
-                    )
-                    .await
+                let future = async {
+                    listener_handler
+                        .bind_port_and_configuration(
+                            clandestine_port,
+                            PortConfiguration {
+                                discriminator_factories: vec![
+                                    Box::new(JsonDiscriminatorFactory::new()),
+                                ],
+                                is_clandestine: true,
+                            },
+                        ).await
+                };
+                Handle::current()
+                    .block_on(future)
                     .expect("Failed to bind ListenerHandler to clandestine port");
                 self.listener_handlers.push(listener_handler);
                 self.config.neighborhood_config.mode = NeighborhoodMode::Standard(
@@ -771,7 +776,9 @@ mod tests {
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
     use actix::System;
+    use async_trait::async_trait;
     use crossbeam_channel::unbounded;
+    use futures_util::stream::FuturesUnordered;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
@@ -794,8 +801,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use async_trait::async_trait;
-    use futures_util::stream::FuturesUnordered;
     use tokio;
 
     lazy_static! {
@@ -882,7 +887,8 @@ mod tests {
                             .try_send(add_stream_msg)
                             .expect("StreamHandlerPool is dead");
                     }
-                    if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
+                    if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt
+                    {
                         self.polling_setting.counter += 1;
                         if self.polling_setting.counter == desired_number {
                             break; //breaking the infinite looping
@@ -1022,6 +1028,22 @@ mod tests {
     #[test]
     fn real_user_from_all_parts() {
         let subject = RealUser::from_str("123:456:booga").unwrap();
+
+        assert_eq!(
+            subject,
+            RealUser::new(Some(123), Some(456), Some("booga".into()))
+        )
+    }
+
+    #[test]
+    fn real_user_from_clap_real_user () {
+        let input = masq_lib::shared_schema::RealUser {
+            uid: 123,
+            gid: 456,
+            home_dir: PathBuf::from("booga"),
+        };
+
+        let subject = RealUser::from (input);
 
         assert_eq!(
             subject,
@@ -1188,7 +1210,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it() {
+    async fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it()
+    {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
@@ -1465,7 +1488,10 @@ mod tests {
         let mut holder = FakeStreamHolder::new();
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .await
@@ -1514,7 +1540,10 @@ mod tests {
             .build();
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .await
@@ -1722,7 +1751,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool() {
+    async fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool(
+    ) {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
@@ -1748,7 +1778,10 @@ mod tests {
             .config(config)
             .build();
         let multi_config = &make_simplified_multi_config(args);
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
 
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
@@ -1834,7 +1867,10 @@ mod tests {
         ];
         let multi_config = make_simplified_multi_config(args);
 
-        subject.initialize_as_privileged(&multi_config).await.unwrap();
+        subject
+            .initialize_as_privileged(&multi_config)
+            .await
+            .unwrap();
         subject
             .initialize_as_unprivileged(&multi_config, &mut holder.streams())
             .await
@@ -1857,8 +1893,8 @@ mod tests {
         assert_contains(&actual_ports, &String::from("Some(443)"));
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
+    #[test]
+    fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
         let port = find_free_port();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1894,7 +1930,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, Some(port));
         let config_dao = ConfigDaoReal::new(conn);
@@ -1931,8 +1967,8 @@ mod tests {
         assert_eq!(0, clandestine_discriminators.len()); // Used to be 1, now 0 after removal
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
+    #[test]
+    fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -1964,7 +2000,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -1982,8 +2018,8 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_originate_only() {
+    #[test]
+    fn set_up_clandestine_port_handles_originate_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2011,7 +2047,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, None);
         assert!(subject
@@ -2022,8 +2058,8 @@ mod tests {
             .is_none());
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_consume_only() {
+    #[test]
+    fn set_up_clandestine_port_handles_consume_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2048,7 +2084,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, None);
         assert!(subject
@@ -2059,8 +2095,8 @@ mod tests {
             .is_none());
     }
 
-    #[tokio::test]
-    async fn set_up_clandestine_port_handles_zero_hop() {
+    #[test]
+    fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "set_up_clandestine_port_handles_zero_hop",
@@ -2078,7 +2114,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port().await;
+        let result = subject.set_up_clandestine_port();
 
         assert_eq!(result, None);
         assert!(subject
@@ -2263,7 +2299,7 @@ mod tests {
                 };
 
                 tx.send(stream_handler_pool_cluster).unwrap();
-                system.run();
+                system.run().unwrap();
             });
             let stream_handler_pool_cluster = rx.recv().unwrap();
             ActorSystemFactoryActiveMock {

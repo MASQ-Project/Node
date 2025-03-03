@@ -3,24 +3,24 @@
 #![cfg(test)]
 
 use crate::terminal::liso_wrappers::{LisoInputWrapper, LisoOutputWrapper};
-use crate::terminal::test_utils::WritingTestInputByTermInterfaces::{Interactive, NonInteractive};
+use crate::terminal::test_utils::WriteInputsByTermInterfaceKind::{Interactive, NonInteractive};
 use crate::terminal::{
-    FlushHandle, FlushHandleInner, RWTermInterface, TerminalWriter, WTermInterface,
-    WTermInterfaceDupAndSend, WriteResult, WriteStreamType,
+    FlushHandle, FlushHandleInner, TerminalWriter, WTermInterface, WTermInterfaceDupAndSend,
+    WriteResult, WriteStreamType,
 };
 use crate::test_utils::mocks::TerminalWriterTestReceiver;
 use async_trait::async_trait;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use liso::Response;
 use masq_lib::test_utils::fake_stream_holder::{
-    AsyncByteArrayWriter, FlushedString, FlushedStrings, StringAssertionMethods,
+    AsyncByteArrayWriter, FlushedString, FlushedStrings, StringAssertableStdHandle,
 };
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-pub struct WritingTestInput<TerminalInterface, StreamsAssertionHandles> {
+pub struct WriteInput<TerminalInterface, StreamsAssertionHandles> {
     pub term_interface: TerminalInterface,
     pub streams_assertion_handles: StreamsAssertionHandles,
 }
@@ -30,44 +30,37 @@ pub struct NonInteractiveStreamsAssertionHandles {
     pub stderr: AsyncByteArrayWriter,
 }
 
-pub enum WritingTestInputByTermInterfaces<'test> {
-    NonInteractive(
-        WritingTestInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>,
-    ),
-    Interactive(WritingTestInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
+pub enum WriteInputsByTermInterfaceKind<'test> {
+    NonInteractive(WriteInput<&'test dyn WTermInterface, NonInteractiveStreamsAssertionHandles>),
+    Interactive(WriteInput<InteractiveInterfaceByUse<'test>, LisoFlushedAssertableStrings>),
 }
 
 pub enum InteractiveInterfaceByUse<'test> {
     RWPrimeInterface(&'test dyn WTermInterface),
     WOnlyPrimeInterface(&'test dyn WTermInterface),
-    WOnlyBackgroundInterface(&'test dyn WTermInterfaceDupAndSend),
+    WOnlyBroadcastsInterface(&'test dyn WTermInterfaceDupAndSend),
 }
 
-pub async fn test_writing_streams_of_particular_terminal<'test>(
-    inputs: WritingTestInputByTermInterfaces<'test>,
+pub async fn test_write_streams_of_particular_terminal<'test: 'a, 'a>(
+    inputs: WriteInputsByTermInterfaceKind<'test>,
     attempt_info: &'test str,
 ) {
-    let form_test_case_name = |description: &str| format!("{attempt_info}: {description}");
-
     match inputs {
-        NonInteractive(WritingTestInput {
+        NonInteractive(WriteInput {
             term_interface,
             streams_assertion_handles: NonInteractiveStreamsAssertionHandles { stdout, stderr },
         }) => {
-            assert_proper_writing(
+            assert_writes(
                 term_interface.stdout(),
                 &stdout,
-                &form_test_case_name("non-interactive stdout"),
-            )
-            .await;
-            assert_proper_writing(
                 term_interface.stderr(),
                 &stderr,
-                &form_test_case_name("non-interactive stderr"),
+                attempt_info,
+                "non-interactive",
             )
             .await
         }
-        Interactive(WritingTestInput {
+        Interactive(WriteInput {
             term_interface,
             streams_assertion_handles,
         }) => {
@@ -78,67 +71,99 @@ pub async fn test_writing_streams_of_particular_terminal<'test>(
                 InteractiveInterfaceByUse::WOnlyPrimeInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
-                InteractiveInterfaceByUse::WOnlyBackgroundInterface(term_interface) => {
+                InteractiveInterfaceByUse::WOnlyBroadcastsInterface(term_interface) => {
                     (term_interface.stdout(), term_interface.stderr())
                 }
             };
-
-            assert_proper_writing(
+            assert_writes(
                 stdout_components,
                 &streams_assertion_handles,
-                &form_test_case_name("interactive stdout"),
-            )
-            .await;
-            assert_proper_writing(
                 stderr_components,
                 &streams_assertion_handles,
-                &form_test_case_name("interactive pseudo stderr"),
+                attempt_info,
+                "interactive",
             )
-            .await;
+            .await
         }
     }
 }
 
-async fn assert_proper_writing<'test>(
+async fn assert_writes(
+    stdout_write_utils: (TerminalWriter, FlushHandle),
+    stdout: &dyn StringAssertableStdHandle,
+    stderr_writing_utils: (TerminalWriter, FlushHandle),
+    stderr: &dyn StringAssertableStdHandle,
+    attempt_info: &str,
+    term_interface_spec: &str,
+) {
+    assert_write_abilities(
+        stdout_write_utils,
+        stdout,
+        &form_test_case_name(attempt_info, term_interface_spec, "stdout"),
+    )
+    .await;
+    assert_write_abilities(
+        stderr_writing_utils,
+        stderr,
+        &form_test_case_name(attempt_info, term_interface_spec, "stderr"),
+    )
+    .await
+}
+
+fn form_test_case_name(attempt_info: &str, terminal_spec: &str, stream_spec: &str) -> String {
+    format!("{attempt_info}: {terminal_spec} {stream_spec}")
+}
+
+const WRITE_OUTPUT_EXAMPLE: &str = "Bobbles.";
+const WRITELN_OUTPUT_EXAMPLE: &str = "Another bunch of bobbles.";
+
+async fn assert_write_abilities<'test>(
     (writer, flush_handle): (TerminalWriter, FlushHandle),
-    test_output_handle: &'test dyn StringAssertionMethods,
+    test_output_handle: &'test dyn StringAssertableStdHandle,
     tested_case: &'test str,
 ) {
-    writer.write("Word.").await;
-    writer.writeln("This is a sentence.").await;
-    let stream_output_first_check = test_output_handle.get_string();
+    writer.write(WRITE_OUTPUT_EXAMPLE).await;
+    writer.write(" ").await;
+    writer.writeln(WRITELN_OUTPUT_EXAMPLE).await;
+    let actual_stream_output_beforehand = test_output_handle.get_string();
     let life_checker = flush_handle.life_checking_reference();
-    let references_at_start = Arc::strong_count(&flush_handle.life_checking_reference());
+    let references_at_start = Arc::strong_count(&life_checker);
 
     drop(flush_handle);
 
     wait_for_write_to_finish(life_checker, references_at_start).await;
-    let stream_output_first_check_expected = String::new();
+    let expected_stream_output_check_beforehand = String::new();
     assert_eq!(
-        stream_output_first_check, stream_output_first_check_expected,
-        "In {}: initial check of output emptiness failed",
-        tested_case
+        actual_stream_output_beforehand, expected_stream_output_check_beforehand,
+        "In {}: initial check of output emptiness failed, it was: {}",
+        tested_case, actual_stream_output_beforehand
     );
     let mut stream_output_after_check = test_output_handle.drain_flushed_strings();
-    assert_eq!(
-        stream_output_after_check.next_flush().unwrap().output(),
-        "Word.This is a sentence.\n",
-        "In {}: expected output doesn't match",
-        tested_case
+    let actual_first_flush_raw = stream_output_after_check.next_flush().unwrap();
+    let actual_first_flush = actual_first_flush_raw.output();
+    let expected_first_flush = format!(
+        "{}{}{}{}",
+        WRITE_OUTPUT_EXAMPLE, " ", WRITELN_OUTPUT_EXAMPLE, "\n"
     );
     assert_eq!(
-        stream_output_after_check.next_flush(),
-        None,
-        "Expected no other flush but got this"
+        actual_first_flush, expected_first_flush,
+        "In {}: expected output: '{}', doesn't match: '{}'",
+        tested_case, expected_first_flush, actual_first_flush
+    );
+    let second_flush = stream_output_after_check.next_flush();
+    assert_eq!(
+        second_flush, None,
+        "Expected no other flush but got this: {:?}",
+        second_flush
     )
 }
 
 pub async fn wait_for_write_to_finish(
-    life_checker: Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
-    references_at_start: usize,
+    life_checker_arc: Arc<tokio::sync::Mutex<dyn FlushHandleInner>>,
+    reference_count_at_start: usize,
 ) {
     let now = SystemTime::now();
-    while Arc::strong_count(&life_checker) != (references_at_start - 2) {
+    while Arc::strong_count(&life_checker_arc) != (reference_count_at_start - 1) {
         if now.elapsed().expect("OS time handling issue") > Duration::from_secs(5) {
             panic!("Test timed out waiting for a flush to be completed")
         }
@@ -170,7 +195,6 @@ pub struct LisoOutputWrapperMock {
     println_params: LisoFlushedAssertableStrings,
     prompt_params: Arc<Mutex<Vec<(String, bool, bool)>>>,
     clone_output_params: Arc<Mutex<Vec<()>>>,
-    // Arc<Mutex<>> as the object must be Send + Sync
     clone_output_results: Arc<Mutex<Vec<Box<dyn LisoOutputWrapper>>>>,
 }
 
@@ -224,7 +248,7 @@ pub struct LisoFlushedAssertableStrings {
     flushes: Arc<Mutex<Vec<FlushedString>>>,
 }
 
-impl StringAssertionMethods for LisoFlushedAssertableStrings {
+impl StringAssertableStdHandle for LisoFlushedAssertableStrings {
     fn get_string(&self) -> String {
         self.flushes
             .lock()
@@ -251,8 +275,6 @@ impl LisoFlushedAssertableStrings {
 
 #[derive(Default)]
 pub struct FlushHandleInnerMock {
-    // As to prepared results, the trait object representing this is Send + Sync, therefore
-    // Arc<Mutex<T>> is required
     flush_during_drop_params: Arc<Mutex<Vec<()>>>,
     flush_during_drop_results: Arc<Mutex<Vec<Result<(), WriteResult>>>>,
     // Once specified, it should always return the same value
@@ -269,15 +291,18 @@ pub struct TerminalWriterLinkToFlushHandleInnerMock {
 #[async_trait]
 impl FlushHandleInner for FlushHandleInnerMock {
     async fn write_internal(&self, _full_output: String) -> Result<(), WriteResult> {
-        unimplemented!("Required method, but never be called in a mock")
+        unimplemented!("Required method, but never to be called in a mock")
     }
 
     fn output_chunks_receiver_ref_mut(&mut self) -> &mut UnboundedReceiver<String> {
-        unimplemented!("Required method, but never be called in a mock")
+        unimplemented!("Required method, but never to be called in a mock")
     }
 
     fn stream_type(&self) -> WriteStreamType {
-        *self.stream_type_result.as_ref().expect(">> Mock issue: WriteStreamType in FlushHandleInnerMock was not specified in the test setup <<")
+        *self
+            .stream_type_result
+            .as_ref()
+            .expect("WriteStreamType in FlushHandleInnerMock was not specified in the test setup")
     }
 
     async fn flush_during_drop(&mut self) -> Result<(), WriteResult> {
@@ -338,6 +363,6 @@ impl FlushHandleInnerMock {
     }
 }
 
-pub async fn allow_writtings_to_finish() {
+pub async fn allow_flushed_writings_to_finish() {
     tokio::time::sleep(Duration::from_millis(1)).await
 }

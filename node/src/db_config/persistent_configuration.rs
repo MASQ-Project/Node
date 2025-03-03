@@ -15,6 +15,8 @@ use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+#[cfg(test)]
+use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use rustc_hex::{FromHex, ToHex};
@@ -22,8 +24,6 @@ use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use url::Url;
-#[cfg(test)]
-use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {
@@ -165,10 +165,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
-        Url::parse(url)
-            .map_err(|e|
-                PersistentConfigError::InvalidUrl(e.to_string())
-            )?;
+        Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
         Ok(self
             .dao
             .set("blockchain_service_url", Some(url.to_string()))?)

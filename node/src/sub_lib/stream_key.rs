@@ -8,10 +8,10 @@ use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+use sha1::{Digest, Sha1};
 use std::fmt;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use sha1::{Sha1, Digest};
 
 const SHA1_DIGEST_LENGTH: usize = 20;
 
@@ -89,13 +89,20 @@ impl StreamKey {
             IpAddr::V4(ipv4) => hash.update(&ipv4.octets()),
             IpAddr::V6(_ipv6) => unimplemented!(),
         }
-        sha1::digest::Update::update(&mut hash, &[
-            (peer_addr.port() >> 8) as u8,
-            (peer_addr.port() & 0xFF) as u8,
-        ]);
+        sha1::digest::Update::update(
+            &mut hash,
+            &[
+                (peer_addr.port() >> 8) as u8,
+                (peer_addr.port() & 0xFF) as u8,
+            ],
+        );
         let output = hash.finalize();
         StreamKey {
-            hash: output.as_slice().try_into().expect(&format!("Hash length should be {}, not {}", SHA1_DIGEST_LENGTH, output.len())),
+            hash: output.as_slice().try_into().expect(&format!(
+                "Hash length should be {}, not {}",
+                SHA1_DIGEST_LENGTH,
+                output.len()
+            )),
         }
     }
 }

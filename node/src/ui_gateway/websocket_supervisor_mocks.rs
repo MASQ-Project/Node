@@ -3,18 +3,19 @@
 
 use crate::ui_gateway::websocket_supervisor::{WebSocketSupervisor, WebSocketSupervisorFactory};
 use actix::Recipient;
+use async_trait::async_trait;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
 
 #[derive(Default)]
 pub struct WebSocketSupervisorMock {
     send_msg_parameters: Arc<Mutex<Vec<NodeToUiMessage>>>,
 }
 
+#[async_trait]
 impl WebSocketSupervisor for WebSocketSupervisorMock {
-    fn send_msg(&self, msg: NodeToUiMessage) {
+    async fn send_msg(&self, msg: NodeToUiMessage) {
         self.send_msg_parameters.lock().unwrap().push(msg);
     }
 }

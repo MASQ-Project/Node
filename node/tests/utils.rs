@@ -21,6 +21,7 @@ use std::ops::{Drop, Not};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::{Command, Output, Stdio};
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -392,7 +393,8 @@ impl MASQNode {
     fn get_chain_from_config(config_opt: &Option<CommandConfig>) -> Chain {
         match config_opt {
             Some(config) => match config.value_of("--chain") {
-                Some(chain_str) => Chain::from(chain_str.as_str()),
+                // TODO: Drive in an Err() branch
+                Some(chain_str) => Chain::from_str(chain_str.as_str()).expect("Bad chain name"),
                 None => DEFAULT_CHAIN,
             },
             None => DEFAULT_CHAIN,

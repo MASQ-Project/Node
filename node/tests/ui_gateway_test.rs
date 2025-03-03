@@ -12,12 +12,13 @@ use masq_lib::messages::{
 };
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+use masq_lib::ui_gateway::MessagePath;
 use masq_lib::utils::{add_chain_specific_directory, find_free_port};
 use utils::CommandConfig;
 
-#[test]
-fn ui_requests_something_and_gets_corresponding_response() {
-    fdlimit::raise_fd_limit();
+#[tokio::test]
+async fn ui_requests_something_and_gets_corresponding_response() {
+    fdlimit::raise_fd_limit().unwrap();
     let port = find_free_port();
     let home_dir = ensure_node_home_directory_exists(
         "ui_gateway_test",
@@ -42,19 +43,19 @@ fn ui_requests_something_and_gets_corresponding_response() {
     let check_password_request = UiCheckPasswordRequest {
         db_password_opt: None,
     };
-    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
-    client.send(check_password_request);
-    let response: UiCheckPasswordResponse = client.skip_until_received().unwrap();
+    client.send(check_password_request).await;
+    let (_path, response): (MessagePath, UiCheckPasswordResponse) = client.skip_until_received().await.unwrap();
 
     assert_eq!(response, UiCheckPasswordResponse { matches: true });
-    client.send(UiShutdownRequest {});
+    client.send(UiShutdownRequest {}).await;
     node.wait_for_exit();
 }
 
-#[test]
-fn log_broadcasts_are_correctly_received_integration() {
-    fdlimit::raise_fd_limit();
+#[tokio::test]
+async fn log_broadcasts_are_correctly_received_integration() {
+    fdlimit::raise_fd_limit().unwrap();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
         "log_broadcasts_are_correctly_received",
@@ -69,18 +70,18 @@ fn log_broadcasts_are_correctly_received_integration() {
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
-    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
     client.send(UiWalletAddressesRequest {
         db_password: "blah".to_string(),
-    });
+    }).await;
     client.send(UiChangePasswordRequest {
         old_password_opt: Some("blah".to_string()),
         new_password: "blah".to_string(),
-    });
+    }).await;
 
-    let broadcasts: Vec<UiLogBroadcast> = (0..2)
-        .map(|_| client.skip_until_received().unwrap())
-        .collect();
+    let broadcast1: UiLogBroadcast = client.skip_until_received().await.unwrap().1;
+    let broadcast2: UiLogBroadcast = client.skip_until_received().await.unwrap().1;
+    let broadcasts = vec![broadcast1, broadcast2];
 
     assert_eq!(broadcasts,
                vec![
@@ -92,12 +93,12 @@ fn log_broadcasts_are_correctly_received_integration() {
     node.wait_for_exit();
 }
 
-#[test]
-fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
+#[tokio::test]
+async fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     //Daemon's probe to check if the Node is alive causes an unwanted new reference
     //for the Daemon's client, so we need to make the Daemon send a close message
     //breaking any reference to him immediately
-    fdlimit::raise_fd_limit();
+    fdlimit::raise_fd_limit().unwrap();
     let data_directory = ensure_node_home_directory_exists(
         "ui_gateway_test",
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
@@ -113,8 +114,8 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         true,
     );
     //for correct simulation we have to launch the Node through the Daemon
-    let mut daemon_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
-    let _: UiSetupResponse = daemon_client
+    let mut daemon_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL).await.unwrap();
+    let _: (MessagePath, UiSetupResponse) = daemon_client
         .transact(UiSetupRequest::new(vec![
             ("ip", Some("100.80.1.1")),
             ("chain", Some("polygon-mainnet")),
@@ -122,9 +123,10 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
             ("log-level", Some("trace")),
             ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
+        .await
         .unwrap();
 
-    let _: UiStartResponse = daemon_client.transact(UiStartOrder {}).unwrap();
+    let _: (MessagePath, UiStartResponse) = daemon_client.transact(UiStartOrder {}).await.unwrap();
 
     let connected_and_disconnected_assertion =
         |how_many_occurrences_we_look_for: usize,
@@ -156,9 +158,9 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let first_port = connected_and_disconnected_assertion(1, assertion_lookup_pattern_1);
     //previous assertion means the Daemon was disconnected from the Node without any order from outside the box
     let shutdown_request = UiShutdownRequest {};
-    let ui_redirect: UiRedirect = daemon_client.transact(shutdown_request.clone()).unwrap();
-    let mut node_client = UiConnection::new(ui_redirect.port, NODE_UI_PROTOCOL);
-    node_client.send(shutdown_request);
+    let (_path, ui_redirect): (MessagePath, UiRedirect) = daemon_client.transact(shutdown_request.clone()).await.unwrap();
+    let mut node_client = UiConnection::new(ui_redirect.port, NODE_UI_PROTOCOL).await.unwrap();
+    node_client.send(shutdown_request).await;
     let assertion_lookup_pattern_2 =
         |_port_spec_ui: &str| "Received shutdown order from client 1".to_string();
     let second_port = connected_and_disconnected_assertion(2, assertion_lookup_pattern_2);
@@ -168,9 +170,9 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     assert_ne!(first_port, second_port)
 }
 
-#[test]
-fn cleanup_after_deceased_clients_integration() {
-    fdlimit::raise_fd_limit();
+#[tokio::test]
+async fn cleanup_after_deceased_clients_integration() {
+    fdlimit::raise_fd_limit().unwrap();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
         "cleanup_after_deceased_clients_integration",
@@ -185,9 +187,9 @@ fn cleanup_after_deceased_clients_integration() {
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
-    let client_1 = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let client_1 = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
     let client_1_addr = client_1.local_addr();
-    let mut client_2 = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let mut client_2 = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
 
     drop(client_1);
 
@@ -197,7 +199,7 @@ fn cleanup_after_deceased_clients_integration() {
     client_2.send(UiChangePasswordRequest {
         old_password_opt: Some("boooga".to_string()),
         new_password: "wow".to_string(),
-    });
+    }).await;
     let expected_message_snippet_first = format!("UI at {} violated protocol", client_1_addr);
     node.wait_for_log(&expected_message_snippet_first, Some(2000));
     #[cfg(not(target_os = "windows"))]
@@ -207,6 +209,6 @@ fn cleanup_after_deceased_clients_integration() {
     let expected_message_snippet_second =
         "Client 0 hit a fatal flush error: ConnectionReset, dropping the client".to_string();
     node.wait_for_log(&expected_message_snippet_second, Some(1000));
-    client_2.send(UiShutdownRequest {});
+    client_2.send(UiShutdownRequest {}).await;
     node.wait_for_exit();
 }

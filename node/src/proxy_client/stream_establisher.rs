@@ -2,6 +2,9 @@
 
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
+use crate::sub_lib::channel_wrappers::{
+    FuturesChannelFactory, FuturesChannelFactoryReal, SenderWrapper,
+};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::proxy_client::{InboundServerData, ProxyClientSubs};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -16,7 +19,6 @@ use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use crate::sub_lib::channel_wrappers::{FuturesChannelFactory, FuturesChannelFactoryReal, SenderWrapper};
 
 pub struct StreamEstablisher {
     pub cryptde: &'static dyn CryptDE,
@@ -160,9 +162,10 @@ mod tests {
             let (stream_adder_tx, _stream_adder_rx) = unbounded();
             let (stream_killer_tx, _) = unbounded();
             let bytes = b"I'm a stream establisher test not a framer test";
-            let read_stream = Box::new(ReadHalfWrapperMock::new()
-                .read_result(Ok(bytes.to_vec()))
-                .read_result(Err(io::Error::from(ErrorKind::BrokenPipe)))
+            let read_stream = Box::new(
+                ReadHalfWrapperMock::new()
+                    .read_result(Ok(bytes.to_vec()))
+                    .read_result(Err(io::Error::from(ErrorKind::BrokenPipe))),
             );
 
             let subject = StreamEstablisher {

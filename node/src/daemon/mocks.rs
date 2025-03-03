@@ -2,7 +2,9 @@
 
 #![cfg(test)]
 
-use crate::daemon::launch_verifier::{ClientBuilderWrapper, ClientWrapper, LaunchVerification, LaunchVerifier, VerifierTools};
+use crate::daemon::launch_verifier::{
+    ClientBuilderWrapper, ClientWrapper, LaunchVerification, LaunchVerifier, VerifierTools,
+};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use workflow_websocket::client::{Error, Message};
@@ -151,13 +153,18 @@ impl ClientWrapperMock {
 #[derive(Default)]
 pub struct ClientBuilderWrapperMock {
     initiate_client_builder_params: Arc<Mutex<Vec<String>>>,
-    initiate_client_builder_result: RefCell<Vec<Result<(), workflow_websocket::client::error::Error>>>,
+    initiate_client_builder_result:
+        RefCell<Vec<Result<(), workflow_websocket::client::error::Error>>>,
     add_protocol_params: Arc<Mutex<Vec<String>>>,
-    connect_insecure_result: RefCell<Vec<Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error>>>,
+    connect_insecure_result:
+        RefCell<Vec<Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error>>>,
 }
 
 impl ClientBuilderWrapper for ClientBuilderWrapperMock {
-    fn initiate_client_builder(&mut self, address: &str) -> Result<(), workflow_websocket::client::error::Error> {
+    fn initiate_client_builder(
+        &mut self,
+        address: &str,
+    ) -> Result<(), workflow_websocket::client::error::Error> {
         self.initiate_client_builder_params
             .lock()
             .unwrap()
@@ -172,7 +179,9 @@ impl ClientBuilderWrapper for ClientBuilderWrapperMock {
             .push(protocol.to_string())
     }
 
-    fn connect_insecure(&mut self) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error> {
+    fn connect_insecure(
+        &mut self,
+    ) -> Result<Box<dyn ClientWrapper>, workflow_websocket::client::error::Error> {
         self.connect_insecure_result.borrow_mut().remove(0)
     }
 }
@@ -182,7 +191,10 @@ impl ClientBuilderWrapperMock {
         self.initiate_client_builder_params = params.clone();
         self
     }
-    pub fn initiate_client_builder_result(self, result: Result<(), workflow_websocket::client::error::Error>) -> Self {
+    pub fn initiate_client_builder_result(
+        self,
+        result: Result<(), workflow_websocket::client::error::Error>,
+    ) -> Self {
         self.initiate_client_builder_result
             .borrow_mut()
             .push(result);

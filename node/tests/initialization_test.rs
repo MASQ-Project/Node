@@ -18,6 +18,7 @@ use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags};
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
+use masq_lib::ui_gateway::MessagePath;
 use utils::CommandConfig;
 use utils::MASQNode;
 
@@ -54,8 +55,8 @@ fn clap_help_does_not_initialize_database_integration() {
     assert_eq!(failure.err().unwrap().kind(), std::io::ErrorKind::NotFound);
 }
 
-#[test]
-fn initialization_sequence_integration() {
+#[tokio::test]
+async fn initialization_sequence_integration() {
     let daemon_port = find_free_port();
     let mut daemon = MASQNode::start_daemon(
         "initialization_sequence_integration",
@@ -65,19 +66,18 @@ fn initialization_sequence_integration() {
         false,
         true,
     );
-    let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
+    let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL).await.unwrap();
     let data_directory = ensure_node_home_directory_exists(
         "initialization_test",
         "initialization_sequence_integration",
     );
-    let _: UiSetupResponse = initialization_client
+    let _: (MessagePath, UiSetupResponse) = initialization_client
         .transact(UiSetupRequest::new(vec![
             ("dns-servers", Some("1.1.1.1")),
             ("neighborhood-mode", Some("zero-hop")),
             ("log-level", Some("trace")),
             ("data-directory", Some(&data_directory.to_str().unwrap())),
-        ]))
-        .unwrap();
+        ])).await.unwrap();
     let financials_request = UiFinancialsRequest {
         stats_required: true,
         top_records_opt: None,
@@ -91,12 +91,11 @@ fn initialization_sequence_integration() {
         .transact_with_context_id::<UiFinancialsRequest, UiFinancialsResponse>(
             financials_request.clone(),
             context_id,
-        )
-        .unwrap_err();
-    let start_response: UiStartResponse = initialization_client.transact(UiStartOrder {}).unwrap();
-    let running_financials_response: UiRedirect = initialization_client
+        ).await.unwrap_err();
+    let (_path, start_response): (MessagePath, UiStartResponse) = initialization_client.transact(UiStartOrder {}).await.unwrap();
+    let (_path, running_financials_response): (MessagePath, UiRedirect) = initialization_client
         .transact_with_context_id(financials_request.clone(), context_id)
-        .unwrap();
+        .await.unwrap();
 
     assert_eq!(not_running_financials_response.0, NODE_NOT_RUNNING_ERROR);
     assert_eq!(
@@ -113,8 +112,9 @@ fn initialization_sequence_integration() {
     let actual_payload: UiFinancialsRequest =
         serde_json::from_str(&running_financials_response.payload).unwrap();
     assert_eq!(actual_payload, expected_payload);
-    let mut service_client = UiConnection::new(start_response.redirect_ui_port, NODE_UI_PROTOCOL);
-    service_client.send(UiShutdownRequest {});
+    let mut service_client =
+        UiConnection::new(start_response.redirect_ui_port, NODE_UI_PROTOCOL).await.unwrap();
+    service_client.send(UiShutdownRequest {}).await;
     wait_for_process_end(start_response.new_process_id);
     let _ = daemon.kill();
     match daemon.wait_for_exit() {
@@ -209,8 +209,8 @@ fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //Node is dropped and killed
 }
 
-#[test]
-fn requested_chain_meets_different_db_chain_and_panics_integration() {
+#[tokio::test]
+async fn requested_chain_meets_different_db_chain_and_panics_integration() {
     let chain_literal = DEFAULT_CHAIN.rec().literal_identifier;
     let test_name = "requested_chain_meets_different_db_chain_and_panics_integration";
     {
@@ -229,9 +229,9 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
             true,
         );
         node.wait_for_log("UIGateway bound", Some(5000));
-        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let shutdown_request = UiShutdownRequest {};
-        client.send(shutdown_request);
+        client.send(shutdown_request).await;
         node.wait_for_exit();
     }
     let db_dir = node_home_directory("integration", test_name);

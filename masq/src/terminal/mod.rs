@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use async_trait::async_trait;
-use itertools::Itertools;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::intentionally_blank;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
@@ -11,7 +10,6 @@ use std::sync::Arc;
 use std::thread::panicking;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-pub mod async_streams;
 pub mod interactive_terminal_interface;
 mod liso_wrappers;
 pub mod non_interactive_terminal_interface;
@@ -136,8 +134,13 @@ impl Display for WriteStreamType {
 }
 
 pub struct FlushHandle {
-    // Strictly private!
     inner_arc_opt: Option<Arc<tokio::sync::Mutex<dyn FlushHandleInner>>>,
+}
+
+impl Drop for FlushHandle {
+    fn drop(&mut self) {
+        let _ = self.flush_whole_buffer();
+    }
 }
 
 impl FlushHandle {
@@ -149,10 +152,11 @@ impl FlushHandle {
 
     fn flush_whole_buffer(&mut self) -> Option<JoinHandle<()>> {
         if !panicking() {
-            let mut inner_arc_opt = self.inner_arc_opt.take();
+            let inner_arc_opt = self.inner_arc_opt.take();
             let handle = tokio::task::spawn(async move {
-                // Spawning seems neat as we're escaping the drop impl and can eventually handle
-                // a panic outside
+                // Spawn come across as neat as it allows to leave the drop impl and handle
+                // an eventual panic outside
+
                 let inner_arc = inner_arc_opt.expect("Flush handle with missing guts!");
 
                 let mut flush_inner = inner_arc.lock().await;
@@ -177,21 +181,13 @@ impl FlushHandle {
     }
 }
 
-impl Drop for FlushHandle {
-    fn drop(&mut self) {
-        let _ = self.flush_whole_buffer();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::terminal::test_utils::FlushHandleInnerMock;
-    use crate::terminal::writing_utils::ArcMutexFlushHandleInner;
     use crate::terminal::{FlushHandle, ReadError, TerminalWriter, WriteResult, WriteStreamType};
     use std::io::{Error, ErrorKind};
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
     use tokio::sync::mpsc::unbounded_channel;
 
     #[tokio::test]
@@ -209,19 +205,18 @@ mod tests {
 
     #[test]
     fn does_not_flush_if_thread_is_panicking() {
-        // The standard drop procedure for this handle uses tokio::spawn so the runtime is important
-        // to be present. Because we didn't get a nested panic (panic beginning in an already
-        // unwinding panic (due to that missing runtime), which would've killed the test, we can
-        // conclude that the spawn call wasn't reached as it shouldn't when the thread is already
-        // panicking
+        // Because the drop impl for this handle uses tokio::spawn, the runtime is important
+        // to be present. The test doesn't contain one though. We make a hypothesis that if we don't
+        // kill the whole test we couldn't reach the spawn because it was observed as a cause of
+        // nested unwinding panics which, furthermore, would make cargo abort the test.
         let flush_during_drop_params_arc = Arc::new(Mutex::new(vec![]));
         let inner =
             FlushHandleInnerMock::default().flush_during_drop_params(&flush_during_drop_params_arc);
-        let mut flush_handle = FlushHandle::new(Arc::new(tokio::sync::Mutex::new(inner)));
+        let flush_handle = FlushHandle::new(Arc::new(tokio::sync::Mutex::new(inner)));
 
         let experiment_thread = thread::spawn(move || {
-            panic!("Intended panic");
             let _handle = flush_handle;
+            panic!("Intended panic");
         });
 
         experiment_thread.join().unwrap_err();

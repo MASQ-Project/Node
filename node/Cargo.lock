@@ -2674,11 +2674,12 @@ dependencies = [
  "nix 0.23.2",
  "num",
  "regex",
+ "soketto",
  "thousands",
  "time 0.3.37",
  "tokio",
  "tokio-tungstenite",
- "workflow-websocket",
+ "tokio-util",
 ]
 
 [[package]]

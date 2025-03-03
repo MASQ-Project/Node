@@ -8,7 +8,7 @@ use crate::communications::connection_manager::{
 use crate::masq_short_writeln;
 use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 use crate::notifications::crashed_notification::CrashNotifier;
-use crate::terminal::{TerminalWriter, WTermInterface, WTermInterfaceDupAndSend};
+use crate::terminal::{TerminalWriter, WTermInterfaceDupAndSend};
 use async_trait::async_trait;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast,
@@ -16,25 +16,15 @@ use masq_lib::messages::{
     UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::utils::ExpectValue;
-use masq_lib::{declare_as_any, implement_as_any, intentionally_blank};
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
-use std::fmt::Debug;
-use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread;
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::task::{JoinError, JoinHandle};
 
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
 
 pub struct BroadcastHandles {
-    pub standard: Box<dyn BroadcastHandle<MessageBody>>,
-    pub redirect: Box<dyn BroadcastHandle<RedirectOrder>>,
+    standard: Box<dyn BroadcastHandle<MessageBody>>,
+    redirect: Box<dyn BroadcastHandle<RedirectOrder>>,
 }
 
 impl BroadcastHandles {
@@ -46,8 +36,12 @@ impl BroadcastHandles {
     }
 
     pub fn handle_broadcast(&self, message_body: MessageBody) {
-        match UiRedirect::fmb(message_body.clone()) {
-            Ok((redirect, _)) => {
+        match UiRedirect::type_opcode() == message_body.opcode {
+            true => {
+                let (redirect, _) = match UiRedirect::fmb(message_body) {
+                    Ok(broadcast) => broadcast,
+                    Err(_) => return,
+                };
                 let context_id = redirect.context_id.unwrap_or(0);
                 self.redirect.send(RedirectOrder::new(
                     redirect.port,
@@ -55,7 +49,7 @@ impl BroadcastHandles {
                     REDIRECT_TIMEOUT_MILLIS,
                 ))
             }
-            Err(_) => {
+            false => {
                 self.standard.send(message_body);
             }
         };
@@ -72,6 +66,7 @@ impl BroadcastHandles {
 #[async_trait(?Send)]
 pub trait BroadcastHandle<Message>: Send {
     fn send(&self, message: Message);
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError>;
 }
 
@@ -82,6 +77,7 @@ pub struct StandardBroadcastHandleInactive {}
 impl BroadcastHandle<MessageBody> for StandardBroadcastHandleInactive {
     fn send(&self, _message_body: MessageBody) {}
 
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
         Ok(())
     }
@@ -100,6 +96,7 @@ impl BroadcastHandle<MessageBody> for StandardBroadcastHandle {
             .expect("Message send failed")
     }
 
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
         self.spawn_join_handle_opt
             .borrow_mut()
@@ -287,8 +284,9 @@ impl BroadcastHandle<RedirectOrder> for RedirectBroadcastHandle {
             .expect("Connection manager is dead");
     }
 
+    #[cfg(test)]
     async fn wait_to_finish(&self) -> Result<(), JoinError> {
-        todo!()
+        unimplemented!("not yet needed")
     }
 }
 
@@ -304,17 +302,19 @@ mod tests {
     use crate::communications::broadcast_handlers::tests::StreamTypeAndTestHandles::{
         Stderr, Stdout,
     };
-    use crate::test_utils::mocks::{AsyncTestStreamHandles, MockTerminalMode, TermInterfaceMock};
+    use crate::test_utils::mocks::{
+        AsyncTestStreamHandles, BroadcastHandleMock, TermInterfaceMock,
+    };
     use masq_lib::messages::UiSetupResponseValueStatus::Configured;
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
-        UiConnectionStage, UiNodeCrashedBroadcast,
+        UiConnectionStage, UiMessageError, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::test_utils::utils::make_rt;
     use masq_lib::ui_gateway::MessagePath;
     use std::default::Default;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     #[test]
@@ -537,9 +537,9 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
         let example_broadcast = UiNewPasswordBroadcast {}.tmb(0);
         broadcast_handle.send(example_broadcast);
         stream_handles.await_stdout_is_not_empty().await;
-        // Taking advantage of the TermInterface containing and Arc, and therefore
-        // if the background loop finishes the objects being used until then in this spawned task
-        // are dropped and which is when the count of the references on this Arc will decrement
+        // Taking advantage of the TermInterface containing and Arc, and therefore if the background loop finishes
+        // the objects being used by this spawned task are dropped, which is when the count of the references on this
+        // Arc decrements
         let count_before_close =
             Arc::strong_count(&stream_handles.stdout.as_ref().right().unwrap());
 
@@ -598,6 +598,40 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
         assert_eq!(tasks_after_for_the_inactive_one, 0)
     }
 
+    #[test]
+    fn malformed_redirect_broadcast_is_silently_ignored() {
+        let standard_broadcast_send_params_arc = Arc::new(Mutex::new(vec![]));
+        let redirect_broadcast_send_params_arc = Arc::new(Mutex::new(vec![]));
+        let handles = BroadcastHandles::new(
+            Box::new(
+                BroadcastHandleMock::default().send_params(&standard_broadcast_send_params_arc),
+            ),
+            Box::new(
+                BroadcastHandleMock::default().send_params(&redirect_broadcast_send_params_arc),
+            ),
+        );
+        let mut msg_body = UiRedirect {
+            port: 6789,
+            opcode: "someOpcode".to_string(),
+            context_id: Some(1),
+            payload: "{ bluh }".to_string(),
+        }
+        .tmb(0);
+        msg_body.payload = Ok("Not even a JSON payload".to_string());
+        let proof_of_invalidity = UiRedirect::fmb(msg_body.clone());
+
+        handles.handle_broadcast(msg_body.clone());
+
+        let standard_broadcast_send_params = standard_broadcast_send_params_arc.lock().unwrap();
+        assert_eq!(*standard_broadcast_send_params, vec![]);
+        let redirect_broadcast_send_params = redirect_broadcast_send_params_arc.lock().unwrap();
+        assert_eq!(*redirect_broadcast_send_params, vec![]);
+        assert!(matches!(
+            proof_of_invalidity,
+            Err(UiMessageError::DeserializationError(..))
+        ))
+    }
+
     fn assert_homogeneous_output_made_via_single_flush(
         named_handles: StreamTypeAndTestHandles,
         expected_output: &str,
@@ -616,11 +650,5 @@ NOTE: your data directory was modified to match the chain parameter.\n\n";
     enum StreamTypeAndTestHandles<'handles> {
         Stdout(&'handles AsyncTestStreamHandles),
         Stderr(&'handles AsyncTestStreamHandles),
-    }
-
-    macro_rules! as_generic_broadcast {
-        ($broadcast_handler: expr) => {
-            |broadcast, stdout, stderr| Box::new($broadcast_handler(broadcast, stdout, stderr))
-        };
     }
 }

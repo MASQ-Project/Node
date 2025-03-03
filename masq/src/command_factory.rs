@@ -18,7 +18,6 @@ use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 use crate::commands::wallet_addresses_command::WalletAddressesCommand;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommandFactoryError {

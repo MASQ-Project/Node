@@ -6,7 +6,7 @@ use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurato
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
-use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::shared_schema::{ConfigFile, ConfiguratorError};
 use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
@@ -154,7 +154,7 @@ pub fn server_initializer_collected_params<'a>(
         ],
     )?;
     let config_file_path =
-        value_m!(full_multi_config, "config-file", PathBuf).expect("defaulted param");
+        value_m!(full_multi_config, "config-file", ConfigFile).expect("defaulted param").path;
     Ok(GatheredParams::new(
         full_multi_config,
         config_file_path,
@@ -504,7 +504,8 @@ mod tests {
                 config_file,
                 "consuming-private-key = \"{}\"",
                 consuming_private_key
-            ).unwrap();
+            )
+            .unwrap();
         }
         let args = ArgsBuilder::new()
             .param("--data-directory", home_dir.to_str().unwrap())

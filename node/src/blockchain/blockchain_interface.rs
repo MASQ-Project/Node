@@ -771,7 +771,8 @@ mod tests {
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
-        make_default_signed_transaction, make_tx_hash, BatchPayableToolsMock, TestTransport,
+        make_default_signed_transaction, make_tx_hash,
+        BatchPayableToolsMock, TestTransport,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_paying_wallet;

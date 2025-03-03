@@ -7,8 +7,12 @@ use crate::node_configurator::node_configurator_standard::server_initializer_col
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::{ConfiguredByPrivilege, SpawnableConfiguredByPrivilege};
+use async_trait::async_trait;
 use backtrace::Backtrace;
-use flexi_logger::{Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, LevelFilter, LogSpecBuilder, Logger, Naming, Record};
+use flexi_logger::{
+    Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, LevelFilter, LogSpecBuilder, Logger,
+    Naming, Record,
+};
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
@@ -20,7 +24,6 @@ use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use async_trait::async_trait;
 use time::OffsetDateTime;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -41,11 +44,13 @@ impl ServerInitializer for ServerInitializerReal {
                 self.dns_socket_server_opt
                     .as_mut()
                     .expect("DNS Socket Server has already been spawned")
-                    .initialize_as_privileged(&params.multi_config).await,
+                    .initialize_as_privileged(&params.multi_config)
+                    .await,
             )
             .combine_results(
                 self.bootstrapper
-                    .initialize_as_privileged(&params.multi_config).await,
+                    .initialize_as_privileged(&params.multi_config)
+                    .await,
             );
 
         self.privilege_dropper
@@ -58,11 +63,13 @@ impl ServerInitializer for ServerInitializerReal {
                 self.dns_socket_server_opt
                     .as_mut()
                     .expect("DNS Socket Server has already been spawned")
-                    .initialize_as_unprivileged(&params.multi_config, streams).await,
+                    .initialize_as_unprivileged(&params.multi_config, streams)
+                    .await,
             )
             .combine_results(
                 self.bootstrapper
-                    .initialize_as_unprivileged(&params.multi_config, streams).await,
+                    .initialize_as_unprivileged(&params.multi_config, streams)
+                    .await,
             )
     }
 
@@ -71,9 +78,7 @@ impl ServerInitializer for ServerInitializerReal {
             .dns_socket_server_opt
             .take()
             .expect("DNS Socket Server has already been spawned");
-        let server_future = async move {
-            dns_socket_server.make_server_future().await
-        };
+        let server_future = async move { dns_socket_server.make_server_future().await };
         tokio::spawn(server_future)
     }
 
@@ -405,6 +410,8 @@ pub mod tests {
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
     use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use async_trait::async_trait;
+    use itertools::Itertools;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::MultiConfig;
@@ -417,8 +424,6 @@ pub mod tests {
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
-    use async_trait::async_trait;
-    use itertools::Itertools;
 
     #[async_trait(?Send)]
     impl<C: Send> ConfiguredByPrivilege for CrashTestDummy<C> {
@@ -565,8 +570,11 @@ pub mod tests {
                 .map(|key| {
                     multi_config
                         .arg_matches_ref()
-                        .get_one::<String>(key)
+                        .get_raw(key)
                         .unwrap()
+                        .next()
+                        .unwrap()
+                        .to_string_lossy()
                         .to_string()
                 })
                 .collect();
@@ -731,12 +739,17 @@ pub mod tests {
         let mut join_handle = subject.spawn_long_lived_services();
 
         let result = join_handle.await;
-        assert_eq!(result.is_err(), true, "Expected an error, but received {:?}", result);
+        assert_eq!(
+            result.is_err(),
+            true,
+            "Expected an error, but received {:?}",
+            result
+        );
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
-    fn server_initializer_dns_socket_server_panics() {
+    async fn server_initializer_dns_socket_server_panics() {
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
@@ -754,9 +767,9 @@ pub mod tests {
         let _ = subject.spawn_long_lived_services();
     }
 
-    #[test]
+    #[tokio::test]
     #[should_panic(expected = "BootstrapperMock was instructed to panic")]
-    fn server_initializer_bootstrapper_panics() {
+    async fn server_initializer_bootstrapper_panics() {
         let dns_socket_server = CrashTestDummy::new(CrashPoint::None, ());
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
@@ -780,7 +793,7 @@ pub mod tests {
         let bootstrapper_init_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_privileged_params_arc = Arc::new(Mutex::new(vec![]));
         let dns_socket_server_unprivileged_params_arc = Arc::new(Mutex::new(vec![]));
-        let bootstrapper = ConfiguredByPrivilegeMock::default()
+        let make_mock = || ConfiguredByPrivilegeMock::default()
             .initialize_as_privileged_result(Ok(()))
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
@@ -789,15 +802,8 @@ pub mod tests {
                 "dns-servers",
                 "real-user",
             ]));
-        let dns_socket_server = ConfiguredByPrivilegeMock::default()
-            .initialize_as_privileged_result(Ok(()))
-            .initialize_as_unprivileged_result(Ok(()))
-            .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
-            .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
-                "dns-servers",
-                "real-user",
-            ]));
+        let bootstrapper = make_mock();
+        let dns_socket_server = make_mock();
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let drop_privileges_params_arc = Arc::new(Mutex::new(vec![]));
         let chown_params_arc = Arc::new(Mutex::new(vec![]));
@@ -819,16 +825,18 @@ pub mod tests {
             dirs_wrapper: Box::new(dirs_wrapper),
         };
 
-        let result = subject.go(
-            streams,
-            &slice_of_strs_to_vec_of_strings(&[
-                "MASQNode",
-                "--real-user",
-                "123:456:/home/alice",
-                "--dns-servers",
-                "5.5.6.6",
-            ]),
-        ).await;
+        let result = subject
+            .go(
+                streams,
+                &slice_of_strs_to_vec_of_strings(&[
+                    "MASQNode",
+                    "--real-user",
+                    "123:456:/home/alice",
+                    "--dns-servers",
+                    "5.5.6.6",
+                ]),
+            )
+            .await;
 
         assert!(result.is_ok());
         let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));

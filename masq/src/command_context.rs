@@ -1,10 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::ContextError::ConnectionRefused;
-use crate::communications::broadcast_handlers::BroadcastHandle;
 use crate::communications::connection_manager::{CMBootstrapper, ConnectionManager};
 use crate::communications::node_conversation::ClientError;
-use crate::terminal::{WTermInterface, WTermInterfaceDupAndSend};
+use crate::terminal::WTermInterfaceDupAndSend;
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
@@ -12,7 +11,6 @@ use masq_lib::intentionally_blank;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
-use std::io::{Read, Write};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
@@ -81,7 +79,7 @@ impl CommandContext for CommandContextReal {
     }
 
     async fn send_one_way(&self, outgoing_message: MessageBody) -> Result<(), ContextError> {
-        let mut conversation = self.connection.start_conversation().await;
+        let conversation = self.connection.start_conversation().await;
         match conversation.send(outgoing_message).await {
             Ok(_) => Ok(()),
             Err(e) => Err(e.into()),
@@ -93,7 +91,7 @@ impl CommandContext for CommandContextReal {
         outgoing_message: MessageBody,
         timeout_millis: u64,
     ) -> Result<MessageBody, ContextError> {
-        let mut conversation = self.connection.start_conversation().await;
+        let conversation = self.connection.start_conversation().await;
         let incoming_message_result = conversation
             .transact(outgoing_message, timeout_millis)
             .await;
@@ -137,13 +135,13 @@ mod tests {
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
-    use crate::communications::broadcast_handlers::StandardBroadcastHandleInactive;
-    use crate::test_utils::mocks::StandardBroadcastHandlerFactoryMock;
-    use masq_lib::messages::{FromMessageBody, UiCrashRequest, UiSetupRequest};
-    use masq_lib::messages::{ToMessageBody, UiShutdownRequest, UiShutdownResponse};
-    use masq_lib::test_utils::fake_stream_holder::{ByteArrayReader, ByteArrayWriter};
-    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
-    use masq_lib::test_utils::utils::make_rt;
+    use masq_lib::messages::{
+        ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL,
+    };
+    use masq_lib::messages::{UiCrashRequest, UiSetupRequest};
+    use masq_lib::test_utils::mock_websockets_server::{
+        MWSSMessage, MockWebSocketsServer, StopStrategy,
+    };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
@@ -210,28 +208,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transact_works_when_everything_is_fine() {
-        running_test();
-        let port = find_free_port();
-        let request = UiShutdownRequest {}.tmb(1);
-        let expected_response = UiShutdownResponse {}.tmb(1);
-        let server = MockWebSocketsServer::new(port).queue_response(expected_response.clone());
-        let server_handle = server.start().await;
-        let bootstrapper = CMBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, bootstrapper)
-            .await
-            .unwrap();
-
-        let result = subject.transact(request.clone(), 1000).await;
-
-        assert_eq!(result, Ok(expected_response));
-        let mut recorded = server_handle.retrieve_recorded_requests(Some(1)).await;
-        let msg = recorded.remove(0);
-        assert_eq!(msg.expect_masq_msg(), request);
-        assert!(recorded.is_empty());
-    }
-
-    #[tokio::test]
     async fn works_when_server_isnt_present() {
         running_test();
         let port = find_free_port();
@@ -247,6 +223,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transact_works_when_everything_is_fine() {
+        running_test();
+        let port = find_free_port();
+        let request = UiShutdownRequest {}.tmb(1);
+        let expected_response = UiShutdownResponse {}.tmb(1);
+        let server = MockWebSocketsServer::new(port).queue_response(expected_response.clone());
+        let server_stop_handle = server.start().await;
+        let bootstrapper = CMBootstrapper::default();
+        let subject = CommandContextReal::new(port, None, bootstrapper)
+            .await
+            .unwrap();
+
+        let result = subject.transact(request.clone(), 1000).await;
+
+        assert_eq!(result, Ok(expected_response));
+        let mut recorded = server_stop_handle.stop(StopStrategy::Close).await;
+        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(request)]);
+        assert_eq!(recorded.proposed_protocols, vec![NODE_UI_PROTOCOL])
+    }
+
+    #[tokio::test]
     async fn transact_works_when_server_sends_payload_error() {
         running_test();
         let port = find_free_port();
@@ -257,7 +254,7 @@ mod tests {
         });
         let stop_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
-        let mut subject = CommandContextReal::new(port, None, bootstrapper)
+        let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
 
@@ -272,31 +269,30 @@ mod tests {
     async fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port).queue_owned_message(Message::Close(None));
-        let server_handle = server.start().await;
+        let server = MockWebSocketsServer::new(port);
+        let server_stop_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
-        let request = UiSetupRequest { values: vec![] };
-        let mut subject = CommandContextReal::new(port, None, bootstrapper)
+        let request = UiSetupRequest { values: vec![] }.tmb(1);
+        let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
-        server_handle.await_conn_established(None).await;
+        // TODO have the MockWebsocketServer adapted or write it alternatively without it
 
-        let response = subject.transact(request.clone().tmb(1), 1000).await;
+        let response = subject.transact(request.clone(), 1000).await;
 
         match response {
             Err(ConnectionDropped(_)) => (),
             x => panic!("Expected ConnectionDropped; got {:?} instead", x),
         }
-        let mut recorded = server_handle.retrieve_recorded_requests(Some(1)).await;
-        let msg = recorded.remove(0);
-        assert_eq!(msg.expect_masq_msg(), request.tmb(1));
+        let recorded = server_stop_handle.stop(StopStrategy::Abort).await;
+        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(request)])
     }
 
     #[tokio::test]
     async fn send_works_when_everything_fine() {
         running_test();
         let port = find_free_port();
-        let server_handle = MockWebSocketsServer::new(port).start().await;
+        let server_stop_handle = MockWebSocketsServer::new(port).start().await;
         let bootstrapper = CMBootstrapper::default();
         let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
@@ -310,9 +306,8 @@ mod tests {
         let result = subject.send_one_way(msg.clone()).await;
 
         assert_eq!(result, Ok(()));
-        let mut recorded = server_handle.retrieve_recorded_requests(Some(1)).await;
-        let retrieved_msg = recorded.remove(0);
-        assert_eq!(retrieved_msg.expect_masq_msg(), msg.clone());
-        assert!(recorded.is_empty());
+        let recorded = server_stop_handle.stop(StopStrategy::Close).await;
+        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(msg)]);
+        assert_eq!(recorded.proposed_protocols, vec![NODE_UI_PROTOCOL])
     }
 }

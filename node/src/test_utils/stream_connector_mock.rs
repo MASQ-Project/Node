@@ -3,13 +3,13 @@ use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
 use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
+use async_trait::async_trait;
 use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
-use async_trait::async_trait;
 use tokio::net::TcpStream;
 
 #[derive(Default)]
@@ -21,7 +21,11 @@ pub struct StreamConnectorMock {
 
 #[async_trait]
 impl StreamConnector for StreamConnectorMock {
-    async fn connect(&self, socket_addr: SocketAddr, _logger: &Logger) -> Result<ConnectionInfo, tokio::io::Error> {
+    async fn connect(
+        &self,
+        socket_addr: SocketAddr,
+        _logger: &Logger,
+    ) -> Result<ConnectionInfo, tokio::io::Error> {
         self.connect_pair_params.lock().unwrap().push(socket_addr);
         let connection_info_result = self.connect_pair_results.lock().unwrap().remove(0);
         connection_info_result
@@ -70,14 +74,13 @@ impl StreamConnectorMock {
         reads: Vec<StreamConnectorMockRead>,
         writes: Vec<StreamConnectorMockWrite>,
     ) -> StreamConnectorMock {
-        let read_half = reads
-            .into_iter()
-            .fold(ReadHalfWrapperMock::new(), |so_far, elem| {
-                match elem {
+        let read_half =
+            reads
+                .into_iter()
+                .fold(ReadHalfWrapperMock::new(), |so_far, elem| match elem {
                     (data, Ok(())) => so_far.read_ok(&data),
                     (_, Err(e)) => so_far.read_result(Err(e)),
-                }
-            });
+                });
         let write_half = writes
             .into_iter()
             .fold(WriteHalfWrapperMock::new(), |so_far, elem| {

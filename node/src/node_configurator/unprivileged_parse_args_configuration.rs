@@ -36,7 +36,7 @@ pub trait UnprivilegedParseArgsConfiguration {
         unprivileged_config
             .blockchain_bridge_config
             .blockchain_service_url_opt =
-            if is_user_specified(multi_config, "blockchain-service-url") {
+            if multi_config.is_present("blockchain-service-url") {
                 value_m!(multi_config, "blockchain-service-url", String)
             } else {
                 match persistent_config.blockchain_service_url() {
@@ -47,7 +47,7 @@ pub trait UnprivilegedParseArgsConfiguration {
             };
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
         unprivileged_config.blockchain_bridge_config.gas_price =
-            if is_user_specified(multi_config, "gas-price") {
+            if multi_config.is_present("gas-price") {
                 value_m!(multi_config, "gas-price", u64).expectv("gas price")
             } else {
                 match persistent_config.gas_price() {
@@ -353,7 +353,8 @@ fn convert_ci_configs(
                     value_m!(multi_config, "chain", String)
                         .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string())
                         .as_str(),
-                ).expect("Invalid chain name");
+                )
+                .expect("Invalid chain name");
                 let cryptde_for_key_len: Box<dyn CryptDE> = {
                     if value_m!(multi_config, "fake-public-key", String).is_none() {
                         Box::new(CryptDEReal::new(desired_chain))
@@ -453,7 +454,7 @@ fn compute_mapping_protocol_opt(
             None
         }
     };
-    let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
+    let mapping_protocol_specified = multi_config.is_present("mapping-protocol");
     let computed_mapping_protocol_opt = match (
         value_m!(multi_config, "mapping-protocol", AutomapProtocol),
         persistent_mapping_protocol_opt,
@@ -613,10 +614,6 @@ fn set_db_password_at_first_mention(
         Ok(false) => Ok(false),
         Err(e) => Err(e.into_configurator_error("db-password")),
     }
-}
-
-fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
-    multi_config.occurrences_of(parameter) > 0
 }
 
 #[cfg(test)]

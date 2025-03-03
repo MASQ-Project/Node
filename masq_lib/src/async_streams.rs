@@ -1,8 +1,5 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::arbitrary_id_stamp_in_trait;
-use masq_lib::intentionally_blank;
-use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub struct AsyncStdStreams {
@@ -13,7 +10,6 @@ pub struct AsyncStdStreams {
 
 pub trait AsyncStdStreamsFactory {
     fn make(&self) -> AsyncStdStreams;
-    arbitrary_id_stamp_in_trait!();
 }
 
 #[derive(Default)]
@@ -29,8 +25,8 @@ impl AsyncStdStreamsFactory for AsyncStdStreamsFactoryReal {
 macro_rules! write_async_stream_and_flush {
     ( $stream: expr, $($arg:tt)*) => {
          {
-             $stream.write(format!($($arg)*).as_bytes()).await;
-             $stream.flush().await;
+             $stream.write(format!($($arg)*).as_bytes()).await.expect("Write failed");
+             $stream.flush().await.expect("Flush failed");
          };
     }
 }

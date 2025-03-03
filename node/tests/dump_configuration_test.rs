@@ -10,8 +10,8 @@ use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::utils::find_free_port;
 use node_lib::test_utils::assert_string_contains;
 
-#[test]
-fn dump_configuration_with_an_existing_database_integration() {
+#[tokio::test]
+async fn dump_configuration_with_an_existing_database_integration() {
     let _eg = EnvironmentGuard::new();
     let test_name = "dump_configuration_with_an_existing_database_integration";
     {
@@ -30,9 +30,9 @@ fn dump_configuration_with_an_existing_database_integration() {
             true,
         );
         node.wait_for_log("UIGateway bound", Some(5000));
-        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+        let mut client = UiConnection::new(port, NODE_UI_PROTOCOL).await.unwrap();
         let shutdown_request = UiShutdownRequest {};
-        client.send(shutdown_request);
+        client.send(shutdown_request).await;
         node.wait_for_exit();
     }
 

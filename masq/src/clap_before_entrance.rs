@@ -2,11 +2,11 @@
 
 use crate::run_modes::CLIProgramEntering;
 use crate::schema::app;
-use crate::terminal::async_streams::AsyncStdStreams;
-use crate::write_async_stream_and_flush;
 use async_trait::async_trait;
 use clap::error::ErrorKind;
+use masq_lib::async_streams::AsyncStdStreams;
 use masq_lib::shared_schema::InsecurePort;
+use masq_lib::write_async_stream_and_flush;
 use tokio::io::AsyncWriteExt;
 
 #[async_trait(?Send)]
@@ -68,6 +68,7 @@ impl InitializationArgs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::make_async_std_streams;
     use masq_lib::constants::DEFAULT_UI_PORT;
 
@@ -85,6 +86,7 @@ mod tests {
             )
             .await;
 
+        allow_flushed_writings_to_finish().await;
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
@@ -108,6 +110,7 @@ mod tests {
             )
             .await;
 
+        allow_flushed_writings_to_finish().await;
         let init_args = match result {
             CLIProgramEntering::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
@@ -199,6 +202,7 @@ mod tests {
                 )
                 .await;
 
+            allow_flushed_writings_to_finish().await;
             match result {
                 CLIProgramEntering::Leave(1) => (),
                 x => panic!("we expected Leave with exit code 1 but got {:?}", x),

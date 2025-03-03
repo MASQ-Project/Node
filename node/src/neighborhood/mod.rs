@@ -8,17 +8,12 @@ pub mod neighborhood_database;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::HashSet;
-use std::convert::TryFrom;
-use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-use std::thread::panicking;
-use actix::{Context, Supervised};
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
 use actix::{Actor, System};
 use actix::{Addr, AsyncContext};
+use actix::{Context, Supervised};
 use itertools::Itertools;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
@@ -26,6 +21,11 @@ use masq_lib::messages::{
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
+use std::collections::HashSet;
+use std::convert::TryFrom;
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+use std::thread::panicking;
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -33,6 +33,7 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
+use crate::dispatcher::Dispatcher;
 use crate::malefactor::ban_malefactor;
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -63,7 +64,10 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    db_connection_launch_panic, handle_ui_crash_request, supervisor_restarting,
+    NODE_MAILBOX_CAPACITY,
+};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use gossip_acceptor::GossipAcceptor;
@@ -76,7 +80,6 @@ use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
-use crate::dispatcher::Dispatcher;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -1242,7 +1245,6 @@ impl Neighborhood {
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
-
             .routing_engine(
                 vec![source],
                 initial_undesirability,
@@ -1615,7 +1617,9 @@ mod tests {
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, make_rt, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, make_rt, TEST_DEFAULT_CHAIN,
+    };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget;
