@@ -135,16 +135,11 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
                 accepts_connections: masq_node.accepts_connections(),
                 routes_data: masq_node.routes_data(),
                 version: 0,
-                country_code_opt: None,
+                country_code_opt: masq_node.country_code_opt(),
             },
             node_addr_opt: Some(masq_node.node_addr()),
             signed_gossip: PlainData::new(b""),
             signature: CryptData::new(b""),
-        };
-        let ip_addr = masq_node.node_addr().ip_addr();
-        let country_code = get_node_location(Some(ip_addr));
-        if let Some(cc) = country_code {
-            agr.inner.country_code_opt = Some(cc.country_code)
         };
         agr.regenerate_signed_gossip(cryptde);
         agr

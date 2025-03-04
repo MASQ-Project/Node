@@ -537,16 +537,16 @@ pub mod common_validators {
 
     pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
         validate_pipe_separated_values(exit_location, |country: String| {
-            let mut collect_fails = "".to_string();
+            let mut collect_fails = vec![];
             country.split(',').into_iter().for_each(|country_code| {
                 match validate_country_code(country_code) {
                     Ok(_) => (),
-                    Err(e) => collect_fails.push_str(&e),
+                    Err(e) => collect_fails.push(e),
                 }
             });
             match collect_fails.is_empty() {
                 true => Ok(()),
-                false => Err(collect_fails),
+                false => Err(collect_fails.join(", ")),
             }
         })
     }
@@ -651,14 +651,14 @@ pub mod common_validators {
 
     fn validate_pipe_separated_values(
         values_with_delimiters: String,
-        closure: fn(String) -> Result<(), String>,
+        parse_value: fn(String) -> Result<(), String>,
     ) -> Result<(), String> {
         let mut error_collection = vec![];
         values_with_delimiters
             .split('|')
             .into_iter()
             .for_each(|segment| {
-                match closure(segment.to_string()) {
+                match parse_value(segment.to_string()) {
                     Ok(_) => (),
                     Err(msg) => error_collection.push(msg),
                 };
@@ -980,11 +980,11 @@ mod tests {
 
     #[test]
     fn validate_exit_key_fails_on_not_valid_country_code() {
-        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR"));
+        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR,XP"));
 
         assert_eq!(
             result,
-            Err("'RR' is not a valid ISO3166 country code".to_string())
+            Err("'RR' is not a valid ISO3166 country code, 'XP' is not a valid ISO3166 country code".to_string())
         );
     }
 

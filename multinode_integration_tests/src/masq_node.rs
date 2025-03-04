@@ -26,6 +26,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::neighborhood::node_location::get_node_location;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
@@ -210,6 +211,7 @@ pub trait MASQNode: Any {
     fn chain(&self) -> Chain;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
+    fn country_code_opt(&self) -> Option<String>;
 }
 
 pub struct MASQNodeUtils {}
@@ -298,6 +300,15 @@ impl MASQNodeUtils {
             PathBuf::from(start)
         } else {
             Self::start_from(start.parent().unwrap())
+        }
+    }
+    
+    pub fn derive_country_code_opt(node_addr: &NodeAddr) -> Option<String> {
+        let country_code = get_node_location(Some(node_addr.ip_addr()));
+        if let Some(cc) = country_code {
+            Some(cc.country_code)
+        } else {
+            None
         }
     }
 }

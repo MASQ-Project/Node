@@ -3983,7 +3983,7 @@ mod tests {
         let log_handler = TestLogHandler::new();
         assert_eq!(
             exit_handler_response,
-            Err((9223372036854775817, "CZ, SK, IN".to_string(),))
+            Err((9223372036854775816, "CZ, SK, IN".to_string(),))
         );
         log_handler.assert_logs_contain_in_order(vec![
             &format!(
@@ -4197,7 +4197,7 @@ mod tests {
             record_one.body,
             UiSetExitLocationResponse {
                 fallback_routing: false,
-                exit_locations: vec![
+                exit_country_selection: vec![
                     ExitLocation {
                         country_codes: vec!["CZ".to_string()],
                         priority: 1
@@ -4218,7 +4218,7 @@ mod tests {
                 target: MessageTarget::ClientId(6543),
                 body: UiSetExitLocationResponse {
                     fallback_routing: true,
-                    exit_locations: vec![],
+                    exit_country_selection: vec![],
                     exit_countries: None,
                     missing_countries: vec![],
                 }

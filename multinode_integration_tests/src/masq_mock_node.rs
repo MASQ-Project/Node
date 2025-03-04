@@ -147,6 +147,10 @@ impl MASQNode for MASQMockNode {
     fn routes_data(&self) -> bool {
         true // just a guess
     }
+
+    fn country_code_opt(&self) -> Option<String> {
+        None
+    }
 }
 
 pub struct MutableMASQMockNode {
