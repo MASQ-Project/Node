@@ -356,7 +356,7 @@ impl DebutHandler {
 
     fn create_debut_gossip_response(
         cryptde: &dyn CryptDE,
-        database: &mut NeighborhoodDatabase,
+        database: &NeighborhoodDatabase,
         debut_node_key: PublicKey,
     ) -> Gossip_0v1 {
         let mut root_node = database.root().clone();

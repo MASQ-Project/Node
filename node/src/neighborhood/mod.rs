@@ -63,9 +63,10 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::EXIT_COUNTRY_MISSING_COUNTRIES_ERROR;
 use masq_lib::crash_point::CrashPoint;
+use masq_lib::exit_locations::ExitLocationSet;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{
-    ExitLocation, ExitLocationSet, FromMessageBody, ToMessageBody, UiConnectionStage,
+    ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage,
     UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse,
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
@@ -1806,7 +1807,7 @@ impl Neighborhood {
                 target: MessageTarget::ClientId(client_id),
                 body: UiSetExitLocationResponse {
                     fallback_routing,
-                    exit_locations,
+                    exit_country_selection: exit_locations,
                     exit_countries: show_countries,
                     missing_countries,
                 }
