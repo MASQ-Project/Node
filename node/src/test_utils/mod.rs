@@ -790,6 +790,7 @@ pub mod unshared_test_utils {
         }
     }
 
+    // TODO: This might be why the tests are stopping.
     pub fn prove_that_crash_request_handler_is_hooked_up<
         T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
     >(
@@ -797,16 +798,18 @@ pub mod unshared_test_utils {
         crash_key: &str,
     ) {
         let system = System::new();
-        let addr: Addr<T> = actor.start();
-        let killer = SystemKillerActor::new(Duration::from_millis(2000));
-        killer.start();
+        system.block_on(async {
+            let addr: Addr<T> = actor.start();
+            let killer = SystemKillerActor::new(Duration::from_millis(2000));
+            killer.start();
 
-        addr.try_send(NodeFromUiMessage {
-            client_id: 0,
-            body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
-        })
-        .unwrap();
-        system.run();
+            addr.try_send(NodeFromUiMessage {
+                client_id: 0,
+                body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
+            })
+                .unwrap();
+        });
+        system.run().unwrap();
         panic!("test failed")
     }
 
