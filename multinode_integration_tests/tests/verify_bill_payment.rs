@@ -3,7 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
-use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+use masq_lib::utils::{derivation_path, NeighborhoodMode};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
@@ -312,7 +312,7 @@ fn verify_bill_payment() {
 fn make_init_config(chain: Chain) -> DbInitializationConfig {
     DbInitializationConfig::create_or_migrate(ExternalData::new(
         chain,
-        NeighborhoodModeLight::Standard,
+        NeighborhoodMode::Standard,
         None,
     ))
 }

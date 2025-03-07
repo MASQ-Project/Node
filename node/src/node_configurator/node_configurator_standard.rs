@@ -6,8 +6,8 @@ use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurato
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
-use masq_lib::shared_schema::{ConfigFile, ConfiguratorError};
-use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::shared_schema::{ConfigFile, ConfiguratorError, InsecurePort, IpAddrs};
+use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
@@ -35,6 +35,7 @@ use base64::Engine;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use std::str::FromStr;
+use itertools::Itertools;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -124,10 +125,10 @@ impl NodeConfiguratorStandardUnprivileged {
 
 fn collect_externals_from_multi_config(
     multi_config: &MultiConfig,
-) -> (NeighborhoodModeLight, Option<String>) {
+) -> (SchemaNeighborhoodMode, Option<String>) {
     (
-        value_m!(multi_config, "neighborhood-mode", NeighborhoodModeLight)
-            .unwrap_or(NeighborhoodModeLight::Standard),
+        value_m!(multi_config, "neighborhood-mode", SchemaNeighborhoodMode)
+            .unwrap_or(SchemaNeighborhoodMode::Standard),
         value_m!(multi_config, "db-password", String),
     )
 }
@@ -199,25 +200,18 @@ pub fn privileged_parse_args(
     privileged_config.data_directory = directory;
     privileged_config.blockchain_bridge_config.chain = chain;
 
-    let joined_dns_servers_opt = value_m!(multi_config, "dns-servers", String);
-    privileged_config.dns_servers = match joined_dns_servers_opt {
-        Some(joined_dns_servers) => joined_dns_servers
-            .split(',')
-            .map(|ip_str| {
-                SocketAddr::new(
-                    IpAddr::from_str(ip_str).expect("Bad clap validation for dns-servers"),
-                    53,
-                )
-            })
-            .collect(),
-        None => vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)],
-    };
+    let dns_servers_opt = value_m!(multi_config, "dns-servers", IpAddrs)
+        .map(|ip_addrs| ip_addrs.ips.iter().map(|ip| SocketAddr::new(*ip, 53)).collect_vec());
+    privileged_config.dns_servers = dns_servers_opt
+        .unwrap_or_else(|| vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)]);
 
     privileged_config.log_level =
         value_m!(multi_config, "log-level", LevelFilter).unwrap_or(LevelFilter::Warn);
 
     privileged_config.ui_gateway_config.ui_port =
-        value_m!(multi_config, "ui-port", u16).unwrap_or(DEFAULT_UI_PORT);
+        value_m!(multi_config, "ui-port", InsecurePort)
+            .map(|insecure_port| insecure_port.port)
+            .unwrap_or(DEFAULT_UI_PORT);
 
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
@@ -258,8 +252,8 @@ fn configure_database(
             return Err(pce.into_configurator_error("clandestine-port"));
         }
     }
-    let neighborhood_mode_light: NeighborhoodModeLight = (&config.neighborhood_config.mode).into();
-    if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
+    let schema_neighborhood_mode: SchemaNeighborhoodMode = (&config.neighborhood_config.mode).into();
+    if let Err(pce) = persistent_config.set_neighborhood_mode(schema_neighborhood_mode) {
         return Err(pce.into_configurator_error("neighborhood-mode"));
     }
     if let Err(pce) = persistent_config.set_min_hops(config.neighborhood_config.min_hops) {
@@ -941,7 +935,7 @@ mod tests {
         let set_neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
         assert_eq!(
             *set_neighborhood_mode_params,
-            vec![NeighborhoodModeLight::ConsumeOnly]
+            vec![SchemaNeighborhoodMode::ConsumeOnly]
         );
         let set_gas_price_params = set_gas_price_params_arc.lock().unwrap();
         assert_eq!(*set_gas_price_params, vec![gas_price]);
@@ -978,7 +972,7 @@ mod tests {
         let neighborhood_mode_params = set_neighborhood_mode_params_arc.lock().unwrap();
         assert_eq!(
             *neighborhood_mode_params,
-            vec![NeighborhoodModeLight::ZeroHop]
+            vec![SchemaNeighborhoodMode::ZeroHop]
         )
     }
 
@@ -1001,7 +995,7 @@ mod tests {
 
         let expected = ExternalData::new(
             DEFAULT_CHAIN,
-            NeighborhoodModeLight::ZeroHop,
+            SchemaNeighborhoodMode::ZeroHop,
             Some("password".to_string()),
         );
         assert_eq!(result, expected)
@@ -1019,7 +1013,7 @@ mod tests {
 
         let result = ExternalData::from((&configurator_standard, &multi_config));
 
-        let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
+        let expected = ExternalData::new(DEFAULT_CHAIN, SchemaNeighborhoodMode::ZeroHop, None);
         assert_eq!(result, expected)
     }
 

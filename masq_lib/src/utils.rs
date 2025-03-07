@@ -330,39 +330,6 @@ where
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum NeighborhoodModeLight {
-    Standard,
-    ConsumeOnly,
-    OriginateOnly,
-    ZeroHop,
-}
-
-impl Display for NeighborhoodModeLight {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Standard => write!(f, "standard"),
-            Self::ConsumeOnly => write!(f, "consume-only"),
-            Self::OriginateOnly => write!(f, "originate-only"),
-            Self::ZeroHop => write!(f, "zero-hop"),
-        }
-    }
-}
-
-impl FromStr for NeighborhoodModeLight {
-    type Err = String;
-
-    fn from_str(str: &str) -> Result<Self, Self::Err> {
-        Ok(match str {
-            "standard" => Self::Standard,
-            "consume-only" => Self::ConsumeOnly,
-            "originate-only" => Self::OriginateOnly,
-            "zero-hop" => Self::ZeroHop,
-            x => return Err(format!("Invalid value read for neighborhood mode: {}", x)),
-        })
-    }
-}
-
 pub fn partition(s: &str, partition_size: usize) -> Result<Vec<String>, String> {
     if partition_size == 0 {
         return Err(String::from("partition_size must be greater than 0"));
@@ -939,39 +906,39 @@ mod tests {
 
     #[test]
     fn neighborhood_mode_light_has_display() {
-        assert_eq!(NeighborhoodModeLight::Standard.to_string(), "standard");
+        assert_eq!(NeighborhoodMode::Standard.to_string(), "standard");
         assert_eq!(
-            NeighborhoodModeLight::ConsumeOnly.to_string(),
+            NeighborhoodMode::ConsumeOnly.to_string(),
             "consume-only"
         );
         assert_eq!(
-            NeighborhoodModeLight::OriginateOnly.to_string(),
+            NeighborhoodMode::OriginateOnly.to_string(),
             "originate-only"
         );
-        assert_eq!(NeighborhoodModeLight::ZeroHop.to_string(), "zero-hop")
+        assert_eq!(NeighborhoodMode::ZeroHop.to_string(), "zero-hop")
     }
 
     #[test]
     fn neighborhood_mode_light_from_str() {
         assert_eq!(
-            NeighborhoodModeLight::from_str("standard").unwrap(),
-            NeighborhoodModeLight::Standard
+            NeighborhoodMode::from_str("standard").unwrap(),
+            NeighborhoodMode::Standard
         );
         assert_eq!(
-            NeighborhoodModeLight::from_str("consume-only").unwrap(),
-            NeighborhoodModeLight::ConsumeOnly
+            NeighborhoodMode::from_str("consume-only").unwrap(),
+            NeighborhoodMode::ConsumeOnly
         );
         assert_eq!(
-            NeighborhoodModeLight::from_str("originate-only").unwrap(),
-            NeighborhoodModeLight::OriginateOnly
+            NeighborhoodMode::from_str("originate-only").unwrap(),
+            NeighborhoodMode::OriginateOnly
         );
         assert_eq!(
-            NeighborhoodModeLight::from_str("zero-hop").unwrap(),
-            NeighborhoodModeLight::ZeroHop
+            NeighborhoodMode::from_str("zero-hop").unwrap(),
+            NeighborhoodMode::ZeroHop
         );
 
         assert_eq!(
-            NeighborhoodModeLight::from_str("blah"),
+            NeighborhoodMode::from_str("blah"),
             Err(String::from(
                 "Invalid value read for neighborhood mode: blah"
             ))

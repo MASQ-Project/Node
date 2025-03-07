@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MS: u64 = 100;
 pub const PUBLIC_IP_POLL_DELAY_SECONDS: u64 = 60;
 
-trait GatewayFactory {
+trait GatewayFactory: Send {
     fn make(&self, options: SearchOptions) -> Result<Box<dyn GatewayWrapper>, SearchError>;
 }
 

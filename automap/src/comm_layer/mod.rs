@@ -94,7 +94,7 @@ impl AutomapError {
     }
 }
 
-pub trait Transactor {
+pub trait Transactor: Send {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError>;
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError>;
     fn add_mapping(

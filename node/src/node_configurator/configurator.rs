@@ -854,7 +854,8 @@ mod tests {
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::node_addr::NodeAddr;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
+    use masq_lib::utils::{derivation_path, AutomapProtocol};
+    use masq_lib::shared_schema::NeighborhoodMode;
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
 
@@ -893,18 +894,18 @@ mod tests {
         )
     }
 
-    #[test]
-    fn constructor_panics_on_database_migration() {
+    #[tokio::test]
+    async fn constructor_panics_on_database_migration() {
         let data_dir = ensure_node_home_directory_exists(
             "configurator",
             "constructor_panics_on_database_migration",
         );
 
-        let act = |data_dir: &Path| {
+        let act = |data_dir: PathBuf| async move {
             Configurator::new(data_dir.to_path_buf(), false);
         };
 
-        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+        assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 
     #[test]
@@ -2220,7 +2221,7 @@ mod tests {
             .gas_price_result(Ok(2345))
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key)))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
-            .neighborhood_mode_result(Ok(NeighborhoodModeLight::Standard))
+            .neighborhood_mode_result(Ok(NeighborhoodMode::Standard))
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
             .start_block_result(Ok(3456));
@@ -2348,7 +2349,7 @@ mod tests {
             .consuming_wallet_private_key_params(&consuming_wallet_private_key_params_arc)
             .consuming_wallet_private_key_result(Ok(Some(consuming_wallet_private_key.clone())))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
-            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
+            .neighborhood_mode_result(Ok(NeighborhoodMode::ConsumeOnly))
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![node_descriptor.clone()])))
             .earning_wallet_address_result(Ok(Some(earning_wallet_address.clone())))
@@ -2450,7 +2451,7 @@ mod tests {
                 "0x0123456789012345678901234567890123456789".to_string(),
             )))
             .start_block_result(Ok(3456))
-            .neighborhood_mode_result(Ok(NeighborhoodModeLight::ConsumeOnly))
+            .neighborhood_mode_result(Ok(NeighborhoodMode::ConsumeOnly))
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)))
             .consuming_wallet_private_key_result(cwpk);
         let mut subject = make_subject(Some(persistent_config));

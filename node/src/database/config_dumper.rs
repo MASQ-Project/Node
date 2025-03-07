@@ -179,7 +179,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::shared_schema::NeighborhoodMode;
     use rustc_hex::ToHex;
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
@@ -264,7 +264,7 @@ mod tests {
                     &database_path,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
-                        NeighborhoodModeLight::ZeroHop,
+                        NeighborhoodMode::ZeroHop,
                         None,
                     )),
                 )
@@ -428,7 +428,7 @@ mod tests {
                     &data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
-                        NeighborhoodModeLight::ConsumeOnly,
+                        NeighborhoodMode::ConsumeOnly,
                         None,
                     )),
                 )
@@ -536,7 +536,7 @@ mod tests {
                     &data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
-                        NeighborhoodModeLight::Standard,
+                        NeighborhoodMode::Standard,
                         None,
                     )),
                 )

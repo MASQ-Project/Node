@@ -93,7 +93,7 @@ mod tests {
     use itertools::Itertools;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::shared_schema::NeighborhoodMode;
     use rusqlite::types::Value::Null;
     use rusqlite::ToSql;
     use std::collections::HashMap;
@@ -134,7 +134,7 @@ mod tests {
                 start_at + 1,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
                     TEST_DEFAULT_CHAIN,
-                    NeighborhoodModeLight::ConsumeOnly,
+                    NeighborhoodMode::ConsumeOnly,
                     Some("password".to_string()),
                 )),
             )
@@ -218,7 +218,7 @@ mod tests {
                 start_at + 1,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
                     TEST_DEFAULT_CHAIN,
-                    NeighborhoodModeLight::ConsumeOnly,
+                    NeighborhoodMode::ConsumeOnly,
                     Some("password".to_string()),
                 )),
             )

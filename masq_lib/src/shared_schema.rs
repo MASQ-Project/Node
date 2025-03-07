@@ -828,7 +828,7 @@ impl Display for LogLevel {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum NeighborhoodMode {
     ZeroHop,
     OriginateOnly,

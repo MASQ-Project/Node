@@ -17,7 +17,7 @@ use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
-use masq_lib::shared_schema::{chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfigFile, ConfiguratorError, DATA_DIRECTORY_HELP};
+use masq_lib::shared_schema::{chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfigFile, ConfiguratorError, DataDirectory, DATA_DIRECTORY_HELP};
 use masq_lib::utils::{add_masq_and_chain_directories, localhost};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -100,13 +100,14 @@ pub fn real_user_data_directory_path_and_chain(
     multi_config: &MultiConfig,
 ) -> (RealUser, Option<PathBuf>, Chain) {
     let real_user = real_user_from_multi_config_or_populate(multi_config, dirs_wrapper);
-    let chain_name = value_m!(multi_config, "chain", String)
-        .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
-    let data_directory_path = value_m!(multi_config, "data-directory", PathBuf);
+    let chain = value_m!(multi_config, "chain", Chain)
+        .unwrap_or_else(|| DEFAULT_CHAIN);
+    let data_directory_path = value_m!(multi_config, "data-directory", DataDirectory)
+        .map(|data_dir| data_dir.path);
     (
         real_user,
         data_directory_path,
-        Chain::from_str(chain_name.as_str()).expect("Invalid chain name"),
+        chain,
     )
 }
 

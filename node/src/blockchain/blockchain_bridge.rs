@@ -1856,14 +1856,14 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up(subject, CRASH_KEY);
     }
 
-    #[test]
-    fn make_connections_implements_panic_on_migration() {
+    #[tokio::test]
+    async fn make_connections_implements_panic_on_migration() {
         let data_dir = ensure_node_home_directory_exists(
             "blockchain_bridge",
             "make_connections_with_panic_on_migration",
         );
 
-        let act = |data_dir: &Path| {
+        let act = |data_dir: PathBuf| async move {
             BlockchainBridge::make_connections(
                 Some("http://127.0.0.1".to_string()),
                 data_dir.to_path_buf(),
@@ -1871,6 +1871,6 @@ mod tests {
             );
         };
 
-        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+        assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 }

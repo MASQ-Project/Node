@@ -35,7 +35,7 @@ mod tests {
     };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::shared_schema::NeighborhoodMode;
 
     #[test]
     fn migration_from_2_to_3_is_properly_set() {
@@ -62,7 +62,7 @@ mod tests {
             start_at + 1,
             DbInitializationConfig::create_or_migrate(ExternalData::new(
                 DEFAULT_CHAIN,
-                NeighborhoodModeLight::ConsumeOnly,
+                NeighborhoodMode::ConsumeOnly,
                 None,
             )),
         );

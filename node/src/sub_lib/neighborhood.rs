@@ -26,8 +26,8 @@ use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::NeighborhoodModeLight;
 use serde_derive::{Deserialize, Serialize};
+use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
@@ -88,13 +88,13 @@ impl Display for NeighborhoodMode {
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<NeighborhoodModeLight> for &NeighborhoodMode {
-    fn into(self) -> NeighborhoodModeLight {
+impl Into<SchemaNeighborhoodMode> for &NeighborhoodMode {
+    fn into(self) -> SchemaNeighborhoodMode {
         match self {
-            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
-            NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
-            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
-            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
+            NeighborhoodMode::Standard(_, _, _) => SchemaNeighborhoodMode::Standard,
+            NeighborhoodMode::ConsumeOnly(_) => SchemaNeighborhoodMode::ConsumeOnly,
+            NeighborhoodMode::OriginateOnly(_, _) => SchemaNeighborhoodMode::OriginateOnly,
+            NeighborhoodMode::ZeroHop => SchemaNeighborhoodMode::ZeroHop,
         }
     }
 }
@@ -615,7 +615,7 @@ mod tests {
     use actix::Actor;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::{localhost, NeighborhoodModeLight};
+    use masq_lib::utils::{localhost};
     use std::str::FromStr;
 
     #[test]
@@ -650,8 +650,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn neighborhood_subs_debug() {
+    #[actix::test]
+    async fn neighborhood_subs_debug() {
         let recorder = Recorder::new().start();
 
         let subject = NeighborhoodSubs {
@@ -1179,46 +1179,23 @@ mod tests {
 
     #[test]
     fn neighborhood_mode_light_tights_up_with_the_classic_enum() {
-        let simple_standard = NeighborhoodModeLight::Standard.to_string().to_lowercase();
-        let simple_consume_only = NeighborhoodModeLight::ConsumeOnly
-            .to_string()
-            .to_lowercase();
-        let simple_originate_only = NeighborhoodModeLight::OriginateOnly
-            .to_string()
-            .to_lowercase();
-        let simple_zero_hop = NeighborhoodModeLight::ZeroHop.to_string().to_lowercase();
-        let classic_standard = NeighborhoodMode::Standard(
-            NodeAddr::new(&localhost(), &[1234, 2345]),
-            vec![],
-            rate_pack(100),
-        )
-        .to_string()
-        .to_lowercase();
-        let classic_consume_only = NeighborhoodMode::ConsumeOnly(vec![])
-            .to_string()
-            .to_lowercase();
-        let classic_originate_only = NeighborhoodMode::OriginateOnly(vec![], rate_pack(100))
-            .to_string()
-            .to_lowercase();
-        let classic_zero_hop = NeighborhoodMode::ZeroHop.to_string().to_lowercase();
-        assert_contain_words(simple_standard, classic_standard, &["standard"]);
-        assert_contain_words(
-            simple_consume_only,
-            classic_consume_only,
-            &["consume", "only"],
-        );
-        assert_contain_words(
-            simple_originate_only,
-            classic_originate_only,
-            &["originate", "only"],
-        );
-        assert_contain_words(simple_zero_hop, classic_zero_hop, &["zero", "hop"]);
-    }
+        let comparator = |heavy: NeighborhoodMode, light: SchemaNeighborhoodMode, words: Vec<&str>| {
+            let heavy_string = heavy.to_string().to_lowercase();
+            let light_string = light.to_string().to_lowercase();
+            words.into_iter().for_each(|word| {
+                assert!(heavy_string.contains(word), "{:?} and {:?} should both contain the word '{}' but {:?} doesn't",
+                        heavy, light, word, heavy);
+                assert!(light_string.contains(word), "{:?} and {:?} should both contain the word '{}' but {:?} doesn't",
+                        heavy, light, word, light);
+            })
+        };
+        let node_addr = NodeAddr::new(&localhost(), &[]);
+        let rate_pack = rate_pack(100);
 
-    fn assert_contain_words(simple: String, classic: String, words: &[&str]) {
-        words
-            .iter()
-            .for_each(|word| assert!(simple.contains(word) && classic.contains(word)))
+        comparator(NeighborhoodMode::Standard(node_addr, vec![], rate_pack), SchemaNeighborhoodMode::Standard, vec!["standard"]);
+        comparator(NeighborhoodMode::ConsumeOnly(vec![]), SchemaNeighborhoodMode::ConsumeOnly, vec!["consume", "only"]);
+        comparator(NeighborhoodMode::OriginateOnly(vec![], rate_pack), SchemaNeighborhoodMode::OriginateOnly, vec!["originate", "only"]);
+        comparator(NeighborhoodMode::ZeroHop, SchemaNeighborhoodMode::ZeroHop, vec!["zero", "hop"]);
     }
 
     #[test]
@@ -1229,21 +1206,21 @@ mod tests {
                 vec![],
                 rate_pack(100),
             ),
-            NeighborhoodModeLight::Standard,
+            SchemaNeighborhoodMode::Standard,
         );
         assert_make_light(
             &NeighborhoodMode::ConsumeOnly(vec![]),
-            NeighborhoodModeLight::ConsumeOnly,
+            SchemaNeighborhoodMode::ConsumeOnly,
         );
         assert_make_light(
             &NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
-            NeighborhoodModeLight::OriginateOnly,
+            SchemaNeighborhoodMode::OriginateOnly,
         );
-        assert_make_light(&NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
+        assert_make_light(&NeighborhoodMode::ZeroHop, SchemaNeighborhoodMode::ZeroHop)
     }
 
-    fn assert_make_light(heavy: &NeighborhoodMode, expected_value: NeighborhoodModeLight) {
-        let result: NeighborhoodModeLight = heavy.into();
+    fn assert_make_light(heavy: &NeighborhoodMode, expected_value: SchemaNeighborhoodMode) {
+        let result: SchemaNeighborhoodMode = heavy.into();
         assert_eq!(result, expected_value)
     }
 

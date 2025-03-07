@@ -3,7 +3,7 @@ use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::{
     CryptDE, CryptData, CryptdecError, PlainData, PrivateKey, PublicKey, SymmetricKey,
 };
-use base64::prelude::BASE64_STANDARD_NO_PAD;
+use base64::prelude::{BASE64_STANDARD_NO_PAD, BASE64_URL_SAFE_NO_PAD};
 use base64::Engine;
 use lazy_static::lazy_static;
 use masq_lib::blockchains::chains::Chain;
@@ -166,7 +166,7 @@ impl CryptDE for CryptDEReal {
         &self,
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String> {
-        let mut encryption_public_key = match BASE64_STANDARD_NO_PAD.decode(descriptor_fragment) {
+        let mut encryption_public_key = match BASE64_URL_SAFE_NO_PAD.decode(descriptor_fragment) {
             Ok(v) => v,
             Err(_) => {
                 return Err(format!(

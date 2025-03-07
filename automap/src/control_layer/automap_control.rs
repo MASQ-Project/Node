@@ -23,7 +23,7 @@ pub enum AutomapChange {
 
 pub type ChangeHandler = Box<dyn Fn(AutomapChange) + Send>;
 
-pub trait AutomapControl {
+pub trait AutomapControl: Send {
     fn get_public_ip(&mut self) -> Result<IpAddr, AutomapError>;
     fn add_mapping(&mut self, hole_port: u16) -> Result<(), AutomapError>;
     fn delete_mappings(&mut self) -> Result<(), AutomapError>;

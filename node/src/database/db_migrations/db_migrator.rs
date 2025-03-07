@@ -199,7 +199,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::shared_schema::NeighborhoodMode;
     use rusqlite::{Connection, Error};
     use std::cell::RefCell;
     use std::fmt::Debug;
@@ -682,7 +682,7 @@ mod tests {
             *make_mig_declarator_params,
             vec![ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
-                neighborhood_mode: NeighborhoodModeLight::Standard,
+                neighborhood_mode: NeighborhoodMode::Standard,
                 db_password_opt: None,
             }]
         )

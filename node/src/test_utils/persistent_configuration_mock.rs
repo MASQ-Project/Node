@@ -8,9 +8,9 @@ use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::utils::AutomapProtocol;
-use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
+use masq_lib::shared_schema::NeighborhoodMode;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -46,8 +46,8 @@ pub struct PersistentConfigurationMock {
     min_hops_results: RefCell<Vec<Result<Hops, PersistentConfigError>>>,
     set_min_hops_params: Arc<Mutex<Vec<Hops>>>,
     set_min_hops_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    neighborhood_mode_results: RefCell<Vec<Result<NeighborhoodModeLight, PersistentConfigError>>>,
-    set_neighborhood_mode_params: Arc<Mutex<Vec<NeighborhoodModeLight>>>,
+    neighborhood_mode_results: RefCell<Vec<Result<NeighborhoodMode, PersistentConfigError>>>,
+    set_neighborhood_mode_params: Arc<Mutex<Vec<NeighborhoodMode>>>,
     set_neighborhood_mode_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     past_neighbors_params: Arc<Mutex<Vec<String>>>,
     past_neighbors_results:
@@ -183,13 +183,13 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_min_hops_results.borrow_mut().remove(0)
     }
 
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
+    fn neighborhood_mode(&self) -> Result<NeighborhoodMode, PersistentConfigError> {
         self.neighborhood_mode_results.borrow_mut().remove(0)
     }
 
     fn set_neighborhood_mode(
         &mut self,
-        value: NeighborhoodModeLight,
+        value: NeighborhoodMode,
     ) -> Result<(), PersistentConfigError> {
         self.set_neighborhood_mode_params
             .lock()
@@ -408,7 +408,7 @@ impl PersistentConfigurationMock {
 
     pub fn neighborhood_mode_result(
         self,
-        result: Result<NeighborhoodModeLight, PersistentConfigError>,
+        result: Result<NeighborhoodMode, PersistentConfigError>,
     ) -> PersistentConfigurationMock {
         self.neighborhood_mode_results.borrow_mut().push(result);
         self
@@ -416,7 +416,7 @@ impl PersistentConfigurationMock {
 
     pub fn set_neighborhood_mode_params(
         mut self,
-        params: &Arc<Mutex<Vec<NeighborhoodModeLight>>>,
+        params: &Arc<Mutex<Vec<NeighborhoodMode>>>,
     ) -> PersistentConfigurationMock {
         self.set_neighborhood_mode_params = params.clone();
         self

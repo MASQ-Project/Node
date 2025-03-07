@@ -286,7 +286,7 @@ mod tests {
         subject_addr.try_send(check).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         let capacity = rx.recv().unwrap();
         assert_eq!(capacity, 0);
     }
@@ -338,7 +338,7 @@ mod tests {
         subject_addr.try_send(msg.clone()).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         let did_receive = |recording_arc: Arc<Mutex<Recording>>| {
             let recording = recording_arc.lock().unwrap();
             assert_eq!(recording.get_record::<NodeFromUiMessage>(0), &msg);
@@ -388,7 +388,7 @@ mod tests {
         subject_addr.try_send(msg.clone()).unwrap();
 
         System::current().stop();
-        system.run();
+        system.run().unwrap();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
         let send_parameters = send_msg_params_arc.lock().unwrap();

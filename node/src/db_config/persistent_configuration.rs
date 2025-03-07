@@ -18,7 +18,7 @@ use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 #[cfg(test)]
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::utils::AutomapProtocol;
-use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::shared_schema::NeighborhoodMode;
 use rustc_hex::{FromHex, ToHex};
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
@@ -118,10 +118,10 @@ pub trait PersistentConfiguration: Send {
     ) -> Result<(), PersistentConfigError>;
     fn min_hops(&self) -> Result<Hops, PersistentConfigError>;
     fn set_min_hops(&mut self, value: Hops) -> Result<(), PersistentConfigError>;
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError>;
+    fn neighborhood_mode(&self) -> Result<NeighborhoodMode, PersistentConfigError>;
     fn set_neighborhood_mode(
         &mut self,
-        value: NeighborhoodModeLight,
+        value: NeighborhoodMode,
     ) -> Result<(), PersistentConfigError>;
     fn past_neighbors(
         &self,
@@ -350,8 +350,8 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(self.dao.set("min_hops", Some(value.to_string()))?)
     }
 
-    fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        NeighborhoodModeLight::from_str(
+    fn neighborhood_mode(&self) -> Result<NeighborhoodMode, PersistentConfigError> {
+        NeighborhoodMode::from_str(
             self.get("neighborhood_mode")?
                 .expect("ever-supplied value is missing: neighborhood-mode; database is corrupt!")
                 .as_str(),
@@ -361,7 +361,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_neighborhood_mode(
         &mut self,
-        value: NeighborhoodModeLight,
+        value: NeighborhoodMode,
     ) -> Result<(), PersistentConfigError> {
         self.simple_set_method("neighborhood_mode", value)
     }
@@ -1757,7 +1757,7 @@ mod tests {
 
         let result = subject.neighborhood_mode().unwrap();
 
-        assert_eq!(result, NeighborhoodModeLight::Standard);
+        assert_eq!(result, NeighborhoodMode::Standard);
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(*get_params, vec!["neighborhood_mode".to_string()]);
     }
@@ -1770,7 +1770,7 @@ mod tests {
             .set_result(Ok(()));
         let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        let result = subject.set_neighborhood_mode(NeighborhoodModeLight::ConsumeOnly);
+        let result = subject.set_neighborhood_mode(NeighborhoodMode::ConsumeOnly);
 
         assert!(result.is_ok());
         let set_params = set_params_arc.lock().unwrap();

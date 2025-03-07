@@ -62,6 +62,7 @@ use std::time::Instant;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::unbounded_channel;
 use web3::types::{Address, U256};
+use futures_util::FutureExt;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
@@ -573,12 +574,14 @@ pub mod unshared_test_utils {
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::future::Future;
     use std::num::ParseIntError;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::AssertUnwindSafe;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
+    use futures_util::FutureExt;
 
     #[derive(Message)]
     #[rtype(result = "()")]
@@ -586,21 +589,22 @@ pub mod unshared_test_utils {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
     }
 
-    pub fn assert_on_initialization_with_panic_on_migration<A>(data_dir: &Path, act: &A)
+    pub async fn assert_on_initialization_with_panic_on_migration<F, A>(data_dir: PathBuf, act: A)
     where
-        A: Fn(&Path) + ?Sized,
+        F: Future<Output = ()> + Send,
+        A: Fn(PathBuf) -> F,
     {
-        fn assert_closure<S, A>(
-            act: &A,
+        async fn assert_closure<S, F, A>(
+            act: A,
             expected_panic_message: Either<(&str, &str), &str>,
-            data_dir: &Path,
+            data_dir: PathBuf,
         ) where
-            A: Fn(&Path) + ?Sized,
+            F: Future<Output = ()> + Send,
+            A: Fn(PathBuf) -> F,
             S: AsRef<str> + 'static,
         {
-            let caught_panic_err = catch_unwind(AssertUnwindSafe(|| act(data_dir)));
-
-            let caught_panic = caught_panic_err.unwrap_err();
+            let future = act(data_dir);
+            let caught_panic = AssertUnwindSafe(future).catch_unwind().await.unwrap_err();
             let panic_message = caught_panic.downcast_ref::<S>().unwrap();
             let panic_message_str: &str = panic_message.as_ref();
             match expected_panic_message {
@@ -622,21 +626,21 @@ pub mod unshared_test_utils {
             }
         }
         let database_file_path = data_dir.join(DATABASE_FILE);
-        assert_closure::<String, _>(
+        assert_closure::<String, _, _>(
             &act,
             Either::Left((
                 "Couldn't initialize database due to \"Nonexistent\" at \"generated",
                 &format!("{}\"", DATABASE_FILE),
             )),
-            data_dir,
-        );
+            data_dir.clone(),
+        ).await;
 
         bring_db_0_back_to_life_and_return_connection(&database_file_path);
-        assert_closure::<&str, _>(
+        assert_closure::<&str, _, _>(
             &act,
             Either::Right("Broken code: Migrating database at inappropriate place"),
             data_dir,
-        );
+        ).await;
     }
 
     pub fn make_simplified_multi_config<const T: usize>(args: [&str; T]) -> MultiConfig {

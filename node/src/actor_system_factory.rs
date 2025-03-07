@@ -51,7 +51,7 @@ use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
 
-pub trait ActorSystemFactory {
+pub trait ActorSystemFactory: Send {
     fn make_and_start_actors(
         &self,
         config: BootstrapperConfig,
@@ -90,7 +90,7 @@ impl ActorSystemFactoryReal {
     }
 }
 
-pub trait ActorSystemFactoryTools {
+pub trait ActorSystemFactoryTools: Send {
     fn prepare_initial_messages(
         &self,
         cryptdes: CryptDEPair,
@@ -566,7 +566,7 @@ fn is_crashable(config: &BootstrapperConfig) -> bool {
     config.crash_point == CrashPoint::Message
 }
 
-pub trait AutomapControlFactory {
+pub trait AutomapControlFactory: Send {
     fn make(
         &self,
         usual_protocol_opt: Option<AutomapProtocol>,
@@ -2109,14 +2109,14 @@ mod tests {
         assert_eq!(msg, &msg_of_irrelevant_choice);
     }
 
-    #[test]
-    fn load_banned_cache_implements_panic_on_migration() {
+    #[tokio::test]
+    async fn load_banned_cache_implements_panic_on_migration() {
         let data_dir = ensure_node_home_directory_exists(
             "actor_system_factory",
             "load_banned_cache_implements_panic_on_migration",
         );
 
-        let act = |data_dir: &Path| {
+        let act = |data_dir: PathBuf| async move {
             ActorFactoryReal::load_banned_cache(
                 &DbInitializerReal::default(),
                 &BannedCacheLoaderMock::default(),
@@ -2124,7 +2124,7 @@ mod tests {
             );
         };
 
-        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+        assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 
     fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {

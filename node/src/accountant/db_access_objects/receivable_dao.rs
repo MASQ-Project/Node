@@ -425,7 +425,7 @@ mod tests {
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::shared_schema::NeighborhoodMode;
     use rusqlite::ToSql;
     use std::path::Path;
 
@@ -452,7 +452,7 @@ mod tests {
                 &home_dir,
                 DbInitializationConfig::create_or_migrate(ExternalData {
                     chain: Default::default(),
-                    neighborhood_mode: NeighborhoodModeLight::Standard,
+                    neighborhood_mode: NeighborhoodMode::Standard,
                     db_password_opt: None,
                 }),
             )

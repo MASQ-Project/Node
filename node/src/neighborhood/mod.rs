@@ -20,12 +20,11 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
+use masq_lib::utils::{exit_process, ExpectValue};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::thread::panicking;
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -33,7 +32,6 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::dispatcher::Dispatcher;
 use crate::malefactor::ban_malefactor;
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -48,7 +46,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
+use crate::sub_lib::neighborhood::{NeighborhoodMode, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
@@ -80,6 +78,8 @@ use masq_lib::logger::Logger;
 use masq_lib::node_addr::NodeAddr;
 use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
+use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
+
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
 pub const DEFAULT_MIN_HOPS: Hops = Hops::ThreeHops;
@@ -96,7 +96,7 @@ pub struct Neighborhood {
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
-    mode: NeighborhoodModeLight,
+    mode: NeighborhoodMode,
     min_hops: Hops,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
@@ -420,17 +420,15 @@ impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
         let min_hops = neighborhood_config.min_hops;
-        let neighborhood_mode = &neighborhood_config.mode;
-        let mode: NeighborhoodModeLight = neighborhood_mode.into();
-        let neighbor_configs = neighborhood_mode.neighbor_configs();
-        if mode == NeighborhoodModeLight::ZeroHop && !neighbor_configs.is_empty() {
+        let neighbor_configs = neighborhood_config.mode.neighbor_configs();
+        if neighborhood_config.mode == NeighborhoodMode::ZeroHop && !neighbor_configs.is_empty() {
             panic!(
                 "A zero-hop MASQ Node is not decentralized and cannot have a --neighbors setting"
             )
         }
         let neighborhood_database = NeighborhoodDatabase::new(
             cryptde.public_key(),
-            neighborhood_mode.clone(),
+            neighborhood_config.mode.clone(),
             config.earning_wallet.clone(),
             cryptde,
         );
@@ -462,7 +460,7 @@ impl Neighborhood {
             gossip_producer: Box::new(GossipProducerReal::new()),
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
-            mode,
+            mode: neighborhood_config.mode.clone(),
             min_hops,
             next_return_route_id: 0,
             overall_connection_status,
@@ -521,7 +519,7 @@ impl Neighborhood {
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
-        let route_result = if self.mode == NeighborhoodModeLight::ZeroHop {
+        let route_result = if self.mode == NeighborhoodMode::ZeroHop {
             Ok(self.zero_hop_route_response())
         } else {
             todo!("I think that we ought to require a consuming wallet right here before we waste any time making route segments.");
@@ -1608,7 +1606,6 @@ mod tests {
     use std::cell::RefCell;
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
-    use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -2748,7 +2745,7 @@ mod tests {
         let cryptde = main_cryptde();
         let system = System::new();
         let mut subject = make_standard_subject();
-        subject.mode = NeighborhoodModeLight::ZeroHop;
+        subject.mode = NeighborhoodMode::ZeroHop;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
@@ -5776,14 +5773,14 @@ mod tests {
         // No panic; therefore no attempt was made to persist: test passes!
     }
 
-    #[test]
-    fn make_connect_database_implements_panic_on_migration() {
+    #[tokio::test]
+    async fn make_connect_database_implements_panic_on_migration() {
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood",
             "make_connect_database_implements_panic_on_migration",
         );
 
-        let act = |data_dir: &Path| {
+        let act = |data_dir: PathBuf| async move {
             let mut subject = Neighborhood::new(
                 main_cryptde(),
                 &bc_from_earning_wallet(make_wallet("earning_wallet")),
@@ -5792,7 +5789,7 @@ mod tests {
             subject.connect_database();
         };
 
-        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+        assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 
     fn make_standard_subject() -> Neighborhood {

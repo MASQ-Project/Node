@@ -18,8 +18,9 @@ use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::node_addr::NodeAddr;
-use masq_lib::shared_schema::{ConfiguratorError, ParamError};
+use masq_lib::shared_schema::{ConfiguratorError, GasPrice, InsecurePort, ParamError};
 use masq_lib::utils::{AutomapProtocol, ExpectValue};
+use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -45,10 +46,13 @@ pub trait UnprivilegedParseArgsConfiguration {
                     Err(pce) => return Err(pce.into_configurator_error("gas-price")),
                 }
             };
-        unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", u16);
+        unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", InsecurePort)
+            .map (|insecure_port| insecure_port.port);
         unprivileged_config.blockchain_bridge_config.gas_price =
             if multi_config.is_present("gas-price") {
-                value_m!(multi_config, "gas-price", u64).expectv("gas price")
+                value_m!(multi_config, "gas-price", GasPrice)
+                    .map(|gp| gp.price)
+                    .expectv("gas price")
             } else {
                 match persistent_config.gas_price() {
                     Ok(price) => price,
@@ -231,13 +235,13 @@ fn make_neighborhood_mode(
     neighbor_configs: Vec<NodeDescriptor>,
     persistent_config: &mut dyn PersistentConfiguration,
 ) -> Result<NeighborhoodMode, ConfiguratorError> {
-    let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
+    let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", SchemaNeighborhoodMode);
     match neighborhood_mode_opt {
-        Some(ref s) if s == "standard" || s == "originate-only" => {
+        Some(ref mode) if mode == &SchemaNeighborhoodMode::Standard || mode == &SchemaNeighborhoodMode::OriginateOnly => {
             let rate_pack = configure_rate_pack(multi_config, persistent_config)?;
-            match s.as_str() {
-                "standard" => neighborhood_mode_standard(multi_config, neighbor_configs, rate_pack),
-                "originate-only" => {
+            match mode {
+                SchemaNeighborhoodMode::Standard => neighborhood_mode_standard(multi_config, neighbor_configs, rate_pack),
+                SchemaNeighborhoodMode::OriginateOnly => {
                     if neighbor_configs.is_empty() {
                         Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
                     } else {
@@ -247,7 +251,7 @@ fn make_neighborhood_mode(
                 _ => unreachable!(),
             }
         }
-        Some(ref s) if s == "consume-only" => {
+        Some(ref mode) if mode == &SchemaNeighborhoodMode::ConsumeOnly => {
             let mut errors = ConfiguratorError::new(vec![]);
             if neighbor_configs.is_empty() {
                 errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
@@ -261,7 +265,7 @@ fn make_neighborhood_mode(
                 Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
             }
         }
-        Some(ref s) if s == "zero-hop" => {
+        Some(ref mode) if mode == &SchemaNeighborhoodMode::ZeroHop => {
             if value_m!(multi_config, "ip", IpAddr).is_some() {
                 Err(ConfiguratorError::required(
                     "neighborhood-mode",
@@ -280,9 +284,9 @@ fn make_neighborhood_mode(
             }
         }
         // These two cases are untestable
-        Some(ref s) => panic!(
+        Some(ref mode) => panic!(
             "--neighborhood-mode {} has not been properly provided for in the code",
-            s
+            mode
         ),
         None => {
             let rate_pack = configure_rate_pack(multi_config, persistent_config)?;
@@ -326,11 +330,8 @@ fn neighborhood_mode_standard(
 }
 
 fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
-    match value_m!(multi_config, "ip", String) {
-        Some(ip_str) => match IpAddr::from_str(&ip_str) {
-            Ok(ip_addr) => Ok(ip_addr),
-            Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
-        },
+    match value_m!(multi_config, "ip", IpAddr) {
+        Some(ip_addr) => Ok(ip_addr),
         None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
     }
 }

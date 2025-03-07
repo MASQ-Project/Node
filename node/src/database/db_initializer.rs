@@ -14,7 +14,6 @@ use masq_lib::constants::{
 };
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
 use rusqlite::{Connection, OpenFlags};
 use std::fmt::{Debug, Formatter};
@@ -23,6 +22,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use std::{fs, vec};
 use tokio::net::TcpListener;
+use masq_lib::shared_schema::NeighborhoodMode;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 
@@ -558,7 +558,7 @@ impl DbInitializationConfig {
             mode: InitializationMode::CreationAndMigration {
                 external_data: ExternalData {
                     chain: TEST_DEFAULT_CHAIN,
-                    neighborhood_mode: NeighborhoodModeLight::Standard,
+                    neighborhood_mode: NeighborhoodMode::Standard,
                     db_password_opt: None,
                 },
             },
@@ -570,14 +570,14 @@ impl DbInitializationConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub chain: Chain,
-    pub neighborhood_mode: NeighborhoodModeLight,
+    pub neighborhood_mode: NeighborhoodMode,
     pub db_password_opt: Option<String>,
 }
 
 impl ExternalData {
     pub fn new(
         chain: Chain,
-        neighborhood_mode: NeighborhoodModeLight,
+        neighborhood_mode: NeighborhoodMode,
         db_password_opt: Option<String>,
     ) -> Self {
         Self {
@@ -747,7 +747,6 @@ mod tests {
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         TEST_DEFAULT_CHAIN,
     };
-    use masq_lib::utils::NeighborhoodModeLight;
     use regex::Regex;
     use rusqlite::Error::InvalidColumnType;
     use rusqlite::{Error, OpenFlags};
@@ -1287,7 +1286,7 @@ mod tests {
                 &updated_db_path_dir,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
                     Chain::EthRopsten,
-                    NeighborhoodModeLight::Standard,
+                    NeighborhoodMode::Standard,
                     Some("password".to_string()),
                 )),
             )
@@ -1301,7 +1300,7 @@ mod tests {
 
         // db_password_opt: Some("password".to_string()),
         // chain: Chain::EthRopsten,
-        // neighborhood_mode: NeighborhoodModeLight::Standard,
+        // neighborhood_mode: NeighborhoodMode::Standard,
         let conn_updated = Connection::open_with_flags(
             &updated_db_path_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -1545,7 +1544,7 @@ mod tests {
             mode: InitializationMode::CreationAndMigration {
                 external_data: ExternalData {
                     chain: Default::default(),
-                    neighborhood_mode: NeighborhoodModeLight::Standard,
+                    neighborhood_mode: NeighborhoodMode::Standard,
                     db_password_opt: None,
                 },
             },

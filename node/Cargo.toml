@@ -10,7 +10,7 @@ edition = "2021"
 members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
 
 [dependencies]
-actix = "0.13.3"
+actix = "0.13.5"
 async-trait = "0.1.80"
 automap = { path = "../automap"}
 backtrace = "0.3.72"

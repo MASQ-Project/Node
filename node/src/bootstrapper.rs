@@ -505,7 +505,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
-        let _ = self.set_up_clandestine_port();
+        let _ = self.set_up_clandestine_port().await;
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
         let cryptdes = Bootstrapper::initialize_cryptdes(
             &main_cryptde_null_opt,
@@ -645,7 +645,7 @@ impl Bootstrapper {
         info!(Logger::new("Bootstrapper"), "{}", descriptor_msg);
     }
 
-    fn set_up_clandestine_port(&mut self) -> Option<u16> {
+    async fn set_up_clandestine_port(&mut self) -> Option<u16> {
         let clandestine_port_opt =
             if let NeighborhoodMode::Standard(node_addr, neighbor_configs, rate_pack) =
                 &self.config.neighborhood_config.mode
@@ -662,20 +662,16 @@ impl Bootstrapper {
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
                 let mut listener_handler = self.listener_handler_factory.make();
-                let future = async {
-                    listener_handler
-                        .bind_port_and_configuration(
-                            clandestine_port,
-                            PortConfiguration {
-                                discriminator_factories: vec![
-                                    Box::new(JsonDiscriminatorFactory::new()),
-                                ],
-                                is_clandestine: true,
-                            },
-                        ).await
-                };
-                Handle::current()
-                    .block_on(future)
+                listener_handler
+                    .bind_port_and_configuration(
+                        clandestine_port,
+                        PortConfiguration {
+                            discriminator_factories: vec![
+                                Box::new(JsonDiscriminatorFactory::new()),
+                            ],
+                            is_clandestine: true,
+                        },
+                    ).await
                     .expect("Failed to bind ListenerHandler to clandestine port");
                 self.listener_handlers.push(listener_handler);
                 self.config.neighborhood_config.mode = NeighborhoodMode::Standard(
@@ -1095,7 +1091,7 @@ mod tests {
         assert_eq!(subject.gid_opt, Some(4321));
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_privileged_with_no_args_binds_http_and_tls_ports() {
         let _lock = INITIALIZATION.lock();
         let (first_handler, first_handler_log) =
@@ -1136,7 +1132,7 @@ mod tests {
         assert_eq!(all_calls.len(), 2, "{:?}", all_calls);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_privileged_in_zero_hop_mode_produces_empty_clandestine_discriminator_factories_vector(
     ) {
         let _lock = INITIALIZATION.lock();
@@ -1209,7 +1205,7 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_with_ip_passes_node_descriptor_to_ui_config_and_reports_it()
     {
         let _lock = INITIALIZATION.lock();
@@ -1334,9 +1330,10 @@ mod tests {
         assert_eq!(port_config.is_clandestine, true)
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
         let _lock = INITIALIZATION.lock();
+        init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "initialize_as_unprivileged_passes_node_descriptor_to_ui_config",
@@ -1372,7 +1369,7 @@ mod tests {
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_does_not_report_descriptor_when_ip_is_not_supplied_in_standard_mode(
     ) {
         init_test_logging();
@@ -1415,7 +1412,7 @@ mod tests {
         TestLogHandler::new().exists_no_log_containing("@0.0.0.0:5124");
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_sets_gas_price_on_blockchain_config() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
@@ -1443,25 +1440,25 @@ mod tests {
         assert_eq!(config.blockchain_bridge_config.gas_price, 11);
     }
 
-    #[test]
-    fn initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors() {
+    #[tokio::test]
+    async fn initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors",
         );
 
-        let act = |data_dir: &Path| {
+        let act = |data_dir: PathBuf| async move {
             let mut config = BootstrapperConfig::new();
             config.data_directory = data_dir.to_path_buf();
             let subject = BootstrapperBuilder::new().config(config).build();
             subject.start_actors_and_return_shp_subs();
         };
 
-        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+        assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(
     ) {
         let _lock = INITIALIZATION.lock();
@@ -1502,7 +1499,7 @@ mod tests {
         assert_eq!(config.clandestine_port_opt, Some(1234u16));
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged(
     ) {
         let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap(); // protection to interfering with 'prepare_initial_messages_initiates_global_log_recipient'
@@ -1561,7 +1558,7 @@ mod tests {
         )
     }
 
-    #[tokio::test]
+    #[actix::test]
     #[should_panic(expected = "Could not listen on port")]
     async fn initialize_as_privileged_panics_if_tcp_listener_doesnt_bind() {
         let _lock = INITIALIZATION.lock();
@@ -1698,7 +1695,7 @@ mod tests {
         assert_round_trip(cryptdes.alias);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_binds_clandestine_port() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
@@ -1750,7 +1747,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool(
     ) {
         let _lock = INITIALIZATION.lock();
@@ -1796,7 +1793,7 @@ mod tests {
         ]);
     }
 
-    #[tokio::test]
+    #[actix::test]
     async fn bootstrapper_as_future_polls_listener_handler_futures() {
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
@@ -1893,8 +1890,8 @@ mod tests {
         assert_contains(&actual_ports, &String::from("Some(443)"));
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
+    #[actix::test]
+    async fn set_up_clandestine_port_handles_specified_port_in_standard_mode() {
         let port = find_free_port();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1930,7 +1927,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, Some(port));
         let config_dao = ConfigDaoReal::new(conn);
@@ -1967,8 +1964,8 @@ mod tests {
         assert_eq!(0, clandestine_discriminators.len()); // Used to be 1, now 0 after removal
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
+    #[actix::test]
+    async fn set_up_clandestine_port_handles_unspecified_port_in_standard_mode() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2000,7 +1997,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
@@ -2018,8 +2015,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_originate_only() {
+    #[actix::test]
+    async fn set_up_clandestine_port_handles_originate_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2047,7 +2044,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, None);
         assert!(subject
@@ -2058,8 +2055,8 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_consume_only() {
+    #[actix::test]
+    async fn set_up_clandestine_port_handles_consume_only() {
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
         let data_dir = ensure_node_home_directory_exists(
@@ -2084,7 +2081,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, None);
         assert!(subject
@@ -2095,8 +2092,8 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn set_up_clandestine_port_handles_zero_hop() {
+    #[actix::test]
+    async fn set_up_clandestine_port_handles_zero_hop() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "set_up_clandestine_port_handles_zero_hop",
@@ -2114,7 +2111,7 @@ mod tests {
             .config(config)
             .build();
 
-        let result = subject.set_up_clandestine_port();
+        let result = subject.set_up_clandestine_port().await;
 
         assert_eq!(result, None);
         assert!(subject
@@ -2125,14 +2122,14 @@ mod tests {
             .is_none());
     }
 
-    #[test]
-    fn set_up_clandestine_port_panics_on_migration() {
+    #[actix::test]
+    async fn set_up_clandestine_port_panics_on_migration() {
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
             "set_up_clandestine_port_panics_on_migration",
         );
 
-        let act = |data_dir: &Path| {
+        let act = |data_dir: PathBuf| async move {
             let mut config = BootstrapperConfig::new();
             config.data_directory = data_dir.to_path_buf();
             config.neighborhood_config = NeighborhoodConfig {
@@ -2140,17 +2137,17 @@ mod tests {
                 min_hops: MIN_HOPS_FOR_TEST,
             };
             let mut subject = BootstrapperBuilder::new().config(config).build();
-            subject.set_up_clandestine_port();
+            subject.set_up_clandestine_port().await;
         };
 
-        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+        assert_on_initialization_with_panic_on_migration(data_dir, &act).await;
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(
         expected = "Database is corrupt: error setting clandestine port: TransactionError"
     )]
-    fn establish_clandestine_port_handles_error_setting_port() {
+    async fn establish_clandestine_port_handles_error_setting_port() {
         let mut persistent_config = PersistentConfigurationMock::new()
             .set_clandestine_port_result(Err(PersistentConfigError::TransactionError));
         let mut config = BootstrapperConfig::new();
@@ -2160,9 +2157,9 @@ mod tests {
         let _ = subject.establish_clandestine_port(&mut persistent_config);
     }
 
-    #[test]
+    #[actix::test]
     #[should_panic(expected = "Database is corrupt: error reading clandestine port: NotPresent")]
-    fn establish_clandestine_port_handles_error_reading_port() {
+    async fn establish_clandestine_port_handles_error_reading_port() {
         let mut persistent_config = PersistentConfigurationMock::new()
             .clandestine_port_result(Err(PersistentConfigError::NotPresent));
         let subject = BootstrapperBuilder::new().build();
@@ -2285,23 +2282,14 @@ mod tests {
 
     impl ActorSystemFactoryActiveMock {
         fn new() -> ActorSystemFactoryActiveMock {
-            let (tx, rx) = unbounded();
-            thread::spawn(move || {
-                let system = System::new();
-
-                let stream_handler_pool_cluster = {
-                    let (stream_handler_pool, awaiter, recording) = make_recorder();
-                    StreamHandlerPoolCluster {
-                        recording: Some(recording),
-                        awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
-                    }
-                };
-
-                tx.send(stream_handler_pool_cluster).unwrap();
-                system.run().unwrap();
-            });
-            let stream_handler_pool_cluster = rx.recv().unwrap();
+            let stream_handler_pool_cluster = {
+                let (stream_handler_pool, awaiter, recording) = make_recorder();
+                StreamHandlerPoolCluster {
+                    recording: Some(recording),
+                    awaiter: Some(awaiter),
+                    subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                }
+            };
             ActorSystemFactoryActiveMock {
                 stream_handler_pool_cluster,
                 make_and_start_actors_params: Arc::new(Mutex::new(vec![])),

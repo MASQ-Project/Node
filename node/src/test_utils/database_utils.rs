@@ -9,7 +9,7 @@ use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::db_migrator::DbMigrator;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::shared_schema::NeighborhoodMode;
 use rusqlite::{Connection, Error};
 use std::cell::RefCell;
 use std::env::current_dir;
@@ -298,7 +298,7 @@ fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name
 pub fn make_external_data() -> ExternalData {
     ExternalData {
         chain: TEST_DEFAULT_CHAIN,
-        neighborhood_mode: NeighborhoodModeLight::Standard,
+        neighborhood_mode: NeighborhoodMode::Standard,
         db_password_opt: None,
     }
 }
