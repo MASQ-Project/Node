@@ -1072,12 +1072,13 @@ mod tests {
 
         let result = subject.process_payments(&request);
 
-        assert_eq!(
-            result,
-            Err(PayableTransactionError::TransactionCount(
-                BlockchainError::QueryFailed("What the hack...??".to_string())
-            ))
-        );
+        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq")
+        // assert_eq!(
+        //     result,
+        //     Err(PayableTransactionError::TransactionCount(
+        //         BlockchainError::QueryFailed("What the hack...??".to_string())
+        //     ))
+        // );
     }
 
     #[test]
@@ -1115,13 +1116,14 @@ mod tests {
 
         let result = subject.process_payments(&request);
 
-        assert_eq!(
-            result,
-            Err(PayableTransactionError::Sending {
-                msg: "failure from exhaustion".to_string(),
-                hashes: vec![transaction_hash]
-            })
-        );
+        todo!("GH-676: This error code can't be directly asserted, since Error doesn't implements PartialEq")
+        // assert_eq!(
+        //     result,
+        //     Err(PayableTransactionError::Sending {
+        //         msg: "failure from exhaustion".to_string(),
+        //         hashes: vec![transaction_hash]
+        //     })
+        // );
     }
 
     #[test]
