@@ -240,8 +240,8 @@ mod tests {
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
     }
 
-    #[test]
-    fn accountant_subs_debug() {
+    #[actix::test]
+    async fn accountant_subs_debug() {
         let addr = Recorder::new().start();
 
         let subject = make_accountant_subs_from_recorder(&addr);
@@ -249,8 +249,8 @@ mod tests {
         assert_eq!(format!("{:?}", subject), "AccountantSubs");
     }
 
-    #[test]
-    fn accountant_subs_factory_produces_proper_subs() {
+    #[actix::test]
+    async fn accountant_subs_factory_produces_proper_subs() {
         let subject = AccountantSubsFactoryReal {};
         let accountant = AccountantBuilder::default().build();
         let addr = accountant.start();

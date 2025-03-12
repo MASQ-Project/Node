@@ -790,27 +790,37 @@ pub mod unshared_test_utils {
         }
     }
 
-    // TODO: This might be why the tests are stopping.
     pub fn prove_that_crash_request_handler_is_hooked_up<
         T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+        F: Fn() -> T,
     >(
-        actor: T,
+        actor_producer: F,
         crash_key: &str,
     ) {
-        let system = System::new();
-        system.block_on(async {
+        let make_check_future = |actor: T, crash_key: String| async move {
             let addr: Addr<T> = actor.start();
             let killer = SystemKillerActor::new(Duration::from_millis(2000));
             killer.start();
 
             addr.try_send(NodeFromUiMessage {
                 client_id: 0,
-                body: UiCrashRequest::new(crash_key, "panic message").tmb(0),
+                body: UiCrashRequest::new(crash_key.as_str(), "panic message").tmb(0),
             })
-                .unwrap();
-        });
-        system.run().unwrap();
-        panic!("test failed")
+            .unwrap();
+        };
+
+        // Crashes when the correct crash key is used
+        let system = System::new();
+        system.block_on(make_check_future(actor_producer(), crash_key.to_string()));
+        let result = system.run();
+        assert_eq!(result.is_err(), true);
+
+        // Does not crash when the incorrect crash key is used
+        let system = System::new();
+        system.block_on(make_check_future(actor_producer(), format!("{}_X", crash_key)));
+        System::current().stop();
+        let result = system.run();
+        assert_eq!(result.is_ok(), true);
     }
 
     pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {

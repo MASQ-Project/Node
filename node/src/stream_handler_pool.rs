@@ -2227,8 +2227,10 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn stream_handler_can_be_crashed_properly_but_not_improperly() {
-        let stream_handler_pool = StreamHandlerPool::new(vec![], true);
+        let stream_handler_pool_producer = || {
+            StreamHandlerPool::new(vec![], true)
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(stream_handler_pool, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(stream_handler_pool_producer, CRASH_KEY);
     }
 }

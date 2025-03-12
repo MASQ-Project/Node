@@ -273,14 +273,16 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn hopper_can_be_crashed_properly_but_not_improperly() {
-        let hopper = Hopper::new(HopperConfig {
-            cryptdes: make_cryptde_pair(),
-            per_routing_service: 100,
-            per_routing_byte: 200,
-            is_decentralized: false,
-            crashable: true,
-        });
+        let hopper_producer = || {
+            Hopper::new(HopperConfig {
+                cryptdes: make_cryptde_pair(),
+                per_routing_service: 100,
+                per_routing_byte: 200,
+                is_decentralized: false,
+                crashable: true,
+            })
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(hopper, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(hopper_producer, CRASH_KEY);
     }
 }

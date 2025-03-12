@@ -2306,11 +2306,14 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn configurator_can_be_crashed_properly_but_not_improperly() {
-        let persistent_config = PersistentConfigurationMock::new();
-        let mut configurator = make_subject(Some(persistent_config));
-        configurator.crashable = true;
+        let configurator_producer = || {
+            let persistent_config = PersistentConfigurationMock::new();
+            let mut configurator = make_subject(Some(persistent_config));
+            configurator.crashable = true;
+            configurator
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(configurator, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(configurator_producer, CRASH_KEY);
     }
 
     #[test]

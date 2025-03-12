@@ -4957,9 +4957,11 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn proxy_server_can_be_crashed_properly_but_not_improperly() {
-        let proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, true);
+        let proxy_server_producer = || {
+            ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, true)
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(proxy_server_producer, CRASH_KEY);
     }
 
     fn make_exit_service_from_key(public_key: PublicKey) -> ExpectedService {

@@ -479,11 +479,24 @@ pub enum ProcessedPayableFallible {
     Failed(RpcPayableFailure),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct RpcPayableFailure {
-    // pub rpc_error: Error,
+    pub rpc_error: web3::Error,
     pub recipient_wallet: Wallet,
     pub hash: H256,
+}
+
+impl PartialEq for RpcPayableFailure {
+    // TODO SPIKE ///
+    fn eq(&self, other: &Self) -> bool {
+        if self.recipient_wallet != other.recipient_wallet {return false}
+        if self.hash != other.hash {return false}
+        match (&self.rpc_error, &other.rpc_error) {
+            (a, b) if a.to_string() == b.to_string() => true,
+            _ => false,
+        }
+    }
+    // TODO SPIKE ///
 }
 
 type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;

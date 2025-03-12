@@ -1293,109 +1293,108 @@ mod tests {
 
     #[test]
     fn payable_scanner_handles_sent_payable_message() {
-        todo!()
-        // init_test_logging();
-        // let test_name = "payable_scanner_handles_sent_payable_message";
-        // let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
-        // let mark_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
-        // let delete_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
-        // let correct_payable_hash_1 = make_tx_hash(0x6f);
-        // let correct_payable_rowid_1 = 125;
-        // let correct_payable_wallet_1 = make_wallet("tralala");
-        // let correct_pending_payable_1 =
-        //     PendingPayable::new(correct_payable_wallet_1.clone(), correct_payable_hash_1);
-        // let failure_payable_hash_2 = make_tx_hash(0xde);
-        // let failure_payable_rowid_2 = 126;
-        // let failure_payable_wallet_2 = make_wallet("hihihi");
-        // let failure_payable_2 = RpcPayableFailure {
-        //     rpc_error: Error::InvalidResponse(
-        //         "Learn how to write before you send your garbage!".to_string(),
-        //     ),
-        //     recipient_wallet: failure_payable_wallet_2,
-        //     hash: failure_payable_hash_2,
-        // };
-        // let correct_payable_hash_3 = make_tx_hash(0x14d);
-        // let correct_payable_rowid_3 = 127;
-        // let correct_payable_wallet_3 = make_wallet("booga");
-        // let correct_pending_payable_3 =
-        //     PendingPayable::new(correct_payable_wallet_3.clone(), correct_payable_hash_3);
-        // let pending_payable_dao = PendingPayableDaoMock::default()
-        //     .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
-        //     .fingerprints_rowids_result(vec![
-        //         (Some(correct_payable_rowid_1), correct_payable_hash_1),
-        //         (Some(correct_payable_rowid_3), correct_payable_hash_3),
-        //     ])
-        //     .fingerprints_rowids_result(vec![(
-        //         Some(failure_payable_rowid_2),
-        //         failure_payable_hash_2,
-        //     )])
-        //     .delete_fingerprints_params(&delete_fingerprints_params_arc)
-        //     .delete_fingerprints_result(Ok(()));
-        // let payable_dao = PayableDaoMock::new()
-        //     .mark_pending_payables_rowids_params(&mark_pending_payables_params_arc)
-        //     .mark_pending_payables_rowids_result(Ok(()))
-        //     .mark_pending_payables_rowids_result(Ok(()));
-        // let mut subject = PayableScannerBuilder::new()
-        //     .payable_dao(payable_dao)
-        //     .pending_payable_dao(pending_payable_dao)
-        //     .build();
-        // let logger = Logger::new(test_name);
-        // let sent_payable = SentPayables {
-        //     payment_procedure_result: Ok(vec![
-        //         Correct(correct_pending_payable_1),
-        //         Failed(failure_payable_2),
-        //         Correct(correct_pending_payable_3),
-        //     ]),
-        //     response_skeleton_opt: None,
-        // };
-        // subject.mark_as_started(SystemTime::now());
-        //
-        // let message_opt = subject.finish_scan(sent_payable, &logger);
-        //
-        // let is_scan_running = subject.scan_started_at().is_some();
-        // assert_eq!(message_opt, None);
-        // assert_eq!(is_scan_running, false);
-        // let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *fingerprints_rowids_params,
-        //     vec![
-        //         vec![correct_payable_hash_1, correct_payable_hash_3],
-        //         vec![failure_payable_hash_2]
-        //     ]
-        // );
-        // let mark_pending_payables_params = mark_pending_payables_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *mark_pending_payables_params,
-        //     vec![vec![
-        //         (correct_payable_wallet_1, correct_payable_rowid_1),
-        //         (correct_payable_wallet_3, correct_payable_rowid_3)
-        //     ]]
-        // );
-        // let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *delete_fingerprints_params,
-        //     vec![vec![failure_payable_rowid_2]]
-        // );
-        // let log_handler = TestLogHandler::new();
-        // log_handler.assert_logs_contain_in_order(vec![
-        //     &format!(
-        //         "WARN: {test_name}: Remote transaction failure: 'Got invalid response: Learn how to write before you send your garbage!' \
-        //         for payment to 0x0000000000000000000000000000686968696869 and transaction hash \
-        //         0x00000000000000000000000000000000000000000000000000000000000000de. Please check your blockchain service URL configuration"
-        //     ),
-        //     &format!("DEBUG: {test_name}: Got 2 properly sent payables of 3 attempts"),
-        //     &format!(
-        //         "DEBUG: {test_name}: Payables 0x000000000000000000000000000000000000000000000000000000000000006f, \
-        //          0x000000000000000000000000000000000000000000000000000000000000014d marked as pending in the payable table"
-        //     ),
-        //     &format!(
-        //         "WARN: {test_name}: Deleting fingerprints for failed transactions \
-        //          0x00000000000000000000000000000000000000000000000000000000000000de"
-        //     ),
-        // ]);
-        // log_handler.exists_log_matching(&format!(
-        //     "INFO: {test_name}: The Payables scan ended in \\d+ms."
-        // ));
+        init_test_logging();
+        let test_name = "payable_scanner_handles_sent_payable_message";
+        let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
+        let mark_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
+        let correct_payable_hash_1 = make_tx_hash(0x6f);
+        let correct_payable_rowid_1 = 125;
+        let correct_payable_wallet_1 = make_wallet("tralala");
+        let correct_pending_payable_1 =
+            PendingPayable::new(correct_payable_wallet_1.clone(), correct_payable_hash_1);
+        let failure_payable_hash_2 = make_tx_hash(0xde);
+        let failure_payable_rowid_2 = 126;
+        let failure_payable_wallet_2 = make_wallet("hihihi");
+        let failure_payable_2 = RpcPayableFailure {
+            rpc_error: Error::InvalidResponse(
+                "Learn how to write before you send your garbage!".to_string(),
+            ),
+            recipient_wallet: failure_payable_wallet_2,
+            hash: failure_payable_hash_2,
+        };
+        let correct_payable_hash_3 = make_tx_hash(0x14d);
+        let correct_payable_rowid_3 = 127;
+        let correct_payable_wallet_3 = make_wallet("booga");
+        let correct_pending_payable_3 =
+            PendingPayable::new(correct_payable_wallet_3.clone(), correct_payable_hash_3);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
+            .fingerprints_rowids_result(vec![
+                (Some(correct_payable_rowid_1), correct_payable_hash_1),
+                (Some(correct_payable_rowid_3), correct_payable_hash_3),
+            ])
+            .fingerprints_rowids_result(vec![(
+                Some(failure_payable_rowid_2),
+                failure_payable_hash_2,
+            )])
+            .delete_fingerprints_params(&delete_fingerprints_params_arc)
+            .delete_fingerprints_result(Ok(()));
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payables_rowids_params(&mark_pending_payables_params_arc)
+            .mark_pending_payables_rowids_result(Ok(()))
+            .mark_pending_payables_rowids_result(Ok(()));
+        let mut subject = PayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let logger = Logger::new(test_name);
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(vec![
+                Correct(correct_pending_payable_1),
+                Failed(failure_payable_2),
+                Correct(correct_pending_payable_3),
+            ]),
+            response_skeleton_opt: None,
+        };
+        subject.mark_as_started(SystemTime::now());
+
+        let message_opt = subject.finish_scan(sent_payable, &logger);
+
+        let is_scan_running = subject.scan_started_at().is_some();
+        assert_eq!(message_opt, None);
+        assert_eq!(is_scan_running, false);
+        let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
+        assert_eq!(
+            *fingerprints_rowids_params,
+            vec![
+                vec![correct_payable_hash_1, correct_payable_hash_3],
+                vec![failure_payable_hash_2]
+            ]
+        );
+        let mark_pending_payables_params = mark_pending_payables_params_arc.lock().unwrap();
+        assert_eq!(
+            *mark_pending_payables_params,
+            vec![vec![
+                (correct_payable_wallet_1, correct_payable_rowid_1),
+                (correct_payable_wallet_3, correct_payable_rowid_3)
+            ]]
+        );
+        let delete_fingerprints_params = delete_fingerprints_params_arc.lock().unwrap();
+        assert_eq!(
+            *delete_fingerprints_params,
+            vec![vec![failure_payable_rowid_2]]
+        );
+        let log_handler = TestLogHandler::new();
+        log_handler.assert_logs_contain_in_order(vec![
+            &format!(
+                "WARN: {test_name}: Remote transaction failure: 'Got invalid response: Learn how to write before you send your garbage!' \
+                for payment to 0x0000000000000000000000000000686968696869 and transaction hash \
+                0x00000000000000000000000000000000000000000000000000000000000000de. Please check your blockchain service URL configuration"
+            ),
+            &format!("DEBUG: {test_name}: Got 2 properly sent payables of 3 attempts"),
+            &format!(
+                "DEBUG: {test_name}: Payables 0x000000000000000000000000000000000000000000000000000000000000006f, \
+                 0x000000000000000000000000000000000000000000000000000000000000014d marked as pending in the payable table"
+            ),
+            &format!(
+                "WARN: {test_name}: Deleting fingerprints for failed transactions \
+                 0x00000000000000000000000000000000000000000000000000000000000000de"
+            ),
+        ]);
+        log_handler.exists_log_matching(&format!(
+            "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        ));
     }
 
     #[test]
@@ -1675,61 +1674,60 @@ mod tests {
 
     #[test]
     fn payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails() {
-        todo!()
-        // // two fatal failures, missing fingerprints and fingerprint deletion error are both legitimate
-        // // reasons for panic
-        // init_test_logging();
-        // let test_name = "payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails";
-        // let existent_record_hash = make_tx_hash(0xb26e);
-        // let nonexistent_record_hash = make_tx_hash(0x4d2);
-        // let pending_payable_dao = PendingPayableDaoMock::default()
-        //     .fingerprints_rowids_result(vec![
-        //         (Some(45), existent_record_hash),
-        //         (None, nonexistent_record_hash),
-        //     ])
-        //     .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
-        //         "Another failure. Really???".to_string(),
-        //     )));
-        // let mut subject = PayableScannerBuilder::new()
-        //     .pending_payable_dao(pending_payable_dao)
-        //     .build();
-        // let failed_payment_1 = Failed(RpcPayableFailure {
-        //     rpc_error: Error::Unreachable,
-        //     recipient_wallet: make_wallet("abc"),
-        //     hash: existent_record_hash,
-        // });
-        // let failed_payment_2 = Failed(RpcPayableFailure {
-        //     rpc_error: Error::Internal,
-        //     recipient_wallet: make_wallet("def"),
-        //     hash: nonexistent_record_hash,
-        // });
-        // let sent_payable = SentPayables {
-        //     payment_procedure_result: Ok(vec![failed_payment_1, failed_payment_2]),
-        //     response_skeleton_opt: None,
-        // };
-        //
-        // let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
-        //     subject.finish_scan(sent_payable, &Logger::new(test_name))
-        // }));
-        //
-        // let caught_panic = caught_panic_in_err.unwrap_err();
-        // let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        // assert_eq!(
-        //     panic_msg,
-        //     "Database corrupt: payable fingerprint deletion for transactions 0x00000000000000000000000\
-        //  0000000000000000000000000000000000000b26e failed due to RecordDeletion(\"Another failure. Really???\")");
-        // let log_handler = TestLogHandler::new();
-        // log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Server is unreachable' \
-        //  for payment to 0x0000000000000000000000000000000000616263 and transaction hash 0x00000000000000000000000\
-        //  0000000000000000000000000000000000000b26e. Please check your blockchain service URL configuration."));
-        // log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Internal Web3 error' \
-        // for payment to 0x0000000000000000000000000000000000646566 and transaction hash 0x000000000000000000000000\
-        // 00000000000000000000000000000000000004d2. Please check your blockchain service URL configuration."));
-        // log_handler.exists_log_containing(&format!(
-        //     "DEBUG: {test_name}: Got 0 properly sent payables of 2 attempts"
-        // ));
-        // log_handler.exists_log_containing(&format!("ERROR: {test_name}: Ran into failed transactions 0x0000000000000000\
-        // 0000000000000000000000000000000000000000000004d2 with missing fingerprints. System no longer reliable"));
+        // two fatal failures, missing fingerprints and fingerprint deletion error are both legitimate
+        // reasons for panic
+        init_test_logging();
+        let test_name = "payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails";
+        let existent_record_hash = make_tx_hash(0xb26e);
+        let nonexistent_record_hash = make_tx_hash(0x4d2);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![
+                (Some(45), existent_record_hash),
+                (None, nonexistent_record_hash),
+            ])
+            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
+                "Another failure. Really???".to_string(),
+            )));
+        let mut subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let failed_payment_1 = Failed(RpcPayableFailure {
+            rpc_error: Error::Unreachable,
+            recipient_wallet: make_wallet("abc"),
+            hash: existent_record_hash,
+        });
+        let failed_payment_2 = Failed(RpcPayableFailure {
+            rpc_error: Error::Internal,
+            recipient_wallet: make_wallet("def"),
+            hash: nonexistent_record_hash,
+        });
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(vec![failed_payment_1, failed_payment_2]),
+            response_skeleton_opt: None,
+        };
+
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
+        }));
+
+        let caught_panic = caught_panic_in_err.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Database corrupt: payable fingerprint deletion for transactions 0x00000000000000000000000\
+         0000000000000000000000000000000000000b26e failed due to RecordDeletion(\"Another failure. Really???\")");
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Server is unreachable' \
+         for payment to 0x0000000000000000000000000000000000616263 and transaction hash 0x00000000000000000000000\
+         0000000000000000000000000000000000000b26e. Please check your blockchain service URL configuration."));
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Internal Web3 error' \
+        for payment to 0x0000000000000000000000000000000000646566 and transaction hash 0x000000000000000000000000\
+        00000000000000000000000000000000000004d2. Please check your blockchain service URL configuration."));
+        log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Got 0 properly sent payables of 2 attempts"
+        ));
+        log_handler.exists_log_containing(&format!("ERROR: {test_name}: Ran into failed transactions 0x0000000000000000\
+        0000000000000000000000000000000000000000000004d2 with missing fingerprints. System no longer reliable"));
     }
 
     #[test]

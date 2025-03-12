@@ -1846,14 +1846,16 @@ mod tests {
     )]
     fn blockchain_bridge_can_be_crashed_properly_but_not_improperly() {
         let crashable = true;
-        let subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
-            Box::new(PersistentConfigurationMock::default()),
-            crashable,
-            None,
-        );
+        let blockchain_bridge_producer = || {
+            BlockchainBridge::new(
+                Box::new(BlockchainInterfaceMock::default()),
+                Box::new(PersistentConfigurationMock::default()),
+                crashable,
+                None,
+            )
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(subject, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(blockchain_bridge_producer, CRASH_KEY);
     }
 
     #[tokio::test]

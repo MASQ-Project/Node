@@ -539,10 +539,9 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn dispatcher_can_be_crashed_properly_but_not_improperly() {
-        let crashable = true;
-        let actor = Dispatcher::new(NodeDescriptor::default(), crashable);
+        let dispatcher_producer = || {Dispatcher::new(NodeDescriptor::default(), true)};
 
-        prove_that_crash_request_handler_is_hooked_up(actor, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(dispatcher_producer, CRASH_KEY);
     }
 
     #[test]

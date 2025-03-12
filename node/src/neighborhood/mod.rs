@@ -5748,10 +5748,13 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn neighborhood_can_be_crashed_properly_but_not_improperly() {
-        let mut neighborhood = make_standard_subject();
-        neighborhood.crashable = true;
+        let neighborhood_producer = || {
+            let mut neighborhood = make_standard_subject();
+            neighborhood.crashable = true;
+            neighborhood
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(neighborhood, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(neighborhood_producer, CRASH_KEY);
     }
 
     #[test]

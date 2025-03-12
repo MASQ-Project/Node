@@ -530,18 +530,20 @@ mod tests {
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
     fn proxy_client_can_be_crashed_properly_but_not_improperly() {
-        let proxy_client = ProxyClient::new(ProxyClientConfig {
-            cryptde: main_cryptde(),
-            dns_servers: vec![SocketAddr::V4(
-                SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
-            )],
-            exit_service_rate: 100,
-            exit_byte_rate: 200,
-            is_decentralized: true,
-            crashable: true,
-        });
+        let proxy_client_producer = || {
+            ProxyClient::new(ProxyClientConfig {
+                cryptde: main_cryptde(),
+                dns_servers: vec![SocketAddr::V4(
+                    SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
+                )],
+                exit_service_rate: 100,
+                exit_byte_rate: 200,
+                is_decentralized: true,
+                crashable: true,
+            })
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(proxy_client, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(proxy_client_producer, CRASH_KEY);
     }
 
     #[test]

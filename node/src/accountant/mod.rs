@@ -1603,10 +1603,10 @@ mod tests {
     fn accountant_calls_payable_dao_to_mark_pending_payable() {
         let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payables_rowids_params_arc = Arc::new(Mutex::new(vec![]));
-        let system = System::new();
         let expected_wallet = make_wallet("paying_you");
         let expected_hash = H256::from("transaction_hash".keccak256());
         let expected_rowid = 45623;
+        let system = System::new();
         system.block_on(async {
             let pending_payable_dao = PendingPayableDaoMock::default()
                 .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
@@ -3010,17 +3010,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
-    )]
     fn accountant_can_be_crashed_properly_but_not_improperly() {
-        let mut config = make_bc_with_defaults();
-        config.crash_point = CrashPoint::Message;
-        let accountant = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .build();
+        let accountant_producer = || {
+            let mut config = make_bc_with_defaults();
+            config.crash_point = CrashPoint::Message;
+            AccountantBuilder::default()
+                .bootstrapper_config(config)
+                .build()
+        };
 
-        prove_that_crash_request_handler_is_hooked_up(accountant, CRASH_KEY);
+        prove_that_crash_request_handler_is_hooked_up(accountant_producer, CRASH_KEY);
     }
 
     #[test]
