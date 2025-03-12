@@ -2,4 +2,4 @@
 pub mod broadcast_handlers;
 pub mod connection_manager;
 pub mod node_conversation;
-pub mod websocket_client;
+pub mod websockets_client;

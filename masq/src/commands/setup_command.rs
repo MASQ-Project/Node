@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use futures::future::join_all;
@@ -50,10 +50,9 @@ impl Command for SetupCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let out_message = UiSetupRequest {
             values: self.values.clone(),
         };
@@ -190,6 +189,7 @@ mod tests {
     use super::*;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{make_terminal_writer, CommandContextMock, TermInterfaceMock};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ToMessageBody;
@@ -239,7 +239,9 @@ mod tests {
                 errors: vec![],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -256,9 +258,10 @@ mod tests {
             ])
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -309,7 +312,9 @@ scans                         off                                               
                 errors: vec![("ip".to_string(), "Nosir, I don't like it.".to_string())],
             }
             .tmb(0)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -324,9 +329,10 @@ scans                         off                                               
             ])
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

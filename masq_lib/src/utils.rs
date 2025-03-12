@@ -6,7 +6,7 @@ use crate::shared_schema::{
     ConfigFile, DataDirectory, LogLevel, MappingProtocol, MinHops, NeighborhoodMode, Neighbors,
     OnOff, PaymentThresholds, PublicKey, RatePack, ScanIntervals,
 };
-use crate::shared_schema::{GasPrice, InsecurePort, IpAddrs, PrivateKey, RealUser, VecU64, Wallet};
+use crate::shared_schema::{GasPrice, InsecurePort, IpAddrs, PrivateKey, RealUser, Wallet};
 use clap::ArgMatches;
 use dirs::{data_local_dir, home_dir};
 use lazy_static::lazy_static;
@@ -126,7 +126,6 @@ argument_converter_for!(RatePack, RatePackConverter);
 argument_converter_for!(RealUser, RealUserConverter);
 argument_converter_for!(ScanIntervals, ScanIntervalsConverter);
 argument_converter_for!(Url, UrlConverter);
-argument_converter_for!(VecU64, VecU64Converter);
 argument_converter_for!(Wallet, WalletConverter);
 
 fn make_argument_converters() -> HashMap<&'static str, Box<dyn ArgumentConverter>> {

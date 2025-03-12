@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::run_modes::CLIProgramEntering;
+use crate::run_modes::EntryCheck;
 use crate::schema::app;
 use async_trait::async_trait;
 use clap::error::ErrorKind;
@@ -15,7 +15,7 @@ pub trait InitialArgsParser {
         &self,
         args: &[String],
         std_streams: &mut AsyncStdStreams,
-    ) -> CLIProgramEntering;
+    ) -> EntryCheck;
 }
 
 #[derive(Default)]
@@ -27,22 +27,22 @@ impl InitialArgsParser for InitialArgsParserReal {
         &self,
         args: &[String],
         std_streams: &mut AsyncStdStreams,
-    ) -> CLIProgramEntering {
+    ) -> EntryCheck {
         let matches = match app().try_get_matches_from(args) {
             Ok(m) => m,
             Err(e) if e.kind() == ErrorKind::DisplayHelp => {
                 let help = app().render_long_help();
                 write_async_stream_and_flush!(std_streams.stdout, "{}", help);
-                return CLIProgramEntering::Leave(0);
+                return EntryCheck::Exit(0);
             }
             Err(e) if e.kind() == ErrorKind::DisplayVersion => {
                 let version = app().render_long_version();
                 write_async_stream_and_flush!(std_streams.stdout, "{}", version);
-                return CLIProgramEntering::Leave(0);
+                return EntryCheck::Exit(0);
             }
             Err(e) => {
                 write_async_stream_and_flush!(std_streams.stderr, "{}", e);
-                return CLIProgramEntering::Leave(1);
+                return EntryCheck::Exit(1);
             }
         };
         let ui_port = matches
@@ -50,7 +50,7 @@ impl InitialArgsParser for InitialArgsParserReal {
             .expect("ui-port is not properly defaulted")
             .port;
 
-        CLIProgramEntering::Enter(InitializationArgs::new(ui_port))
+        EntryCheck::Enter(InitializationArgs::new(ui_port))
     }
 }
 
@@ -86,9 +86,9 @@ mod tests {
             )
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         let init_args = match result {
-            CLIProgramEntering::Enter(init_args) => init_args,
+            EntryCheck::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
         };
         assert_eq!(init_args.ui_port, DEFAULT_UI_PORT);
@@ -110,9 +110,9 @@ mod tests {
             )
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         let init_args = match result {
-            CLIProgramEntering::Enter(init_args) => init_args,
+            EntryCheck::Enter(init_args) => init_args,
             x => panic!("we expected Enter with init args but got {:?}", x),
         };
         assert_eq!(init_args.ui_port, 10000);
@@ -135,7 +135,7 @@ mod tests {
             .await;
 
         match result {
-            CLIProgramEntering::Leave(0) => (),
+            EntryCheck::Exit(0) => (),
             x => panic!("we expected Leave with exit code 0 but got {:?}", x),
         };
         handles.assert_empty_stderr();
@@ -161,7 +161,7 @@ mod tests {
             .await;
 
         match result {
-            CLIProgramEntering::Leave(0) => (),
+            EntryCheck::Exit(0) => (),
             x => panic!("we expected Leave with exit code 0 but got {:?}", x),
         };
         handles.assert_empty_stderr();
@@ -202,9 +202,9 @@ mod tests {
                 )
                 .await;
 
-            allow_flushed_writings_to_finish().await;
+            allow_flushed_writings_to_finish(None, None).await;
             match result {
-                CLIProgramEntering::Leave(1) => (),
+                EntryCheck::Exit(1) => (),
                 x => panic!("we expected Leave with exit code 1 but got {:?}", x),
             };
             handles.assert_empty_stdout();

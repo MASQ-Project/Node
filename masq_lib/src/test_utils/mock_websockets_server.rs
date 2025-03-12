@@ -1,38 +1,29 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::NODE_UI_PROTOCOL;
-use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
+use crate::test_utils::forced_tcp_reset::SocketHandle;
+use crate::ui_gateway::{MessageBody, MessagePath};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
 use crate::websockets_types::{WSReceiver, WSSender};
-use async_trait::async_trait;
 use futures::io::{BufReader, BufWriter};
 use lazy_static::lazy_static;
-use nix::libc::aio_return;
-use rustc_hex::ToHex;
 use soketto::base::OpCode;
-use soketto::connection::{CloseReason, Error, Receiver, Sender};
-use soketto::data::ByteSlice125;
-use soketto::handshake::{server::Response, ClientRequest, Server};
-use soketto::Data as SokettoDataType;
-use soketto::Incoming as SokettoIncomingType;
+use soketto::connection::Error;
+use soketto::handshake::{server::Response, Server};
+use soketto::{Data as SokettoDataType, Incoming};
 use std::fmt::Debug;
 use std::future::Future;
-use std::io::Write;
 use std::net::SocketAddr;
-use std::ops::Not;
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
-use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::oneshot::Receiver as OneShotReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 lazy_static! {
     static ref MWSS_INDEX: Mutex<u64> = Mutex::new(0);
@@ -71,7 +62,6 @@ impl MWSSMessage {
     pub async fn send(self, sender: &mut WSSender) {
         match self {
             MWSSMessage::MessageBody(body) => {
-                let opcode = body.opcode.clone();
                 let json = UiTrafficConverter::new_marshal(body);
                 Self::send_data_message(
                     sender,
@@ -116,19 +106,10 @@ impl MWSSMessage {
     }
 }
 
-pub struct MockWebsocketServerHandle {
-    requests_arc: Arc<Mutex<Vec<MWSSMessage>>>,
-    proposed_protocols_arc: Arc<Mutex<Vec<String>>>,
-    responses: Vec<MWSSMessage>,
-    opening_broadcast_signal_rx_opt: Option<tokio::sync::oneshot::Receiver<()>>,
-    logger: MWSSLogger,
-    join_handle: JoinHandle<()>,
-}
-
 pub struct MockWebSocketsServer {
     port: u16,
-    accepted_protocol_opt: Option<String>,
     responses: Vec<MWSSMessage>,
+    edge_cases: EdgeCaseConfig,
     do_log: bool,
 }
 
@@ -136,8 +117,8 @@ impl MockWebSocketsServer {
     pub fn new(port: u16) -> Self {
         Self {
             port,
-            accepted_protocol_opt: Some(NODE_UI_PROTOCOL.to_string()),
             responses: vec![],
+            edge_cases: EdgeCaseConfig::default(),
             do_log: false,
         }
     }
@@ -146,8 +127,37 @@ impl MockWebSocketsServer {
         self.port
     }
 
-    pub fn accepted_protocol(mut self, protocol_opt: Option<&str>) -> Self {
-        self.accepted_protocol_opt = protocol_opt.map(|p| p.to_string());
+    pub fn send_unexpected_http_when_tcp_established(mut self, http_response: String) -> Self {
+        self.edge_cases.unexpected_http_when_tcp_established_opt = Some(http_response);
+        self
+    }
+
+    pub fn send_specific_handshake_response(
+        mut self,
+        response: MockServerHandshakeResponse,
+    ) -> Self {
+        self.edge_cases.specific_handshake_response_opt = Some(response);
+        self
+    }
+
+    // E.g. required for testing a redirect where a conversational message is followed by a faf msg
+    pub fn opening_faf_triggered_by_msg(mut self) -> Self {
+        self.edge_cases.opening_faf_triggered_by_msg = true;
+        self
+    }
+
+    pub fn await_close_handshake_completion(mut self) -> Self {
+        self.edge_cases.await_close_handshake_completion = true;
+        self
+    }
+
+    pub fn drop_conn_during_handshake(mut self) -> Self {
+        self.edge_cases.drop_conn_during_handshake = true;
+        self
+    }
+
+    pub fn set_socket_to_no_linger(mut self) -> Self {
+        self.edge_cases.set_socket_to_no_linger = true;
         self
     }
 
@@ -189,11 +199,11 @@ impl MockWebSocketsServer {
         self
     }
 
-    pub async fn start(self) -> MockWebSocketsServerHandle {
+    pub async fn start(mut self) -> MockWebSocketsServerHandle {
         let logger = MWSSLogger::new(self.do_log);
         let requests_arc = Arc::new(Mutex::new(vec![]));
         let proposed_protocols_arc = Arc::new(Mutex::new(vec![]));
-        let (termination_tx, mut termination_rx) = tokio::sync::oneshot::channel::<StopStrategy>();
+        let (termination_tx, termination_rx) = tokio::sync::oneshot::channel();
 
         let socket_addr = SocketAddr::new(localhost(), self.port);
         let tcp_listener = tokio::net::TcpListener::bind(socket_addr)
@@ -202,23 +212,25 @@ impl MockWebSocketsServer {
 
         let proposed_protocols_inner_arc = proposed_protocols_arc.clone();
         let requests_inner_arc = requests_arc.clone();
-        let mut responses = self.responses;
+
         let connection_future = async move {
-            let (mut sender, mut receiver) = Self::make_connection(
-                tcp_listener,
-                proposed_protocols_inner_arc,
-                self.accepted_protocol_opt.clone(),
-            )
-                .await;
-            let mut data = Vec::new();
-            Self::send_faf_messages(&mut sender, &mut responses).await;
+            let (mut sender, receiver) = match self
+                .make_connection(tcp_listener, proposed_protocols_inner_arc)
+                .await
+            {
+                ConnectionResult::ComponentsInitialized { sender, receiver } => (sender, receiver),
+                ConnectionResult::IntentionalExit => return,
+                };
+            if !self.edge_cases.opening_faf_triggered_by_msg {
+                Self::send_faf_messages(&mut sender, &mut self.responses).await;
+            }
             Self::handling_loop(
                 sender,
-                &mut receiver,
-                &mut data,
-                &requests_inner_arc,
-                &mut responses,
+                receiver,
+                requests_inner_arc,
+                &mut self.responses,
                 termination_rx,
+                self.edge_cases,
             )
                 .await
         };
@@ -237,30 +249,29 @@ impl MockWebSocketsServer {
 
     async fn handling_loop(
         mut sender: WSSender,
-        receiver: &mut WSReceiver,
-        data: &mut Vec<u8>,
-        requests_inner_arc: &Arc<Mutex<Vec<MWSSMessage>>>,
+        mut receiver: WSReceiver,
+        requests_inner_arc: Arc<Mutex<Vec<MWSSMessage>>>,
         responses: &mut Vec<MWSSMessage>,
-        termination_rx: OneShotReceiver<StopStrategy>,
+        termination_rx: OneShotReceiver<()>,
+        edge_cases: EdgeCaseConfig,
     ) {
         let deadline_if_no_termination_received = Duration::from_millis(10_000);
-        let mut timeout = tokio::time::sleep(deadline_if_no_termination_received);
+        let timeout = tokio::time::sleep(deadline_if_no_termination_received);
         tokio::pin!(timeout);
 
-        type TerminationOrderFuture = Pin<Box<dyn Future<Output = Option<StopStrategy>> + Send>>;
+        type TerminationOrderFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
         let mut termination_order_future: TerminationOrderFuture = Box::pin(async {
-            Some(
-                termination_rx
-                    .await
-                    .expect("Error receiving termination signal"),
-            )
+            termination_rx
+                .await
+                .expect("Error receiving termination signal")
         });
-        let mut ordered_stop_strategy_opt: Option<StopStrategy> = None;
+        let mut stop_already_ordered = false;
+        let mut data = Vec::new();
 
         loop {
             data.clear();
             let data_type = tokio::select! {
-                    data_type_res = receiver.receive_data(data) => {
+                    data_type_res = receiver.receive_data(&mut data) => {
                         match data_type_res {
                             Ok(data_type) => data_type,
                             Err(Error::Closed) => {
@@ -273,8 +284,8 @@ impl MockWebSocketsServer {
                     }
 
                     _ = &mut timeout => {
-                        if let Some(stop_startegy) = ordered_stop_strategy_opt {
-                            stop_startegy.apply(sender).await;
+                        if stop_already_ordered {
+                            Self::handle_server_stop(sender, receiver, requests_inner_arc, edge_cases.await_close_handshake_completion).await;
                             return;
                         } else {
                             panic!(
@@ -284,8 +295,8 @@ impl MockWebSocketsServer {
                         }
                     }
 
-                    stop_strategy = termination_order_future.as_mut() => {
-                        ordered_stop_strategy_opt = stop_strategy;
+                    _ = termination_order_future.as_mut() => {
+                        stop_already_ordered = true;
                         // Resetting to a future which never resolves
                         termination_order_future = Box::pin(std::future::pending());
                         // Now we're giving time for processing any piled up messages in
@@ -298,7 +309,7 @@ impl MockWebSocketsServer {
             };
             Self::process_data(
                 &data_type,
-                data.as_slice(),
+                &data,
                 &mut sender,
                 requests_inner_arc.clone(),
                 responses,
@@ -308,20 +319,38 @@ impl MockWebSocketsServer {
     }
 
     async fn make_connection(
+        &self,
         tcp_listener: TcpListener,
         proposed_protocols_arc: Arc<Mutex<Vec<String>>>,
-        accepted_protocol_opt: Option<String>,
-    ) -> (WSSender, WSReceiver) {
-        // TODO: Eventually add the capability to abort at any important stage along in here so that
-        // we can test client code against misbehaving servers.
-        let (stream, peer_addr) = tcp_listener
+    ) -> ConnectionResult {
+        let (mut stream, _) = tcp_listener
             .accept()
             .await
             .expect("Error accepting incoming connection to MockWebsocketsServer");
-        let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
-        if let Some(protocol) = accepted_protocol_opt.as_ref() {
-            server.add_protocol(protocol.as_str());
+
+        if self.edge_cases.set_socket_to_no_linger {
+            SocketHandle::new(&stream).set_socket_to_no_linger();
         }
+
+        if let Some(http) = self
+            .edge_cases
+            .unexpected_http_when_tcp_established_opt
+            .as_ref()
+        {
+            stream.write_all(http.as_bytes()).await.unwrap();
+            stream.flush().await.unwrap()
+        }
+
+        let mut server = Server::new(BufReader::new(BufWriter::new(stream.compat())));
+
+        let protocol = if let Some(protocol) = self.arbitrary_protocol_opt() {
+            protocol
+        } else {
+            NODE_UI_PROTOCOL
+        };
+
+        server.add_protocol(protocol);
+
         let websocket_key = {
             let req = server
                 .receive_request()
@@ -334,17 +363,61 @@ impl MockWebSocketsServer {
             req.key()
         };
 
-        let accept = Response::Accept {
-            key: websocket_key,
-            protocol: accepted_protocol_opt.as_ref().map(|p| p.as_str()),
-        };
+        if self.edge_cases.drop_conn_during_handshake {
+            // Dropping server and thus the connection terminates
+            // (You may want to combine it with set_socket_to_no_linger() for a violate reset)
+            return ConnectionResult::IntentionalExit;
+        }
+
+        let server_response =
+            if let Some(response) = &self.edge_cases.specific_handshake_response_opt {
+                match response {
+                    MockServerHandshakeResponse::Accept {
+                        accepted_protocol_opt,
+                        replace_correct_websocket_key_with_opt,
+                    } => Response::Accept {
+                        key: if let Some(key) = replace_correct_websocket_key_with_opt {
+                            key.clone()
+                        } else {
+                            websocket_key
+                        },
+                        protocol: accepted_protocol_opt.as_ref().map(|p| p.as_str()),
+                    },
+                    MockServerHandshakeResponse::Reject { status_code } => Response::Reject {
+                        status_code: *status_code,
+                    },
+                }
+            } else {
+                Response::Accept {
+                    key: websocket_key,
+                    protocol: Some(NODE_UI_PROTOCOL),
+                }
+            };
+
         server
-            .send_response(&accept)
+            .send_response(&server_response)
             .await
             .expect("Error sending handshake acceptance to client");
 
         let (sender, receiver) = server.into_builder().finish();
-        (sender, receiver)
+
+        ConnectionResult::ComponentsInitialized { sender, receiver }
+    }
+
+    fn arbitrary_protocol_opt(&self) -> Option<&str> {
+        if let Some(response) = &self.edge_cases.specific_handshake_response_opt {
+            if let MockServerHandshakeResponse::Accept {
+                accepted_protocol_opt,
+                ..
+            } = response
+            {
+                if let Some(protocol) = accepted_protocol_opt {
+                    return Some(protocol.as_str());
+                }
+            }
+        }
+
+        None
     }
 
     async fn process_data(
@@ -406,24 +479,77 @@ impl MockWebSocketsServer {
 
     async fn send_data(sender: &mut WSSender, data_type: SokettoDataType, data: Vec<u8>) {
         match data_type {
-            SokettoDataType::Text(len) => {
+            SokettoDataType::Text(_) => {
                 let text = std::str::from_utf8(&data).expect("Error converting data to text");
                 sender
                     .send_text(text)
                     .await
-                    .expect("Error sending data to client");
-                sender.flush().await.expect("Error flushing text to client");
-            }
-            SokettoDataType::Binary(len) => {
-                sender
-                    .send_binary(&data)
-                    .await
-                    .expect("Error sending data to client");
+                    .unwrap_or_else(|_| panic!("Error sending text msg '{:?}' to client", text));
                 sender
                     .flush()
                     .await
-                    .expect("Error flushing binary data to client");
+                    .unwrap_or_else(|_| panic!("Error flushing text msg '{:?}' to client", text));
             }
+            SokettoDataType::Binary(_) => {
+                sender
+                    .send_binary(&data)
+                    .await
+                    .unwrap_or_else(|_| panic!("Error sending binary data '{:?}' to client", data));
+                sender.flush().await.unwrap_or_else(|_| {
+                    panic!("Error flushing binary data '{:?}' to client", data)
+                });
+            }
+        }
+    }
+
+    async fn handle_server_stop(
+        sender: WSSender,
+        receiver: WSReceiver,
+        requests_inner_arc: Arc<Mutex<Vec<MWSSMessage>>>,
+        await_close_handshake_completion: bool,
+    ) {
+        // Other than graceful Close cannot be easily implemented, do not try. Dropping the Sender
+        // results in the same Close detection on the remote end like when calling sender.close().
+        Self::close(sender).await;
+
+        if await_close_handshake_completion {
+            Self::try_record_close_response(receiver, requests_inner_arc).await
+        }
+    }
+
+    async fn close(mut sender: WSSender) {
+        sender
+            .close()
+            .await
+            .expect("Error closing WebSocket connection");
+    }
+
+    async fn try_record_close_response(
+        mut receiver: WSReceiver,
+        requests_arc: Arc<Mutex<Vec<MWSSMessage>>>,
+    ) {
+        let fut = async move {
+            let mut msg = Vec::new();
+            loop {
+                match receiver.receive(&mut msg).await {
+                    Err(Error::Closed) => {requests_arc.lock().unwrap().push(MWSSMessage::Close); break},
+                    Err(Error::UnexpectedOpCode(OpCode::Continue)) => continue,
+                    Ok(Incoming::Closed(_)) => panic!("Received new Close from the Client, but we expected Err(Error::Closed) handled by Soketto"),
+                    Ok(x) => panic!(
+                        "Unexpected msg received when waiting for the Client to finish the Close handshake: {:?}",
+                        x
+                    ),
+                    Err(e) => panic!("Unexpected error reading incoming data when waiting for the Client to finish the Close handshake: {:?}", e)
+                }
+            }
+        };
+
+        let timeout = Duration::from_millis(1_500);
+        if let Err(_) = tokio::time::timeout(timeout, fut).await {
+            panic!(
+                "Timeout elapsed waiting for the Client to finish the Close handshake after: {}ms",
+                timeout.as_millis()
+            )
         }
     }
 }
@@ -436,50 +562,20 @@ pub struct MockWebSocketsServerResult {
     pub proposed_protocols: Vec<String>,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum StopStrategy {
-    Close,
-    Abort,
-}
-
-impl StopStrategy {
-    pub async fn apply(self, mut sender: WSSender) {
-        match self {
-            StopStrategy::Close => {
-                Self::close(sender).await;
-            }
-            StopStrategy::Abort => {
-                Self::abort(sender);
-            }
-        }
-    }
-
-    async fn close(mut sender: WSSender) {
-        sender
-            .close()
-            .await
-            .expect("Error closing WebSocket connection");
-    }
-
-    fn abort(mut sender: WSSender) {
-        drop(sender);
-    }
-}
-
 pub struct MockWebSocketsServerHandle {
     requests_arc: Arc<Mutex<Vec<MWSSMessage>>>,
     proposed_protocols_arc: Arc<Mutex<Vec<String>>>,
-    termination_tx: tokio::sync::oneshot::Sender<StopStrategy>,
+    termination_tx: tokio::sync::oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
 }
 
 impl MockWebSocketsServerHandle {
-    pub async fn stop(mut self, strategy: StopStrategy) -> MockWebSocketsServerResult {
-        match self.termination_tx.send(strategy) {
+    pub async fn stop(self) -> MockWebSocketsServerResult {
+        match self.termination_tx.send(()) {
             Ok(_) => {}
             Err(e) => eprintln!(
-                "Failed to send {:?} stop signal ({:?}); assuming server already stopped",
-                strategy, e
+                "Failed to send stop signal ({:?}); assuming server already stopped",
+                e
             ),
         }
         let _ = tokio::time::timeout(Duration::from_secs(10), self.join_handle).await;
@@ -488,6 +584,46 @@ impl MockWebSocketsServerHandle {
             proposed_protocols: (*(self.proposed_protocols_arc.lock().unwrap())).clone(),
         }
     }
+}
+
+pub enum MockServerHandshakeResponse {
+    Accept {
+        accepted_protocol_opt: Option<String>,
+        replace_correct_websocket_key_with_opt: Option<[u8; 24]>,
+    },
+    Reject {
+        status_code: u16,
+    },
+}
+
+struct EdgeCaseConfig {
+    opening_faf_triggered_by_msg: bool,
+    await_close_handshake_completion: bool,
+    drop_conn_during_handshake: bool,
+    set_socket_to_no_linger: bool,
+    specific_handshake_response_opt: Option<MockServerHandshakeResponse>,
+    unexpected_http_when_tcp_established_opt: Option<String>,
+}
+
+impl Default for EdgeCaseConfig {
+    fn default() -> Self {
+        Self {
+            opening_faf_triggered_by_msg: false,
+            await_close_handshake_completion: false,
+            drop_conn_during_handshake: false,
+            set_socket_to_no_linger: false,
+            specific_handshake_response_opt: None,
+            unexpected_http_when_tcp_established_opt: None,
+        }
+    }
+}
+
+enum ConnectionResult {
+    ComponentsInitialized {
+        sender: WSSender,
+        receiver: WSReceiver,
+    },
+    IntentionalExit,
 }
 
 #[derive(Clone)]
@@ -546,7 +682,7 @@ mod tests {
             .unwrap()
             .1;
 
-        let mut requests = stop_handle.stop(StopStrategy::Close).await.requests;
+        let mut requests = stop_handle.stop().await.requests;
         let captured_request = requests.remove(0).message_body();
         let actual_message_gotten_by_the_server =
             UiCheckPasswordRequest::fmb(captured_request).unwrap().0;
@@ -672,7 +808,7 @@ mod tests {
         let closed_error = connection.receive().await.unwrap_err();
         assert!(matches!(closed_error, soketto::connection::Error::Closed));
 
-        let requests = stop_handle.stop(StopStrategy::Close).await.requests;
+        let requests = stop_handle.stop().await.requests;
 
         let last_request = requests.last().unwrap();
         assert_eq!(last_request, &MWSSMessage::Close);
@@ -723,7 +859,7 @@ mod tests {
             for j in 0..cluster_count {
                 conn.send_string("Booga!".to_string()).await;
             }
-            let result = server_handle.stop(StopStrategy::Abort).await;
+            let result = server_handle.stop().await;
 
             actual_request_counts.push(result.requests.len());
             expected_request_counts.push(attempt_count);

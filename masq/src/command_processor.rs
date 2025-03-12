@@ -8,6 +8,7 @@ use crate::masq_short_writeln;
 use crate::terminal::{FlushHandle, RWTermInterface, ReadInput, TerminalWriter, WTermInterface};
 use async_trait::async_trait;
 use itertools::Either;
+use liso::History;
 use masq_lib::utils::exit_process;
 use std::sync::Arc;
 
@@ -19,7 +20,7 @@ impl CommandProcessorFactory {
         term_interface: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
         command_context_factory: &dyn CommandContextFactory,
         command_execution_helper_factory: &dyn CommandExecutionHelperFactory,
-        command_factory: Box<dyn CommandFactory>,
+        command_factory: Arc<dyn CommandFactory>,
         ui_port: u16,
     ) -> Result<Box<dyn CommandProcessor>, CommandError> {
         let background_term_interface_opt = match &term_interface {
@@ -111,14 +112,14 @@ pub trait ProcessorProvidingCommonComponents {
 
 pub struct CommandProcessorCommon {
     command_context: Box<dyn CommandContext>,
-    command_factory: Box<dyn CommandFactory>,
+    command_factory: Arc<dyn CommandFactory>,
     command_execution_helper: Box<dyn CommandExecutionHelper>,
 }
 
 impl CommandProcessorCommon {
     fn new(
         command_context: Box<dyn CommandContext>,
-        command_factory: Box<dyn CommandFactory>,
+        command_factory: Arc<dyn CommandFactory>,
         command_execution_helper: Box<dyn crate::command_processor::CommandExecutionHelper>,
     ) -> Self {
         Self {
@@ -182,18 +183,7 @@ impl CommandProcessorNonInteractive {
 pub struct CommandProcessorInteractive {
     command_processor_common: CommandProcessorCommon,
     terminal_interface: Box<dyn RWTermInterface>,
-}
-
-impl CommandProcessorInteractive {
-    fn new(
-        command_processor_common: CommandProcessorCommon,
-        terminal_interface: Box<dyn RWTermInterface>,
-    ) -> CommandProcessorInteractive {
-        Self {
-            command_processor_common,
-            terminal_interface,
-        }
-    }
+    command_history: History,
 }
 
 #[async_trait(?Send)]
@@ -203,40 +193,10 @@ impl CommandProcessor for CommandProcessorInteractive {
         _initial_subcommand_opt: Option<&[String]>,
     ) -> Result<(), ()> {
         loop {
-            let args = match self.terminal_interface.read_line().await {
-                Ok(read_input) => match read_input {
-                    ReadInput::Line(cmd) => split_possibly_quoted_cml(cmd),
-                    ReadInput::Quit => {
-                        let (stderr, stderr_flush_handle) =
-                            self.terminal_interface.write_only_ref().stderr();
-
-                        masq_short_writeln!(stderr, "MASQ interrupted");
-                        // Flushing the err msg
-                        drop(stderr_flush_handle);
-
-                        exit_process(1, "")
-                    }
-                    ReadInput::Ignored { msg_opt } => {
-                        let (stdout, _stdout_flush_handle) =
-                            self.terminal_interface.write_only_ref().stdout();
-
-                        let description = match msg_opt {
-                            Some(msg) => format!(" ({})", msg),
-                            None => "".to_string(),
-                        };
-                        masq_short_writeln!(stdout, "Ignored instruction{}", description);
-
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    let (stderr, _stderr_flush_handle) =
-                        self.terminal_interface.write_only_ref().stderr();
-
-                    masq_short_writeln!(stderr, "Terminal read error: {}", e);
-
-                    break Err(());
-                }
+            let args = if let Some(args) = self.handle_new_read().await? {
+                args
+            } else {
+                continue;
             };
 
             if let [single_arg] = args[..].as_ref() {
@@ -272,6 +232,70 @@ impl CommandProcessor for CommandProcessorInteractive {
     }
 }
 
+impl CommandProcessorInteractive {
+    fn new(
+        command_processor_common: CommandProcessorCommon,
+        terminal_interface: Box<dyn RWTermInterface>,
+    ) -> CommandProcessorInteractive {
+        Self {
+            command_processor_common,
+            terminal_interface,
+            command_history: Default::default(),
+        }
+    }
+
+    async fn handle_new_read(&mut self) -> Result<Option<Vec<String>>, ()> {
+        match self.terminal_interface.read_line().await {
+            Ok(read_input) => match read_input {
+                ReadInput::Line(cmd) => {
+                    if let Err(e) = self.command_history.add_line(cmd.clone()) {
+                        let (stderr, _flush_handle) =
+                            self.terminal_interface.write_only_ref().stderr();
+                        masq_short_writeln!(
+                            stderr,
+                            "Command history error adding \"{}\": {:?}",
+                            cmd,
+                            e
+                        )
+                    };
+
+                    Ok(Some(split_possibly_quoted_cml(cmd)))
+                }
+                ReadInput::Quit => {
+                    let (stderr, stderr_flush_handle) =
+                        self.terminal_interface.write_only_ref().stderr();
+
+                    masq_short_writeln!(stderr, "MASQ interrupted");
+                    // Flushing the err msg
+                    drop(stderr_flush_handle);
+
+                    exit_process(1, "")
+                }
+                ReadInput::Ignored { msg_opt } => {
+                    let (stdout, _stdout_flush_handle) =
+                        self.terminal_interface.write_only_ref().stdout();
+
+                    let description = match msg_opt {
+                        Some(msg) => format!(" ({})", msg),
+                        None => "".to_string(),
+                    };
+                    masq_short_writeln!(stdout, "Ignored instruction{}", description);
+
+                    Ok(None)
+                }
+            },
+            Err(e) => {
+                let (stderr, _stderr_flush_handle) =
+                    self.terminal_interface.write_only_ref().stderr();
+
+                masq_short_writeln!(stderr, "Terminal read error: {}", e);
+
+                Err(())
+            }
+        }
+    }
+}
+
 impl ProcessorProvidingCommonComponents for CommandProcessorInteractive {
     fn components(&self) -> &CommandProcessorCommon {
         &self.command_processor_common
@@ -297,11 +321,11 @@ pub trait CommandExecutionHelper {
         &self,
         command: Box<dyn Command>,
         context: &dyn CommandContext,
-        // Consider sticking in only the streams, dropping the handles outside the actual 'execute()'
         term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError>;
 }
 
+#[derive(Default)]
 pub struct CommandExecutionHelperReal {}
 
 #[async_trait(?Send)]
@@ -312,7 +336,9 @@ impl CommandExecutionHelper for CommandExecutionHelperReal {
         context: &dyn CommandContext,
         term_interface: &dyn WTermInterface,
     ) -> Result<(), CommandError> {
-        command.execute(context, term_interface).await
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
+        command.execute(context, stdout, stderr).await
     }
 }
 
@@ -349,10 +375,14 @@ mod tests {
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
     use crate::test_utils::mocks::{
         AsyncTestStreamHandles, CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock,
-        TermInterfaceMock,
+        MockCommand, TermInterfaceMock,
     };
     use futures::FutureExt;
-    use masq_lib::utils::{find_free_port, running_test};
+    use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
+    use masq_lib::utils::{find_free_port, running_test, slice_of_strs_to_vec_of_strings};
+    use std::io;
+    use std::io::ErrorKind;
+    use std::num::NonZeroUsize;
     use std::panic::AssertUnwindSafe;
 
     async fn test_handles_nonexistent_server(is_interactive: bool) {
@@ -367,7 +397,7 @@ mod tests {
         };
         let command_context_factory = CommandContextFactoryReal::default();
         let command_execution_helper_factory = CommandExecutionHelperFactoryReal::default();
-        let command_factory = Box::new(CommandFactoryReal::default());
+        let command_factory = Arc::new(CommandFactoryReal::default());
 
         let result = Arc::new(subject)
             .make(
@@ -481,10 +511,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn non_interactive_mode_handle_command_common_ensures_flushing_output_from_command_execution(
+    ) {
+        let (terminal_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let create_processor =
+            move |command_processor_common: CommandProcessorCommon| -> Box<dyn CommandProcessor> {
+                Box::new(CommandProcessorNonInteractive::new(
+                    command_processor_common,
+                    Box::new(terminal_interface),
+                ))
+            };
+
+        test_output_is_always_flushed(create_processor, stream_handles).await
+    }
+
+    #[tokio::test]
+    async fn interactive_mode_handle_command_common_ensures_flushing_output_from_command_execution()
+    {
+        let (terminal_interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![]);
+        let create_processor =
+            move |command_processor_common: CommandProcessorCommon| -> Box<dyn CommandProcessor> {
+                Box::new(CommandProcessorInteractive::new(
+                    command_processor_common,
+                    Box::new(terminal_interface),
+                ))
+            };
+
+        test_output_is_always_flushed(create_processor, stream_handles).await
+    }
+
+    async fn test_output_is_always_flushed<F>(
+        create_processor: F,
+        async_test_stream_handles: AsyncTestStreamHandles,
+    ) where
+        F: FnOnce(CommandProcessorCommon) -> Box<dyn CommandProcessor>,
+    {
+        let command_context = Box::new(
+            CommandContextMock::default().transact_result(Ok(UiDescriptorResponse {
+                node_descriptor_opt: None,
+            }
+            .tmb(1))),
+        );
+        let expected_stdout = "Job is successfully over";
+        let expected_stderr = "Hit no issues on the way";
+        let command = MockCommand::default()
+            .request(
+                UiDescriptorResponse {
+                    node_descriptor_opt: None,
+                }
+                .tmb(1),
+            )
+            .stdout_output(expected_stdout.to_string())
+            .stderr_output(expected_stderr.to_string())
+            .execute_result(Ok(()));
+        let command_factory =
+            Arc::new(CommandFactoryMock::default().make_result(Ok(Box::new(command))));
+        let command_execution_helper = Box::new(CommandExecutionHelperReal::default());
+        let command_processor_common =
+            CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
+        let irrelevant_args = vec!["subcommand".to_string(), "arg".to_string()];
+        let mut processor = create_processor(command_processor_common);
+
+        let result = processor.handle_command_common(&irrelevant_args).await;
+
+        allow_flushed_writings_to_finish(None, None).await;
+        assert_eq!(result, Ok(()));
+        let stdout = async_test_stream_handles.stdout_flushed_strings();
+        assert_eq!(stdout, vec![format!("{}\n", expected_stdout)]);
+        let stderr = async_test_stream_handles.stderr_flushed_strings();
+        assert_eq!(stderr, vec![format!("{}\n", expected_stderr)])
+    }
+
+    #[tokio::test]
     async fn interactive_command_processor_handles_quit_signals() {
         running_test();
         let command_context = Box::new(CommandContextMock::default());
-        let command_factory = Box::new(CommandFactoryReal::new());
+        let command_factory = Arc::new(CommandFactoryReal::new());
         let command_execution_helper = Box::new(CommandExecutionHelperMock::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -500,7 +602,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(stream_handles.stderr_all_in_one(), "MASQ interrupted\n");
         let exiting_msg = caught_fictional_panic.downcast_ref::<String>().unwrap();
@@ -533,7 +635,7 @@ mod tests {
     ) {
         running_test();
         let command_context = Box::new(CommandContextMock::default());
-        let command_factory = Box::new(CommandFactoryReal::new());
+        let command_factory = Arc::new(CommandFactoryReal::new());
         let command_execution_helper = Box::new(CommandExecutionHelperMock::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -548,7 +650,7 @@ mod tests {
 
         let result = subject.process_command_line(None).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         assert_eq!(stream_handles.stdout_all_in_one(), expected_stdout_msg);
         assert_eq!(stream_handles.stderr_all_in_one(), "");
         assert_eq!(result, Ok(()))
@@ -557,7 +659,7 @@ mod tests {
     #[tokio::test]
     async fn handling_command_line_in_interactive_command_processor_handles_error() {
         let command_context = Box::new(CommandContextMock::default());
-        let command_factory = Box::new(CommandFactoryReal::new());
+        let command_factory = Arc::new(CommandFactoryReal::new());
         let command_execution_helper = Box::new(CommandExecutionHelperMock::default());
         let command_processor_common =
             CommandProcessorCommon::new(command_context, command_factory, command_execution_helper);
@@ -570,7 +672,7 @@ mod tests {
 
         let result = subject.process_command_line(None).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         assert_eq!(result, Err(()));
         assert_eq!(stream_handles.stdout_all_in_one(), "");
         assert_eq!(
@@ -579,10 +681,77 @@ mod tests {
         )
     }
 
+    #[tokio::test]
+    async fn interactive_command_processor_keeps_history_of_commands() {
+        let command_processor_common = make_command_processor_common();
+        let (terminal_interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![Ok(
+            ReadInput::Line("subcommand arg val flag".to_string()),
+        )]);
+        let mut subject = CommandProcessorInteractive::new(
+            command_processor_common,
+            Box::new(terminal_interface),
+        );
+        let history_before = subject.command_history.get_lines().to_vec();
+
+        let result = subject.handle_new_read().await;
+
+        allow_flushed_writings_to_finish(None, None).await;
+        assert_eq!(
+            result,
+            Ok(Some(slice_of_strs_to_vec_of_strings(&[
+                "subcommand",
+                "arg",
+                "val",
+                "flag"
+            ])))
+        );
+        assert_eq!(history_before, Vec::<String>::new());
+        let history_after = subject.command_history.get_lines();
+        assert_eq!(history_after, vec!["subcommand arg val flag"]);
+        stream_handles.assert_empty_stdout();
+        stream_handles.assert_empty_stderr()
+    }
+
+    #[tokio::test]
+    async fn adding_new_command_entry_to_history_fails() {
+        let command_processor_common = make_command_processor_common();
+        let (terminal_interface, stream_handles, _) = TermInterfaceMock::new_interactive(vec![Ok(
+            ReadInput::Line("subcommand arg val flag".to_string()),
+        )]);
+        let mut subject = CommandProcessorInteractive::new(
+            command_processor_common,
+            Box::new(terminal_interface),
+        );
+        let autosave_handler = |_history: &History| Err(io::Error::from(ErrorKind::InvalidInput));
+        subject
+            .command_history
+            .set_autosave_interval(Some(NonZeroUsize::new(1).unwrap()))
+            .set_autosave_handler(Some(Box::new(autosave_handler)));
+
+        let result = subject.handle_new_read().await;
+
+        allow_flushed_writings_to_finish(None, None).await;
+        assert_eq!(
+            result,
+            Ok(Some(slice_of_strs_to_vec_of_strings(&[
+                "subcommand",
+                "arg",
+                "val",
+                "flag"
+            ])))
+        );
+        stream_handles.assert_empty_stdout();
+        let stderr_output = stream_handles.stderr_flushed_strings();
+        assert_eq!(
+            stderr_output,
+            vec!["Command history error adding \"subcommand arg val flag\": Kind(InvalidInput)\n"]
+        )
+    }
+
     fn make_command_processor_common() -> CommandProcessorCommon {
         CommandProcessorCommon::new(
             Box::new(CommandContextMock::default()),
-            Box::new(CommandFactoryMock::default()),
+            Arc::new(CommandFactoryMock::default()),
             Box::new(CommandExecutionHelperMock::default()),
         )
     }
@@ -616,9 +785,8 @@ mod tests {
         let (stderr, stderr_flush_handle) = subject.stderr();
         stderr.writeln("3a2b1c").await;
 
-        drop(stdout_flush_handle);
-        drop(stderr_flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(stream_handles.stdout_all_in_one(), "a1b2c3\n");
         assert_eq!(stream_handles.stderr_all_in_one(), "3a2b1c\n")
     }

@@ -173,7 +173,7 @@ mod tests {
             .write_internal("blah".to_string())
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(None, None).await;
         let err_kind = match result {
             Err(WriteResult::OSError(os_err)) => os_err.kind(),
             x => panic!("We expected OS error but got: {:?}", x),

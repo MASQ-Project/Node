@@ -2,7 +2,7 @@
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{send_non_conversational_msg, Command, CommandError};
-use crate::terminal::WTermInterface;
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, Command as ClapCommand};
@@ -59,7 +59,8 @@ impl Command for CrashCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        _term_interface: &dyn WTermInterface,
+        _stdout: TerminalWriter,
+        _stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
         let input = UiCrashRequest {
             actor: self.actor.clone(),
@@ -98,6 +99,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::ToMessageBody;
     use std::sync::{Arc, Mutex};
@@ -135,7 +137,9 @@ mod tests {
     async fn testing_command_factory_here() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().send_one_way_result(Ok(()));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = factory
             .make(&[
                 "crash".to_string(),
@@ -144,7 +148,7 @@ mod tests {
             ])
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
         assert_eq!(result, Ok(()));
     }
@@ -155,7 +159,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .send_one_way_params(&send_params_arc)
             .send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let factory = CommandFactoryReal::new();
         let subject = factory
             .make(&[
@@ -165,9 +171,10 @@ mod tests {
             ])
             .unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -188,13 +195,16 @@ mod tests {
         let mut context = CommandContextMock::new()
             .send_one_way_params(&send_params_arc)
             .send_one_way_result(Ok(()));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let factory = CommandFactoryReal::new();
         let subject = factory.make(&["crash".to_string()]).unwrap();
 
-        let result = subject.execute(&mut context, &mut term_interface).await;
+        let result = subject.execute(&mut context, stdout, stderr).await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         stream_handles.assert_empty_stdout();
         stream_handles.assert_empty_stderr();
@@ -213,7 +223,9 @@ mod tests {
     async fn crash_command_handles_send_failure() {
         let mut context = CommandContextMock::new()
             .send_one_way_result(Err(ContextError::ConnectionDropped("blah".to_string())));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = CrashCommand::new(&[
             "crash".to_string(),
             "BlockchainBridge".to_string(),
@@ -222,10 +234,11 @@ mod tests {
         .unwrap();
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(
             result,
             Err(CommandError::ConnectionProblem("blah".to_string()))

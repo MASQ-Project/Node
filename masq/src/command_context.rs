@@ -7,7 +7,9 @@ use crate::terminal::WTermInterfaceDupAndSend;
 use async_trait::async_trait;
 use masq_lib::arbitrary_id_stamp_in_trait;
 use masq_lib::constants::{TIMEOUT_ERROR, UNMARSHAL_ERROR};
+#[cfg(test)]
 use masq_lib::intentionally_blank;
+#[cfg(test)]
 use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
@@ -135,18 +137,18 @@ mod tests {
     use crate::command_context::ContextError::{
         ConnectionDropped, ConnectionRefused, PayloadError,
     };
+    use crate::test_utils::websockets_utils::simulate_server_ws_handshake;
     use masq_lib::messages::{
-        ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL,
+        FromMessageBody, ToMessageBody, UiShutdownRequest, UiShutdownResponse, NODE_UI_PROTOCOL,
     };
     use masq_lib::messages::{UiCrashRequest, UiSetupRequest};
-    use masq_lib::test_utils::mock_websockets_server::{
-        MWSSMessage, MockWebSocketsServer, StopStrategy,
-    };
+    use masq_lib::test_utils::mock_websockets_server::{MWSSMessage, MockWebSocketsServer};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_traffic_converter::{TrafficConversionError, UnmarshalError};
+    use masq_lib::ui_traffic_converter::{
+        TrafficConversionError, UiTrafficConverter, UnmarshalError,
+    };
     use masq_lib::utils::{find_free_port, running_test};
-    use tokio_tungstenite::tungstenite::Message;
 
     #[test]
     fn error_conversion_happy_path() {
@@ -196,7 +198,7 @@ mod tests {
         running_test();
         let port = find_free_port();
         let server = MockWebSocketsServer::new(port);
-        let handle = server.start().await;
+        let _server_stop_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
 
         let subject = CommandContextReal::new(port, None, bootstrapper)
@@ -238,8 +240,10 @@ mod tests {
         let result = subject.transact(request.clone(), 1000).await;
 
         assert_eq!(result, Ok(expected_response));
-        let mut recorded = server_stop_handle.stop(StopStrategy::Close).await;
-        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(request)]);
+        let mut recorded = server_stop_handle.stop().await;
+        let request = recorded.requests.remove(0);
+        UiShutdownRequest::fmb(request.message_body()).unwrap();
+        assert!(recorded.requests.is_empty());
         assert_eq!(recorded.proposed_protocols, vec![NODE_UI_PROTOCOL])
     }
 
@@ -252,7 +256,7 @@ mod tests {
             path: Conversation(1),
             payload: Err((101, "booga".to_string())),
         });
-        let stop_handle = server.start().await;
+        let _stop_handle = server.start().await;
         let bootstrapper = CMBootstrapper::default();
         let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
@@ -269,14 +273,22 @@ mod tests {
     async fn transact_works_when_server_sends_connection_error() {
         running_test();
         let port = find_free_port();
-        let server = MockWebSocketsServer::new(port);
-        let server_stop_handle = server.start().await;
+        let (background_task_ready_tx, background_task_ready_rx) = tokio::sync::oneshot::channel();
+        let server_side_join_handle = tokio::task::spawn(async move {
+            background_task_ready_tx.send(()).unwrap();
+            let (_sender, mut receiver) = simulate_server_ws_handshake(port).await;
+            let mut incoming_msg = Vec::new();
+            let _ = receiver.receive_data(&mut incoming_msg).await.unwrap();
+            let txt = std::str::from_utf8(&incoming_msg).expect("Error converting data to text");
+            let msg = UiTrafficConverter::new_unmarshal_from_ui(txt, 0).unwrap();
+            msg.body
+        });
         let bootstrapper = CMBootstrapper::default();
         let request = UiSetupRequest { values: vec![] }.tmb(1);
+        background_task_ready_rx.await.unwrap();
         let subject = CommandContextReal::new(port, None, bootstrapper)
             .await
             .unwrap();
-        // TODO have the MockWebsocketServer adapted or write it alternatively without it
 
         let response = subject.transact(request.clone(), 1000).await;
 
@@ -284,8 +296,8 @@ mod tests {
             Err(ConnectionDropped(_)) => (),
             x => panic!("Expected ConnectionDropped; got {:?} instead", x),
         }
-        let recorded = server_stop_handle.stop(StopStrategy::Abort).await;
-        assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(request)])
+        let recorded_msg_body = server_side_join_handle.await.unwrap();
+        assert_eq!(recorded_msg_body, request)
     }
 
     #[tokio::test]
@@ -306,7 +318,7 @@ mod tests {
         let result = subject.send_one_way(msg.clone()).await;
 
         assert_eq!(result, Ok(()));
-        let recorded = server_stop_handle.stop(StopStrategy::Close).await;
+        let recorded = server_stop_handle.stop().await;
         assert_eq!(recorded.requests, vec![MWSSMessage::MessageBody(msg)]);
         assert_eq!(recorded.proposed_protocols, vec![NODE_UI_PROTOCOL])
     }

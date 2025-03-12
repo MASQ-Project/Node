@@ -8,15 +8,14 @@ use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFac
 use crate::commands::commands_common::CommandError::Transmission;
 use crate::commands::commands_common::{Command, CommandError};
 use crate::communications::broadcast_handlers::BroadcastHandle;
-use crate::communications::websocket_client::WSClientHandle;
-use crate::run_modes::CLIProgramEntering;
+use crate::communications::websockets_client::WSSenderWrapper;
+use crate::run_modes::EntryCheck;
 use crate::terminal::terminal_interface_factory::TerminalInterfaceFactory;
 use crate::terminal::test_utils::FlushHandleInnerMock;
 use crate::terminal::{
     FlushHandle, RWTermInterface, ReadError, ReadInput, TerminalWriter, WTermInterface,
     WTermInterfaceDupAndSend, WriteStreamType,
 };
-use async_channel::{Receiver, Sender};
 use async_trait::async_trait;
 use itertools::Either;
 use masq_lib::async_streams::{AsyncStdStreams, AsyncStdStreamsFactory};
@@ -25,7 +24,7 @@ use masq_lib::test_utils::fake_stream_holder::{
     AsyncByteArrayReader, AsyncByteArrayWriter, HandleToCountReads, StdinReadCounter,
     StringAssertableStdHandle,
 };
-use masq_lib::ui_gateway::MessageBody;
+use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use masq_lib::{
     arbitrary_id_stamp_in_trait_impl, implement_as_any, set_arbitrary_id_stamp_in_mock_impl,
 };
@@ -145,6 +144,14 @@ impl CommandContextMock {
     pub fn transact_result(self, result: Result<MessageBody, ContextError>) -> Self {
         self.transact_results.borrow_mut().push(result);
         self
+    }
+
+    pub fn use_sentinel_transact_response(self) -> Self {
+        self.transact_result(Ok(MessageBody {
+            opcode: "blahResponse".to_string(),
+            path: MessagePath::Conversation(1),
+            payload: Ok("blah".to_string()),
+        }))
     }
 
     pub fn close_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
@@ -283,7 +290,7 @@ impl<Message> BroadcastHandleMock<Message> {
 
 #[derive(Default)]
 pub struct InitialArgsParserMock {
-    parse_initialization_args_results: RefCell<Vec<CLIProgramEntering>>,
+    parse_initialization_args_results: RefCell<Vec<EntryCheck>>,
 }
 
 #[async_trait(?Send)]
@@ -292,7 +299,7 @@ impl InitialArgsParser for InitialArgsParserMock {
         &self,
         _args: &[String],
         _std_streams: &mut AsyncStdStreams,
-    ) -> CLIProgramEntering {
+    ) -> EntryCheck {
         self.parse_initialization_args_results
             .borrow_mut()
             .remove(0)
@@ -300,7 +307,7 @@ impl InitialArgsParser for InitialArgsParserMock {
 }
 
 impl InitialArgsParserMock {
-    pub fn parse_initialization_args_result(self, result: CLIProgramEntering) -> Self {
+    pub fn parse_initialization_args_result(self, result: EntryCheck) -> Self {
         self.parse_initialization_args_results
             .borrow_mut()
             .push(result);
@@ -308,10 +315,13 @@ impl InitialArgsParserMock {
     }
 }
 
-#[derive(Clone)]
+#[derive(Default)]
 pub struct MockCommand {
-    pub message: MessageBody,
-    pub execute_results: Arc<Mutex<Vec<Result<(), CommandError>>>>,
+    request_opt: Option<MessageBody>,
+    stdout_output_opt: Option<String>,
+    stderr_output_opt: Option<String>,
+    execute_results: Arc<Mutex<Vec<Result<(), CommandError>>>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl std::fmt::Debug for MockCommand {
@@ -325,13 +335,17 @@ impl Command for MockCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
-        stdout.write("MockCommand output").await;
-        stderr.write("MockCommand error").await;
-        match context.transact(self.message.clone(), 1000).await {
+        if let Some(stdout_output) = self.stdout_output_opt {
+            stdout.writeln(&stdout_output).await
+        };
+        if let Some(stderr_output) = self.stderr_output_opt {
+            stderr.writeln(&stderr_output).await
+        };
+        let request = self.request_opt.expect("request was not provided");
+        match context.transact(request, 1000).await {
             Ok(_) => self.execute_results.lock().unwrap().remove(0),
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }
@@ -341,59 +355,39 @@ impl Command for MockCommand {
 }
 
 impl MockCommand {
-    pub fn new(message: MessageBody) -> Self {
-        Self {
-            message,
-            execute_results: Arc::new(Mutex::new(vec![])),
-        }
+    pub fn request(mut self, request: MessageBody) -> Self {
+        self.request_opt = Some(request);
+        self
+    }
+
+    pub fn use_sentinel_request(mut self) -> Self {
+        self.request(MessageBody {
+            opcode: "blahRequest".to_string(),
+            path: MessagePath::Conversation(1),
+            payload: Ok("blah".to_string()),
+        })
+    }
+
+    pub fn stdout_output(mut self, stdout: String) -> Self {
+        self.stdout_output_opt = Some(stdout);
+        self
+    }
+
+    pub fn stderr_output(mut self, stderr: String) -> Self {
+        self.stderr_output_opt = Some(stderr);
+        self
     }
 
     pub fn execute_result(self, result: Result<(), CommandError>) -> Self {
         self.execute_results.lock().unwrap().push(result);
         self
     }
-}
 
-#[derive(Default)]
-pub struct WSClientHandleMock {
-    send_params: Arc<Mutex<Vec<MessageBody>>>,
-    send_results: Mutex<Vec<Result<(), Error>>>,
-}
-
-#[async_trait]
-impl WSClientHandle for WSClientHandleMock {
-    async fn send_msg(&mut self, msg: MessageBody) -> Result<(), Error> {
-        self.send_params.lock().unwrap().push(msg);
-        self.send_results.lock().unwrap().remove(0)
+    pub fn arbitrary_id_stamp(&self) -> Option<ArbitraryIdStamp> {
+        self.arbitrary_id_stamp_opt
     }
 
-    async fn close(&self) -> Result<(), Error> {
-        todo!()
-    }
-
-    fn dismiss_event_loop(&self) {
-        unimplemented!("Not needed yet")
-    }
-
-    async fn is_connection_open(&mut self) -> bool {
-        unimplemented!("Test-only method that has an effect only at the real one")
-    }
-
-    fn is_event_loop_spinning(&self) -> bool {
-        unimplemented!("Test-only method that has an effect only at the real one")
-    }
-}
-
-impl WSClientHandleMock {
-    pub fn send_params(mut self, params: &Arc<Mutex<Vec<MessageBody>>>) -> Self {
-        self.send_params = params.clone();
-        self
-    }
-
-    pub fn send_result(self, result: Result<(), Error>) -> Self {
-        self.send_results.lock().unwrap().push(result);
-        self
-    }
+    set_arbitrary_id_stamp_in_mock_impl!();
 }
 
 pub fn make_terminal_writer() -> (TerminalWriter, TerminalWriterTestReceiver) {
@@ -882,7 +876,7 @@ impl TerminalInterfaceFactory for TerminalInterfaceFactoryMock {
     fn make(
         &self,
         is_interactive: bool,
-        _streams_factory: &dyn AsyncStdStreamsFactory,
+        _streams_factory: Arc<dyn AsyncStdStreamsFactory>,
     ) -> Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>> {
         self.make_params.lock().unwrap().push(is_interactive);
         self.make_results.borrow_mut().remove(0)
@@ -900,6 +894,33 @@ impl TerminalInterfaceFactoryMock {
         result: Either<Box<dyn WTermInterface>, Box<dyn RWTermInterface>>,
     ) -> Self {
         self.make_results.borrow_mut().push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct WSSenderWrapperMock {
+    send_text_owned_result: Arc<Mutex<Vec<Result<(), Error>>>>,
+}
+
+#[async_trait]
+impl WSSenderWrapper for WSSenderWrapperMock {
+    async fn send_text_owned(&mut self, _data: String) -> Result<(), Error> {
+        self.send_text_owned_result.lock().unwrap().remove(0)
+    }
+
+    async fn flush(&mut self) -> Result<(), Error> {
+        unimplemented!("implicitly tested in prod code")
+    }
+
+    async fn close(&mut self) -> Result<(), Error> {
+        unimplemented!("error ignored in prod code")
+    }
+}
+
+impl WSSenderWrapperMock {
+    pub fn send_text_owned_result(self, result: Result<(), Error>) -> Self {
+        self.send_text_owned_result.lock().unwrap().push(result);
         self
     }
 }

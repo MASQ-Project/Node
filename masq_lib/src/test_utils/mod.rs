@@ -3,6 +3,7 @@
 pub mod arbitrary_id_stamp;
 pub mod environment_guard;
 pub mod fake_stream_holder;
+pub mod forced_tcp_reset;
 pub mod logging;
 pub mod mock_websockets_server;
 pub mod ui_connection;

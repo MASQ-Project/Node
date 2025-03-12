@@ -314,7 +314,7 @@ impl AsyncWrite for AsyncByteArrayWriter {
         self: Pin<&mut Self>,
         _: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+        unimplemented!("not needed yet")
     }
 }
 

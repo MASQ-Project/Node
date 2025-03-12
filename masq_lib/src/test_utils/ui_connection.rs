@@ -6,7 +6,6 @@ use crate::test_utils::ui_connection::ReceiveResult::{
 };
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::Conversation;
-use crate::ui_gateway::MessageTarget::ClientId;
 use crate::ui_gateway::{MessagePath, MessageTarget, NodeToUiMessage};
 use crate::ui_traffic_converter::UiTrafficConverter;
 use crate::utils::localhost;
@@ -23,11 +22,11 @@ use std::{fmt, io};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use workflow_websocket::client::{Error, Message, WebSocket};
 
 pub struct UiConnection {
     context_id: u64,
     local_addr: SocketAddr,
+    accepted_protocol_opt: Option<String>,
     sender: WSSender,
     receiver: WSReceiver,
 }
@@ -45,13 +44,14 @@ impl Debug for UiConnection {
 
 impl UiConnection {
     pub async fn new(port: u16, protocol: &'static str) -> Result<UiConnection, String> {
-        let (sender, receiver) =
+        let (sender, receiver, accepted_protocol_opt) =
             Self::establish_ws_conn_with_protocols(port, vec![protocol.to_string()])
                 .await
                 .unwrap();
         Ok(UiConnection {
             context_id: 0,
             local_addr: SocketAddr::new(localhost(), port),
+            accepted_protocol_opt,
             sender,
             receiver,
         })
@@ -209,7 +209,7 @@ impl UiConnection {
     async fn establish_ws_conn_with_protocols(
         port: u16,
         protocols: Vec<String>,
-    ) -> Result<(WSSender, WSReceiver), String> {
+    ) -> Result<(WSSender, WSReceiver, Option<String>), String> {
         let socket_addr = SocketAddr::new(localhost(), port);
         let stream = TcpStream::connect(socket_addr).await.map_err(|e| {
             format!(
@@ -230,21 +230,19 @@ impl UiConnection {
             .handshake()
             .await
             .map_err(|e| format!("Handshake with the websocket server failed: {}", e))?;
-        match handshake_response {
+        let accepted_protocol_opt = match handshake_response {
             ServerResponse::Accepted {
                 protocol: protocol_opt,
-            } => {
-                // TODO: Record protocol_opt somehow so that it can be asserted
-            }
+            } => protocol_opt,
             _ => {
                 return Err(format!(
                     "Websocket server did not accept any of these subprotocols: {:?}: {:?}",
                     protocols, handshake_response
                 ));
             }
-        }
+        };
         let (sender, receiver) = client.into_builder().finish();
-        Ok((sender, receiver))
+        Ok((sender, receiver, accepted_protocol_opt))
     }
 
     async fn await_message<T: FromMessageBody>(
@@ -286,6 +284,10 @@ impl UiConnection {
         todo!("Drive this in, if necessary");
     }
 
+    pub fn accepted_protocol(&self) -> Option<&str> {
+        self.accepted_protocol_opt.as_ref().map(|p| p.as_str())
+    }
+
     fn standard_result_resolution<T>(
         extended_result: ReceiveResult<T>,
     ) -> Result<(MessagePath, T), (u64, String)> {
@@ -293,13 +295,9 @@ impl UiConnection {
             Correct(path, msg) => Ok((path, msg)),
             TransactionError(code, msg) => Err((code, msg)),
             MBMarshalError(msg, e) => {
-                // TODO: This msg is something that came in from outside; the rules say it's not
-                // allowed to panic us. We should probably log it and return an error.
                 panic!("Deserialization of {:?} ended up with err: {:?}", msg, e)
             }
             MarshalError(msg, e) => {
-                // TODO: This msg is something that came in from outside; the rules say it's not
-                // allowed to panic us. We should probably log it and return an error.
                 panic!("Deserialization of {:?} ended up with err: {:?}", msg, e)
             }
         }

@@ -1,7 +1,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use crate::masq_short_writeln;
-use crate::terminal::WTermInterface;
+use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::builder::ValueRange;
 use clap::{value_parser, Arg, ArgGroup, Command as ClapCommand};
@@ -42,10 +42,9 @@ impl Command for SetConfigurationCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiSetConfigurationRequest {
             name: self.name.clone(),
             value: self.value.clone(),
@@ -96,6 +95,7 @@ pub fn set_configuration_subcommand() -> ClapCommand {
 mod tests {
     use super::*;
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiSetConfigurationRequest, UiSetConfigurationResponse,
@@ -135,17 +135,20 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetConfigurationResponse {}.tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = SetConfigurationCommand {
             name: "start-block".to_string(),
             value: "123456".to_string(),
         };
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

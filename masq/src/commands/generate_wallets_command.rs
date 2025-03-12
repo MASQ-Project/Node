@@ -11,7 +11,7 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::masq_short_writeln;
-use crate::terminal::{TerminalWriter, WTermInterface};
+use crate::terminal::TerminalWriter;
 use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
@@ -264,10 +264,9 @@ impl Command for GenerateWalletsCommand {
     async fn execute(
         self: Box<Self>,
         context: &dyn CommandContext,
-        term_interface: &dyn WTermInterface,
+        stdout: TerminalWriter,
+        stderr: TerminalWriter,
     ) -> Result<(), CommandError> {
-        let (stdout, _stdout_flush_handle) = term_interface.stdout();
-        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let input = UiGenerateWalletsRequest {
             db_password: self.db_password.clone(),
             seed_spec_opt: self
@@ -356,6 +355,7 @@ mod tests {
     use crate::command_context::ContextError;
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::terminal::test_utils::allow_flushed_writings_to_finish;
+    use crate::terminal::WTermInterface;
     use crate::test_utils::mocks::{CommandContextMock, TermInterfaceMock};
     use masq_lib::messages::{
         ToMessageBody, UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse,
@@ -843,7 +843,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -856,7 +858,7 @@ mod tests {
         };
 
         Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await
             .err()
             .unwrap(); // don't need success, just request translation
@@ -887,7 +889,9 @@ mod tests {
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::Other("booga".to_string())));
-        let (mut term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, _stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, _stdout_flush_handle) = term_interface.stdout();
+        let (stderr, _stderr_flush_handle) = term_interface.stderr();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: None,
@@ -896,7 +900,7 @@ mod tests {
         };
 
         Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await
             .err()
             .unwrap(); // don't need success, just request translation
@@ -936,9 +940,8 @@ mod tests {
 
         GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
-        drop(stdout_flush_handle);
-        drop(stderr_flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_flushed_strings(),
@@ -970,9 +973,8 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
 
         GenerateWalletsCommand::process_response(response, &stdout, &stderr).await;
 
-        drop(stdout_flush_handle);
-        drop(stderr_flush_handle);
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         stream_handles.assert_empty_stderr();
         assert_eq!(
             stream_handles.stdout_all_in_one(),
@@ -1003,7 +1005,9 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
                 earning_wallet_private_key: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
             }
             .tmb(4321)));
-        let (mut term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (term_interface, stream_handles) = TermInterfaceMock::new_non_interactive();
+        let (stdout, stdout_flush_handle) = term_interface.stdout();
+        let (stderr, stderr_flush_handle) = term_interface.stderr();
         let subject = GenerateWalletsCommand {
             db_password: "password".to_string(),
             seed_spec_opt: Some(SeedSpec {
@@ -1016,10 +1020,11 @@ Private key of   earning wallet: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\
         };
 
         let result = Box::new(subject)
-            .execute(&mut context, &mut term_interface)
+            .execute(&mut context, stdout, stderr)
             .await;
 
-        allow_flushed_writings_to_finish().await;
+        allow_flushed_writings_to_finish(Some(stdout_flush_handle), Some(stderr_flush_handle))
+            .await;
         assert_eq!(result, Ok(()));
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(

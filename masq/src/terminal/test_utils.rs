@@ -363,6 +363,13 @@ impl FlushHandleInnerMock {
     }
 }
 
-pub async fn allow_flushed_writings_to_finish() {
+pub async fn allow_flushed_writings_to_finish(
+    stdout_flush_handle_opt: Option<FlushHandle>,
+    stderr_flush_handle_opt: Option<FlushHandle>,
+) {
+    // If none, it means that handles are already gone and hence flushing has begun
+    drop(stderr_flush_handle_opt);
+    drop(stdout_flush_handle_opt);
+    // Giving up execution on behalf of the spawned flushing tasks in the background
     tokio::time::sleep(Duration::from_millis(1)).await
 }
