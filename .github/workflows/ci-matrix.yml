@@ -89,17 +89,11 @@ jobs:
           name: dbip_country
 
       - name: Move and overwrite dbip file
-        run: mv -f dbip_country.rs ip_country/src/dbip_country.rs || exit 1
+        shell: bash
+        run: cp -f dbip_country.rs ip_country/src/dbip_country.rs || exit 1
   
       - name: Show dbip file
         run: cat ip_country/src/dbip_country.rs
-
-      - name: Build ${{ matrix.target.os }}
-        run: |
-          ./ci/all.sh
-          ./ci/multinode_integration_test.sh
-          ./ci/collect_results.sh
-        shell: bash
 
       - name: Verify generated file
         run: |
@@ -112,6 +106,13 @@ jobs:
             echo "Error: Generated file appears to be invalid"
             exit 1
           fi
+
+      - name: Build ${{ matrix.target.os }}
+        run: |
+          ./ci/all.sh
+          ./ci/multinode_integration_test.sh
+          ./ci/collect_results.sh
+        shell: bash
 
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v4
