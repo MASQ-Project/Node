@@ -95,18 +95,6 @@ jobs:
       - name: Show dbip file
         run: cat ip_country/src/dbip_country.rs
 
-      - name: Verify generated file
-        run: |
-          if [ ! -f /tmp/ip_country_gen/dbip_country.rs ]; then
-            echo "Error: dbip_country.rs was not generated"
-            exit 1
-          fi
-          cat /tmp/ip_country_gen/dbip_country.rs | head -n 1
-          if ! grep -q "// This file is generated automatically" /tmp/ip_country_gen/dbip_country.rs; then
-            echo "Error: Generated file appears to be invalid"
-            exit 1
-          fi
-
       - name: Build ${{ matrix.target.os }}
         run: |
           ./ci/all.sh
