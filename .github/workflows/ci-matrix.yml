@@ -23,11 +23,11 @@ jobs:
   
       - name: Verify generated file
         run: |
-          if [ ! -f ip_country/src/dbip_country.rs ]; then
+          if [ ! -f /tmp/ip_country_gen/dbip_country.rs ]; then
             echo "Error: dbip_country.rs was not generated"
             exit 1
           fi
-          if ! grep -q "IP_COUNTRY_DATA" ip_country/src/dbip_country.rs; then
+          if ! grep -q "// GENERATED CODE: REGENERATE, DO NOT MODIFY!" /tmp/ip_country_gen/dbip_country.rs; then
             echo "Error: Generated file appears to be invalid"
             exit 1
           fi
@@ -36,7 +36,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dbip_country
-          path: ip_country/src/dbip_country.rs
+          path: /tmp/ip_country_gen/dbip_country.rs
   
   build:
     needs: generate-dbip
