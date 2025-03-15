@@ -16,6 +16,7 @@ lazy_static = "1.4.0"
 
 [dev-dependencies]
 test_utilities = { path = "../test_utilities"}
+maxminddb = "0.23.0"
 
 [[bin]]
 name = "ip_country"
