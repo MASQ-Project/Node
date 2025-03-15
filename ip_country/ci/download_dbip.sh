@@ -130,4 +130,4 @@ fi
 rm -f "${TARGET_PATH}.bak"
 
 echo "Successfully downloaded and installed database version $DB_DATE to $TARGET_PATH"
-echo "You can now run generate_dbip_country.sh to update the Rust code"
+echo "You can now run 'cargo run --bin generate_dbip' to update the Rust code"
