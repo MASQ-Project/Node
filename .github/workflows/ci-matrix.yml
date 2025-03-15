@@ -14,17 +14,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libmaxminddb-tools
-
       - name: Generate dbip file
         run: |
-          chmod +x ip_country/ci/download_dbip.sh ip_country/ci/generate_dbip_country.sh
+          chmod +x ip_country/ci/download_dbip.sh
           cd ip_country
           ci/download_dbip.sh || exit 1
-          ci/generate_dbip_country.sh || exit 1
+          cargo run --bin generate_dbip || exit 1
   
       - name: Verify generated file
         run: |
