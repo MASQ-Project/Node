@@ -27,7 +27,8 @@ jobs:
             echo "Error: dbip_country.rs was not generated"
             exit 1
           fi
-          if ! grep -q "// GENERATED CODE: REGENERATE, DO NOT MODIFY!" /tmp/ip_country_gen/dbip_country.rs; then
+          cat /tmp/ip_country_gen/dbip_country.rs | head -n 1
+          if ! grep -q "// This file is generated automatically" /tmp/ip_country_gen/dbip_country.rs; then
             echo "Error: Generated file appears to be invalid"
             exit 1
           fi
@@ -100,6 +101,18 @@ jobs:
           ./ci/collect_results.sh
         shell: bash
 
+      - name: Verify generated file
+        run: |
+          if [ ! -f /tmp/ip_country_gen/dbip_country.rs ]; then
+            echo "Error: dbip_country.rs was not generated"
+            exit 1
+          fi
+          cat /tmp/ip_country_gen/dbip_country.rs | head -n 1
+          if ! grep -q "// This file is generated automatically" /tmp/ip_country_gen/dbip_country.rs; then
+            echo "Error: Generated file appears to be invalid"
+            exit 1
+          fi
+
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v4
         with:
@@ -159,9 +172,11 @@ jobs:
               --no-progress \
               --acl private
 
-        - name: Invalidate CloudFront Cache
-          if: success()
-          run: |
-            aws cloudfront create-invalidation \
-              --distribution-id ${{ secrets.DISTRIBUTION }} \
-              --paths "/Node*"
+        - name: Invalidate Binaries CloudFront
+          uses: chetan/invalidate-cloudfront-action@v2.4
+          env:
+            DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
+            PATHS: "/Node*"
+            AWS_REGION: "us-west-2"
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
