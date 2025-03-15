@@ -3,7 +3,7 @@
 set -e
 
 # Configuration
-TARGET_DIR="ip_country/src"
+TARGET_DIR="src"
 DB_FILENAME="dbip.mmdb"
 DOWNLOAD_PAGE="https://db-ip.com/db/download/ip-to-country-lite"
 TEMP_DIR=$(mktemp -d)
@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  --output-dir DIR    Directory to store the database (default: ip_country/src)"
+            echo "  --output-dir DIR    Directory to store the database (default: src)"
             echo "  --filename NAME     Name of the output file (default: dbip.mmdb)"
             echo "  --force            Force download even if file exists"
             echo "  --help             Show this help message"
@@ -62,7 +62,7 @@ fi
 
 echo "Fetching download page..."
 # Fetch the download page and extract the latest download link
-DOWNLOAD_URL=$(curl -s "$DOWNLOAD_PAGE" | grep -oP 'https://download\.db-ip\.com/free/dbip-country-lite-\d{4}-\d{2}\.mmdb\.gz' | head -1)
+DOWNLOAD_URL=$(curl -s "$DOWNLOAD_PAGE" | grep -o 'https://download\.db-ip\.com/free/dbip-country-lite-[0-9][0-9][0-9][0-9]-[0-9][0-9]\.mmdb\.gz' | head -1)
 
 # Check if we found a URL
 if [ -z "$DOWNLOAD_URL" ]; then
@@ -71,7 +71,7 @@ if [ -z "$DOWNLOAD_URL" ]; then
 fi
 
 # Extract date from URL for version checking
-DB_DATE=$(echo "$DOWNLOAD_URL" | grep -oP '\d{4}-\d{2}')
+DB_DATE=$(echo "$DOWNLOAD_URL" | grep -o '[0-9][0-9][0-9][0-9]-[0-9][0-9]')
 echo "Found database version: $DB_DATE"
 
 # Create target directory if it doesn't exist
@@ -101,18 +101,6 @@ fi
 if [ ! -s "$TEMP_DIR/dbip.mmdb" ]; then
     echo "Error: Extracted database is empty"
     exit 1
-fi
-
-# Basic format verification (check for MaxMind DB format magic bytes)
-if ! head -c4 "$TEMP_DIR/dbip.mmdb" | grep -q "MaxMind.com"; then
-    echo "Error: Downloaded file does not appear to be a valid MaxMind DB"
-    exit 1
-fi
-
-# Backup existing file if it exists
-if [ -f "$TARGET_PATH" ]; then
-    echo "Backing up existing database to ${TARGET_PATH}.bak"
-    cp "$TARGET_PATH" "${TARGET_PATH}.bak"
 fi
 
 # Move the extracted file to the target directory
