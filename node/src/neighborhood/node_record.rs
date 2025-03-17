@@ -382,10 +382,11 @@ mod tests {
         node_record_wo_location.inner.accepts_connections = false;
         let no_location_db = db_from_node(&node_record_wo_location);
         let no_location_gossip =
-            GossipBuilder::new(&no_location_db).node(node_record_wo_location.public_key(), false);
+            GossipBuilder::new(&no_location_db).node(node_record_wo_location.public_key(), false)
+            .build();
 
         let nr_wo_location =
-            NodeRecord::try_from(no_location_gossip.build().node_records.first().unwrap()).unwrap();
+            NodeRecord::try_from(no_location_gossip.node_records.first().unwrap()).unwrap();
 
         assert_eq!(nr_wo_location.inner.country_code_opt, None);
     }

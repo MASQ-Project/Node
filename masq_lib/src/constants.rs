@@ -105,6 +105,9 @@ pub const BASE_MAINNET_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, MAIN
 pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 
+//allocations
+pub const DEFAULT_PREALLOCATION_VEC: usize = 10;
+
 #[cfg(test)]
 mod tests {
     use super::*;

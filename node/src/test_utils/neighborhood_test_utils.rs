@@ -26,16 +26,16 @@ lazy_static! {
     pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
         (
             IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
-            "FR".to_string(),
-            true
+            "CN".to_string(),
+            false
         ),
         (
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
             "US".to_string(),
             true
         ),
-        (
-            IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),
+            (
+            IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),  
             "FR".to_string(),
             true
         ),
@@ -83,7 +83,7 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
     let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
-    let (_ip, country_code, free_world_bit) = pick_country_code_record(n % 6);
+        let (_ip, country_code, free_world_bit) = pick_country_code_record(n);
     let location_opt = match has_ip {
         true => match country_code.is_empty() {
             false => Some(NodeLocation {
@@ -105,7 +105,7 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     )
 }
 
-pub fn pick_country_code_record(n: u16) -> (IpAddr, String, bool) {
+pub fn  pick_country_code_record(n: u16) -> (IpAddr, String, bool) {
     COUNTRY_CODE_DIGEST[n as usize % COUNTRY_CODE_DIGEST.len()].clone()
 }
 

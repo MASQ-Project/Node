@@ -91,6 +91,23 @@ impl GossipHandler for DebutHandler {
         if database.node_by_key(&agrs[0].inner.public_key).is_some() {
             return Qualification::Unmatched;
         }
+        // TODO create optimization card: drive in the test and following commented out code,
+        // TODO: Imagine a brand-new network, consisting only of Node A.
+        // When Node B debuts, Node A cannot respond with an Introduction,
+        // since there's nobody to introduce. Therefore, Node A must
+        // respond with a single-Node Gossip that will currently be
+        // interpreted as a Debut by Node B, resulting in another
+        // single-Node Gossip from B to A. This last Gossip isn't a
+        // problem, because Node A will ignore it since B is already
+        // in its database. However, there is a possible optimization:
+        // drive in the code below, and Node B will no longer interpret
+        // Node A's acceptance Gossip as another Debut, because it will
+        // see that Node A already has Node B as a neighbor. This means
+        // Node A's original response will be interpreted as Standard
+        // Gossip.
+        // if agrs[0].inner.neighbors.contains(database.root_key()) {
+        //     return Qualification::Unmatched;
+        // }
         match &agrs[0].node_addr_opt {
             None => {
                 if agrs[0].inner.accepts_connections {
@@ -1424,6 +1441,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use itertools::Itertools;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1706,13 +1724,13 @@ mod tests {
 
     #[test]
     fn two_parallel_debuts_in_progress_handled_by_try_accept_debut_without_introduction() {
-        let mut root_node = make_node_record(1234, true);
-        let half_debuted_node = make_node_record(2345, true);
+        let root_node = make_node_record(1234, true);
+        let half_neighbor_debutant = make_node_record(2345, true);
         let new_debutant = make_node_record(4567, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
-        dest_db.add_node(half_debuted_node.clone()).unwrap();
-        dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_debuted_node.public_key());
+        dest_db.add_node(half_neighbor_debutant.clone()).unwrap();
+        dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_neighbor_debutant.public_key());
         let logger = Logger::new("Debut test");
         let subject = DebutHandler::new(logger);
         let neighborhood_metadata = make_default_neighborhood_metadata();
@@ -1735,12 +1753,8 @@ mod tests {
             ) => (debut_reply, dest_public_key, dest_node_addr),
             x => panic!("Expected Reply, got {:?}", x),
         };
-
         assert_eq!(dest_public_key, new_debutant.public_key());
         assert_eq!(dest_node_addr, &new_debutant.node_addr_opt().unwrap());
-        root_node
-            .add_half_neighbor_key(new_debutant.public_key().clone())
-            .unwrap();
         assert_eq!(
             counter_debut,
             GossipAcceptanceResult::Reply(
@@ -2094,7 +2108,7 @@ mod tests {
         );
 
         let result_introducer: &NodeRecord =
-            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+            dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.metadata.country_undesirability = COUNTRY_UNDESIRABILITY_FACTOR;
@@ -2172,7 +2186,7 @@ mod tests {
             handle_result
         );
         let result_introducer: &NodeRecord =
-            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+            dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
@@ -2229,7 +2243,7 @@ mod tests {
         );
 
         let result_introducer: &NodeRecord =
-            dest_db.node_by_key_mut(&agrs[0].inner.public_key).unwrap();
+            dest_db.node_by_key(&agrs[0].inner.public_key).unwrap();
         let mut expected_introducer = NodeRecord::from(&agrs[0]);
         expected_introducer.metadata.last_update = result_introducer.metadata.last_update;
         expected_introducer.resign();
@@ -2427,11 +2441,15 @@ mod tests {
 
           The source node(S) will gossip about Node A and B
           to the destination node(D).
+
+          Country Codes
+          node_a: "FR"
+          node_b: "US"
         */
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a = make_node_record(3456, true);
+        let node_a = make_node_record(5678, true);
         let node_b = make_node_record(4567, true);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
@@ -3051,10 +3069,16 @@ mod tests {
     fn first_debut_is_handled() {
         let mut root_node = make_node_record(1234, true);
         let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
-        let mut dest_db = db_from_node(&root_node);
-        let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard);
+        let mut source_db = db_from_node(&root_node);
+        let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard); //debut node is FR
+        let mut expected_source_db = db_from_node(&root_node);
+        expected_source_db.add_arbitrary_half_neighbor(root_node.public_key(), debut_node.public_key());
+        expected_source_db.root_mut().inner.version = 1;
+        expected_source_db.root_mut().resign();
+        let expected_gossip_response = GossipBuilder::new(&expected_source_db)
+            .node(root_node.public_key(), true)
+            .build();
         let subject = make_subject(&root_node_cryptde);
-        let before = time_t_timestamp();
         let mut neighborhood_metadata = make_default_neighborhood_metadata();
         neighborhood_metadata.user_exit_preferences_opt = Some(UserExitPreferences {
             exit_countries: vec!["CZ".to_string()],
@@ -3065,59 +3089,26 @@ mod tests {
             }]),
             db_countries: vec!["CZ".to_string()],
         });
+        let before = time_t_timestamp();
 
         let result = subject.handle(
-            &mut dest_db,
+            &mut source_db,
             gossip.try_into().unwrap(),
             gossip_source,
             neighborhood_metadata,
         );
 
         let after = time_t_timestamp();
-
-        let expected = "Reply(Gossip_0v1 { node_records: [
-GossipNodeRecord {
-	inner: NodeRecordInner_0v1 {
-		public_key: 0x01020304,
-		node_addr_opt: Some(1.2.3.4:[1234]),
-		earning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },
-		rate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1434, exit_byte_rate: 1237, exit_service_rate: 1634 },
-		neighbors: [0x02030405],
-		version: 1,
-	},
-	node_addr_opt: Some(1.2.3.4:[1234]),
-	signed_data:
-Length: 254 (0xfe) bytes
-0000:   a8 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
-0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
-0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
-0030:   db 18 8d 18  6e 09 18 37  18 49 18 71  18 33 18 d1   ....n..7.I.q.3..
-0040:   18 ae 18 6f  18 df 18 5f  18 4b 18 75  18 bc 18 d0   ...o..._.K.u....
-0050:   69 72 61 74  65 5f 70 61  63 6b a4 71  72 6f 75 74   irate_pack.qrout
-0060:   69 6e 67 5f  62 79 74 65  5f 72 61 74  65 19 04 d3   ing_byte_rate...
-0070:   74 72 6f 75  74 69 6e 67  5f 73 65 72  76 69 63 65   trouting_service
-0080:   5f 72 61 74  65 19 05 9a  6e 65 78 69  74 5f 62 79   _rate...nexit_by
-0090:   74 65 5f 72  61 74 65 19  04 d5 71 65  78 69 74 5f   te_rate...qexit_
-00a0:   73 65 72 76  69 63 65 5f  72 61 74 65  19 06 62 69   service_rate..bi
-00b0:   6e 65 69 67  68 62 6f 72  73 81 44 02  03 04 05 73   neighbors.D....s
-00c0:   61 63 63 65  70 74 73 5f  63 6f 6e 6e  65 63 74 69   accepts_connecti
-00d0:   6f 6e 73 f5  6b 72 6f 75  74 65 73 5f  64 61 74 61   ons.kroutes_data
-00e0:   f5 67 76 65  72 73 69 6f  6e 01 70 63  6f 75 6e 74   .gversion.pcount
-00f0:   72 79 5f 63  6f 64 65 5f  6f 70 74 62  41 55         ry_code_optbAU
-	signature:
-Length: 24 (0x18) bytes
-0000:   01 02 03 04  f7 26 1e a5  d4 4a 71 d9  f8 42 08 35   .....&...Jq..B.5
-0010:   e4 99 27 4a  85 7f 01 11                             ..'J....
-}] }, 0x02030405, 2.3.4.5:[2345])".to_string();
-        assert_eq!(format!("{:?}", result), expected);
+        let expected_result = GossipAcceptanceResult::Reply(expected_gossip_response, debut_node.public_key().clone(), debut_node.node_addr_opt().unwrap());
+        assert_eq!(result, expected_result);
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
             .unwrap();
         root_node.increment_version();
-        root_node.metadata.last_update = dest_db.root().metadata.last_update;
+        root_node.metadata.last_update = source_db.root().metadata.last_update;
         root_node.resign();
-        assert_eq!(&root_node, dest_db.root());
-        let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
+        assert_eq!(&root_node, source_db.root());
+        let reference_node = source_db.node_by_key_mut(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
         assert_eq!(
@@ -3174,10 +3165,10 @@ Length: 24 (0x18) bytes
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
-        let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
+            let reference_node = dest_db.node_by_key(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
-        assert_node_records_eq(reference_node, &debut_node, before, after)
+            assert_node_records_eq(reference_node, &debut_node, before, after)
     }
 
     #[test]
@@ -3263,7 +3254,7 @@ Length: 24 (0x18) bytes
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
-        let reference_node = dest_db.node_by_key_mut(debut_node.public_key()).unwrap();
+        let reference_node = dest_db.node_by_key(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
         assert_node_records_eq(reference_node, &debut_node, before, after)
@@ -3967,14 +3958,14 @@ Length: 24 (0x18) bytes
             &mut expected_dest_db,
             vec![&node_a, &node_b, &node_d, &node_e, &node_f],
         );
-        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
+        fix_nodes_last_updates(&mut expected_dest_db, &dest_db);
         expected_dest_db
             .node_by_key_mut(node_c.public_key())
             .unwrap()
             .metadata
             .node_location_opt = None;
         assert_node_records_eq(
-            dest_db.node_by_key_mut(root_node.public_key()).unwrap(),
+            dest_db.node_by_key(root_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(root_node.public_key())
                 .unwrap(),
@@ -3982,25 +3973,25 @@ Length: 24 (0x18) bytes
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(node_a.public_key()).unwrap(),
+            dest_db.node_by_key(node_a.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_a.public_key()).unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(node_b.public_key()).unwrap(),
+            dest_db.node_by_key(node_b.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_b.public_key()).unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(node_c.public_key()).unwrap(),
+            dest_db.node_by_key(node_c.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_c.public_key()).unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(node_d.public_key()).unwrap(),
+            dest_db.node_by_key(node_d.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_d.public_key()).unwrap(),
             before,
             after,
@@ -4009,7 +4000,7 @@ Length: 24 (0x18) bytes
         assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
     }
 
-    fn fix_last_update_nodes(
+    fn fix_nodes_last_updates(
         expected_db: &mut NeighborhoodDatabase,
         dest_db: &NeighborhoodDatabase,
     ) {
@@ -4017,7 +4008,7 @@ Length: 24 (0x18) bytes
             .keys()
             .iter()
             .map(|key| (*key).clone())
-            .collect::<Vec<_>>();
+            .collect_vec();
         keys.into_iter()
             .for_each(|pubkey| match dest_db.node_by_key(&pubkey) {
                 Some(node_record) => {
@@ -4118,9 +4109,9 @@ Length: 24 (0x18) bytes
         dest_node_mut.increment_version();
         dest_node_mut.resign();
         assert_eq!(result, GossipAcceptanceResult::Accepted);
-        fix_last_update_nodes(&mut expected_dest_db, &dest_db);
+        fix_nodes_last_updates(&mut expected_dest_db, &dest_db);
         assert_node_records_eq(
-            dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
+            dest_db.node_by_key(third_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(third_node.public_key())
                 .unwrap(),
@@ -4128,13 +4119,13 @@ Length: 24 (0x18) bytes
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
+            dest_db.node_by_key(src_node.public_key()).unwrap(),
             expected_dest_db.node_by_key(src_node.public_key()).unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(dest_node.public_key()).unwrap(),
+            dest_db.node_by_key(dest_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(dest_node.public_key())
                 .unwrap(),
@@ -4191,7 +4182,7 @@ Length: 24 (0x18) bytes
         let after = time_t_timestamp();
         assert_eq!(result, GossipAcceptanceResult::Ignored);
         assert_node_records_eq(
-            dest_db.node_by_key_mut(dest_root.public_key()).unwrap(),
+            dest_db.node_by_key(dest_root.public_key()).unwrap(),
             original_dest_db
                 .node_by_key(dest_root.public_key())
                 .unwrap(),
@@ -4199,13 +4190,13 @@ Length: 24 (0x18) bytes
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(src_root.public_key()).unwrap(),
+            dest_db.node_by_key(src_root.public_key()).unwrap(),
             original_dest_db.node_by_key(src_root.public_key()).unwrap(),
             before,
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(current_node.public_key()).unwrap(),
+            dest_db.node_by_key(current_node.public_key()).unwrap(),
             original_dest_db
                 .node_by_key(current_node.public_key())
                 .unwrap(),
@@ -4213,7 +4204,7 @@ Length: 24 (0x18) bytes
             after,
         );
         assert_node_records_eq(
-            dest_db.node_by_key_mut(obsolete_node.public_key()).unwrap(),
+            dest_db.node_by_key(obsolete_node.public_key()).unwrap(),
             original_dest_db
                 .node_by_key(obsolete_node.public_key())
                 .unwrap(),
@@ -4547,7 +4538,7 @@ Length: 24 (0x18) bytes
     }
 
     fn assert_node_records_eq(
-        actual: &mut NodeRecord,
+        actual: &NodeRecord,
         expected: &NodeRecord,
         before: u32,
         after: u32,
