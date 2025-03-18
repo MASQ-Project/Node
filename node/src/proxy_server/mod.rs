@@ -311,13 +311,14 @@ impl ProxyServer {
         retry: DNSFailureRetry,
         client_addr: SocketAddr,
     ) -> DNSFailureRetry {
-        let args = TryTransmitToHopperArgs::new(
+        let args = TransmitToHopperArgs::new(
             self,
             retry.unsuccessful_request.clone(),
             client_addr,
             SystemTime::now(),
             false,
         );
+        let add_return_route_sub = self.out_subs("ProxyServer").add_return_route.clone();
         let route_source = self.out_subs("Neighborhood").route_source.clone();
         let proxy_server_sub = self.out_subs("ProxyServer").route_result_sub.clone();
         let inbound_client_data_helper = self
@@ -325,7 +326,12 @@ impl ProxyServer {
             .as_ref()
             .expect("IBCDHelper uninitialized");
 
-        inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
+        inbound_client_data_helper.request_route_and_transmit(
+            args,
+            add_return_route_sub,
+            route_source,
+            proxy_server_sub,
+        );
         retry
     }
 
@@ -708,7 +714,8 @@ impl ProxyServer {
     }
 
     fn try_transmit_to_hopper(
-        args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_query_response: RouteQueryResponse,
     ) -> Result<(), String> {
         match route_query_response.expected_services {
@@ -723,23 +730,10 @@ impl ProxyServer {
                     args.logger,
                     "Adding expectant return route info: {:?}", return_route_info
                 );
-                args.add_return_route_sub
+                add_return_route_sub
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
-                ProxyServer::transmit_to_hopper(
-                    args.main_cryptde,
-                    &args.hopper_sub,
-                    args.timestamp,
-                    args.payload,
-                    route_query_response.route,
-                    over,
-                    &args.logger,
-                    args.client_addr,
-                    &args.dispatcher_sub,
-                    &args.accountant_sub,
-                    args.retire_stream_key_sub_opt.as_ref(),
-                    args.is_decentralized,
-                )
+                ProxyServer::transmit_to_hopper(args, route_query_response.route, over)
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
         }
@@ -807,37 +801,38 @@ impl ProxyServer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn transmit_to_hopper(
-        main_cryptde: &'static dyn CryptDE,
-        hopper: &Recipient<IncipientCoresPackage>,
-        timestamp: SystemTime,
-        payload: ClientRequestPayload_0v1,
+        args: TransmitToHopperArgs,
+        // main_cryptde: &'static dyn CryptDE,
+        // hopper: &Recipient<IncipientCoresPackage>,
+        // timestamp: SystemTime,
+        // payload: ClientRequestPayload_0v1,
         route: Route,
         expected_services: Vec<ExpectedService>,
-        logger: &Logger,
-        source_addr: SocketAddr,
-        dispatcher: &Recipient<TransmitDataMsg>,
-        accountant_sub: &Recipient<ReportServicesConsumedMessage>,
-        retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
-        is_decentralized: bool,
+        // logger: &Logger,
+        // source_addr: SocketAddr,
+        // dispatcher: &Recipient<TransmitDataMsg>,
+        // accountant_sub: &Recipient<ReportServicesConsumedMessage>,
+        // retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
+        // is_decentralized: bool,
     ) -> Result<(), String> {
-        let destination_key_opt = if is_decentralized {
+        let logger = args.logger;
+        let destination_key_opt = if args.is_decentralized {
             expected_services.iter().find_map(|service| match service {
                 ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
                 _ => None,
             })
         } else {
             // In Zero Hop Mode the exit node public key is the same as this public key
-            Some(main_cryptde.public_key().clone())
+            Some(args.main_cryptde.public_key().clone())
         };
         match destination_key_opt {
             None => {
                 // Route not found
                 Err(ProxyServer::handle_route_failure(
-                    payload,
-                    source_addr,
-                    dispatcher,
+                    args.payload,
+                    args.client_addr,
+                    &args.dispatcher_sub,
                 ))
             }
             Some(payload_destination_key) => {
@@ -846,38 +841,39 @@ impl ProxyServer {
                     logger,
                     "transmit to hopper with destination key {:?}", payload_destination_key
                 );
+                let payload = args.payload;
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
-                    main_cryptde,
+                    args.main_cryptde,
                     route,
                     payload.into(),
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
-                if is_decentralized {
+                if args.is_decentralized {
                     let exit =
                         ProxyServer::report_on_exit_service(&expected_services, payload_size);
                     let routing =
-                        ProxyServer::report_on_routing_services(expected_services, logger);
-                    accountant_sub
+                        ProxyServer::report_on_routing_services(expected_services, &logger);
+                    args.accountant_sub
                         .try_send(ReportServicesConsumedMessage {
-                            timestamp,
+                            timestamp: args.timestamp,
                             exit,
                             routing_payload_size: pkg.payload.len(),
                             routing,
                         })
                         .expect("Accountant is dead");
                 }
-                hopper.try_send(pkg).expect("Hopper is dead");
-                if let Some(shutdown_sub) = retire_stream_key_via {
+                args.hopper_sub.try_send(pkg).expect("Hopper is dead");
+                if let Some(shutdown_sub) = args.retire_stream_key_sub_opt {
                     debug!(
                         logger,
                         "Last data is on the way; directing shutdown of stream {}", stream_key
                     );
                     shutdown_sub
                         .try_send(StreamShutdownMsg {
-                            peer_addr: source_addr,
+                            peer_addr: args.client_addr,
                             stream_type: RemovedStreamType::NonClandestine(
                                 NonClandestineAttributes {
                                     // No report to counterpart; these are irrelevant
@@ -1035,7 +1031,8 @@ pub trait IBCDHelper {
 
     fn request_route_and_transmit(
         &self,
-        tth_args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_source: Recipient<RouteQueryMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
     );
@@ -1044,7 +1041,8 @@ pub trait IBCDHelper {
 trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
-        args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     );
@@ -1054,14 +1052,19 @@ struct RouteQueryResponseResolverReal {}
 impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
-        args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
         let stream_key = args.payload.stream_key;
         let result = match route_result_opt {
             Ok(Some(route_query_response)) => {
-                match ProxyServer::try_transmit_to_hopper(args, route_query_response.clone()) {
+                match ProxyServer::try_transmit_to_hopper(
+                    args,
+                    add_return_route_sub,
+                    route_query_response.clone(),
+                ) {
                     Ok(()) => Ok(route_query_response),
                     Err(e) => Err(e),
                 }
@@ -1157,9 +1160,10 @@ impl IBCDHelper for IBCDHelperReal {
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
         }
-        let tth_args =
-            TryTransmitToHopperArgs::new(proxy, payload, source_addr, timestamp, retire_stream_key);
-        let pld = &tth_args.payload;
+        let args =
+            TransmitToHopperArgs::new(proxy, payload, source_addr, timestamp, retire_stream_key);
+        let add_return_route_sub = proxy.out_subs("ProxysServer").add_return_route.clone();
+        let pld = &args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
                 proxy.logger,
@@ -1169,24 +1173,30 @@ impl IBCDHelper for IBCDHelperReal {
                 pld.sequenced_packet.data.len()
             );
             let route_query_response = route_query_response.clone();
-            ProxyServer::try_transmit_to_hopper(tth_args, route_query_response)
+            ProxyServer::try_transmit_to_hopper(args, add_return_route_sub, route_query_response)
         } else {
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let proxy_server_sub = proxy.out_subs("ProxyServer").route_result_sub.clone();
-            self.request_route_and_transmit(tth_args, route_source, proxy_server_sub);
+            self.request_route_and_transmit(
+                args,
+                add_return_route_sub,
+                route_source,
+                proxy_server_sub,
+            );
             Ok(())
         }
     }
 
     fn request_route_and_transmit(
         &self,
-        tth_args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         neighborhood_sub: Recipient<RouteQueryMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
     ) {
-        let pld = &tth_args.payload;
+        let pld = &args.payload;
         let hostname_opt = pld.target_hostname.clone();
-        let logger = tth_args.logger.clone();
+        let logger = args.logger.clone();
         debug!(
             logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
@@ -1204,14 +1214,19 @@ impl IBCDHelper for IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    message_resolver.resolve_message(tth_args, proxy_server_sub, route_result);
+                    message_resolver.resolve_message(
+                        args,
+                        add_return_route_sub,
+                        proxy_server_sub,
+                        route_result,
+                    );
                     Ok(())
                 }),
         );
     }
 }
 
-pub struct TryTransmitToHopperArgs {
+pub struct TransmitToHopperArgs {
     pub main_cryptde: &'static dyn CryptDE,
     pub payload: ClientRequestPayload_0v1,
     pub client_addr: SocketAddr,
@@ -1222,10 +1237,9 @@ pub struct TryTransmitToHopperArgs {
     pub hopper_sub: Recipient<IncipientCoresPackage>,
     pub dispatcher_sub: Recipient<TransmitDataMsg>,
     pub accountant_sub: Recipient<ReportServicesConsumedMessage>,
-    pub add_return_route_sub: Recipient<AddReturnRouteMessage>,
 }
 
-impl TryTransmitToHopperArgs {
+impl TransmitToHopperArgs {
     pub fn new(
         proxy_server: &ProxyServer,
         payload: ClientRequestPayload_0v1,
@@ -1253,10 +1267,6 @@ impl TryTransmitToHopperArgs {
             hopper_sub: proxy_server.out_subs("Hopper").hopper.clone(),
             dispatcher_sub: proxy_server.out_subs("Dispatcher").dispatcher.clone(),
             accountant_sub: proxy_server.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: proxy_server
-                .out_subs("ProxyServer")
-                .add_return_route
-                .clone(),
             is_decentralized: proxy_server.is_decentralized,
         }
     }
@@ -1436,7 +1446,7 @@ mod tests {
         resolve_message_params: Arc<
             Mutex<
                 Vec<(
-                    TryTransmitToHopperArgs,
+                    TransmitToHopperArgs,
                     Result<Option<RouteQueryResponse>, MailboxError>,
                 )>,
             >,
@@ -1446,7 +1456,8 @@ mod tests {
     impl RouteQueryResponseResolver for RouteQueryResponseResolverMock {
         fn resolve_message(
             &self,
-            args: TryTransmitToHopperArgs,
+            args: TransmitToHopperArgs,
+            _add_return_route_sub: Recipient<AddReturnRouteMessage>,
             _proxy_server_sub: Recipient<AddRouteResultMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
@@ -1463,7 +1474,7 @@ mod tests {
             param: &Arc<
                 Mutex<
                     Vec<(
-                        TryTransmitToHopperArgs,
+                        TransmitToHopperArgs,
                         Result<Option<RouteQueryResponse>, MailboxError>,
                     )>,
                 >,
@@ -1579,7 +1590,8 @@ mod tests {
 
         fn request_route_and_transmit(
             &self,
-            _tth_args: TryTransmitToHopperArgs,
+            _args: TransmitToHopperArgs,
+            _add_return_route_sub: Recipient<AddReturnRouteMessage>,
             _route_source: Recipient<RouteQueryMessage>,
             _proxy_server_sub: Recipient<AddRouteResultMessage>,
         ) {
@@ -2857,7 +2869,7 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: source_addr,
@@ -2867,11 +2879,14 @@ mod tests {
             hopper_sub: peer_actors.hopper.from_hopper_client,
             dispatcher_sub: peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: peer_actors.accountant.report_services_consumed,
-            add_return_route_sub: peer_actors.proxy_server.add_return_route,
             retire_stream_key_sub_opt: None,
         };
 
-        let result = ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
+        let result = ProxyServer::try_transmit_to_hopper(
+            args,
+            peer_actors.proxy_server.add_return_route,
+            route_query_response,
+        );
 
         System::current().stop();
         system.run();
@@ -2942,7 +2957,7 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: source_addr,
@@ -2952,11 +2967,14 @@ mod tests {
             hopper_sub: peer_actors.hopper.from_hopper_client,
             dispatcher_sub: peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: peer_actors.accountant.report_services_consumed,
-            add_return_route_sub: peer_actors.proxy_server.add_return_route,
             retire_stream_key_sub_opt: Some(peer_actors.proxy_server.stream_shutdown_sub),
         };
 
-        let result = ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
+        let result = ProxyServer::try_transmit_to_hopper(
+            args,
+            peer_actors.proxy_server.add_return_route,
+            route_query_response,
+        );
 
         System::current().stop();
         system.run();
@@ -3228,7 +3246,7 @@ mod tests {
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: source_addr,
@@ -3238,11 +3256,14 @@ mod tests {
             hopper_sub: peer_actors.hopper.from_hopper_client,
             dispatcher_sub: peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: peer_actors.accountant.report_services_consumed,
-            add_return_route_sub: peer_actors.proxy_server.add_return_route,
             retire_stream_key_sub_opt: None,
         };
 
-        let _result = ProxyServer::try_transmit_to_hopper(tth_args, route_result);
+        let _result = ProxyServer::try_transmit_to_hopper(
+            args,
+            peer_actors.proxy_server.add_return_route,
+            route_result,
+        );
     }
 
     #[test]
@@ -6114,7 +6135,7 @@ mod tests {
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let addr = proxy_server.start();
         let proxy_server_sub = recipient!(&addr, AddRouteResultMessage);
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -6124,13 +6145,18 @@ mod tests {
             hopper_sub: recipient!(&addr, IncipientCoresPackage),
             dispatcher_sub: recipient!(&addr, TransmitDataMsg),
             accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
-            add_return_route_sub: recipient!(&addr, AddReturnRouteMessage),
             retire_stream_key_sub_opt: None,
         };
+        let add_return_route_sub = recipient!(&addr, AddReturnRouteMessage);
         let subject = RouteQueryResponseResolverReal {};
         let system = System::new("resolve_message_handles_mailbox_error_from_neighborhood");
 
-        subject.resolve_message(tth_args, proxy_server_sub, Err(MailboxError::Timeout));
+        subject.resolve_message(
+            args,
+            add_return_route_sub,
+            proxy_server_sub,
+            Err(MailboxError::Timeout),
+        );
 
         System::current().stop();
         system.run();
