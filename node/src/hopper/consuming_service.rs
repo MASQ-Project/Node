@@ -140,8 +140,7 @@ mod tests {
     use crate::sub_lib::route::RouteSegment;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::unshared_test_utils::make_meaningless_message_type;
-    use crate::test_utils::{main_cryptde, make_paying_wallet};
+    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
     use actix::System;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;

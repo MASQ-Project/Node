@@ -149,11 +149,10 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
-    use crate::test_utils::unshared_test_utils::{
-        make_meaningless_message_type, prove_that_crash_request_handler_is_hooked_up,
-    };
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::{
-        alias_cryptde, main_cryptde, make_cryptde_pair, make_paying_wallet, route_to_proxy_client,
+        alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
+        make_paying_wallet, route_to_proxy_client,
     };
     use actix::Actor;
     use actix::System;

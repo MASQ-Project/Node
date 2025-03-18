@@ -53,6 +53,9 @@ use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
 
+use crate::sub_lib::hopper::MessageType;
+use crate::sub_lib::proxy_client::DnsResolveFailure_0v1;
+use crate::sub_lib::stream_key::StreamKey;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -445,6 +448,10 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
+pub fn make_meaningless_message_type() -> MessageType {
+    DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
+}
+
 pub fn handle_connection_error(stream: TcpStream) {
     let _ = stream.shutdown(Shutdown::Both).is_ok();
     thread::sleep(Duration::from_millis(5000));
@@ -519,9 +526,8 @@ pub mod unshared_test_utils {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::CryptDE;
-    use crate::sub_lib::hopper::MessageType;
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
-    use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+    use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
     use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::stream_key::StreamKey;
@@ -701,10 +707,6 @@ pub mod unshared_test_utils {
         let recipient = addr.recipient::<M>();
 
         (recipient, recording_arc)
-    }
-
-    pub fn make_meaningless_message_type() -> MessageType {
-        DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
     }
 
     pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
