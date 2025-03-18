@@ -519,9 +519,11 @@ mod tests {
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::unshared_test_utils::{
+        make_meaningless_message_type, make_request_payload, make_response_payload,
+    };
     use crate::test_utils::{
-        alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
-        make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing,
+        alias_cryptde, main_cryptde, make_cryptde_pair, make_paying_wallet, rate_pack_routing,
         rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
         route_to_proxy_server,
     };

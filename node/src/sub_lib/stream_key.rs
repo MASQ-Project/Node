@@ -88,20 +88,6 @@ impl StreamKey {
             hash: hash.digest().bytes(),
         }
     }
-
-    pub fn make_meaningless_stream_key() -> StreamKey {
-        StreamKey {
-            hash: [0; sha1::DIGEST_LENGTH],
-        }
-    }
-
-    pub fn make_meaningful_stream_key(phrase: &str) -> StreamKey {
-        let mut hash = sha1::Sha1::new();
-        hash.update(phrase.as_bytes());
-        StreamKey {
-            hash: hash.digest().bytes(),
-        }
-    }
 }
 
 type HashType = [u8; sha1::DIGEST_LENGTH];
@@ -110,6 +96,22 @@ type HashType = [u8; sha1::DIGEST_LENGTH];
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    impl StreamKey {
+        pub fn make_meaningless_stream_key() -> StreamKey {
+            StreamKey {
+                hash: [0; sha1::DIGEST_LENGTH],
+            }
+        }
+
+        pub fn make_meaningful_stream_key(phrase: &str) -> StreamKey {
+            let mut hash = sha1::Sha1::new();
+            hash.update(phrase.as_bytes());
+            StreamKey {
+                hash: hash.digest().bytes(),
+            }
+        }
+    }
 
     #[test]
     fn stream_keys_are_unique() {

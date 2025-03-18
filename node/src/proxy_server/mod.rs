@@ -470,7 +470,7 @@ impl ProxyServer {
         let duration_since = SystemTime::now()
             .duration_since(*old_timestamp)
             .expect("time calculation error");
-        warning!(
+        debug!(
             self.logger,
             "Straggling packet of length {} received for a stream key {:?} after a delay of {:?}",
             packet_len,
@@ -521,42 +521,43 @@ impl ProxyServer {
         }
         if let Some(old_timestamp) = self.stream_key_ttl.get(&stream_key) {
             self.log_straggling_packet(&stream_key, payload_data_len, old_timestamp)
-        }
-        match self.keys_and_addrs.a_to_b(&stream_key) {
-            Some(socket_addr) => {
-                let last_data = response.sequenced_packet.last_data;
-                let sequence_number = Some(
-                    response.sequenced_packet.sequence_number
-                        + self.browser_proxy_sequence_offset as u64,
-                );
-                self.subs
-                    .as_ref()
-                    .expect("Dispatcher unbound in ProxyServer")
-                    .dispatcher
-                    .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(socket_addr),
-                        last_data,
-                        sequence_number,
-                        data: response.sequenced_packet.data,
-                    })
-                    .expect("Dispatcher is dead");
-                if last_data {
-                    self.purge_stream_key(&stream_key, "last data received from the exit node");
+        } else {
+            match self.keys_and_addrs.a_to_b(&stream_key) {
+                Some(socket_addr) => {
+                    let last_data = response.sequenced_packet.last_data;
+                    let sequence_number = Some(
+                        response.sequenced_packet.sequence_number
+                            + self.browser_proxy_sequence_offset as u64,
+                    );
+                    self.subs
+                        .as_ref()
+                        .expect("Dispatcher unbound in ProxyServer")
+                        .dispatcher
+                        .try_send(TransmitDataMsg {
+                            endpoint: Endpoint::Socket(socket_addr),
+                            last_data,
+                            sequence_number,
+                            data: response.sequenced_packet.data,
+                        })
+                        .expect("Dispatcher is dead");
+                    if last_data {
+                        self.purge_stream_key(&stream_key, "last data received from the exit node");
+                    }
                 }
-            }
-            None => {
-                // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
-                // back to the ProxyClient (and the distant server) so that the server could shut down
-                // its stream, since the browser has shut down _its_ stream and no more data will
-                // ever be accepted from the server on that stream; but we don't have enough information
-                // to do so, since our stream key has been purged and all the information it keyed
-                // is gone. Sorry, server!
-                warning!(self.logger,
-                    "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
-                    response.sequenced_packet.data.len(),
-                    response.sequenced_packet.sequence_number,
-                    response.stream_key,
-                )
+                None => {
+                    // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
+                    // back to the ProxyClient (and the distant server) so that the server could shut down
+                    // its stream, since the browser has shut down _its_ stream and no more data will
+                    // ever be accepted from the server on that stream; but we don't have enough information
+                    // to do so, since our stream key has been purged and all the information it keyed
+                    // is gone. Sorry, server!
+                    warning!(self.logger,
+                        "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
+                        response.sequenced_packet.data.len(),
+                        response.sequenced_packet.sequence_number,
+                        response.stream_key,
+                    )
+                }
             }
         }
     }
@@ -1370,14 +1371,13 @@ mod tests {
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::make_paying_wallet;
-    use crate::test_utils::make_request_payload;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::{
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -4011,9 +4011,9 @@ mod tests {
     }
 
     #[test]
-    fn straggling_packets_are_logged() {
+    fn straggling_packets_are_charged_and_dropped_as_the_browser_stopped_awaiting_them_anyway() {
         init_test_logging();
-        let test_name = "straggling_packets_are_logged";
+        let test_name = "straggling_packets_are_charged_and_dropped_as_the_browser_stopped_awaiting_them_anyway";
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -4040,34 +4040,42 @@ mod tests {
         subject
             .tunneled_hosts
             .insert(stream_key.clone(), "hostname".to_string());
+        let exit_key = PublicKey::new(&b"blah"[..]);
+        let exit_wallet = make_wallet("abc");
+        let exit_rates = RatePack {
+            routing_byte_rate: 0,
+            routing_service_rate: 0,
+            exit_byte_rate: 100,
+            exit_service_rate: 60000,
+        };
         subject.route_ids_to_return_routes.insert(
             1234,
             AddReturnRouteMessage {
                 return_route_id: 1234,
-                expected_services: vec![],
+                expected_services: vec![ExpectedService::Exit(
+                    exit_key,
+                    exit_wallet.clone(),
+                    exit_rates.clone(),
+                )],
                 protocol: ProxyProtocol::HTTP,
                 hostname_opt: None,
             },
         );
+        subject
+            .stream_key_ttl
+            .insert(stream_key.clone(), SystemTime::now());
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let proxy_server_addr = subject.start();
-        let schedule_stream_key_purge_sub = proxy_server_addr.clone().recipient();
-        let mut peer_actors = peer_actors_builder().build();
-        peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_purge_sub;
-
+        let peer_actors = peer_actors_builder()
+            .accountant(accountant)
+            .dispatcher(dispatcher)
+            .build();
         let system = System::new(test_name);
-        let bind_msg = BindMessage { peer_actors };
-        proxy_server_addr.try_send(bind_msg).unwrap();
-        let stream_shutdown_msg = StreamShutdownMsg {
-            peer_addr: socket_addr,
-            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                reception_port: 0,
-                sequence_number: 0,
-            }),
-            report_to_counterpart: true,
-        };
+        let response_data = vec![0; 30];
         let client_response_payload = ClientResponsePayload_0v1 {
             stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket::new(vec![], 1, true),
+            sequenced_packet: SequencedPacket::new(response_data.clone(), 1, true),
         };
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
@@ -4075,16 +4083,32 @@ mod tests {
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 client_response_payload.into(),
-                0,
+                5432,
             );
-        proxy_server_addr.try_send(stream_shutdown_msg).unwrap();
+        let bind_msg = BindMessage { peer_actors };
+        proxy_server_addr.try_send(bind_msg).unwrap();
 
         proxy_server_addr.try_send(expired_cores_package).unwrap();
 
         System::current().stop();
         system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let msg = accountant_recording.get_record::<ReportServicesConsumedMessage>(0);
+        assert_eq!(
+            &msg.exit,
+            &ExitServiceConsumed {
+                earning_wallet: exit_wallet,
+                payload_size: response_data.len(),
+                service_rate: exit_rates.exit_service_rate,
+                byte_rate: exit_rates.exit_byte_rate,
+            }
+        );
+        assert_eq!(msg.routing_payload_size, 5432);
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let len = dispatcher_recording.len();
+        assert_eq!(len, 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Straggling packet of length 0 received for a \
+            "DEBUG: {test_name}: Straggling packet of length 5432 received for a \
             stream key {:?} after a delay of",
             stream_key
         ));
@@ -5318,7 +5342,11 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: While handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for the stream_key: AAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: While \
+        handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for \
+        the stream_key: AAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        ));
     }
 
     #[test]
