@@ -65,10 +65,7 @@ use masq_lib::constants::{DEFAULT_PREALLOCATION_VEC, EXIT_COUNTRY_MISSING_COUNTR
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{
-    ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage,
-    UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse,
-};
+use masq_lib::messages::{CountryCodes, ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -651,6 +648,10 @@ impl Neighborhood {
                             &self.logger,
                         );
                 }
+                self.user_exit_preferences.db_countries = self.init_db_countries();
+                // if let Some(exit_locations_by_priority) = self.user_exit_preferences.locations_opt.as_ref() {
+                //     self.set_country_undesirability_and_exit_countries(exit_locations_by_priority);
+                // }
                 self.search_for_a_new_route();
             }
             ConfigChange::UpdatePassword(new_password) => {
@@ -1694,6 +1695,7 @@ impl Neighborhood {
         client_id: u64,
         context_id: u64,
     ) {
+        //TODO write test that contains more CountryCodes than countries in neighborhood db to check if unexistent country codes in db are filtered out from ExitLocation
         let (exit_locations_by_priority, missing_locations) =
             self.extract_exit_locations_from_message(&message);
 
@@ -1856,6 +1858,7 @@ impl Neighborhood {
         message: &UiSetExitLocationRequest,
     ) -> (Vec<ExitLocation>, Vec<String>) {
         //TODO perform following update of db_countries only in Gossip_Acceptor
+        //TODO implement enrich_exit_countries in handle_config_change_msg
         self.user_exit_preferences.db_countries = self.init_db_countries();
         let mut countries_lack_in_neighborhood = vec![];
         (
@@ -1864,21 +1867,7 @@ impl Neighborhood {
                 .exit_locations
                 .into_iter()
                 .map(|cc| {
-                    for code in &cc.country_codes {
-                        if self.user_exit_preferences.db_countries.contains(code)
-                            || self.user_exit_preferences.fallback_preference
-                                == FallbackPreference::ExitCountryWithFallback
-                        {
-                            self.user_exit_preferences.exit_countries.push(code.clone());
-                            if self.user_exit_preferences.fallback_preference
-                                == FallbackPreference::ExitCountryWithFallback
-                            {
-                                countries_lack_in_neighborhood.push(code.clone());
-                            }
-                        } else {
-                            countries_lack_in_neighborhood.push(code.clone());
-                        }
-                    }
+                    countries_lack_in_neighborhood = self.enrich_exit_countries(&cc);
                     ExitLocation {
                         country_codes: cc.country_codes,
                         priority: cc.priority,
@@ -1887,6 +1876,27 @@ impl Neighborhood {
                 .collect(),
             countries_lack_in_neighborhood,
         )
+    }
+
+    fn enrich_exit_countries(&mut self, cc: &CountryCodes) -> Vec<String> {
+        let mut countries_lack_in_neighborhood = vec![];
+        for code in &cc.country_codes {
+            if self.user_exit_preferences.db_countries.contains(code)
+                || self.user_exit_preferences.fallback_preference
+                == FallbackPreference::ExitCountryWithFallback
+            {
+                self.user_exit_preferences.exit_countries.push(code.clone());
+                if (self.user_exit_preferences.fallback_preference
+                    == FallbackPreference::ExitCountryWithFallback) &&
+                    !self.user_exit_preferences.db_countries.contains(code)
+                {
+                    countries_lack_in_neighborhood.push(code.clone());
+                }
+            } else {
+                countries_lack_in_neighborhood.push(code.clone());
+            }
+        }
+        countries_lack_in_neighborhood
     }
 
     fn init_db_countries(&mut self) -> Vec<String> {
@@ -2132,6 +2142,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
+    use libc::printf;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -3562,6 +3573,50 @@ mod tests {
     }
 
     #[test]
+    fn min_hops_change_affects_db_countries() {
+        let mut subject = make_standard_subject();
+        let root_node = subject.neighborhood_database.root().clone(); //CH
+        let neighbor_one = make_node_record(1234, true); //AU
+        let neighbor_two = make_node_record(2345, true); //FR
+        let neighbor_three = make_node_record(3456, true); //CN
+        let neighbor_four = make_node_record(4567, true); //US
+        subject.neighborhood_database.add_node(neighbor_one.clone()).unwrap();
+        subject.neighborhood_database.add_node(neighbor_two.clone()).unwrap();
+        subject.neighborhood_database.add_node(neighbor_three.clone()).unwrap();
+        subject.neighborhood_database.add_node(neighbor_four.clone()).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_one.public_key());
+        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_one.public_key(), neighbor_two.public_key());
+        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
+        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
+        subject.user_exit_preferences.db_countries = subject.init_db_countries();
+        let tree_hop_db_countries = subject.user_exit_preferences.db_countries.clone();
+        let config_msg_two_hops = ConfigChangeMsg {
+            change: ConfigChange::UpdateMinHops(Hops::TwoHops),
+        };
+        let config_msg_four_hops = ConfigChangeMsg {
+            change: ConfigChange::UpdateMinHops(Hops::FourHops),
+        };
+        let peer_actors = peer_actors_builder().build();
+        subject.handle_bind_message(BindMessage { peer_actors });
+        let exit_locations_by_priority = vec![ExitLocation {
+            country_codes: vec!["US".to_string(), "FR".to_string()],
+            priority: 1,
+        }];
+        subject.user_exit_preferences.exit_countries.push("US".to_string());
+
+        subject.handle_config_change_msg(config_msg_two_hops);
+        subject.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
+        println!("exit_countries {:?}", subject.user_exit_preferences.exit_countries);
+        let two_hops_db_countries = subject.user_exit_preferences.db_countries.clone();
+        subject.handle_config_change_msg(config_msg_four_hops);
+        
+        let four_hops_db_countries = subject.user_exit_preferences.db_countries;
+        assert_eq!(tree_hop_db_countries, vec!["CN".to_string(), "US".to_string()]);
+        assert_eq!(two_hops_db_countries, vec!["CN".to_string(), "FR".to_string(), "US".to_string()]);
+        assert_eq!(four_hops_db_countries, vec!["US".to_string()]);
+    }
+
+    #[test]
     fn neighborhood_handles_config_change_msg() {
         assert_handling_of_config_change_msg(
             ConfigChangeMsg {
@@ -3612,7 +3667,6 @@ mod tests {
         init_test_logging();
         let mut subject = make_standard_subject();
         subject.logger = Logger::new("ConfigChange");
-
         subject.handle_config_change_msg(msg);
 
         assertions(&subject);
@@ -4812,7 +4866,6 @@ mod tests {
     #[test]
     fn route_for_au_country_code_is_constructed_with_fallback_routing() {
         let mut subject = make_standard_subject();
-        //let db = &mut subject.neighborhood_database;
         let p = &subject
             .neighborhood_database
             .root_mut()
