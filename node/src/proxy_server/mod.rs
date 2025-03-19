@@ -803,18 +803,8 @@ impl ProxyServer {
 
     fn transmit_to_hopper(
         args: TransmitToHopperArgs,
-        // main_cryptde: &'static dyn CryptDE,
-        // hopper: &Recipient<IncipientCoresPackage>,
-        // timestamp: SystemTime,
-        // payload: ClientRequestPayload_0v1,
         route: Route,
         expected_services: Vec<ExpectedService>,
-        // logger: &Logger,
-        // source_addr: SocketAddr,
-        // dispatcher: &Recipient<TransmitDataMsg>,
-        // accountant_sub: &Recipient<ReportServicesConsumedMessage>,
-        // retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
-        // is_decentralized: bool,
     ) -> Result<(), String> {
         let logger = args.logger;
         let destination_key_opt = if args.is_decentralized {
