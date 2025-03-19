@@ -65,7 +65,7 @@ use masq_lib::constants::{DEFAULT_PREALLOCATION_VEC, EXIT_COUNTRY_MISSING_COUNTR
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{CountryCodes, ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
+use masq_lib::messages::{ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -649,9 +649,13 @@ impl Neighborhood {
                         );
                 }
                 self.user_exit_preferences.db_countries = self.init_db_countries();
-                // if let Some(exit_locations_by_priority) = self.user_exit_preferences.locations_opt.as_ref() {
-                //     self.set_country_undesirability_and_exit_countries(exit_locations_by_priority);
-                // }
+                if let Some(exit_locations_by_priority) = self.user_exit_preferences.locations_opt.clone() {
+                    for exit_location in &exit_locations_by_priority {
+                        self.enrich_exit_countries(&exit_location.country_codes);
+                    }
+                    self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
+                }
+
                 self.search_for_a_new_route();
             }
             ConfigChange::UpdatePassword(new_password) => {
@@ -1867,7 +1871,7 @@ impl Neighborhood {
                 .exit_locations
                 .into_iter()
                 .map(|cc| {
-                    countries_lack_in_neighborhood = self.enrich_exit_countries(&cc);
+                    countries_lack_in_neighborhood.extend(self.enrich_exit_countries(&cc.country_codes));
                     ExitLocation {
                         country_codes: cc.country_codes,
                         priority: cc.priority,
@@ -1878,14 +1882,16 @@ impl Neighborhood {
         )
     }
 
-    fn enrich_exit_countries(&mut self, cc: &CountryCodes) -> Vec<String> {
+    fn enrich_exit_countries(&mut self, country_codes: &Vec<String>) -> Vec<String> {
         let mut countries_lack_in_neighborhood = vec![];
-        for code in &cc.country_codes {
+        for code in country_codes {
             if self.user_exit_preferences.db_countries.contains(code)
-                || self.user_exit_preferences.fallback_preference
-                == FallbackPreference::ExitCountryWithFallback
+                || (self.user_exit_preferences.fallback_preference
+                == FallbackPreference::ExitCountryWithFallback)
             {
-                self.user_exit_preferences.exit_countries.push(code.clone());
+                if !self.user_exit_preferences.exit_countries.contains(code) {
+                    self.user_exit_preferences.exit_countries.push(code.clone());
+                }
                 if (self.user_exit_preferences.fallback_preference
                     == FallbackPreference::ExitCountryWithFallback) &&
                     !self.user_exit_preferences.db_countries.contains(code)
@@ -1893,6 +1899,9 @@ impl Neighborhood {
                     countries_lack_in_neighborhood.push(code.clone());
                 }
             } else {
+                if let Some(index) = self.user_exit_preferences.exit_countries.iter().position(|item| item.eq(code)) {
+                    self.user_exit_preferences.exit_countries.remove(index);
+                }
                 countries_lack_in_neighborhood.push(code.clone());
             }
         }
@@ -2142,7 +2151,6 @@ mod tests {
     use std::thread;
     use std::time::Duration;
     use std::time::Instant;
-    use libc::printf;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -3589,6 +3597,11 @@ mod tests {
         subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
         subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
+        subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryWithFallback;
+        subject.user_exit_preferences.locations_opt = Some(vec![ExitLocation {
+            country_codes: vec!["FR".to_string(), "US".to_string()],
+            priority: 1,
+        }]);
         let tree_hop_db_countries = subject.user_exit_preferences.db_countries.clone();
         let config_msg_two_hops = ConfigChangeMsg {
             change: ConfigChange::UpdateMinHops(Hops::TwoHops),
@@ -3598,18 +3611,19 @@ mod tests {
         };
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
-        let exit_locations_by_priority = vec![ExitLocation {
-            country_codes: vec!["US".to_string(), "FR".to_string()],
-            priority: 1,
-        }];
-        subject.user_exit_preferences.exit_countries.push("US".to_string());
 
         subject.handle_config_change_msg(config_msg_two_hops);
-        subject.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
-        println!("exit_countries {:?}", subject.user_exit_preferences.exit_countries);
+        //subject.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
+        for node in subject.neighborhood_database.nodes_mut() {
+            println!("node country undesirability: {:?} {}", node.inner.country_code_opt, node.metadata.country_undesirability);
+        }
+        println!("db_countries two_hops {:?}", subject.user_exit_preferences.db_countries);
+        println!("exit_countries two_hops {:?}", subject.user_exit_preferences.exit_countries);
         let two_hops_db_countries = subject.user_exit_preferences.db_countries.clone();
         subject.handle_config_change_msg(config_msg_four_hops);
-        
+
+        println!("db_countries four_hops {:?}", subject.user_exit_preferences.db_countries);
+        println!("exit_countries four_hops {:?}", subject.user_exit_preferences.exit_countries);
         let four_hops_db_countries = subject.user_exit_preferences.db_countries;
         assert_eq!(tree_hop_db_countries, vec!["CN".to_string(), "US".to_string()]);
         assert_eq!(two_hops_db_countries, vec!["CN".to_string(), "FR".to_string(), "US".to_string()]);
