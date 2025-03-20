@@ -3581,7 +3581,7 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_change_affects_db_countries() {
+    fn min_hops_change_affects_db_countries_and_exit_location_settings() {
         let mut subject = make_standard_subject();
         let root_node = subject.neighborhood_database.root().clone(); //CH
         let neighbor_one = make_node_record(1234, true); //AU
