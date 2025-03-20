@@ -31,7 +31,7 @@ use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::blockchain_interface_web3::transaction_data_web3;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
-use node_lib::test_utils::standard_dir_for_test_input_data;
+use node_lib::test_utils::test_input_data_standard_dir;
 use rustc_hex::{FromHex, ToHex};
 use std::cell::RefCell;
 use std::fs::File;
@@ -445,7 +445,7 @@ fn make_db_init_config(chain: Chain) -> DbInitializationConfig {
 
 fn load_contract_in_bytes() -> Vec<u8> {
     let file_path =
-        standard_dir_for_test_input_data().join("smart_contract_for_on_blockchain_test");
+        test_input_data_standard_dir().join("smart_contract_for_on_blockchain_test");
     let mut file = File::open(file_path).expect("couldn't acquire a handle to the data file");
     let mut data = String::new();
     file.read_to_string(&mut data).unwrap();

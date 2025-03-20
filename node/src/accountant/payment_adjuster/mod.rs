@@ -559,7 +559,7 @@ mod tests {
         find_largest_exceeding_balance, sum_as,
     };
     use crate::accountant::payment_adjuster::service_fee_adjuster::illustrative_util::illustrate_why_we_need_to_prevent_exceeding_the_original_value;
-    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
     use crate::accountant::payment_adjuster::test_utils::local_utils::{
         make_mammoth_payables, make_meaningless_analyzed_account_by_wallet, multiply_by_billion,
         multiply_by_billion_concise, multiply_by_quintillion, multiply_by_quintillion_concise,
@@ -698,7 +698,7 @@ mod tests {
         let result = subject.consider_adjustment(qualified_payables.clone(), &*agent);
 
         let analyzed_payables =
-            convert_qualified_into_analyzed_payables_in_test(qualified_payables);
+            convert_qualified_p_into_analyzed_p(qualified_payables);
         assert_eq!(
             result,
             Ok(Either::Right(AdjustmentAnalysisReport::new(
@@ -742,7 +742,7 @@ mod tests {
         let result = subject.consider_adjustment(qualified_payables.clone(), &*agent);
 
         let analyzed_payables =
-            convert_qualified_into_analyzed_payables_in_test(qualified_payables);
+            convert_qualified_p_into_analyzed_p(qualified_payables);
         assert_eq!(
             result,
             Ok(Either::Right(AdjustmentAnalysisReport::new(
@@ -819,7 +819,7 @@ mod tests {
         let (qualified_payables, boxed_agent) =
             make_input_for_initial_check_tests(service_fee_balances_config_opt, None);
         let analyzed_accounts =
-            convert_qualified_into_analyzed_payables_in_test(qualified_payables.clone());
+            convert_qualified_p_into_analyzed_p(qualified_payables.clone());
         let minimal_disqualification_limit = analyzed_accounts
             .iter()
             .map(|account| account.disqualification_limit_minor)
@@ -1989,7 +1989,7 @@ mod tests {
             })
             .collect();
         let analyzed_accounts =
-            convert_qualified_into_analyzed_payables_in_test(qualified_payables);
+            convert_qualified_p_into_analyzed_p(qualified_payables);
         let analyzed_accounts: [AnalyzedPayableAccount; 3] = analyzed_accounts.try_into().unwrap();
         let disqualification_limits: QuantifiedDisqualificationLimits = (&analyzed_accounts).into();
         (analyzed_accounts, disqualification_limits)
@@ -2430,7 +2430,7 @@ mod tests {
         cw_service_fee_balance_minor: u128,
     ) -> Vec<WeighedPayable> {
         let analyzed_payables =
-            convert_qualified_into_analyzed_payables_in_test(qualified_payables);
+            convert_qualified_p_into_analyzed_p(qualified_payables);
         let max_debt_above_threshold_in_qualified_payables_minor =
             find_largest_exceeding_balance(&analyzed_payables);
         let mut subject = PaymentAdjusterBuilder::default()

@@ -6,7 +6,7 @@ use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use crate::accountant::payment_adjuster::miscellaneous::helper_functions::sum_as;
 use crate::accountant::payment_adjuster::preparatory_analyser::accounts_abstraction::BalanceProvidingAccount;
-use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
 use crate::accountant::payment_adjuster::test_utils::local_utils::PRESERVED_TEST_PAYMENT_THRESHOLDS;
 use crate::accountant::payment_adjuster::{
     Adjustment, AdjustmentAnalysisReport, PaymentAdjuster, PaymentAdjusterError,
@@ -219,7 +219,7 @@ fn try_making_single_valid_scenario(
     let (cw_service_fee_balance, qualified_payables, applied_thresholds) =
         try_generating_qualified_payables_and_cw_balance(gn, accounts_count, now)?;
 
-    let analyzed_accounts = convert_qualified_into_analyzed_payables_in_test(qualified_payables);
+    let analyzed_accounts = convert_qualified_p_into_analyzed_p(qualified_payables);
     let agent = make_agent(cw_service_fee_balance);
     let adjustment = make_adjustment(gn, analyzed_accounts.len());
     let prepared_adjustment = PreparedAdjustment::new(

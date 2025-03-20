@@ -1078,7 +1078,7 @@ mod tests {
     };
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+    use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
     use crate::accountant::payment_adjuster::{
         Adjustment, AdjustmentAnalysisReport, PaymentAdjusterError,
         TransactionFeeImmoderateInsufficiency,
@@ -1585,7 +1585,7 @@ mod tests {
         let prepare_unadjusted_and_adjusted_payable = |n: u64| {
             let unadjusted_account = make_meaningless_qualified_payable(n);
             let adjusted_account = PayableAccount {
-                balance_wei: gwei_to_wei(n / 3),
+                balance_wei: gwei_to_wei::<u128,_>(n) / 3,
                 ..unadjusted_account.bare_account.clone()
             };
             (unadjusted_account, adjusted_account)
@@ -1621,7 +1621,7 @@ mod tests {
             response_skeleton_opt: Some(response_skeleton),
         };
         let analyzed_accounts =
-            convert_qualified_into_analyzed_payables_in_test(unadjusted_qualified_accounts.clone());
+            convert_qualified_p_into_analyzed_p(unadjusted_qualified_accounts.clone());
         let adjustment_analysis =
             AdjustmentAnalysisReport::new(Adjustment::ByServiceFee, analyzed_accounts.clone());
         let payment_adjuster = PaymentAdjusterMock::default()
@@ -1762,8 +1762,8 @@ mod tests {
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            The cause appears to be in competence of the user."
+            "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
+            Resolution of the issue appears to be the user's responsibility."
         ));
     }
 
@@ -1792,8 +1792,8 @@ mod tests {
         log_handler
             .exists_log_containing(&format!("INFO: {test_name}: The Payables scan ended in"));
         log_handler.exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for \
-            payments. The cause appears to be in competence of the user"
+            "ERROR: {test_name}: Payable scanner is unable to generate payment instructions. \
+            Resolution of the issue appears to be the user's responsibility."
         ));
     }
 
@@ -1832,8 +1832,8 @@ mod tests {
         // No NodeUiMessage was sent because there is no `response_skeleton`. It is evident by
         // the fact that the test didn't blow up even though UIGateway is unbound
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Payable scanner is blocked from preparing instructions for payments. \
-            The cause appears to be in competence of the user"
+            "ERROR: {test_name}: Payable scanner is unable to generate payment \
+            instructions. Resolution of the issue appears to be the user's responsibility."
         ));
     }
 

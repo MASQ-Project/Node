@@ -13,7 +13,7 @@ use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
-use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_into_analyzed_payables_in_test;
+use crate::accountant::payment_adjuster::test_utils::exposed_utils::convert_qualified_p_into_analyzed_p;
 use crate::accountant::payment_adjuster::{
     AdjustmentAnalysisResult, PaymentAdjuster, PaymentAdjusterError,
 };
@@ -1755,7 +1755,7 @@ pub fn make_analyzed_payables(
     payment_thresholds: &PaymentThresholds,
     now: SystemTime,
 ) -> Vec<AnalyzedPayableAccount> {
-    convert_qualified_into_analyzed_payables_in_test(make_qualified_payables(
+    convert_qualified_p_into_analyzed_p(make_qualified_payables(
         payables,
         payment_thresholds,
         now,

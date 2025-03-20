@@ -30,9 +30,9 @@ macro_rules! diagnostics {
         )
     };
     // Displays an account by wallet address, brief description and formatted literal with arguments
-    ($wallet: expr, $description: expr,  $($formatted_values: tt)*) => {
+    ($wallet_address: expr, $description: expr,  $($formatted_values: tt)*) => {
         diagnostics(
-            Some(||format!("{:?}", $wallet)),
+            Some(||format!("{:?}", $wallet_address)),
             $description,
             Some(|| format!($($formatted_values)*))
         )

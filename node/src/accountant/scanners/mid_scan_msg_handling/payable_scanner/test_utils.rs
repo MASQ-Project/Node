@@ -16,7 +16,7 @@ pub struct BlockchainAgentMock {
     transaction_fee_balance_minor_results: RefCell<Vec<U256>>,
     service_fee_balance_minor_results: RefCell<Vec<u128>>,
     gas_price_results: RefCell<Vec<u64>>,
-    gas_price_margin: RefCell<Vec<PurePercentage>>,
+    gas_price_margin_results: RefCell<Vec<PurePercentage>>,
     consuming_wallet_result_opt: Option<Wallet>,
     pending_transaction_id_results: RefCell<Vec<U256>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
@@ -46,7 +46,7 @@ impl BlockchainAgent for BlockchainAgentMock {
     }
 
     fn gas_price_margin(&self) -> PurePercentage {
-        self.gas_price_margin.borrow_mut().remove(0)
+        self.gas_price_margin_results.borrow_mut().remove(0)
     }
 
     fn consuming_wallet(&self) -> &Wallet {
@@ -92,7 +92,7 @@ impl BlockchainAgentMock {
     }
 
     pub fn gas_price_margin_result(self, result: PurePercentage) -> Self {
-        self.gas_price_margin.borrow_mut().push(result);
+        self.gas_price_margin_results.borrow_mut().push(result);
         self
     }
 

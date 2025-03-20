@@ -62,7 +62,7 @@ mod tests {
         payment_adjuster_inner.initialize_guts(None, 123456789, largest_exceeding_balance);
         let subject = BalanceCriterionCalculator::default();
 
-        let computed_criteria = analyzed_accounts
+        let calculated_values = analyzed_accounts
             .iter()
             .map(|analyzed_account| {
                 subject.calculate(&analyzed_account.qualified_as, &payment_adjuster_inner)
@@ -70,7 +70,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let expected_values = vec![4_384_000_000_000, 4_336_000_000_000, 2_216_000_000_000];
-        computed_criteria
+        calculated_values
             .into_iter()
             .zip(expected_values.into_iter())
             .for_each(|(actual_criterion, expected_criterion)| {

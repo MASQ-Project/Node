@@ -330,8 +330,8 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
     fn cancel_scan(&mut self, logger: &Logger) {
         error!(
             logger,
-            "Payable scanner is blocked from preparing instructions for payments. The cause appears \
-            to be in competence of the user."
+            "Payable scanner is unable to generate payment instructions. Resolution of the issue \
+            appears to be the user's responsibility."
         );
         self.mark_as_ended(logger)
     }

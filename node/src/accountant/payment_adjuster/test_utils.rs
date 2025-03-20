@@ -325,7 +325,8 @@ pub mod exposed_utils {
     use crate::accountant::payment_adjuster::disqualification_arbiter::DisqualificationArbiter;
     use crate::accountant::{AnalyzedPayableAccount, QualifiedPayableAccount};
 
-    pub fn convert_qualified_into_analyzed_payables_in_test(
+    // Refrain from using this fn in the prod code
+    pub fn convert_qualified_p_into_analyzed_p(
         qualified_account: Vec<QualifiedPayableAccount>,
     ) -> Vec<AnalyzedPayableAccount> {
         qualified_account

@@ -527,11 +527,11 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
-pub fn standard_dir_for_test_input_data() -> PathBuf {
-    let mut working_dir = current_dir().unwrap();
-    if !working_dir.ends_with("/node/") {
-        working_dir = working_dir.parent().unwrap().join("node");
-    }
+pub fn test_input_data_standard_dir() -> PathBuf {
+    let working_dir = current_dir().unwrap();
+    if !working_dir.ends_with("node") {
+        panic!("Project structure with missing \"node\" directory: {:?}.", working_dir);
+    };
     working_dir
         .join("src")
         .join("test_utils")

@@ -31,6 +31,7 @@ pub struct LoosePercentage {
 
 pub trait PercentageInteger:
     TryFrom<i8>
+    //+ TryFrom<u32>
     + CheckedMul
     + CheckedAdd
     + CheckedSub
@@ -247,25 +248,24 @@ impl PurePercentage {
         <i16 as TryFrom<N>>::Error: Debug,
     {
         let hundred = N::try_from(100).expect("Each type has 100");
-        let modulo = num % hundred;
+        let remainder = num % hundred;
         let percent = N::try_from(self.degree as i8).expect("Each type has 100");
-
-        let without_treated_remainder = (num / hundred) * percent;
-        let final_remainder_treatment = Self::treat_remainder(modulo, percent);
-        without_treated_remainder + final_remainder_treatment
+        let percents_of_hundred_multiples = (num / hundred) * percent;
+        let treated_remainder = Self::treat_remainder(remainder, percent);
+        percents_of_hundred_multiples + treated_remainder
     }
 
-    fn treat_remainder<N>(modulo: N, percent: N) -> N
+    fn treat_remainder<N>(remainder: N, percent: N) -> N
     where
         N: PercentageInteger,
         <N as TryFrom<i8>>::Error: Debug,
         i16: TryFrom<N>,
         <i16 as TryFrom<N>>::Error: Debug,
     {
-        let extended_remainder_prepared_for_rounding = i16::try_from(modulo)
-            .unwrap_or_else(|_| panic!("u16 from -100..=100 failed at modulo {:?}", modulo))
+        let extended_remainder_before_rounding = i16::try_from(remainder)
+            .unwrap_or_else(|_| panic!("u16 from -100..=100 failed at modulo {:?}", remainder))
             * i16::try_from(percent).expect("i16 from within 0..=100 failed at multiplier");
-        let rounded = Self::div_by_100_and_round(extended_remainder_prepared_for_rounding);
+        let rounded = Self::div_by_100_and_round(extended_remainder_before_rounding);
         N::try_from(rounded as i8).expect("Each type has 0 up to 100")
     }
 }
