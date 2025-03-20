@@ -649,7 +649,6 @@ impl Neighborhood {
                         );
                 }
                 self.user_exit_preferences.db_countries = self.init_db_countries();
-                println!("db_countries for {} hops: {:?}", self.min_hops, self.user_exit_preferences.db_countries);
                 if let Some(exit_locations_by_priority) = self.user_exit_preferences.locations_opt.clone() {
                     for exit_location in &exit_locations_by_priority {
                         self.enrich_exit_countries(&exit_location.country_codes);
@@ -1901,7 +1900,6 @@ impl Neighborhood {
                 }
             } else {
                 if let Some(index) = self.user_exit_preferences.exit_countries.iter().position(|item| item.eq(code)) {
-                    println!("removing index {}", index);
                     self.user_exit_preferences.exit_countries.remove(index);
                 }
                 countries_lack_in_neighborhood.push(code.clone());
@@ -3599,13 +3597,17 @@ mod tests {
         subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
         subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
-        subject.user_exit_preferences.exit_countries = vec!["FR".to_string(), "CN".to_string()];
-        subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryWithFallback;
-        subject.user_exit_preferences.locations_opt = Some(vec![ExitLocation {
+        let exit_locations_by_priority = vec![ExitLocation {
             country_codes: vec!["FR".to_string(), "US".to_string()],
             priority: 1,
-        }]);
+        }];
+        for exit_location in &exit_locations_by_priority {
+            subject.enrich_exit_countries(&exit_location.country_codes);
+        }
+        subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryNoFallback;
+        subject.user_exit_preferences.locations_opt = Some(exit_locations_by_priority);
         let tree_hop_db_countries = subject.user_exit_preferences.db_countries.clone();
+        let tree_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
         let config_msg_two_hops = ConfigChangeMsg {
             change: ConfigChange::UpdateMinHops(Hops::TwoHops),
         };
@@ -3616,21 +3618,18 @@ mod tests {
         subject.handle_bind_message(BindMessage { peer_actors });
 
         subject.handle_config_change_msg(config_msg_two_hops);
-        //subject.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
-        for node in subject.neighborhood_database.nodes_mut() {
-            println!("node country undesirability: {:?} {}", node.inner.country_code_opt, node.metadata.country_undesirability);
-        }
-        println!("db_countries two_hops {:?}", subject.user_exit_preferences.db_countries);
-        println!("exit_countries two_hops {:?}", subject.user_exit_preferences.exit_countries);
+        let two_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
         let two_hops_db_countries = subject.user_exit_preferences.db_countries.clone();
         subject.handle_config_change_msg(config_msg_four_hops);
 
-        println!("db_countries four_hops {:?}", subject.user_exit_preferences.db_countries);
-        println!("exit_countries four_hops {:?}", subject.user_exit_preferences.exit_countries);
+        let four_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
         let four_hops_db_countries = subject.user_exit_preferences.db_countries;
         assert_eq!(tree_hop_db_countries, vec!["CN".to_string(), "US".to_string()]);
+        assert_eq!(tree_hops_exit_countries, vec!["US".to_string()]);
         assert_eq!(two_hops_db_countries, vec!["CN".to_string(), "FR".to_string(), "US".to_string()]);
+        assert_eq!(two_hops_exit_countries, vec!["US".to_string(), "FR".to_string()]);
         assert_eq!(four_hops_db_countries, vec!["US".to_string()]);
+        assert_eq!(four_hops_exit_countries, vec!["US".to_string()]);
     }
 
     #[test]
