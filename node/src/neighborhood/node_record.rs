@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::gossip::GossipNodeRecord;
+use crate::neighborhood::gossip::{
+    regenerate_signed_gossip, AccessibleGossipRecord, GossipNodeRecord,
+};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_location::{get_node_location, NodeLocation};
-use crate::neighborhood::{regenerate_signed_gossip, AccessibleGossipRecord};
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -381,8 +382,8 @@ mod tests {
         let mut node_record_wo_location = make_node_record(2222, false);
         node_record_wo_location.inner.accepts_connections = false;
         let no_location_db = db_from_node(&node_record_wo_location);
-        let no_location_gossip =
-            GossipBuilder::new(&no_location_db).node(node_record_wo_location.public_key(), false)
+        let no_location_gossip = GossipBuilder::new(&no_location_db)
+            .node(node_record_wo_location.public_key(), false)
             .build();
 
         let nr_wo_location =

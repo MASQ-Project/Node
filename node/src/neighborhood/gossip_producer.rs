@@ -102,9 +102,9 @@ impl GossipProducerReal {
 mod tests {
     use super::super::gossip::GossipNodeRecord;
     use super::*;
+    use crate::neighborhood::gossip::AccessibleGossipRecord;
     use crate::neighborhood::neighborhood_database::ISOLATED_NODE_GRACE_PERIOD_SECS;
     use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
-    use crate::neighborhood::AccessibleGossipRecord;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;

@@ -1,7 +1,7 @@
 // Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::fmt::{Display, Formatter};
 use crate::messages::ExitLocation;
+use std::fmt::{Display, Formatter};
 
 pub struct ExitLocationSet {
     pub locations: Vec<ExitLocation>,

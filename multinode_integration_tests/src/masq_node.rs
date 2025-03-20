@@ -7,6 +7,7 @@ use masq_lib::constants::{
     MASQ_URL_PREFIX,
 };
 use masq_lib::utils::to_string;
+use node_lib::neighborhood::node_location::get_node_location;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -26,7 +27,6 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use node_lib::neighborhood::node_location::get_node_location;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
@@ -302,7 +302,7 @@ impl MASQNodeUtils {
             Self::start_from(start.parent().unwrap())
         }
     }
-    
+
     pub fn derive_country_code_opt(node_addr: &NodeAddr) -> Option<String> {
         let country_code = get_node_location(Some(node_addr.ip_addr()));
         if let Some(cc) = country_code {

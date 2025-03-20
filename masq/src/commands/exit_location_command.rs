@@ -8,9 +8,7 @@ use crate::commands::commands_common::{
 use clap::{App, Arg, ArgGroup, SubCommand};
 use masq_lib::constants::EXIT_COUNTRY_MISSING_COUNTRIES_ERROR;
 use masq_lib::exit_locations::ExitLocationSet;
-use masq_lib::messages::{
-    CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse,
-};
+use masq_lib::messages::{CountryCodes, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 use std::fmt::Debug;

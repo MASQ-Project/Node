@@ -1,9 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
+use crate::neighborhood::gossip::{
+    AccessibleGossipRecord, GossipBuilder, GossipNodeRecord, Gossip_0v1,
+};
 use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, NeighborhoodDatabaseError};
 use crate::neighborhood::node_record::NodeRecord;
-use crate::neighborhood::{AccessibleGossipRecord, UserExitPreferences};
+use crate::neighborhood::UserExitPreferences;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
@@ -1433,6 +1435,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
+    use itertools::Itertools;
     use masq_lib::messages::ExitLocation;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -1441,7 +1444,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use itertools::Itertools;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1730,7 +1732,10 @@ mod tests {
         let root_node_cryptde = CryptDENull::from(&root_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&root_node);
         dest_db.add_node(half_neighbor_debutant.clone()).unwrap();
-        dest_db.add_arbitrary_half_neighbor(root_node.public_key(), half_neighbor_debutant.public_key());
+        dest_db.add_arbitrary_half_neighbor(
+            root_node.public_key(),
+            half_neighbor_debutant.public_key(),
+        );
         let logger = Logger::new("Debut test");
         let subject = DebutHandler::new(logger);
         let neighborhood_metadata = make_default_neighborhood_metadata();
@@ -3072,7 +3077,8 @@ mod tests {
         let mut source_db = db_from_node(&root_node);
         let (gossip, mut debut_node, gossip_source) = make_debut(2345, Mode::Standard); //debut node is FR
         let mut expected_source_db = db_from_node(&root_node);
-        expected_source_db.add_arbitrary_half_neighbor(root_node.public_key(), debut_node.public_key());
+        expected_source_db
+            .add_arbitrary_half_neighbor(root_node.public_key(), debut_node.public_key());
         expected_source_db.root_mut().inner.version = 1;
         expected_source_db.root_mut().resign();
         let expected_gossip_response = GossipBuilder::new(&expected_source_db)
@@ -3099,7 +3105,11 @@ mod tests {
         );
 
         let after = time_t_timestamp();
-        let expected_result = GossipAcceptanceResult::Reply(expected_gossip_response, debut_node.public_key().clone(), debut_node.node_addr_opt().unwrap());
+        let expected_result = GossipAcceptanceResult::Reply(
+            expected_gossip_response,
+            debut_node.public_key().clone(),
+            debut_node.node_addr_opt().unwrap(),
+        );
         assert_eq!(result, expected_result);
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
@@ -3165,10 +3175,10 @@ mod tests {
         root_node.metadata.last_update = dest_db.root().metadata.last_update;
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
-            let reference_node = dest_db.node_by_key(debut_node.public_key()).unwrap();
+        let reference_node = dest_db.node_by_key(debut_node.public_key()).unwrap();
         debut_node.metadata.last_update = reference_node.metadata.last_update;
         debut_node.resign();
-            assert_node_records_eq(reference_node, &debut_node, before, after)
+        assert_node_records_eq(reference_node, &debut_node, before, after)
     }
 
     #[test]
@@ -4537,12 +4547,7 @@ mod tests {
         GossipAcceptorReal::new(crypt_de)
     }
 
-    fn assert_node_records_eq(
-        actual: &NodeRecord,
-        expected: &NodeRecord,
-        before: u32,
-        after: u32,
-    ) {
+    fn assert_node_records_eq(actual: &NodeRecord, expected: &NodeRecord, before: u32, after: u32) {
         assert!(
             actual.metadata.last_update >= before,
             "Timestamp should have been at least {}, but was {}",

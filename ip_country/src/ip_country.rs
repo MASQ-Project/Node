@@ -51,7 +51,8 @@ pub fn ip_country(
             *** DO NOT USE THIS CODE ***
 "#,
             error_list
-        ).expect("expected WANRNING output");
+        )
+        .expect("expected WANRNING output");
         write!(stderr, "{}", error_list).expect("expected error list output");
         1
     }

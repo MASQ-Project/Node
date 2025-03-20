@@ -15,16 +15,15 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
+use crate::neighborhood::gossip::{AccessibleGossipRecord, DotGossipEndpoint, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_location::get_node_location;
-use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::neighborhood::overall_connection_status::{
     OverallConnectionStage, OverallConnectionStatus,
 };
 use crate::stream_messages::RemovedStreamType;
+use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
@@ -65,7 +64,10 @@ use masq_lib::constants::{DEFAULT_PREALLOCATION_VEC, EXIT_COUNTRY_MISSING_COUNTR
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
 use masq_lib::logger::Logger;
-use masq_lib::messages::{ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiSetExitLocationRequest, UiSetExitLocationResponse};
+use masq_lib::messages::{
+    ExitLocation, FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
+    UiSetExitLocationRequest, UiSetExitLocationResponse,
+};
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::MessagePath::Conversation;
 use masq_lib::ui_gateway::{MessageBody, MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -86,70 +88,6 @@ pub const UNREACHABLE_COUNTRY_PENALTY: u32 = 100_000_000;
 pub const COUNTRY_UNDESIRABILITY_FACTOR: u32 = 1_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 pub const ZZ_COUNTRY_CODE_STRING: &str = "ZZ";
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ExitLocationsRoutes<'a> {
-    routes: Vec<(Vec<&'a PublicKey>, i64)>,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum FallbackPreference {
-    Nothing,
-    ExitCountryWithFallback,
-    ExitCountryNoFallback,
-}
-
-#[derive(Clone, Debug)]
-pub struct UserExitPreferences {
-    exit_countries: Vec<String>, //if we cross number of country_codes used in one workflow over 34, we want to change this member to HashSet<String>
-    fallback_preference: FallbackPreference,
-    locations_opt: Option<Vec<ExitLocation>>, //TODO remove Option from NeighborhoodMetadata and create there TODO to ptimize it in future via reference
-    db_countries: Vec<String>,
-}
-
-impl UserExitPreferences {
-    fn new() -> UserExitPreferences {
-        UserExitPreferences {
-            exit_countries: vec![],
-            fallback_preference: FallbackPreference::Nothing,
-            locations_opt: None,
-            db_countries: vec![],
-        }
-    }
-
-    pub fn assign_nodes_country_undesirability(&self, node_record: &mut NodeRecord) {
-        let country_code = node_record
-            .inner
-            .country_code_opt
-            .clone()
-            .unwrap_or_else(|| ZZ_COUNTRY_CODE_STRING.to_string());
-        match &self.locations_opt {
-            Some(exit_locations_by_priority) => {
-                for exit_location in exit_locations_by_priority {
-                    if exit_location.country_codes.contains(&country_code)
-                        && country_code != ZZ_COUNTRY_CODE_STRING
-                    {
-                        node_record.metadata.country_undesirability =
-                            Self::calculate_country_undesirability(
-                                (exit_location.priority - 1) as u32,
-                            );
-                    }
-                    if (self.fallback_preference == FallbackPreference::ExitCountryWithFallback
-                        && !self.exit_countries.contains(&country_code))
-                        || country_code == ZZ_COUNTRY_CODE_STRING
-                    {
-                        node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
-                    }
-                }
-            }
-            None => (),
-        }
-    }
-
-    fn calculate_country_undesirability(priority: u32) -> u32 {
-        COUNTRY_UNDESIRABILITY_FACTOR * priority
-    }
-}
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -432,38 +370,6 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct AccessibleGossipRecord {
-    pub signed_gossip: PlainData,
-    pub signature: CryptData,
-    pub node_addr_opt: Option<NodeAddr>,
-    pub inner: NodeRecordInner_0v1,
-}
-
-impl AccessibleGossipRecord {
-    pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
-        let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
-        self.signed_gossip = signed_gossip;
-        self.signature = signature;
-    }
-}
-
-impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
-    type Error = String;
-
-    fn try_from(value: GossipNodeRecord) -> Result<Self, Self::Error> {
-        match serde_cbor::de::from_slice(value.signed_data.as_slice()) {
-            Ok(inner) => Ok(AccessibleGossipRecord {
-                signed_gossip: value.signed_data,
-                signature: value.signature,
-                node_addr_opt: value.node_addr_opt,
-                inner,
-            }),
-            Err(e) => Err(format!("{}", e)),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum RouteDirection {
     Over,
@@ -580,8 +486,7 @@ impl Neighborhood {
 
     fn handle_new_ip_location(&mut self, new_public_ip: IpAddr) {
         let node_location_opt = get_node_location(Some(new_public_ip));
-        let root_node = self.neighborhood_database
-            .root_mut();
+        let root_node = self.neighborhood_database.root_mut();
         root_node.metadata.node_location_opt = node_location_opt.clone();
         root_node.inner.country_code_opt = node_location_opt.map(|nl| nl.country_code);
     }
@@ -649,7 +554,9 @@ impl Neighborhood {
                         );
                 }
                 self.user_exit_preferences.db_countries = self.init_db_countries();
-                if let Some(exit_locations_by_priority) = self.user_exit_preferences.locations_opt.clone() {
+                if let Some(exit_locations_by_priority) =
+                    self.user_exit_preferences.locations_opt.clone()
+                {
                     for exit_location in &exit_locations_by_priority {
                         self.enrich_exit_countries(&exit_location.country_codes);
                     }
@@ -1325,12 +1232,12 @@ impl Neighborhood {
         {
             true // Zero- and single-hop routes are not subject to exit-too-close restrictions
         } else {
-            if let Some(node_record) =  self.neighborhood_database.node_by_key(last_node_key) {
-                if let Some(country_code) =  &node_record.inner.country_code_opt {
+            if let Some(node_record) = self.neighborhood_database.node_by_key(last_node_key) {
+                if let Some(country_code) = &node_record.inner.country_code_opt {
                     return self
                         .user_exit_preferences
                         .exit_countries
-                        .contains(country_code)
+                        .contains(country_code);
                 }
             }
             false
@@ -1344,15 +1251,23 @@ impl Neighborhood {
         logger: &Logger,
     ) -> i64 {
         match undesirability_type {
-            UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size) as i64,
-            UndesirabilityType::ExitRequest(None) => node_record.inner.rate_pack.exit_charge(payload_size) as i64
-                + node_record.metadata.country_undesirability as i64,
+            UndesirabilityType::Relay => {
+                node_record.inner.rate_pack.routing_charge(payload_size) as i64
+            }
+            UndesirabilityType::ExitRequest(None) => {
+                node_record.inner.rate_pack.exit_charge(payload_size) as i64
+                    + node_record.metadata.country_undesirability as i64
+            }
             UndesirabilityType::ExitRequest(Some(hostname)) => {
-                let exit_undesirability = node_record.inner.rate_pack.exit_charge(payload_size) as i64;
+                let exit_undesirability =
+                    node_record.inner.rate_pack.exit_charge(payload_size) as i64;
                 let country_undesirability = node_record.metadata.country_undesirability as i64;
-                let unreachable_undesirability =
-                    if node_record.metadata.unreachable_hosts.contains(hostname) {
-                        trace!(
+                let unreachable_undesirability = if node_record
+                    .metadata
+                    .unreachable_hosts
+                    .contains(hostname)
+                {
+                    trace!(
                             logger,
                             "Node with PubKey {:?} failed to reach host {:?} during ExitRequest; Undesirability: {} + {} + {} = {}",
                             node_record.public_key(),
@@ -1362,14 +1277,16 @@ impl Neighborhood {
                             country_undesirability,
                             exit_undesirability + UNREACHABLE_HOST_PENALTY + country_undesirability
                         );
-                        UNREACHABLE_HOST_PENALTY
-                    } else {
-                        0i64
-                    };
+                    UNREACHABLE_HOST_PENALTY
+                } else {
+                    0i64
+                };
                 exit_undesirability + unreachable_undesirability + country_undesirability
-            },
-                UndesirabilityType::ExitAndRouteResponse => node_record.inner.rate_pack.exit_charge(payload_size) as i64
-                + node_record.inner.rate_pack.routing_charge(payload_size) as i64
+            }
+            UndesirabilityType::ExitAndRouteResponse => {
+                node_record.inner.rate_pack.exit_charge(payload_size) as i64
+                    + node_record.inner.rate_pack.routing_charge(payload_size) as i64
+            }
         }
     }
 
@@ -1713,7 +1630,9 @@ impl Neighborhood {
         };
 
         let fallback_status = match self.user_exit_preferences.fallback_preference {
-            FallbackPreference::Nothing | FallbackPreference::ExitCountryWithFallback => "Fallback Routing is set.",
+            FallbackPreference::Nothing | FallbackPreference::ExitCountryWithFallback => {
+                "Fallback Routing is set."
+            }
             FallbackPreference::ExitCountryNoFallback => "Fallback Routing NOT set.",
         };
 
@@ -1723,7 +1642,11 @@ impl Neighborhood {
         match self.neighborhood_database.keys().len() > 1 {
             true => {
                 self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
-                self.exit_location_logger_output(exit_locations_by_priority, &missing_locations, fallback_status);
+                self.exit_location_logger_output(
+                    exit_locations_by_priority,
+                    &missing_locations,
+                    fallback_status,
+                );
             }
             false => info!(
                 self.logger,
@@ -1743,8 +1666,12 @@ impl Neighborhood {
             .expect("UiGateway is dead");
     }
 
-    fn exit_location_logger_output(&mut self, exit_locations_by_priority: Vec<ExitLocation>, missing_locations: &Vec<String>, fallback_status: &str) {
-
+    fn exit_location_logger_output(
+        &mut self,
+        exit_locations_by_priority: Vec<ExitLocation>,
+        missing_locations: &Vec<String>,
+        fallback_status: &str,
+    ) {
         self.logger.info(|| {
             let location_set = ExitLocationSet {
                 locations: exit_locations_by_priority,
@@ -1753,12 +1680,16 @@ impl Neighborhood {
                 false => "Exit location set: ",
                 true => "Exit location unset.",
             };
-            format!("{} {}{}", fallback_status, exit_location_status, location_set)
+            format!(
+                "{} {}{}",
+                fallback_status, exit_location_status, location_set
+            )
         });
         if !missing_locations.is_empty() {
             warning!(
                 self.logger,
-                "Exit Location: following desired countries are missing in Neighborhood {:?}", &missing_locations
+                "Exit Location: following desired countries are missing in Neighborhood {:?}",
+                &missing_locations
             );
         }
     }
@@ -1871,7 +1802,8 @@ impl Neighborhood {
                 .exit_locations
                 .into_iter()
                 .map(|cc| {
-                    countries_lack_in_neighborhood.extend(self.enrich_exit_countries(&cc.country_codes));
+                    countries_lack_in_neighborhood
+                        .extend(self.enrich_exit_countries(&cc.country_codes));
                     ExitLocation {
                         country_codes: cc.country_codes,
                         priority: cc.priority,
@@ -1887,19 +1819,24 @@ impl Neighborhood {
         for code in country_codes {
             if self.user_exit_preferences.db_countries.contains(code)
                 || (self.user_exit_preferences.fallback_preference
-                == FallbackPreference::ExitCountryWithFallback)
+                    == FallbackPreference::ExitCountryWithFallback)
             {
                 if !self.user_exit_preferences.exit_countries.contains(code) {
                     self.user_exit_preferences.exit_countries.push(code.clone());
                 }
                 if (self.user_exit_preferences.fallback_preference
-                    == FallbackPreference::ExitCountryWithFallback) &&
-                    !self.user_exit_preferences.db_countries.contains(code)
+                    == FallbackPreference::ExitCountryWithFallback)
+                    && !self.user_exit_preferences.db_countries.contains(code)
                 {
                     countries_lack_in_neighborhood.push(code.clone());
                 }
             } else {
-                if let Some(index) = self.user_exit_preferences.exit_countries.iter().position(|item| item.eq(code)) {
+                if let Some(index) = self
+                    .user_exit_preferences
+                    .exit_countries
+                    .iter()
+                    .position(|item| item.eq(code))
+                {
                     self.user_exit_preferences.exit_countries.remove(index);
                 }
                 countries_lack_in_neighborhood.push(code.clone());
@@ -2100,17 +2037,68 @@ impl Neighborhood {
     }
 }
 
-pub fn regenerate_signed_gossip(
-    inner: &NodeRecordInner_0v1,
-    cryptde: &dyn CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
-) -> (PlainData, CryptData) {
-    let signed_gossip =
-        PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
-    let signature = match cryptde.sign(&signed_gossip) {
-        Ok(sig) => sig,
-        Err(e) => unimplemented!("TODO: Signing error: {:?}", e),
-    };
-    (signed_gossip, signature)
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ExitLocationsRoutes<'a> {
+    routes: Vec<(Vec<&'a PublicKey>, i64)>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum FallbackPreference {
+    Nothing,
+    ExitCountryWithFallback,
+    ExitCountryNoFallback,
+}
+
+#[derive(Clone, Debug)]
+pub struct UserExitPreferences {
+    exit_countries: Vec<String>, //if we cross number of country_codes used in one workflow over 34, we want to change this member to HashSet<String>
+    fallback_preference: FallbackPreference,
+    locations_opt: Option<Vec<ExitLocation>>, //TODO remove Option from NeighborhoodMetadata and create there TODO to ptimize it in future via reference
+    db_countries: Vec<String>,
+}
+
+impl UserExitPreferences {
+    fn new() -> UserExitPreferences {
+        UserExitPreferences {
+            exit_countries: vec![],
+            fallback_preference: FallbackPreference::Nothing,
+            locations_opt: None,
+            db_countries: vec![],
+        }
+    }
+
+    pub fn assign_nodes_country_undesirability(&self, node_record: &mut NodeRecord) {
+        let country_code = node_record
+            .inner
+            .country_code_opt
+            .clone()
+            .unwrap_or_else(|| ZZ_COUNTRY_CODE_STRING.to_string());
+        match &self.locations_opt {
+            Some(exit_locations_by_priority) => {
+                for exit_location in exit_locations_by_priority {
+                    if exit_location.country_codes.contains(&country_code)
+                        && country_code != ZZ_COUNTRY_CODE_STRING
+                    {
+                        node_record.metadata.country_undesirability =
+                            Self::calculate_country_undesirability(
+                                (exit_location.priority - 1) as u32,
+                            );
+                    }
+                    if (self.fallback_preference == FallbackPreference::ExitCountryWithFallback
+                        && !self.exit_countries.contains(&country_code))
+                        || country_code == ZZ_COUNTRY_CODE_STRING
+                    {
+                        node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
+                    }
+                }
+            }
+            None => (),
+        }
+    }
+
+    fn calculate_country_undesirability(priority: u32) -> u32 {
+        COUNTRY_UNDESIRABILITY_FACTOR * priority
+    }
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -2164,11 +2152,11 @@ mod tests {
     use masq_lib::utils::running_test;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
-    use crate::neighborhood::gossip::GossipBuilder;
+    use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord};
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::node_record::{NodeRecordInner_0v1, NodeRecordInputs};
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
-    use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
+    use crate::sub_lib::cryptde::{decodex, encodex, CryptData, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
@@ -3588,14 +3576,34 @@ mod tests {
         let neighbor_two = make_node_record(2345, true); //FR
         let neighbor_three = make_node_record(3456, true); //CN
         let neighbor_four = make_node_record(4567, true); //US
-        subject.neighborhood_database.add_node(neighbor_one.clone()).unwrap();
-        subject.neighborhood_database.add_node(neighbor_two.clone()).unwrap();
-        subject.neighborhood_database.add_node(neighbor_three.clone()).unwrap();
-        subject.neighborhood_database.add_node(neighbor_four.clone()).unwrap();
-        subject.neighborhood_database.add_arbitrary_full_neighbor(root_node.public_key(), neighbor_one.public_key());
-        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_one.public_key(), neighbor_two.public_key());
-        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
-        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
+        subject
+            .neighborhood_database
+            .add_node(neighbor_one.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(neighbor_two.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(neighbor_three.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_node(neighbor_four.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(root_node.public_key(), neighbor_one.public_key());
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(neighbor_one.public_key(), neighbor_two.public_key());
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
         let exit_locations_by_priority = vec![ExitLocation {
             country_codes: vec!["FR".to_string(), "US".to_string()],
@@ -3604,7 +3612,8 @@ mod tests {
         for exit_location in &exit_locations_by_priority {
             subject.enrich_exit_countries(&exit_location.country_codes);
         }
-        subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryNoFallback;
+        subject.user_exit_preferences.fallback_preference =
+            FallbackPreference::ExitCountryNoFallback;
         subject.user_exit_preferences.locations_opt = Some(exit_locations_by_priority);
         let tree_hop_db_countries = subject.user_exit_preferences.db_countries.clone();
         let tree_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
@@ -3624,10 +3633,19 @@ mod tests {
 
         let four_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
         let four_hops_db_countries = subject.user_exit_preferences.db_countries;
-        assert_eq!(tree_hop_db_countries, vec!["CN".to_string(), "US".to_string()]);
+        assert_eq!(
+            tree_hop_db_countries,
+            vec!["CN".to_string(), "US".to_string()]
+        );
         assert_eq!(tree_hops_exit_countries, vec!["US".to_string()]);
-        assert_eq!(two_hops_db_countries, vec!["CN".to_string(), "FR".to_string(), "US".to_string()]);
-        assert_eq!(two_hops_exit_countries, vec!["US".to_string(), "FR".to_string()]);
+        assert_eq!(
+            two_hops_db_countries,
+            vec!["CN".to_string(), "FR".to_string(), "US".to_string()]
+        );
+        assert_eq!(
+            two_hops_exit_countries,
+            vec!["US".to_string(), "FR".to_string()]
+        );
         assert_eq!(four_hops_db_countries, vec!["US".to_string()]);
         assert_eq!(four_hops_exit_countries, vec!["US".to_string()]);
     }

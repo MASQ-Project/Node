@@ -5,7 +5,6 @@ use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
 };
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::node_addr::NodeAddr;
@@ -463,6 +462,51 @@ impl<'a> GossipBuilder<'a> {
     pub fn build(self) -> Gossip_0v1 {
         self.gossip
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct AccessibleGossipRecord {
+    pub signed_gossip: PlainData,
+    pub signature: CryptData,
+    pub node_addr_opt: Option<NodeAddr>,
+    pub inner: NodeRecordInner_0v1,
+}
+
+impl AccessibleGossipRecord {
+    pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
+        let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
+        self.signed_gossip = signed_gossip;
+        self.signature = signature;
+    }
+}
+
+impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
+    type Error = String;
+
+    fn try_from(value: GossipNodeRecord) -> Result<Self, Self::Error> {
+        match serde_cbor::de::from_slice(value.signed_data.as_slice()) {
+            Ok(inner) => Ok(AccessibleGossipRecord {
+                signed_gossip: value.signed_data,
+                signature: value.signature,
+                node_addr_opt: value.node_addr_opt,
+                inner,
+            }),
+            Err(e) => Err(format!("{}", e)),
+        }
+    }
+}
+
+pub fn regenerate_signed_gossip(
+    inner: &NodeRecordInner_0v1,
+    cryptde: &dyn CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
+) -> (PlainData, CryptData) {
+    let signed_gossip =
+        PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
+    let signature = match cryptde.sign(&signed_gossip) {
+        Ok(sig) => sig,
+        Err(e) => unimplemented!("TODO: Signing error: {:?}", e),
+    };
+    (signed_gossip, signature)
 }
 
 #[cfg(test)]
