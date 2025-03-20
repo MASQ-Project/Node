@@ -649,6 +649,7 @@ impl Neighborhood {
                         );
                 }
                 self.user_exit_preferences.db_countries = self.init_db_countries();
+                println!("db_countries for {} hops: {:?}", self.min_hops, self.user_exit_preferences.db_countries);
                 if let Some(exit_locations_by_priority) = self.user_exit_preferences.locations_opt.clone() {
                     for exit_location in &exit_locations_by_priority {
                         self.enrich_exit_countries(&exit_location.country_codes);
@@ -1900,6 +1901,7 @@ impl Neighborhood {
                 }
             } else {
                 if let Some(index) = self.user_exit_preferences.exit_countries.iter().position(|item| item.eq(code)) {
+                    println!("removing index {}", index);
                     self.user_exit_preferences.exit_countries.remove(index);
                 }
                 countries_lack_in_neighborhood.push(code.clone());
@@ -3597,6 +3599,7 @@ mod tests {
         subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
         subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
+        subject.user_exit_preferences.exit_countries = vec!["FR".to_string(), "CN".to_string()];
         subject.user_exit_preferences.fallback_preference = FallbackPreference::ExitCountryWithFallback;
         subject.user_exit_preferences.locations_opt = Some(vec![ExitLocation {
             country_codes: vec!["FR".to_string(), "US".to_string()],
