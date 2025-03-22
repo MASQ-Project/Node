@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(TEST_DEFAULT_CHAIN, Chain::EthRopsten);
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::BaseSepolia);
         assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
         assert_eq!(BASE_TEST_DIR, "generated/test");
     }
