@@ -444,8 +444,7 @@ fn make_db_init_config(chain: Chain) -> DbInitializationConfig {
 }
 
 fn load_contract_in_bytes() -> Vec<u8> {
-    let file_path =
-        test_input_data_standard_dir().join("smart_contract_for_on_blockchain_test");
+    let file_path = test_input_data_standard_dir().join("smart_contract_for_on_blockchain_test");
     let mut file = File::open(file_path).expect("couldn't acquire a handle to the data file");
     let mut data = String::new();
     file.read_to_string(&mut data).unwrap();

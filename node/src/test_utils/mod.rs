@@ -530,7 +530,10 @@ pub struct TestRawTransaction {
 pub fn test_input_data_standard_dir() -> PathBuf {
     let working_dir = current_dir().unwrap();
     if !working_dir.ends_with("node") {
-        panic!("Project structure with missing \"node\" directory: {:?}.", working_dir);
+        panic!(
+            "Project structure with missing \"node\" directory: {:?}.",
+            working_dir
+        );
     };
     working_dir
         .join("src")
