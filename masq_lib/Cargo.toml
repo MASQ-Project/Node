@@ -25,6 +25,7 @@ time = {version = "0.3.11", features = [ "formatting" ]}
 tiny-hderive = "0.3.0"
 toml = "0.5.8"
 websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
+rand = { version = "0.9.0", features = ["thread_rng"] }
 
 [features]
 no_test_share = []

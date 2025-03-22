@@ -16,43 +16,6 @@ use masq_lib::utils::{add_chain_specific_directory, find_free_port};
 use utils::CommandConfig;
 
 #[test]
-fn ui_requests_something_and_gets_corresponding_response() {
-    fdlimit::raise_fd_limit();
-    let port = find_free_port();
-    let home_dir = ensure_node_home_directory_exists(
-        "ui_gateway_test",
-        "ui_requests_something_and_gets_corresponding_response",
-    );
-    let mut node = utils::MASQNode::start_standard(
-        "ui_requests_something_and_gets_corresponding_response",
-        Some(
-            CommandConfig::new()
-                .pair("--ui-port", &port.to_string())
-                .pair(
-                    "--data-directory",
-                    home_dir.into_os_string().to_str().unwrap(),
-                ),
-        ),
-        true,
-        true,
-        false,
-        true,
-    );
-    node.wait_for_log("UIGateway bound", Some(5000));
-    let check_password_request = UiCheckPasswordRequest {
-        db_password_opt: None,
-    };
-    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
-
-    client.send(check_password_request);
-    let response: UiCheckPasswordResponse = client.skip_until_received().unwrap();
-
-    assert_eq!(response, UiCheckPasswordResponse { matches: true });
-    client.send(UiShutdownRequest {});
-    node.wait_for_exit();
-}
-
-#[test]
 fn log_broadcasts_are_correctly_received_integration() {
     fdlimit::raise_fd_limit();
     let port = find_free_port();
@@ -98,14 +61,15 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     //for the Daemon's client, so we need to make the Daemon send a close message
     //breaking any reference to him immediately
     fdlimit::raise_fd_limit();
+    let test_name = "daemon_does_not_allow_node_to_keep_his_client_alive_integration";
     let data_directory = ensure_node_home_directory_exists(
         "ui_gateway_test",
-        "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
+        test_name,
     );
     let expected_chain_data_dir = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
-        "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
+        test_name,
         Some(CommandConfig::new().pair("--ui-port", daemon_port.to_string().as_str())),
         true,
         true,
@@ -172,9 +136,10 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
 #[test]
 fn cleanup_after_deceased_clients_integration() {
     fdlimit::raise_fd_limit();
+    let test_name = "cleanup_after_deceased_clients_integration";
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
-        "cleanup_after_deceased_clients_integration",
+        test_name,
         Some(
             CommandConfig::new()
                 .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
@@ -209,5 +174,43 @@ fn cleanup_after_deceased_clients_integration() {
         "Client 0 hit a fatal flush error: ConnectionReset, dropping the client".to_string();
     node.wait_for_log(&expected_message_snippet_second, Some(1000));
     client_2.send(UiShutdownRequest {});
+    node.wait_for_exit();
+}
+
+#[test]
+fn ui_requests_something_and_gets_corresponding_response_integration() {
+    fdlimit::raise_fd_limit();
+    let test_name = "ui_requests_something_and_gets_corresponding_response";
+    let port = find_free_port();
+    let home_dir = ensure_node_home_directory_exists(
+        "ui_gateway_test",
+        test_name,
+    );
+    let mut node = utils::MASQNode::start_standard(
+        test_name,
+        Some(
+            CommandConfig::new()
+                .pair("--ui-port", &port.to_string())
+                .pair(
+                    "--data-directory",
+                    home_dir.into_os_string().to_str().unwrap(),
+                ),
+        ),
+        true,
+        true,
+        false,
+        true,
+    );
+    node.wait_for_log("UIGateway bound", Some(5000));
+    let check_password_request = UiCheckPasswordRequest {
+        db_password_opt: None,
+    };
+    let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+
+    client.send(check_password_request);
+    let response: UiCheckPasswordResponse = client.skip_until_received().unwrap();
+
+    assert_eq!(response, UiCheckPasswordResponse { matches: true });
+    client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }

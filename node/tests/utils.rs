@@ -359,10 +359,17 @@ impl MASQNode {
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
-        let data_dir = if sterile_database {
-            ensure_node_home_directory_exists("integration", test_name)
-        } else {
-            node_home_directory("integration", test_name)
+        let configured_data_dir_opt = match &config_opt {
+            Some(config) => config.value_of("--data-directory")
+                .map(|data_dir_str| PathBuf::from(data_dir_str)),
+            None => None,
+        };
+        let data_dir = match configured_data_dir_opt {
+            Some(data_dir) => data_dir,
+            None => match sterile_database {
+                true => ensure_node_home_directory_exists("integration", test_name),
+                false => node_home_directory("integration", test_name),
+            }
         };
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);

@@ -1,12 +1,23 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::sub_lib::cryptde::PublicKey;
+use lazy_static::lazy_static;
 use serde::de::Visitor;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
+use sodiumoxide::randombytes::randombytes_into;
 use std::fmt;
-use uuid::Uuid;
+use std::net::SocketAddr;
+
+lazy_static! {
+    static ref STREAM_KEY_SALT: [u8; 8] = {
+        let mut salt = [0; 8];
+        randombytes_into(&mut salt);
+        salt
+    };
+}
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy)]
 pub struct StreamKey {
@@ -72,18 +83,12 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
     }
 }
 
-impl Default for StreamKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl StreamKey {
-    pub fn new() -> StreamKey {
+    pub fn new(public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey {
         let mut hash = sha1::Sha1::new();
-        let uuid = Uuid::new_v4();
-        let uuid_bytes: &[u8] = uuid.as_bytes();
-        hash.update(uuid_bytes);
+        hash.update(public_key.as_ref());
+        hash = add_socket_addr_to_hash(hash, server_addr);
+        hash.update(STREAM_KEY_SALT.as_slice());
         StreamKey {
             hash: hash.digest().bytes(),
         }
@@ -106,21 +111,87 @@ impl StreamKey {
 
 type HashType = [u8; sha1::DIGEST_LENGTH];
 
+fn add_socket_addr_to_hash(mut hash: sha1::Sha1, socket_addr: SocketAddr) -> sha1::Sha1 {
+    match socket_addr {
+        SocketAddr::V4(v4) => {
+            hash.update(v4.ip().octets().as_slice());
+        }
+        SocketAddr::V6(v6) => {
+            hash.update(v6.ip().octets().as_slice());
+        }
+    }
+    let port = socket_addr.port();
+    hash.update(&[(port & 0xFF) as u8, (port >> 8) as u8]);
+    hash
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use crate::test_utils::main_cryptde;
+    use itertools::Itertools;
+    use std::net::IpAddr;
+    use std::str::FromStr;
 
     #[test]
-    fn stream_keys_are_unique() {
-        let mut stream_keys_set = HashSet::new();
+    fn stream_keys_with_different_server_addrs_are_different() {
+        let public_key = main_cryptde().public_key();
+        let stream_key_count = 100;
+        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
+        let server_addrs = (0..stream_key_count).map(|i| SocketAddr::new(ip_addr, 1024 + i as u16));
 
-        for i in 1..=1_000 {
-            let stream_key = StreamKey::default();
-            let is_unique = stream_keys_set.insert(stream_key);
+        let stream_keys = server_addrs
+            .map(|server_addr| StreamKey::new(&public_key, server_addr))
+            .collect_vec();
 
-            assert!(is_unique, "{}", &format!("Stream key {i} is not unique"));
-        }
+        (0..(stream_key_count - 1)).for_each(|a| {
+            ((a + 1)..stream_key_count).for_each(|b| {
+                assert_ne!(stream_keys[a], stream_keys[b]);
+            });
+        });
+    }
+
+    #[test]
+    fn stream_keys_with_same_host_name_are_same() {
+        let public_key = main_cryptde().public_key();
+        let stream_key_count = 100;
+        let server_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
+
+        let stream_keys = (0..stream_key_count)
+            .map(|_| StreamKey::new(&public_key, server_addr))
+            .collect_vec();
+
+        (1..stream_key_count).for_each(|i| {
+            assert_eq!(stream_keys[i], stream_keys[0]);
+        });
+    }
+
+    #[test]
+    fn stream_keys_from_different_public_keys_are_different() {
+        let server_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
+
+        let stream_keys = vec![PublicKey::new(&[1, 2, 3]), PublicKey::new(&[1, 2, 2])]
+            .iter()
+            .map(|public_key| StreamKey::new(public_key, server_addr))
+            .collect_vec();
+
+        assert_ne!(stream_keys[0], stream_keys[1]);
+    }
+
+    #[test]
+    fn stream_keys_are_salted() {
+        let public_key = main_cryptde().public_key();
+        let server_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
+
+        let result = StreamKey::new(&public_key, server_addr);
+
+        let mut hash = sha1::Sha1::new();
+        hash.update(public_key.as_ref());
+        hash = add_socket_addr_to_hash(hash, server_addr);
+        let attack = StreamKey {
+            hash: hash.digest().bytes(),
+        };
+        assert_ne!(attack, result)
     }
 
     #[test]

@@ -565,7 +565,7 @@ impl ProxyServer {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
             Some(ref host) if host.port == Some(443) => {
-                let stream_key = self.find_or_generate_stream_key(msg);
+                let stream_key = self.find_or_generate_stream_key(msg, msg.peer_addr);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -642,23 +642,31 @@ impl ProxyServer {
         }
     }
 
-    fn find_or_generate_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
+    fn find_or_generate_stream_key(
+        &mut self,
+        ibcd: &InboundClientData,
+        server_addr: SocketAddr,
+    ) -> StreamKey {
         match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
             Some(stream_key) => {
                 debug!(
                     self.logger,
-                    "make_stream_key() retrieved existing key {} for {}",
+                    "find_or_generate_stream_key() retrieved existing key {} for {}",
                     &stream_key,
                     ibcd.peer_addr
                 );
                 stream_key
             }
             None => {
-                let stream_key = self.stream_key_factory.make();
+                let stream_key = self
+                    .stream_key_factory
+                    .make(self.main_cryptde.public_key(), server_addr);
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
                 debug!(
                     self.logger,
-                    "make_stream_key() inserted new key {} for {}", &stream_key, ibcd.peer_addr
+                    "find_or_generate_stream_key() inserted new key {} for {}",
+                    &stream_key,
+                    ibcd.peer_addr
                 );
                 stream_key
             }
@@ -1131,7 +1139,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .expect("Dispatcher is dead");
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy.find_or_generate_stream_key(&msg);
+        let stream_key = proxy.find_or_generate_stream_key(&msg, source_addr);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => {
@@ -1267,14 +1275,14 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self) -> StreamKey;
+    fn make(&self, public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self) -> StreamKey {
-        StreamKey::new()
+    fn make(&self, public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey {
+        StreamKey::new(public_key, server_addr)
     }
 }
 
@@ -1499,13 +1507,16 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<()>>>,
+        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self) -> StreamKey {
-            self.make_parameters.lock().unwrap().push(());
+        fn make(&self, public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey {
+            self.make_parameters
+                .lock()
+                .unwrap()
+                .push((public_key.clone(), server_addr));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1518,7 +1529,10 @@ mod tests {
             }
         }
 
-        fn make_parameters(mut self, params: &Arc<Mutex<Vec<()>>>) -> StreamKeyFactoryMock {
+        fn make_parameters(
+            mut self,
+            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
+        ) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
         }
@@ -1693,7 +1707,10 @@ mod tests {
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(record, &expected_pkg);
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
-        assert_eq!(make_parameters.remove(0), ());
+        assert_eq!(
+            make_parameters.remove(0),
+            (main_cryptde.public_key().clone(), socket_addr)
+        );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
@@ -1809,7 +1826,10 @@ mod tests {
         let dispatcher_record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(dispatcher_record, &expected_tdm);
         let mut make_parameters = make_parameters_arc.lock().unwrap();
-        assert_eq!(make_parameters.remove(0), ());
+        assert_eq!(
+            make_parameters.remove(0),
+            (main_cryptde.public_key().clone(), socket_addr)
+        );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let hopper_record = hopper_recording.get_record::<IncipientCoresPackage>(0);
