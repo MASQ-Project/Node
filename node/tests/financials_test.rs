@@ -92,7 +92,6 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
 
     let after = SystemTime::now();
     assert_eq!(response.stats_opt, None);
-eprintln! ("response: {:?}", response);
     let query_results = response.query_results_opt.unwrap();
     let payable = query_results.payable_opt.unwrap();
     let receivable = query_results.receivable_opt.unwrap();
