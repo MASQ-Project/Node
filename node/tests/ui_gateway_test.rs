@@ -20,10 +20,7 @@ fn ui_requests_something_and_gets_corresponding_response_integration() {
     fdlimit::raise_fd_limit();
     let test_name = "ui_requests_something_and_gets_corresponding_response";
     let port = find_free_port();
-    let home_dir = ensure_node_home_directory_exists(
-        "ui_gateway_test",
-        test_name,
-    );
+    let home_dir = ensure_node_home_directory_exists("ui_gateway_test", test_name);
     let mut node = utils::MASQNode::start_standard(
         test_name,
         Some(
@@ -100,10 +97,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     //breaking any reference to him immediately
     fdlimit::raise_fd_limit();
     let test_name = "daemon_does_not_allow_node_to_keep_his_client_alive_integration";
-    let data_directory = ensure_node_home_directory_exists(
-        "ui_gateway_test",
-        test_name,
-    );
+    let data_directory = ensure_node_home_directory_exists("ui_gateway_test", test_name);
     let expected_chain_data_dir = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(

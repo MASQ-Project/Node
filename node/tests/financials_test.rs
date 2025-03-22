@@ -3,6 +3,7 @@
 pub mod utils;
 
 use crate::utils::{make_conn, CommandConfig};
+use masq_lib::constants::POLYGON_MAINNET_FULL_IDENTIFIER;
 use masq_lib::messages::{
     TopRecordsConfig, TopRecordsOrdering, UiFinancialsRequest, UiFinancialsResponse,
     UiShutdownRequest, NODE_UI_PROTOCOL,
@@ -14,11 +15,12 @@ use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDa
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::accountant::db_access_objects::utils::{from_time_t, to_time_t};
 use node_lib::accountant::gwei_to_wei;
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal,
+};
+use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::test_utils::make_wallet;
 use std::time::SystemTime;
-use masq_lib::constants::POLYGON_MAINNET_FULL_IDENTIFIER;
-use node_lib::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
-use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use utils::MASQNode;
 
 #[test]
@@ -26,10 +28,7 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
     fdlimit::raise_fd_limit();
     let test_name = "financials_command_retrieves_payable_and_receivable_records_integration";
     let port = find_free_port();
-    let home_dir = ensure_node_home_directory_exists(
-        "integration",
-        test_name,
-    );
+    let home_dir = ensure_node_home_directory_exists("integration", test_name);
     let now = SystemTime::now();
     let timestamp_payable = from_time_t(to_time_t(now) - 678);
     let timestamp_receivable_1 = from_time_t(to_time_t(now) - 10000);
@@ -41,13 +40,17 @@ fn financials_command_retrieves_payable_and_receivable_records_integration() {
     let amount_receivable_1 = gwei_to_wei(9000_u64);
     let amount_receivable_2 = gwei_to_wei(345678_u64);
     {
-        let db_initializer = DbInitializerReal{};
-        let conn = db_initializer.initialize(
-            &home_dir,
-            DbInitializationConfig::test_default()
-        ).unwrap();
+        let db_initializer = DbInitializerReal {};
+        let conn = db_initializer
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
         let config_dao = ConfigDaoReal::new(conn);
-        config_dao.set("chain_name", Some (POLYGON_MAINNET_FULL_IDENTIFIER.to_string())).unwrap();
+        config_dao
+            .set(
+                "chain_name",
+                Some(POLYGON_MAINNET_FULL_IDENTIFIER.to_string()),
+            )
+            .unwrap();
     }
     open_all_file_permissions(home_dir.clone());
     PayableDaoReal::new(make_conn(&home_dir))
