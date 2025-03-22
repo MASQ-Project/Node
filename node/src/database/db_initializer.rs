@@ -1153,7 +1153,7 @@ mod tests {
         init_test_logging();
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "existing_database_with_the_wrong_version_comes_to_migrator_that_makes_it_gradually_migrate_to_upper_versions",
+            "database_of_old_version_comes_to_migrator_where_it_gradually_migrates_to_upper_versions",
         );
         let updated_db_path_dir = &home_dir.join("updated");
         let from_scratch_db_path_dir = &home_dir.join("from_scratch");
@@ -1168,7 +1168,7 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
-                    Chain::EthRopsten,
+                    Chain::BaseSepolia,
                     NeighborhoodModeLight::Standard,
                     Some("password".to_string()),
                 )),
