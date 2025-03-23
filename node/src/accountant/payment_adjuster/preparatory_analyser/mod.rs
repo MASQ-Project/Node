@@ -170,7 +170,7 @@ impl PreparatoryAnalyzer {
         logger: &Logger,
     ) -> Result<Option<u16>, TransactionFeeImmoderateInsufficiency> {
         let per_txn_requirement_minor_with_margin =
-            gas_price_margin.add_percent_to(per_transaction_requirement_minor);
+            gas_price_margin.increase_by_percent_for(per_transaction_requirement_minor);
 
         let verified_tx_counts = Self::transaction_counts_verification(
             cw_transaction_fee_balance_minor,

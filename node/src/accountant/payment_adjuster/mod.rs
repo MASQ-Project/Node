@@ -636,7 +636,7 @@ mod tests {
         );
         let transaction_fee_balance_exactly_required_minor: u128 = {
             let base_value = (100 * 6 * 53_000) as u128;
-            let with_margin = TX_FEE_MARGIN_IN_PERCENT.add_percent_to(base_value);
+            let with_margin = TX_FEE_MARGIN_IN_PERCENT.increase_by_percent_for(base_value);
             multiply_by_billion(with_margin)
         };
         // Transaction fee balance > payments
@@ -690,7 +690,7 @@ mod tests {
                 number_of_accounts,
                 tx_computation_units: 55_000,
                 cw_transaction_fee_balance_minor: TX_FEE_MARGIN_IN_PERCENT
-                    .add_percent_to(multiply_by_billion(100 * 3 * 55_000))
+                    .increase_by_percent_for(multiply_by_billion(100 * 3 * 55_000))
                     - 1,
             }),
         );
@@ -767,7 +767,7 @@ mod tests {
         let number_of_accounts = 3;
         let tx_fee_exactly_required_for_single_tx = {
             let base_minor = multiply_by_billion(55_000 * 100);
-            TX_FEE_MARGIN_IN_PERCENT.add_percent_to(base_minor)
+            TX_FEE_MARGIN_IN_PERCENT.increase_by_percent_for(base_minor)
         };
         let cw_transaction_fee_balance_minor = tx_fee_exactly_required_for_single_tx - 1;
         let (qualified_payables, agent) = make_input_for_initial_check_tests(
@@ -787,7 +787,7 @@ mod tests {
 
         let per_transaction_requirement_minor = {
             let base_minor = multiply_by_billion(55_000 * 100);
-            TX_FEE_MARGIN_IN_PERCENT.add_percent_to(base_minor)
+            TX_FEE_MARGIN_IN_PERCENT.increase_by_percent_for(base_minor)
         };
         assert_eq!(
             result,
@@ -870,7 +870,7 @@ mod tests {
         let result = subject.consider_adjustment(qualified_payables, &*agent);
 
         let per_transaction_requirement_minor =
-            TX_FEE_MARGIN_IN_PERCENT.add_percent_to(55_000 * multiply_by_billion(123));
+            TX_FEE_MARGIN_IN_PERCENT.increase_by_percent_for(55_000 * multiply_by_billion(123));
         assert_eq!(
             result,
             Err(PaymentAdjusterError::AbsolutelyInsufficientBalance {

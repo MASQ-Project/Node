@@ -183,7 +183,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
             .unwrap()
         };
         let transaction_fee_margin = PurePercentage::try_from(15).unwrap();
-        transaction_fee_margin.add_percent_to(gas_limit_dev_chain * gas_price_major)
+        transaction_fee_margin.increase_by_percent_for(gas_limit_dev_chain * gas_price_major)
     };
     const AFFORDABLE_PAYMENTS_COUNT: u128 = 2;
     let tx_fee_needed_to_pay_for_one_payment_minor: u128 =
