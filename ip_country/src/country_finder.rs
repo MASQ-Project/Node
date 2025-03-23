@@ -118,7 +118,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
     }
@@ -131,7 +130,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "CZ".to_string());
         assert_eq!(result.name, "Czechia".to_string());
     }
@@ -149,7 +147,6 @@ mod tests {
         let time_end = SystemTime::now();
         let duration = time_end.duration_since(time_start).unwrap();
 
-        assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "SK".to_string());
         assert_eq!(result.name, "Slovakia".to_string());
         assert!(
@@ -172,7 +169,6 @@ mod tests {
         let time_end = SystemTime::now();
         let duration = time_end.duration_since(time_start).unwrap();
 
-        assert_eq!(result.free_world, true);
         assert_eq!(result.iso3166, "US".to_string());
         assert_eq!(result.name, "United States".to_string());
         assert!(

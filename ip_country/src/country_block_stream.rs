@@ -11,16 +11,14 @@ pub struct Country {
     pub index: usize,
     pub iso3166: String,
     pub name: String,
-    pub free_world: bool,
 }
 
 impl Country {
-    pub fn new(index: usize, iso3166: &str, name: &str, free_world: bool) -> Self {
+    pub fn new(index: usize, iso3166: &str, name: &str) -> Self {
         Self {
             index,
             iso3166: iso3166.to_string(),
             name: name.to_string(),
-            free_world,
         }
     }
 }

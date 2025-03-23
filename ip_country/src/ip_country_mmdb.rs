@@ -14,7 +14,7 @@ impl DBIPParser for MMDBParser {
         &self,
         stdin: &mut dyn io::Read,
         errors: &mut Vec<String>,
-    ) -> (FinalBitQueue, FinalBitQueue, Option<Vec<(String, String)>>) {
+    ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>) {
         todo!()
     }
 }

@@ -22,8 +22,8 @@ pub fn ip_country(
 ) -> i32 {
     let parser = parser_factory.make(&args);
     let mut errors: Vec<String> = vec![];
-    let (final_ipv4, final_ipv6, countries_opt) = parser.parse(stdin, &mut errors);
-    if let Err(error) = generate_rust_code(final_ipv4, final_ipv6, countries_opt, stdout) {
+    let (final_ipv4, final_ipv6, countries) = parser.parse(stdin, &mut errors);
+    if let Err(error) = generate_rust_code(final_ipv4, final_ipv6, countries, stdout) {
         errors.push(format!("Error generating Rust code: {:?}", error))
     }
     if errors.is_empty() {
@@ -71,16 +71,17 @@ pub trait DBIPParser: Any {
         &self,
         stdin: &mut dyn io::Read,
         errors: &mut Vec<String>,
-    ) -> (FinalBitQueue, FinalBitQueue, Option<Vec<(String, String)>>);
+    ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>);
 }
 
 fn generate_rust_code(
     final_ipv4: FinalBitQueue,
     final_ipv6: FinalBitQueue,
-    countries_opt: Option<Vec<(String, String)>>,
+    countries: Vec<(String, String)>,
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
+    generate_country_list(countries, output)?;
     generate_country_block_code(
         "ipv4_country",
         final_ipv4.bit_queue,
@@ -93,6 +94,22 @@ fn generate_rust_code(
         output,
         final_ipv6.block_count,
     )?;
+    Ok(())
+}
+
+fn generate_country_list(mut countries: Vec<(String, String)>, output: &mut dyn io::Write) -> Result<(), io::Error> {
+    countries.sort_by(|a, b| a.0.cmp(&b.0));
+    writeln!(output, "\nuse std::collections::HashMap;")?;
+    writeln!(output, "use lazy_static::lazy_static;")?;
+    writeln!(output, "use crate::country_block_stream::Country;\n")?;
+    writeln!(output, "lazy_static! {{")?;
+    writeln!(output, "    static ref COUNTRIES: Vec<Country> = vec![")?;
+    writeln!(output, "        Country::new(0, \"ZZ\", \"Sentinel\"),")?;
+    for (index, (code, name)) in countries.iter().enumerate() {
+        writeln!(output, "        Country::new({}, \"{}\", \"{}\"),", index + 1, code, name)?;
+    }
+    writeln!(output, "    ];")?;
+    writeln!(output, "}}")?;
     Ok(())
 }
 
@@ -155,11 +172,12 @@ mod tests {
     use std::io::{Error, ErrorKind};
     use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
     use std::any::TypeId;
+    use lazy_static::lazy_static;
 
     struct DBIPParserMock{
         parse_params: Arc<Mutex<Vec<Vec<String>>>>,
         parse_errors: RefCell<Vec<Vec<String>>>,
-        parse_results: RefCell<Vec<(FinalBitQueue, FinalBitQueue, Option<Vec<(String, String)>>)>>,
+        parse_results: RefCell<Vec<(FinalBitQueue, FinalBitQueue, Vec<(String, String)>)>>,
     }
 
     impl DBIPParser for DBIPParserMock {
@@ -171,7 +189,7 @@ mod tests {
             &self,
             stdin: &mut dyn io::Read,
             errors: &mut Vec<String>,
-        ) -> (FinalBitQueue, FinalBitQueue, Option<Vec<(String, String)>>) {
+        ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>) {
             self.parse_params.lock().unwrap().push(errors.clone());
             errors.extend(self.parse_errors.borrow_mut().remove(0));
             self.parse_results.borrow_mut().remove(0)
@@ -205,9 +223,9 @@ mod tests {
 
         pub fn parse_result(
             mut self,
-            result: (FinalBitQueue, FinalBitQueue, Option<Vec<(String, String)>>)
+            result: (FinalBitQueue, FinalBitQueue, &Vec<(String, String)>)
         ) -> Self {
-            self.parse_results.borrow_mut().push(result);
+            self.parse_results.borrow_mut().push((result.0, result.1, result.2.clone()));
             self
         }
     }
@@ -247,6 +265,12 @@ mod tests {
     }
 
     static TEST_DATA: &str = "I represent test data arriving on standard input.";
+    lazy_static! {
+        static ref TEST_COUNTRIES: Vec<(String, String)> = vec![
+            ("FR".to_string(), "France".to_string()),
+            ("CA".to_string(), "Canada".to_string()),
+        ];
+    }
 
     #[test]
     fn csv_makes_csv() {
@@ -286,7 +310,7 @@ mod tests {
         let parser = DBIPParserMock::new()
             .parse_params(&parse_params_arc)
             .parse_errors(vec![])
-            .parse_result((ipv4_result, ipv6_result, None));
+            .parse_result((ipv4_result, ipv6_result, &TEST_COUNTRIES));
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let parser_factory = DBIPParserFactoryMock::new()
             .make_params(&make_params_arc)
@@ -307,6 +331,18 @@ mod tests {
             stdout_string,
             r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
+
+use std::collections::HashMap;
+use lazy_static::lazy_static;
+use crate::country_block_stream::Country;
+
+lazy_static! {
+    static ref COUNTRIES: Vec<Country> = vec![
+        Country::new(0, "ZZ", "Sentinel"),
+        Country::new(1, "CA", "Canada"),
+        Country::new(2, "FR", "France"),
+    ];
+}
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     (
@@ -353,7 +389,7 @@ pub fn ipv6_country_block_count() -> usize {
                 "First error",
                 "Second error"
             ])
-            .parse_result((ipv4_result, ipv6_result, None));
+            .parse_result((ipv4_result, ipv6_result, &TEST_COUNTRIES));
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let parser_factory = DBIPParserFactoryMock::new()
             .make_params(&make_params_arc)
@@ -374,6 +410,18 @@ pub fn ipv6_country_block_count() -> usize {
             stdout_string,
             r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
+
+use std::collections::HashMap;
+use lazy_static::lazy_static;
+use crate::country_block_stream::Country;
+
+lazy_static! {
+    static ref COUNTRIES: Vec<Country> = vec![
+        Country::new(0, "ZZ", "Sentinel"),
+        Country::new(1, "CA", "Canada"),
+        Country::new(2, "FR", "France"),
+    ];
+}
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
     (
