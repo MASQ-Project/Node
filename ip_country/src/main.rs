@@ -4,6 +4,7 @@ use ip_country_lib::ip_country::ip_country;
 use std::env;
 use std::io;
 use std::process;
+use ip_country_lib::ip_country::DBIPParserFactoryReal;
 
 pub fn main() {
     process::exit(ip_country(
@@ -11,5 +12,6 @@ pub fn main() {
         &mut io::stdin(),
         &mut io::stdout(),
         &mut io::stderr(),
+        &DBIPParserFactoryReal{},
     ))
 }

@@ -11,6 +11,7 @@
       <module fileurl="file://$PROJECT_DIR$/node/node.iml" filepath="$PROJECT_DIR$/node/node.iml" />
       <module fileurl="file://$PROJECT_DIR$/port_exposer/port_exposer.iml" filepath="$PROJECT_DIR$/port_exposer/port_exposer.iml" />
       <module fileurl="file://$PROJECT_DIR$/test_utilities/test_utilities.iml" filepath="$PROJECT_DIR$/test_utilities/test_utilities.iml" />
+      <module fileurl="file://$PROJECT_DIR$/ip_country/ip_country.iml" filepath="$PROJECT_DIR$/ip_country/ip_country.iml" />
     </modules>
   </component>
 </project>
