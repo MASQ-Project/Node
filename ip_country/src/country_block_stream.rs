@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
+use crate::countries::Countries;
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Country {
@@ -92,10 +93,10 @@ pub struct CountryBlock {
     pub country: Country,
 }
 
-impl TryFrom<StringRecord> for CountryBlock {
+impl TryFrom<(&Countries, StringRecord)> for CountryBlock {
     type Error = String;
 
-    fn try_from(string_record: StringRecord) -> Result<Self, Self::Error> {
+    fn try_from((countries, string_record): (&Countries, StringRecord)) -> Result<CountryBlock, String> {
         let mut iter = string_record.iter();
         let start_ip = Self::ip_addr_from_iter(&mut iter)?;
         let end_ip = Self::ip_addr_from_iter(&mut iter)?;
@@ -110,7 +111,7 @@ impl TryFrom<StringRecord> for CountryBlock {
             ));
         };
         Self::validate_ip_range(start_ip, end_ip)?;
-        let country = Country::try_from(iso3166)?;
+        let country = countries.country_from_code(iso3166)?;
         let country_block = match (start_ip, end_ip) {
             (IpAddr::V4(start), IpAddr::V4(end)) => CountryBlock {
                 ip_range: IpRange::V4(start, end),
@@ -183,6 +184,7 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
+    use lazy_static::lazy_static;
 
     #[test]
     fn ip_range_finds_ipv4_address() {
@@ -263,12 +265,20 @@ mod tests {
 
         assert_eq!(result, false);
     }
+    
+    fn test_countries() -> Countries {
+        Countries::new(vec![
+            Country::new(0, "ZZ", "Sentinel"),
+            Country::new(1, "AS", "American Samoa"),
+            Country::new(2, "VN", "Vietnam"),
+        ])
+    }
 
     #[test]
     fn try_from_works_for_ipv4() {
         let string_record = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", "AS"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -277,7 +287,7 @@ mod tests {
                     Ipv4Addr::from_str("1.2.3.4").unwrap(),
                     Ipv4Addr::from_str("5.6.7.8").unwrap()
                 ),
-                country: Country::try_from("AS").unwrap(),
+                country: test_countries().country_from_code("AS").unwrap(),
             })
         );
     }
@@ -290,7 +300,7 @@ mod tests {
             "VN",
         ]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -299,7 +309,7 @@ mod tests {
                     Ipv6Addr::from_str("1234:2345:3456:4567:5678:6789:789A:89AB").unwrap(),
                     Ipv6Addr::from_str("4321:5432:6543:7654:8765:9876:A987:BA98").unwrap()
                 ),
-                country: Country::try_from("VN").unwrap(),
+                country: test_countries().country_from_code("VN").unwrap(),
             })
         );
     }
@@ -308,7 +318,7 @@ mod tests {
     fn try_from_fails_for_bad_ip_syntax() {
         let string_record = StringRecord::from(vec!["Ooga", "Booga", "AS"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -321,7 +331,7 @@ mod tests {
         let strings: Vec<&str> = vec![];
         let string_record = StringRecord::from(strings);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(result, Err("Missing IP address in CSV record".to_string()));
     }
@@ -330,16 +340,16 @@ mod tests {
     fn try_from_fails_for_missing_end_ip() {
         let string_record = StringRecord::from(vec!["1.2.3.4"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record)).err().unwrap();
 
-        assert_eq!(result, Err("Missing IP address in CSV record".to_string()));
+        assert_eq!(result, "Missing IP address in CSV record".to_string());
     }
 
     #[test]
     fn try_from_fails_for_reversed_ipv4_addresses() {
         let string_record = StringRecord::from(vec!["1.2.3.4", "1.2.3.3", "ZZ"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -351,7 +361,7 @@ mod tests {
     fn try_from_fails_for_reversed_ipv6_addresses() {
         let string_record = StringRecord::from(vec!["1:2:3:4:5:6:7:8", "1:2:3:4:5:6:7:7", "ZZ"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -367,8 +377,8 @@ mod tests {
         let string_record_46 = StringRecord::from(vec!["4.3.2.1", "1:2:3:4:5:6:7:8", "ZZ"]);
         let string_record_64 = StringRecord::from(vec!["1:2:3:4:5:6:7:8", "4.3.2.1", "ZZ"]);
 
-        let result_46 = CountryBlock::try_from(string_record_46);
-        let result_64 = CountryBlock::try_from(string_record_64);
+        let result_46 = CountryBlock::try_from((&test_countries(), string_record_46));
+        let result_64 = CountryBlock::try_from((&test_countries(), string_record_64));
 
         assert_eq!(result_46, Err("Beginning address 4.3.2.1 and ending address 1:2:3:4:5:6:7:8 must be the same IP address version".to_string()));
         assert_eq!(result_64, Err("Beginning address 1:2:3:4:5:6:7:8 and ending address 4.3.2.1 must be the same IP address version".to_string()));
@@ -378,7 +388,7 @@ mod tests {
     fn try_from_fails_for_unrecognized_iso3166() {
         let string_record = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", "XY"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -390,7 +400,7 @@ mod tests {
     fn try_from_fails_for_missing_iso3166() {
         let string_record = StringRecord::from(vec!["1.2.3.4", "5.6.7.8"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,
@@ -402,7 +412,7 @@ mod tests {
     fn try_from_fails_for_too_many_elements() {
         let string_record = StringRecord::from(vec!["1.2.3.4", "5.6.7.8", "US", "extra"]);
 
-        let result = CountryBlock::try_from(string_record);
+        let result = CountryBlock::try_from((&test_countries(), string_record));
 
         assert_eq!(
             result,

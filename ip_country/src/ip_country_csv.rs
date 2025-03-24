@@ -1,6 +1,7 @@
 use crate::bit_queue::BitQueue;
 use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::country_block_stream::CountryBlock;
+use crate::countries::Countries;
 use std::io;
 use crate::ip_country::DBIPParser;
 use std::cmp::min;
@@ -275,12 +276,13 @@ impl DBIPParser for CSVParser {
         stdin: &mut dyn io::Read,
         errors: &mut Vec<String>,
     ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>) {
+        let countries = Countries::new(HARD_CODED_COUNTRIES.clone());
         let mut csv_rdr = csv::Reader::from_reader(stdin);
         let mut serializer = CountryBlockSerializer::new();
         let mut local_errors = csv_rdr
             .records()
             .map(|string_record_result| match string_record_result {
-                Ok(string_record) => CountryBlock::try_from(string_record),
+                Ok(string_record) => CountryBlock::try_from((&countries, string_record)),
                 Err(e) => Err(format!("CSV format error: {:?}", e)),
             })
             .enumerate()

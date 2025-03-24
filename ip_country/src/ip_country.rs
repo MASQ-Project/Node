@@ -99,9 +99,11 @@ fn generate_rust_code(
 
 fn generate_country_list(mut countries: Vec<(String, String)>, output: &mut dyn io::Write) -> Result<(), io::Error> {
     countries.sort_by(|a, b| a.0.cmp(&b.0));
-    writeln!(output, "\nuse std::collections::HashMap;")?;
+    writeln!(output)?;
+    writeln!(output, "use std::collections::HashMap;")?;
     writeln!(output, "use lazy_static::lazy_static;")?;
-    writeln!(output, "use crate::country_block_stream::Country;\n")?;
+    writeln!(output, "use crate::country_block_stream::Country;")?;
+    writeln!(output)?;
     writeln!(output, "lazy_static! {{")?;
     writeln!(output, "    static ref COUNTRIES: Vec<Country> = vec![")?;
     writeln!(output, "        Country::new(0, \"ZZ\", \"Sentinel\"),")?;
@@ -109,6 +111,11 @@ fn generate_country_list(mut countries: Vec<(String, String)>, output: &mut dyn 
         writeln!(output, "        Country::new({}, \"{}\", \"{}\"),", index + 1, code, name)?;
     }
     writeln!(output, "    ];")?;
+    writeln!(output)?;
+    writeln!(output, "    pub static ref INDEX_BY_ISO3166: HashMap<String, usize> = COUNTRIES")?;
+    writeln!(output, "        .iter()")?;
+    writeln!(output, "        .map(|country| (country.iso3166.clone(), country.index))")?;
+    writeln!(output, "        .collect::<HashMap<String, usize>>();")?;
     writeln!(output, "}}")?;
     Ok(())
 }
@@ -332,16 +339,16 @@ mod tests {
             r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
-use std::collections::HashMap;
 use lazy_static::lazy_static;
 use crate::country_block_stream::Country;
+use crate::countries::Countries;
 
 lazy_static! {
-    static ref COUNTRIES: Vec<Country> = vec![
+    pub static ref COUNTRIES: Countries = Countries::new(vec![
         Country::new(0, "ZZ", "Sentinel"),
-        Country::new(1, "CA", "Canada"),
-        Country::new(2, "FR", "France"),
-    ];
+        Country::new(1, "AB", "First Country"),
+        Country::new(2, "CD", "Second Country"),
+    ])
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -411,16 +418,16 @@ pub fn ipv6_country_block_count() -> usize {
             r#"
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
-use std::collections::HashMap;
 use lazy_static::lazy_static;
 use crate::country_block_stream::Country;
+use crate::countries::Countries;
 
 lazy_static! {
-    static ref COUNTRIES: Vec<Country> = vec![
+    pub static ref COUNTRIES: Countries = Countries::new(vec![
         Country::new(0, "ZZ", "Sentinel"),
-        Country::new(1, "CA", "Canada"),
-        Country::new(2, "FR", "France"),
-    ];
+        Country::new(1, "AB", "First Country"),
+        Country::new(2, "CD", "Second Country"),
+    ])
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {

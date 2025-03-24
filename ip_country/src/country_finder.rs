@@ -2,6 +2,7 @@
 
 use crate::country_block_serde::CountryBlockDeserializer;
 use crate::country_block_stream::{Country, CountryBlock};
+use crate::countries::Countries;
 use crate::dbip_country;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -9,23 +10,26 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 lazy_static! {
     pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
+        dbip_country::COUNTRIES.clone(),
         dbip_country::ipv4_country_data(),
         dbip_country::ipv6_country_data()
     );
 }
 
 pub struct CountryCodeFinder {
+    countries: Countries,
     ipv4: Vec<CountryBlock>,
     ipv6: Vec<CountryBlock>,
 }
 
 impl CountryCodeFinder {
-    pub fn new(ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
+    pub fn new(countries: Countries, ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
         Self {
-            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data)
+            countries,
+            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data, &countries)
                 .into_iter()
                 .collect_vec(),
-            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data)
+            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data, &countries)
                 .into_iter()
                 .collect_vec(),
         }
@@ -40,7 +44,7 @@ impl CountryCodeFinder {
             country_blocks.binary_search_by(|block| block.ip_range.ordering_by_range(ip_addr));
         let country = match block_index {
             Ok(index) => country_blocks[index].country.clone(),
-            _ => Country::try_from("ZZ").expect("expected Country"),
+            _ => self.countries.country_from_code("ZZ").expect("expected Country"),
         };
         match country.iso3166.as_str() {
             "ZZ" => None,
