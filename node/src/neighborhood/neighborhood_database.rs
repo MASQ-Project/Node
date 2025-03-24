@@ -849,7 +849,7 @@ mod tests {
         );
         assert_string_contains(
             &result,
-            "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\\n3.4.5.6:3456\"];",
+            "\"AwQFBg\" [label=\"AR v0 CN\\nAwQFBg\\n3.4.5.6:3456\"];",
         );
         assert_string_contains(
             &result,
