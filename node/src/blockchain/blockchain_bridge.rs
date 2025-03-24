@@ -553,7 +553,7 @@ mod tests {
     use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::BlockchainInterfaceWeb3;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::{BlockchainInterfaceWeb3, MAX_BATCH_SIZE};
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;
     use crate::blockchain::blockchain_interface::data_structures::errors::{
         BlockchainAgentBuildError, PayableTransactionError,
@@ -1027,21 +1027,20 @@ mod tests {
     }
 
     #[test]
-    fn process_payments_works() {
+    fn process_payments_works_with_limited_batch_size() {
         let test_name = "process_payments_works";
         let port = find_free_port();
         let _blockchain_client_server = MBCSBuilder::new(port)
             .ok_response("0x01".to_string(), 1)
             .begin_batch()
             .ok_response("rpc_result".to_string(), 7)
-            .ok_response("rpc_result_2".to_string(), 7)
+            .ok_response("rpc_result".to_string(), 7)
             .end_batch()
             .start();
         let blockchain_interface_web3 = make_blockchain_interface_web3(port);
         let consuming_wallet = make_paying_wallet(b"consuming_wallet");
-        let accounts_1 = make_payable_account(1);
-        let accounts_2 = make_payable_account(2);
-        let accounts = vec![accounts_1.clone(), accounts_2.clone()];
+        let accounts: Vec<PayableAccount> = (1..=1000).map(make_payable_account).collect();
+        let accounts_1_wallet = accounts[0].wallet.clone();
         let system = System::new(test_name);
         let agent = BlockchainAgentMock::default()
             .consuming_wallet_result(consuming_wallet)
@@ -1066,22 +1065,13 @@ mod tests {
         System::current().stop();
         system.run();
         let processed_payments = result.unwrap();
+        assert_eq!(processed_payments.len(), MAX_BATCH_SIZE);
         assert_eq!(
             processed_payments[0],
             Correct(PendingPayable {
-                recipient_wallet: accounts_1.wallet,
+                recipient_wallet: accounts_1_wallet,
                 hash: H256::from_str(
                     "cc73f3d5fe9fc3dac28b510ddeb157b0f8030b201e809014967396cdf365488a"
-                )
-                .unwrap()
-            })
-        );
-        assert_eq!(
-            processed_payments[1],
-            Correct(PendingPayable {
-                recipient_wallet: accounts_2.wallet,
-                hash: H256::from_str(
-                    "891d9ffa838aedc0bb2f6f7e9737128ce98bb33d07b4c8aa5645871e20d6cd13"
                 )
                 .unwrap()
             })
