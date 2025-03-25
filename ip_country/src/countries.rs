@@ -3,14 +3,14 @@
 use std::collections::HashMap;
 use crate::country_block_stream::Country;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Countries {
     countries: Vec<Country>,
     index_by_iso3166: HashMap<String, usize>,
 }
 
 impl Countries {
-    pub fn new(countries: Vec<Country>) -> Self {
+    pub fn old_new(countries: Vec<Country>) -> Self {
         let index_by_iso3166 = countries
             .iter()
             .map(|country| (country.iso3166.clone(), country.index))
@@ -19,6 +19,16 @@ impl Countries {
             countries,
             index_by_iso3166,
         }
+    }
+
+    pub fn new(mut country_pairs: Vec<(&str, &str)>) -> Self {
+        country_pairs.sort_by(|a, b| a.0.cmp(&b.0));
+        let countries = country_pairs
+            .iter()
+            .enumerate()
+            .map(|(index, (iso3166, name))| Country::new(index, *iso3166, *name))
+            .collect::<Vec<Country>>();
+        Self::old_new(countries)
     }
 
     pub fn country_from_code(&self, iso3166: &str) -> Result<Country, String> {
@@ -45,6 +55,10 @@ impl Countries {
             Some(country) => Ok(country.clone()),
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Country> {self.countries.iter()}
+
+    pub fn len(&self) -> usize {self.countries.len()}
 }
 
 // impl TryFrom<&str> for Country {
@@ -172,8 +186,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "no Country is at index 4096")]
     fn try_from_index_bad_index() {
-        let _ = COUNTRIES.country_from_index(4096usize);
+        let count = COUNTRIES.len();
+
+        let result = COUNTRIES.country_from_index(4096usize).err().unwrap();
+
+        assert_eq!(result, format!("There are only {} Countries; no Country is at index 4096", count));
     }
 }

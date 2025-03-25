@@ -5,6 +5,7 @@ use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::country_block_stream::CountryBlock;
 use crate::ip_country_csv::CSVParser;
 use crate::ip_country_mmdb::MMDBParser;
+use crate::countries::Countries;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::cell::RefCell;
 use std::io;
@@ -71,13 +72,13 @@ pub trait DBIPParser: Any {
         &self,
         stdin: &mut dyn io::Read,
         errors: &mut Vec<String>,
-    ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>);
+    ) -> (FinalBitQueue, FinalBitQueue, Countries);
 }
 
 fn generate_rust_code(
     final_ipv4: FinalBitQueue,
     final_ipv6: FinalBitQueue,
-    countries: Vec<(String, String)>,
+    countries: Countries,
     output: &mut dyn io::Write,
 ) -> Result<(), io::Error> {
     write!(output, "\n// GENERATED CODE: REGENERATE, DO NOT MODIFY!\n")?;
@@ -97,25 +98,19 @@ fn generate_rust_code(
     Ok(())
 }
 
-fn generate_country_list(mut countries: Vec<(String, String)>, output: &mut dyn io::Write) -> Result<(), io::Error> {
-    countries.sort_by(|a, b| a.0.cmp(&b.0));
+fn generate_country_list(mut countries: Countries, output: &mut dyn io::Write) -> Result<(), io::Error> {
     writeln!(output)?;
-    writeln!(output, "use std::collections::HashMap;")?;
     writeln!(output, "use lazy_static::lazy_static;")?;
     writeln!(output, "use crate::country_block_stream::Country;")?;
+    writeln!(output, "use crate::countries::Countries;")?;
     writeln!(output)?;
     writeln!(output, "lazy_static! {{")?;
-    writeln!(output, "    static ref COUNTRIES: Vec<Country> = vec![")?;
-    writeln!(output, "        Country::new(0, \"ZZ\", \"Sentinel\"),")?;
-    for (index, (code, name)) in countries.iter().enumerate() {
-        writeln!(output, "        Country::new({}, \"{}\", \"{}\"),", index + 1, code, name)?;
+    writeln!(output, "    pub static ref COUNTRIES: Countries = Countries::new(vec![")?;
+    writeln!(output, "        (\"ZZ\", \"Sentinel\"),")?;
+    for country in countries.iter() {
+        writeln!(output, "        (\"{}\", \"{}\"),", country.iso3166, country.name)?;
     }
-    writeln!(output, "    ];")?;
-    writeln!(output)?;
-    writeln!(output, "    pub static ref INDEX_BY_ISO3166: HashMap<String, usize> = COUNTRIES")?;
-    writeln!(output, "        .iter()")?;
-    writeln!(output, "        .map(|country| (country.iso3166.clone(), country.index))")?;
-    writeln!(output, "        .collect::<HashMap<String, usize>>();")?;
+    writeln!(output, "    ]);")?;
     writeln!(output, "}}")?;
     Ok(())
 }
@@ -184,7 +179,7 @@ mod tests {
     struct DBIPParserMock{
         parse_params: Arc<Mutex<Vec<Vec<String>>>>,
         parse_errors: RefCell<Vec<Vec<String>>>,
-        parse_results: RefCell<Vec<(FinalBitQueue, FinalBitQueue, Vec<(String, String)>)>>,
+        parse_results: RefCell<Vec<(FinalBitQueue, FinalBitQueue, Countries)>>,
     }
 
     impl DBIPParser for DBIPParserMock {
@@ -196,7 +191,7 @@ mod tests {
             &self,
             stdin: &mut dyn io::Read,
             errors: &mut Vec<String>,
-        ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>) {
+        ) -> (FinalBitQueue, FinalBitQueue, Countries) {
             self.parse_params.lock().unwrap().push(errors.clone());
             errors.extend(self.parse_errors.borrow_mut().remove(0));
             self.parse_results.borrow_mut().remove(0)
@@ -230,7 +225,7 @@ mod tests {
 
         pub fn parse_result(
             mut self,
-            result: (FinalBitQueue, FinalBitQueue, &Vec<(String, String)>)
+            result: (FinalBitQueue, FinalBitQueue, &Countries)
         ) -> Self {
             self.parse_results.borrow_mut().push((result.0, result.1, result.2.clone()));
             self
@@ -273,10 +268,10 @@ mod tests {
 
     static TEST_DATA: &str = "I represent test data arriving on standard input.";
     lazy_static! {
-        static ref TEST_COUNTRIES: Vec<(String, String)> = vec![
-            ("FR".to_string(), "France".to_string()),
-            ("CA".to_string(), "Canada".to_string()),
-        ];
+        static ref TEST_COUNTRIES: Countries = Countries::new(vec![
+            ("FR", "France"),
+            ("CA", "Canada"),
+        ]);
     }
 
     #[test]
@@ -345,10 +340,10 @@ use crate::countries::Countries;
 
 lazy_static! {
     pub static ref COUNTRIES: Countries = Countries::new(vec![
-        Country::new(0, "ZZ", "Sentinel"),
-        Country::new(1, "AB", "First Country"),
-        Country::new(2, "CD", "Second Country"),
-    ])
+        ("ZZ", "Sentinel"),
+        ("CA", "Canada"),
+        ("FR", "France"),
+    ]);
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -424,10 +419,10 @@ use crate::countries::Countries;
 
 lazy_static! {
     pub static ref COUNTRIES: Countries = Countries::new(vec![
-        Country::new(0, "ZZ", "Sentinel"),
-        Country::new(1, "AB", "First Country"),
-        Country::new(2, "CD", "Second Country"),
-    ])
+        ("ZZ", "Sentinel"),
+        ("CA", "Canada"),
+        ("FR", "France"),
+    ]);
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {

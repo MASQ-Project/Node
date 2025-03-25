@@ -2,6 +2,7 @@ use crate::ip_country::DBIPParser;
 use std::io;
 use std::any::Any;
 use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
+use crate::countries::Countries;
 
 pub struct MMDBParser {}
 
@@ -14,7 +15,7 @@ impl DBIPParser for MMDBParser {
         &self,
         stdin: &mut dyn io::Read,
         errors: &mut Vec<String>,
-    ) -> (FinalBitQueue, FinalBitQueue, Vec<(String, String)>) {
+    ) -> (FinalBitQueue, FinalBitQueue, Countries) {
         todo!()
     }
 }

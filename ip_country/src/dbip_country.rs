@@ -6,10 +6,11 @@ use crate::country_block_stream::Country;
 use crate::countries::Countries;
 
 lazy_static! {
-    pub static ref COUNTRIES: Countries = Countries::new(vec![
+    pub static ref COUNTRIES: Countries = Countries::old_new(vec![
         Country::new(0, "ZZ", "Sentinel"),
-        Country::new(1, "AB", "First Country"),
-        Country::new(2, "CD", "Second Country"),
+        Country::new(1, "AS", "American Samoa"),
+        Country::new(2, "AD", "Andorra"),
+        Country::new(3, "AO", "Angola"),
     ]);
 }
 

@@ -9,27 +9,27 @@ use lazy_static::lazy_static;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 lazy_static! {
-    pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder = CountryCodeFinder::new(
-        dbip_country::COUNTRIES.clone(),
+    pub static ref COUNTRY_CODE_FINDER: CountryCodeFinder<'static> = CountryCodeFinder::new(
+        &dbip_country::COUNTRIES,
         dbip_country::ipv4_country_data(),
         dbip_country::ipv6_country_data()
     );
 }
 
-pub struct CountryCodeFinder {
-    countries: Countries,
+pub struct CountryCodeFinder<'a> {
+    countries: &'a Countries,
     ipv4: Vec<CountryBlock>,
     ipv6: Vec<CountryBlock>,
 }
 
-impl CountryCodeFinder {
-    pub fn new(countries: Countries, ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
+impl<'a> CountryCodeFinder<'a> {
+    pub fn new(countries: &'a Countries, ipv4_data: (Vec<u64>, usize), ipv6_data: (Vec<u64>, usize)) -> Self {
         Self {
             countries,
-            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data, &countries)
+            ipv4: CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(ipv4_data, countries)
                 .into_iter()
                 .collect_vec(),
-            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data, &countries)
+            ipv6: CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(ipv6_data, countries)
                 .into_iter()
                 .collect_vec(),
         }
@@ -72,7 +72,7 @@ mod tests {
             IpAddr::from_str("1.0.6.15").unwrap(),
         );
 
-        assert_eq!(result, Some(Country::try_from("AU").unwrap()))
+        assert_eq!(result, Some(dbip_country::COUNTRIES.country_from_code("AU").unwrap()))
     }
 
     #[test]
@@ -101,7 +101,7 @@ mod tests {
             IpAddr::from_str("2001:2::").unwrap(),
         );
 
-        assert_eq!(result, Some(Country::try_from("US").unwrap()))
+        assert_eq!(result, Some(dbip_country::COUNTRIES.country_from_code("US").unwrap()))
     }
 
     #[test]
@@ -116,6 +116,10 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_google() {
+        if dbip_country::COUNTRIES.country_from_code("US").is_err() {
+            eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
+            return;
+        }
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("142.250.191.132").unwrap(), // dig www.google.com A
@@ -128,6 +132,10 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_cz_ip() {
+        if dbip_country::COUNTRIES.country_from_code("CZ").is_err() {
+            eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
+            return;
+        }
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("77.75.77.222").unwrap(), // dig www.seznam.cz A
@@ -140,6 +148,10 @@ mod tests {
 
     #[test]
     fn real_test_ipv4_with_sk_ip() {
+        if dbip_country::COUNTRIES.country_from_code("SK").is_err() {
+            eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
+            return;
+        }
         let time_start = SystemTime::now();
 
         let result = CountryCodeFinder::find_country(
@@ -162,6 +174,10 @@ mod tests {
 
     #[test]
     fn real_test_ipv6_with_google() {
+        if dbip_country::COUNTRIES.country_from_code("US").is_err() {
+            eprintln!("Country data must be generated (see ip_country/main.rs) in dbip_country.rs before this test will work");
+            return;
+        }
         let time_start = SystemTime::now();
 
         let result = CountryCodeFinder::find_country(
@@ -187,9 +203,9 @@ mod tests {
         let time_start = SystemTime::now();
 
         let deserializer_ipv4 =
-            Ipv4CountryBlockDeserializer::new(dbip_country::ipv4_country_data());
+            Ipv4CountryBlockDeserializer::new(dbip_country::ipv4_country_data(), &dbip_country::COUNTRIES);
         let deserializer_ipv6 =
-            Ipv6CountryBlockDeserializer::new(dbip_country::ipv6_country_data());
+            Ipv6CountryBlockDeserializer::new(dbip_country::ipv6_country_data(), &dbip_country::COUNTRIES);
 
         let time_end = SystemTime::now();
         let time_start_fill = SystemTime::now();

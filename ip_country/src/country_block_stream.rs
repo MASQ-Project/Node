@@ -267,7 +267,7 @@ mod tests {
     }
     
     fn test_countries() -> Countries {
-        Countries::new(vec![
+        Countries::old_new(vec![
             Country::new(0, "ZZ", "Sentinel"),
             Country::new(1, "AS", "American Samoa"),
             Country::new(2, "VN", "Vietnam"),
