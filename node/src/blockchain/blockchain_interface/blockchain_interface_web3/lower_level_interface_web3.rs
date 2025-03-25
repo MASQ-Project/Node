@@ -12,6 +12,8 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
+const GAS_PRICE_INCREASE_PERCENTAGE: u128 = 30;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
     RpcResponse(TxReceipt),
@@ -93,7 +95,12 @@ impl LowBlockchainInt for LowBlockchainIntWeb3 {
             self.web3
                 .eth()
                 .gas_price()
-                .map_err(|e| QueryFailed(e.to_string())),
+                .map_err(|e| QueryFailed(e.to_string()))
+                .map(|price| {
+                    let increase =
+                        price * U256::from(GAS_PRICE_INCREASE_PERCENTAGE) / U256::from(100);
+                    price + increase
+                }),
         )
     }
 
@@ -184,7 +191,12 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceipt, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceipt, TxStatus, GAS_PRICE_INCREASE_PERCENTAGE};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(GAS_PRICE_INCREASE_PERCENTAGE, 30);
+    }
 
     #[test]
     fn get_transaction_fee_balance_works() {
