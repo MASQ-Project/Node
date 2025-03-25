@@ -55,8 +55,6 @@ pub const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
-pub const MAX_BATCH_SIZE: usize = 1;
-
 pub const FRESH_START_BLOCK: u64 = 0;
 
 pub const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str =
@@ -257,10 +255,6 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
             .lower_interface()
             .get_transaction_id(consuming_wallet.address());
         let gas_price_wei = agent.agreed_fee_per_computation_unit();
-        let allowed_accounts_per_batch = affordable_accounts
-            .into_iter()
-            .take(MAX_BATCH_SIZE)
-            .collect::<Vec<_>>();
         let chain = agent.get_chain();
 
         Box::new(
@@ -275,7 +269,7 @@ impl BlockchainInterface for BlockchainInterfaceWeb3 {
                         gas_price_wei,
                         pending_nonce,
                         fingerprints_recipient,
-                        allowed_accounts_per_batch,
+                        affordable_accounts,
                     )
                 }),
         )
@@ -504,7 +498,6 @@ mod tests {
             "transfer(address,uint256)".keccak256()[0..4],
         );
         assert_eq!(FRESH_START_BLOCK, 0);
-        assert_eq!(MAX_BATCH_SIZE, 1);
     }
 
     #[test]
