@@ -1195,12 +1195,9 @@ impl Neighborhood {
         }
     }
 
-    fn validate_fallback_country_exit_codes(&self, last_node: &PublicKey) -> bool {
+    fn validate_country_code_when_fallback_routing(&self, last_node: &PublicKey) -> bool {
         let last_cc = match self.neighborhood_database.node_by_key(last_node) {
-            Some(nr) => match nr.inner.country_code_opt.clone() {
-                Some(cc) => cc,
-                None => "ZZ".to_string(),
-            },
+            Some(nr) => nr.inner.country_code_opt.clone().unwrap_or_else(|| "ZZ".to_string()),
             None => "ZZ".to_string(),
         };
         if self.user_exit_preferences.exit_countries.contains(&last_cc) {
@@ -1226,7 +1223,7 @@ impl Neighborhood {
         if self.user_exit_preferences.fallback_preference == FallbackPreference::Nothing
             || (self.user_exit_preferences.fallback_preference
                 == FallbackPreference::ExitCountryWithFallback
-                && self.validate_fallback_country_exit_codes(last_node_key))
+                && self.validate_country_code_when_fallback_routing(last_node_key))
             || research_neighborhood
             || direction == RouteDirection::Back
         {
@@ -1616,7 +1613,7 @@ impl Neighborhood {
         client_id: u64,
         context_id: u64,
     ) {
-        //TODO write test that contains more CountryCodes than countries in neighborhood db to check if unexistent country codes in db are filtered out from ExitLocation
+        //TODO write test that contains more CountryGroups than countries in neighborhood db to check if unexistent country codes in db are filtered out from ExitLocation
         let (exit_locations_by_priority, missing_locations) =
             self.extract_exit_locations_from_message(&message);
 
@@ -1717,20 +1714,9 @@ impl Neighborhood {
         missing_countries: Vec<String>,
         show_countries_flag: bool,
     ) -> NodeToUiMessage {
-        let fallback_routing = match &self.user_exit_preferences.fallback_preference {
-            FallbackPreference::Nothing => true,
-            FallbackPreference::ExitCountryWithFallback => true,
-            FallbackPreference::ExitCountryNoFallback => false,
-        };
-        let exit_locations = self
-            .user_exit_preferences
-            .locations_opt
-            .clone()
-            .unwrap_or_default();
-        let countries_to_show = match show_countries_flag {
-            true => Some(self.user_exit_preferences.db_countries.clone()),
-            false => None,
-        };
+        let fallback_routing = self.is_fallback_routing_active();
+        let exit_locations = self.get_locations_opt();
+        let countries_to_show = self.get_countries_to_show(show_countries_flag);
 
         if !self.error_message_indicates(&mut missing_countries.clone()) {
             NodeToUiMessage {
@@ -1754,6 +1740,28 @@ impl Neighborhood {
                 },
             }
         }
+    }
+
+    fn get_countries_to_show(&self, show_countries_flag: bool) -> Option<Vec<String>> {
+        match show_countries_flag {
+            true => Some(self.user_exit_preferences.db_countries.clone()),
+            false => None,
+        }
+    }
+
+    fn is_fallback_routing_active(&self) -> bool {
+        match &self.user_exit_preferences.fallback_preference {
+            FallbackPreference::Nothing => true,
+            FallbackPreference::ExitCountryWithFallback => true,
+            FallbackPreference::ExitCountryNoFallback => false,
+        }
+    }
+
+    fn get_locations_opt(&self) -> Vec<ExitLocation> {
+        self.user_exit_preferences
+            .locations_opt
+            .clone()
+            .unwrap_or_default()
     }
 
     fn set_exit_locations_opt(&mut self, exit_locations_by_priority: &[ExitLocation]) {
@@ -1792,8 +1800,6 @@ impl Neighborhood {
         &mut self,
         message: &UiSetExitLocationRequest,
     ) -> (Vec<ExitLocation>, Vec<String>) {
-        //TODO perform following update of db_countries only in Gossip_Acceptor
-        //TODO implement enrich_exit_countries in handle_config_change_msg
         self.user_exit_preferences.db_countries = self.init_db_countries();
         let mut countries_lack_in_neighborhood = vec![];
         (
@@ -2076,17 +2082,12 @@ impl UserExitPreferences {
         match &self.locations_opt {
             Some(exit_locations_by_priority) => {
                 for exit_location in exit_locations_by_priority {
-                    if exit_location.country_codes.contains(&country_code)
-                        && country_code != ZZ_COUNTRY_CODE_STRING
+                    if Self::should_set_country_undesirability(&country_code, exit_location)
                     {
                         node_record.metadata.country_undesirability =
-                            Self::calculate_country_undesirability(
-                                (exit_location.priority - 1) as u32,
-                            );
+                            Self::calculate_country_undesirability(exit_location.priority as u32);
                     }
-                    if (self.fallback_preference == FallbackPreference::ExitCountryWithFallback
-                        && !self.exit_countries.contains(&country_code))
-                        || country_code == ZZ_COUNTRY_CODE_STRING
+                    if self.is_unreachable_country_penalty(&country_code)
                     {
                         node_record.metadata.country_undesirability = UNREACHABLE_COUNTRY_PENALTY;
                     }
@@ -2096,8 +2097,19 @@ impl UserExitPreferences {
         }
     }
 
+    fn should_set_country_undesirability(country_code: &String, exit_location: &ExitLocation) -> bool {
+        exit_location.country_codes.contains(&country_code)
+            && country_code != ZZ_COUNTRY_CODE_STRING
+    }
+
+    fn is_unreachable_country_penalty(&self, country_code: &String) -> bool {
+        (self.fallback_preference == FallbackPreference::ExitCountryWithFallback
+            && !self.exit_countries.contains(&country_code))
+            || country_code == ZZ_COUNTRY_CODE_STRING
+    }
+
     fn calculate_country_undesirability(priority: u32) -> u32 {
-        COUNTRY_UNDESIRABILITY_FACTOR * priority
+        COUNTRY_UNDESIRABILITY_FACTOR * (priority - 1u32)
     }
 }
 
@@ -2143,7 +2155,7 @@ mod tests {
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{
-        CountryCodes, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
+        CountryGroups, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
     };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
@@ -3744,15 +3756,15 @@ mod tests {
         let request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["CZ".to_string(), "SK".to_string()],
                     priority: 1,
                 },
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["AT".to_string(), "DE".to_string()],
                     priority: 2,
                 },
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["PL".to_string()],
                     priority: 3,
                 },
@@ -3904,7 +3916,7 @@ mod tests {
         let test_name = "exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
             fallback_routing: true,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["CZ".to_string(), "SK".to_string(), "IN".to_string()],
                 priority: 1,
             }],
@@ -4088,11 +4100,11 @@ mod tests {
         let request = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["CZ".to_string()],
                     priority: 1,
                 },
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["FR".to_string()],
                     priority: 2,
                 },
@@ -4773,7 +4785,7 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(recipient);
         let message = UiSetExitLocationRequest {
             fallback_routing: false,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
@@ -4875,7 +4887,7 @@ mod tests {
             FallbackPreference::ExitCountryWithFallback;
         let message = UiSetExitLocationRequest {
             fallback_routing: false,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
@@ -4934,7 +4946,7 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(recipient);
         let message = UiSetExitLocationRequest {
             fallback_routing: true,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["AU".to_string()],
                 priority: 1,
             }],
@@ -4995,7 +5007,7 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(recipient);
         let message = UiSetExitLocationRequest {
             fallback_routing: false,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
             }],
