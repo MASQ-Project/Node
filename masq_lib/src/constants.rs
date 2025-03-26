@@ -26,6 +26,8 @@ pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 
 pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
 
+pub const PAYLOAD_ZERO_SIZE: usize = 0usize;
+
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
@@ -202,6 +204,14 @@ mod tests {
             NODE_RECORD_INNER_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }
         );
+        assert_eq!(
+            PAYLOAD_ZERO_SIZE,
+            0usize
+        );
+        assert_eq!(
+            DEFAULT_PREALLOCATION_VEC,
+            10
+        )
     }
 
     #[test]

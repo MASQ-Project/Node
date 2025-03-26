@@ -350,6 +350,7 @@ pub struct NodeRecordMetadata {
     pub node_location_opt: Option<NodeLocation>,
     pub country_undesirability: u32,
     //TODO introduce scores for latency #582 and reliability #583
+    //TODO introduce check for node_location_opt, to verify full neighbors country code (we know his IP, so we can verify it)
 }
 
 impl NodeRecordMetadata {

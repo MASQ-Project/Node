@@ -848,16 +848,18 @@ pub struct UiWalletAddressesResponse {
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
+// CountryGroups are inbound data for ExitLocations from UI. These data structures could be enriched 
+// in the future according to future user interface needs of more specification
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct CountryCodes {
+pub struct CountryGroups {
     #[serde(rename = "countryCodes")]
     pub country_codes: Vec<String>,
     pub priority: usize,
 }
 
-impl From<(String, usize)> for CountryCodes {
+impl From<(String, usize)> for CountryGroups {
     fn from((country, priority): (String, usize)) -> Self {
-        CountryCodes {
+        CountryGroups {
             country_codes: country
                 .split(',')
                 .into_iter()
@@ -873,7 +875,7 @@ pub struct UiSetExitLocationRequest {
     #[serde(rename = "fallbackRouting")]
     pub fallback_routing: bool,
     #[serde(rename = "exitLocations")]
-    pub exit_locations: Vec<CountryCodes>,
+    pub exit_locations: Vec<CountryGroups>,
     #[serde(rename = "showCountries")]
     pub show_countries: bool,
 }
