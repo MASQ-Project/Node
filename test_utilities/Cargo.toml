@@ -1,0 +1,12 @@
+[package]
+name = "test_utilities"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
+license = "GPL-3.0-only"
+description = "Testing utilities Code common to Node and masq; also, temporarily, to dns_utility"
+workspace = "../node"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]

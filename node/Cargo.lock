@@ -635,6 +635,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac574ff4d437a7b5ad237ef331c17ccca63c46479e5b5453eb8e10bb99a759fe"
+dependencies = [
+ "csv-core",
+ "itoa 1.0.4",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5efa2b3d7902f4b634a20cae3c9c4e6209dc4779feb6863329607560143efa70"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "ctr"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1538,6 +1559,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ip_country"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "itertools 0.13.0",
+ "lazy_static",
+ "test_utilities",
+]
+
+[[package]]
 name = "ipconfig"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1582,6 +1613,15 @@ name = "itertools"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -1815,6 +1855,7 @@ dependencies = [
  "nix 0.23.1",
  "num",
  "regex",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "websocket",
@@ -1830,6 +1871,7 @@ dependencies = [
  "crossbeam-channel 0.5.1",
  "dirs 4.0.0",
  "ethereum-types",
+ "ip_country",
  "itertools 0.10.3",
  "lazy_static",
  "log 0.4.18",
@@ -1838,6 +1880,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "test_utilities",
  "time 0.3.11",
  "tiny-hderive",
  "toml",
@@ -2006,6 +2049,7 @@ dependencies = [
  "ethereum-types",
  "ethsign-crypto",
  "futures",
+ "ip_country",
  "itertools 0.10.3",
  "lazy_static",
  "log 0.4.18",
@@ -2114,6 +2158,7 @@ dependencies = [
  "heck",
  "http 0.2.5",
  "indoc",
+ "ip_country",
  "ipconfig 0.2.2",
  "itertools 0.10.3",
  "jsonrpc-core",
@@ -2146,6 +2191,7 @@ dependencies = [
  "sodiumoxide",
  "sysinfo",
  "system-configuration",
+ "test_utilities",
  "thousands",
  "time 0.3.11",
  "tiny-bip39",
@@ -3611,6 +3657,10 @@ dependencies = [
  "phf",
  "phf_codegen",
 ]
+
+[[package]]
+name = "test_utilities"
+version = "0.1.0"
 
 [[package]]
 name = "textwrap"

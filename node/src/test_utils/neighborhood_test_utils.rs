@@ -2,7 +2,8 @@
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
+use crate::neighborhood::node_location::NodeLocation;
+use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1, NodeRecordInputs};
 use crate::neighborhood::{AccessibleGossipRecord, Neighborhood, DEFAULT_MIN_HOPS};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -21,6 +22,41 @@ use std::net::Ipv4Addr;
 pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
 pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
 
+lazy_static! {
+    pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
+        (
+            IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
+            "FR".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
+            "US".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),
+            "FR".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(3, 3, 3, 3)),
+            "AU".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)),
+            "AU".to_string(),
+            true
+        ),
+        (
+            IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)),
+            "FR".to_string(),
+            true
+        ),
+    ];
+}
+
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
         (database, public_key, reveal_node_addr): (&NeighborhoodDatabase, &PublicKey, bool),
@@ -30,14 +66,34 @@ impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord 
     }
 }
 
-pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
+pub fn make_segments(n: u16) -> (u8, u8, u8, u8) {
     let seg1 = ((n / 1000) % 10) as u8;
     let seg2 = ((n / 100) % 10) as u8;
     let seg3 = ((n / 10) % 10) as u8;
     let seg4 = (n % 10) as u8;
+    (seg1, seg2, seg3, seg4)
+}
+
+pub fn make_segmented_ip(seg1: u8, seg2: u8, seg3: u8, seg4: u8) -> IpAddr {
+    IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4))
+}
+
+pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
+    let (seg1, seg2, seg3, seg4) = make_segments(n);
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
-    let ip_addr = IpAddr::V4(Ipv4Addr::new(seg1, seg2, seg3, seg4));
+    let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
+    let (_ip, country_code, free_world_bit) = pick_country_code_record(n % 6);
+    let location_opt = match has_ip {
+        true => match country_code.is_empty() {
+            false => Some(NodeLocation {
+                country_code,
+                free_world_bit,
+            }),
+            true => None,
+        },
+        false => None,
+    };
 
     NodeRecord::new_for_tests(
         &key,
@@ -45,7 +101,12 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
         u64::from(n),
         true,
         true,
+        location_opt,
     )
+}
+
+pub fn pick_country_code_record(n: u16) -> (IpAddr, String, bool) {
+    COUNTRY_CODE_DIGEST[n as usize % COUNTRY_CODE_DIGEST.len()].clone()
 }
 
 pub fn make_node_record_f(
@@ -156,15 +217,20 @@ impl NodeRecord {
         base_rate: u64,
         accepts_connections: bool,
         routes_data: bool,
+        node_location_opt: Option<NodeLocation>,
     ) -> NodeRecord {
-        let mut node_record = NodeRecord::new(
-            public_key,
-            NodeRecord::earning_wallet_from_key(public_key),
-            rate_pack(base_rate),
+        let node_record_data = NodeRecordInputs {
+            earning_wallet: NodeRecord::earning_wallet_from_key(public_key),
+            rate_pack: rate_pack(base_rate),
             accepts_connections,
             routes_data,
-            0,
+            version: 0,
+            location_opt: node_location_opt,
+        };
+        let mut node_record = NodeRecord::new(
+            public_key,
             &CryptDENull::from(public_key, TEST_DEFAULT_CHAIN),
+            node_record_data,
         );
         if let Some(node_addr) = node_addr_opt {
             node_record.set_node_addr(node_addr).unwrap();

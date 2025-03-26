@@ -187,9 +187,9 @@ mod tests {
     use crate::terminal::terminal_interface::TerminalWrapper;
     use crate::test_utils::mocks::StdoutBlender;
     use crossbeam_channel::{bounded, unbounded};
-    use masq_lib::test_utils::fake_stream_holder::ByteArrayReader;
     use std::thread;
     use std::time::Duration;
+    use test_utilities::byte_array_reader_writer::ByteArrayReader;
 
     #[test]
     fn constants_have_correct_values() {
