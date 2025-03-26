@@ -1809,17 +1809,11 @@ impl Neighborhood {
     fn enrich_exit_countries(&mut self, country_codes: &Vec<String>) -> Vec<String> {
         let mut countries_not_in_neighborhood = vec![];
         for code in country_codes {
-            if self.user_exit_preferences.db_countries.contains(code)
-                || (self.user_exit_preferences.fallback_preference
-                    == FallbackPreference::ExitCountryWithFallback)
-            {
+            if self.code_in_db_countries_or_fallback_active(code) {
                 if !self.user_exit_preferences.exit_countries.contains(code) {
                     self.user_exit_preferences.exit_countries.push(code.clone());
                 }
-                if (self.user_exit_preferences.fallback_preference
-                    == FallbackPreference::ExitCountryWithFallback)
-                    && !self.user_exit_preferences.db_countries.contains(code)
-                {
+                if self.fallback_active_and_code_missing_in_db_countries(code) {
                     countries_not_in_neighborhood.push(code.clone());
                 }
             } else {
@@ -1835,6 +1829,18 @@ impl Neighborhood {
             }
         }
         countries_not_in_neighborhood
+    }
+
+    fn fallback_active_and_code_missing_in_db_countries(&mut self, code: &String) -> bool {
+        (self.user_exit_preferences.fallback_preference
+            == FallbackPreference::ExitCountryWithFallback)
+            && !self.user_exit_preferences.db_countries.contains(code)
+    }
+
+    fn code_in_db_countries_or_fallback_active(&mut self, code: &String) -> bool {
+        self.user_exit_preferences.db_countries.contains(code)
+            || (self.user_exit_preferences.fallback_preference
+            == FallbackPreference::ExitCountryWithFallback)
     }
 
     fn init_db_countries(&mut self) -> Vec<String> {
@@ -2252,40 +2258,36 @@ mod tests {
     }
 
     #[test]
-    fn test_wtih_standard_gossip_have_new_exit_node_in_database() {
+    fn standard_gossip_results_in_exit_node_in_database() {
         let mut subject = make_standard_subject();
         let root_node_key = subject.neighborhood_database.root_key().clone();
         let root_node = subject.neighborhood_database.root().clone();
-        let first_neighbor = make_node_record(1111, true);
-        let second_neighbor = make_node_record(2222, true);
-
+        let source_node = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
         subject
             .neighborhood_database
-            .add_node(first_neighbor.clone())
+            .add_node(source_node.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
-        let mut gossip_db = subject.neighborhood_database.clone();
-
-        gossip_db.set_root_key(first_neighbor.public_key());
-        gossip_db.remove_node(&root_node_key);
-        gossip_db.add_node(root_node).unwrap();
-        gossip_db.add_arbitrary_full_neighbor(first_neighbor.public_key(), &root_node_key);
-        gossip_db.add_node(second_neighbor.clone()).unwrap();
-        gossip_db
-            .add_arbitrary_full_neighbor(first_neighbor.public_key(), second_neighbor.public_key());
-        gossip_db.root_mut().inner.version = 1;
-        let resigner = gossip_db
-            .node_by_key_mut(first_neighbor.public_key())
+            .add_arbitrary_full_neighbor(&root_node_key, source_node.public_key());
+        let mut source_db = subject.neighborhood_database.clone();
+        source_db.set_root_key(source_node.public_key());
+        source_db.remove_node(&root_node_key);
+        source_db.add_node(root_node).unwrap();
+        source_db.add_arbitrary_full_neighbor(source_node.public_key(), &root_node_key);
+        source_db.add_node(new_neighbor.clone()).unwrap();
+        source_db
+            .add_arbitrary_full_neighbor(source_node.public_key(), new_neighbor.public_key());
+        source_db.root_mut().inner.version = 1;
+        let resigner = source_db
+            .node_by_key_mut(source_node.public_key())
             .unwrap();
         resigner.resign();
-
-        let standard_gossip = GossipBuilder::new(&gossip_db)
-            .node(first_neighbor.public_key(), true)
-            .node(second_neighbor.public_key(), false)
+        let standard_gossip = GossipBuilder::new(&source_db)
+            .node(source_node.public_key(), true)
+            .node(new_neighbor.public_key(), false)
             .build();
-
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
         subject.min_hops = Hops::OneHop;
@@ -2305,7 +2307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_introduction_always_have_half_neighborship_in_handle_gossip() {
+    fn introduction_always_results_with_half_neighborship_in_gossip() {
         let mut debut_subject = make_debut_subject();
         let debut_root_key = debut_subject.neighborhood_database.root_key().clone();
         let introducer_node = make_node_record(3333, true);
@@ -2327,6 +2329,7 @@ mod tests {
         debut_subject.min_hops = Hops::OneHop;
         let exit_nodes_before_gossip = debut_subject.init_db_countries();
         debut_subject.handle_bind_message(BindMessage { peer_actors });
+        let introduction_gossip_check = introduction_gossip.clone();
 
         debut_subject.handle_gossip(
             introduction_gossip,
@@ -2334,6 +2337,7 @@ mod tests {
             make_cpm_recipient().0,
         );
 
+        println!("introduction_gossip: {:?}", introduction_gossip_check.node_records);
         assert!(exit_nodes_before_gossip.is_empty());
         assert_eq!(
             debut_subject.user_exit_preferences.db_countries,
@@ -3758,7 +3762,7 @@ mod tests {
             show_countries: false,
         };
         let message = NodeFromUiMessage {
-            client_id: 0,
+            client_id: 123,
             body: request.tmb(0),
         };
         let system = System::new(test_name);
@@ -3897,7 +3901,7 @@ mod tests {
     }
 
     #[test]
-    fn no_exit_location_is_set_if_desired_country_codes_not_present_in_neighborhood() {
+    fn no_exit_location_is_set_if_desired_country_codes_not_present_in_neighborhood_with_fallback_routing_set() {
         init_test_logging();
         let test_name = "exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg";
         let request = UiSetExitLocationRequest {
@@ -3956,7 +3960,7 @@ mod tests {
         let pl_public_key = pl.inner.public_key.clone();
         let assertion_msg = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
-                assert!(neighborhood.user_exit_preferences.exit_countries.is_empty(),);
+                assert!(neighborhood.user_exit_preferences.exit_countries.is_empty());
                 assert_eq!(
                     neighborhood.user_exit_preferences.locations_opt,
                     Some(vec![ExitLocation {
@@ -4048,12 +4052,10 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(message).unwrap();
-        subject_addr.try_send(assertion_msg).unwrap();
 
+        subject_addr.try_send(assertion_msg).unwrap();
         System::current().stop();
         system.run();
-
-        //println!("recorder: {:#?}", &recorder.try_into().unwrap());
         let exit_location_recording = &arc_recorder.lock().unwrap();
         let exit_handler_response = exit_location_recording
             .get_record::<NodeToUiMessage>(0)
@@ -4777,7 +4779,6 @@ mod tests {
             }],
             show_countries: false,
         };
-        println!("db {:?}", db.root());
         let mut generator = 1000;
         let mut make_node = |db: &mut NeighborhoodDatabase| {
             let node = &db.add_node(make_node_record(generator, true)).unwrap();
@@ -4840,7 +4841,7 @@ mod tests {
             &route_cz
                 .as_ref()
                 .unwrap()
-                .get(route_cz.as_ref().unwrap().len() - 1)
+                .last()
                 .unwrap(),
         );
         assert_eq!(
@@ -4865,7 +4866,6 @@ mod tests {
 
     #[test]
     fn find_best_segment_traces_unreachable_country_code_exit_node() {
-        init_test_logging();
         let mut subject = make_standard_subject();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
@@ -4947,7 +4947,7 @@ mod tests {
             &route_au
                 .as_ref()
                 .unwrap()
-                .get(route_au.as_ref().unwrap().len() - 1)
+                .last()
                 .unwrap(),
         );
         assert_eq!(
@@ -5008,7 +5008,7 @@ mod tests {
             &route_fr
                 .as_ref()
                 .unwrap()
-                .get(route_fr.as_ref().unwrap().len() - 1)
+                .last()
                 .unwrap(),
         );
         assert_eq!(
