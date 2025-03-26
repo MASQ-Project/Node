@@ -1,3 +1,4 @@
+use masq_lib::constants::TLS_PORT;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
@@ -13,7 +14,7 @@ impl ProtocolPack for TlsProtocolPack {
     }
 
     fn standard_port(&self) -> u16 {
-        443
+        TLS_PORT
     }
 
     fn find_host(&self, data: &PlainData) -> Option<Host> {
@@ -25,7 +26,7 @@ impl ProtocolPack for TlsProtocolPack {
             return None;
         }
         match Self::host_name_from_client_hello(&mut xvsr) {
-            Ok(name) => Some(Host { name, port: None }),
+            Ok(name) => Some(Host { name, port: Some(self.standard_port()) }),
             Err(()) => None,
         }
     }
@@ -112,7 +113,7 @@ mod tests {
     fn knows_its_standard_port() {
         let result = TlsProtocolPack {}.standard_port();
 
-        assert_eq!(result, 443);
+        assert_eq!(result, TLS_PORT);
     }
 
     #[test]
@@ -709,7 +710,7 @@ mod tests {
         assert_eq!(
             Some(Host {
                 name: String::from("server.com"),
-                port: None,
+                port: Some(TLS_PORT),
             }),
             result
         );
@@ -754,7 +755,7 @@ mod tests {
         assert_eq!(
             Some(Host {
                 name: String::from("server.com"),
-                port: None
+                port: Some(TLS_PORT)
             }),
             result
         );

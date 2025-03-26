@@ -9,7 +9,6 @@ use serde::Serialize;
 use serde::Serializer;
 use sodiumoxide::randombytes::randombytes_into;
 use std::fmt;
-use std::net::SocketAddr;
 
 lazy_static! {
     static ref STREAM_KEY_SALT: [u8; 8] = {
@@ -84,10 +83,10 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
 }
 
 impl StreamKey {
-    pub fn new(public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey {
+    pub fn new(public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey {
         let mut hash = sha1::Sha1::new();
         hash.update(public_key.as_ref());
-        hash = add_socket_addr_to_hash(hash, server_addr);
+        hash = add_host_name_and_port_to_hash(hash, host_name, host_port);
         hash.update(STREAM_KEY_SALT.as_slice());
         StreamKey {
             hash: hash.digest().bytes(),
@@ -111,17 +110,9 @@ impl StreamKey {
 
 type HashType = [u8; sha1::DIGEST_LENGTH];
 
-fn add_socket_addr_to_hash(mut hash: sha1::Sha1, socket_addr: SocketAddr) -> sha1::Sha1 {
-    match socket_addr {
-        SocketAddr::V4(v4) => {
-            hash.update(v4.ip().octets().as_slice());
-        }
-        SocketAddr::V6(v6) => {
-            hash.update(v6.ip().octets().as_slice());
-        }
-    }
-    let port = socket_addr.port();
-    hash.update(&[(port & 0xFF) as u8, (port >> 8) as u8]);
+fn add_host_name_and_port_to_hash(mut hash: sha1::Sha1, host_name: &str, host_port: u16) -> sha1::Sha1 {
+    hash.update(host_name.as_bytes());
+    hash.update(&[(host_port & 0xFF) as u8, (host_port >> 8) as u8]);
     hash
 }
 
@@ -130,18 +121,32 @@ mod tests {
     use super::*;
     use crate::test_utils::main_cryptde;
     use itertools::Itertools;
-    use std::net::IpAddr;
-    use std::str::FromStr;
 
     #[test]
-    fn stream_keys_with_different_server_addrs_are_different() {
+    fn stream_keys_with_different_host_names_are_different() {
         let public_key = main_cryptde().public_key();
         let stream_key_count = 100;
-        let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
-        let server_addrs = (0..stream_key_count).map(|i| SocketAddr::new(ip_addr, 1024 + i as u16));
+        let host_names = (0..stream_key_count).map(|i| format!("host_name_{}", i));
 
-        let stream_keys = server_addrs
-            .map(|server_addr| StreamKey::new(&public_key, server_addr))
+        let stream_keys = host_names
+            .map(|host_name| StreamKey::new(&public_key, &host_name, 443))
+            .collect_vec();
+
+        (0..(stream_key_count - 1)).for_each(|a| {
+            ((a + 1)..stream_key_count).for_each(|b| {
+                assert_ne!(stream_keys[a], stream_keys[b]);
+            });
+        });
+    }
+
+    #[test]
+    fn stream_keys_with_different_host_ports_are_different() {
+        let public_key = main_cryptde().public_key();
+        let stream_key_count = 100usize;
+        let host_ports = (0..stream_key_count).map(|i| (1024 + i) as u16);
+
+        let stream_keys = host_ports
+            .map(|host_port| StreamKey::new(&public_key, "host-name", host_port))
             .collect_vec();
 
         (0..(stream_key_count - 1)).for_each(|a| {
@@ -155,10 +160,9 @@ mod tests {
     fn stream_keys_with_same_host_name_are_same() {
         let public_key = main_cryptde().public_key();
         let stream_key_count = 100;
-        let server_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
 
         let stream_keys = (0..stream_key_count)
-            .map(|_| StreamKey::new(&public_key, server_addr))
+            .map(|_| StreamKey::new(&public_key, "host-name", 443))
             .collect_vec();
 
         (1..stream_key_count).for_each(|i| {
@@ -168,11 +172,9 @@ mod tests {
 
     #[test]
     fn stream_keys_from_different_public_keys_are_different() {
-        let server_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
-
         let stream_keys = vec![PublicKey::new(&[1, 2, 3]), PublicKey::new(&[1, 2, 2])]
             .iter()
-            .map(|public_key| StreamKey::new(public_key, server_addr))
+            .map(|public_key| StreamKey::new(public_key, "host-name", 443))
             .collect_vec();
 
         assert_ne!(stream_keys[0], stream_keys[1]);
@@ -181,13 +183,13 @@ mod tests {
     #[test]
     fn stream_keys_are_salted() {
         let public_key = main_cryptde().public_key();
-        let server_addr = SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1024);
+        let host_name = "host-name";
 
-        let result = StreamKey::new(&public_key, server_addr);
+        let result = StreamKey::new(&public_key, host_name, 443);
 
         let mut hash = sha1::Sha1::new();
         hash.update(public_key.as_ref());
-        hash = add_socket_addr_to_hash(hash, server_addr);
+        hash = add_host_name_and_port_to_hash(hash, host_name, 443);
         let attack = StreamKey {
             hash: hash.digest().bytes(),
         };

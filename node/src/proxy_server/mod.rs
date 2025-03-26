@@ -565,7 +565,7 @@ impl ProxyServer {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
             Some(ref host) if host.port == Some(443) => {
-                let stream_key = self.find_or_generate_stream_key(msg, msg.peer_addr);
+                let stream_key = self.find_or_generate_stream_key(msg, &host.name, 443);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -645,7 +645,8 @@ impl ProxyServer {
     fn find_or_generate_stream_key(
         &mut self,
         ibcd: &InboundClientData,
-        server_addr: SocketAddr,
+        host_name: &str,
+        host_port: u16,
     ) -> StreamKey {
         match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
             Some(stream_key) => {
@@ -660,7 +661,7 @@ impl ProxyServer {
             None => {
                 let stream_key = self
                     .stream_key_factory
-                    .make(self.main_cryptde.public_key(), server_addr);
+                    .make(self.main_cryptde.public_key(), host_name, host_port);
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
                 debug!(
                     self.logger,
@@ -1139,7 +1140,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .expect("Dispatcher is dead");
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy.find_or_generate_stream_key(&msg, source_addr);
+        let stream_key = proxy.find_or_generate_stream_key(&msg, "drive-me-in", 0);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => {
@@ -1275,14 +1276,14 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self, public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey;
+    fn make(&self, public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self, public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey {
-        StreamKey::new(public_key, server_addr)
+    fn make(&self, public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey {
+        StreamKey::new(public_key, host_name, host_port)
     }
 }
 
@@ -1507,16 +1508,16 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
+        make_parameters: Arc<Mutex<Vec<(PublicKey, String, u16)>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self, public_key: &PublicKey, server_addr: SocketAddr) -> StreamKey {
+        fn make(&self, public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey {
             self.make_parameters
                 .lock()
                 .unwrap()
-                .push((public_key.clone(), server_addr));
+                .push((public_key.clone(), host_name.to_string(), host_port));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1531,7 +1532,7 @@ mod tests {
 
         fn make_parameters(
             mut self,
-            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
+            params: &Arc<Mutex<Vec<(PublicKey, String, u16)>>>,
         ) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
@@ -1709,7 +1710,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), socket_addr)
+            (main_cryptde.public_key().clone(), "nowhere.com".to_string(), HTTP_PORT)
         );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
@@ -1828,7 +1829,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), socket_addr)
+            (main_cryptde.public_key().clone(), "realdomain.nu".to_string(), 443)
         );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();

@@ -24,9 +24,9 @@ impl ProtocolPack for HttpProtocolPack {
     }
 
     fn find_host(&self, data: &PlainData) -> Option<Host> {
-        match HttpProtocolPack::find_url_host(data.as_slice()) {
+        match HttpProtocolPack::find_header_host(data.as_slice()) {
             Some(host) => Some(host),
-            None => HttpProtocolPack::find_header_host(data.as_slice()),
+            None => HttpProtocolPack::find_url_host(data.as_slice()),
         }
     }
 
@@ -67,12 +67,18 @@ impl HttpProtocolPack {
         match parts.len() {
             1 => Some(Host {
                 name: parts.remove(0).to_string(),
-                port: None,
+                port: Some(HTTP_PORT),
             }),
-            2 => Some(Host {
-                name: parts.remove(0).to_string(),
-                port: Self::port_from_string(parts.remove(0).to_string()),
-            }),
+            2 => {
+                let name = parts.remove(0).to_string();
+                match Self::port_from_string(parts.remove(0).to_string()) {
+                    Ok(port) => Some(Host {
+                        name,
+                        port: Some(port),
+                    }),
+                    Err(_) => None,
+                }
+            },
             _ => None,
         }
     }
@@ -91,10 +97,10 @@ impl HttpProtocolPack {
         )
     }
 
-    fn port_from_string(port_str: String) -> Option<u16> {
+    fn port_from_string(port_str: String) -> Result<u16, String> {
         match port_str.parse::<u16>() {
-            Err(_) => None,
-            Ok(port) => Some(port),
+            Err(_) => Err(format!("Port '{}' is not a number", port_str)),
+            Ok(port) => Ok(port),
         }
     }
 }
@@ -161,6 +167,7 @@ mod tests {
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
         assert_eq!(String::from("header.host.com"), host.name);
+        assert_eq!(Some(HTTP_PORT), host.port);
     }
 
     #[test]
@@ -183,21 +190,22 @@ mod tests {
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
         assert_eq!(String::from("192.168.1.230"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(Some(HTTP_PORT), host.port);
     }
 
     #[test]
-    fn returns_host_name_and_port_from_url_if_both_exist() {
+    fn returns_host_name_and_port_from_header_if_both_exist() {
         let data = PlainData::new(b"OPTIONS http://top.host.com:1234/index.html HTTP/1.1\r\nHost: header.host.com:5432\r\n\r\nbodybody");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(Some(1234), host.port);
+        assert_eq!(String::from("header.host.com"), host.name);
+        assert_eq!(Some(5432), host.port);
     }
 
     #[test]
     fn returns_host_name_from_http_url_if_header_doesnt_exist() {
+        // Note: that "Host: body.host.com" looks like a header, but it's not: it's content.
         let data = PlainData::new(b"DELETE http://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
@@ -207,6 +215,7 @@ mod tests {
 
     #[test]
     fn returns_host_name_from_https_url_if_header_doesnt_exist() {
+        // Note: that "Host: body.host.com" looks like a header, but it's not: it's content.
         let data = PlainData::new(b"PUT https://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
@@ -221,12 +230,13 @@ mod tests {
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
         assert_eq!(String::from("top.host.com"), host.name);
+        assert_eq!(Some(HTTP_PORT), host.port);
     }
 
     #[test]
     fn returns_host_name_from_url_when_no_scheme() {
         let data = PlainData::new(
-            b"CONNECT good.url.dude/path.html HTTP/1.1\r\nHost: wrong.url.dude\r\n\r\n",
+            b"GET wrong.url.dude/path.html HTTP/1.1\r\nHost: good.url.dude\r\n\r\n",
         );
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
@@ -237,12 +247,12 @@ mod tests {
     #[test]
     fn can_handle_domain_that_starts_with_http() {
         let data = PlainData::new(
-            b"CONNECT http.url.dude/path.html HTTP/1.1\r\nHost: wrong.url.dude\r\n\r\n",
+            b"GET http.url.dude/path.html HTTP/1.1\r\nHost: good.url.dude\r\n\r\n",
         );
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("http.url.dude"), host.name);
+        assert_eq!(String::from("good.url.dude"), host.name);
     }
 
     #[test]
@@ -268,39 +278,28 @@ mod tests {
     fn specifying_a_non_numeric_port_in_the_url() {
         let data = PlainData::new(b"HEAD http://top.host.com:nanan/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
-    fn specifying_a_missing_port_in_the_url() {
+    fn cant_extract_top_host_if_port_has_syntax_error() {
         let data = PlainData::new(b"HEAD http://top.host.com:/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
-    fn from_integration_test() {
+    fn explicit_port_is_80_if_it_was_not_specified() {
         let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
         assert_eq!(String::from("www.example.com"), host.name);
-    }
-
-    #[test]
-    fn explicit_port_is_none_if_it_was_not_specified() {
-        let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
-
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(Some(HTTP_PORT), host.port);
     }
 
     #[test]
@@ -317,20 +316,18 @@ mod tests {
     fn specifying_a_non_numeric_port_in_host_header() {
         let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com:nannan\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
     fn specifying_a_missing_port_in_host_header() {
         let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com:\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
