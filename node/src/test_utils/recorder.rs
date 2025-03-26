@@ -200,13 +200,15 @@ impl Handler<RouteQueryMessage> for Recorder {
         msg: RouteQueryMessage,
         _ctx: &mut Self::Context,
     ) -> <Self as Handler<RouteQueryMessage>>::Result {
-        self.record(msg);
+        self.handle_msg_t_m_p(msg);
         MessageResult(extract_response(
             &mut self.route_query_responses,
             "No RouteQueryResponses prepared for RouteQueryMessage",
         ))
     }
 }
+
+matchable!(RouteQueryMessage);
 
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
 where
