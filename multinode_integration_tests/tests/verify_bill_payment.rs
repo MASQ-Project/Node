@@ -234,7 +234,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99995231980000000000",
+        "99994287232000000000",
         "471999999700000000000000000",
     );
 
@@ -409,7 +409,7 @@ fn verify_pending_payables() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99995231980000000000",
+        "99994287232000000000",
         "471999999700000000000000000",
     );
     assert_balances(
@@ -450,17 +450,17 @@ fn verify_pending_payables() {
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction 0x75a8f185b7fb3ac0c4d1ee6b402a46940c9ae0477c0c7378a1308fb4bf539c5c has been added to the blockchain;",
+        "Transaction 0xecab1c73ca90ebcb073526e28f1f8d4678704b74d1e0209779ddeefc8fb861f5 has been added to the blockchain;",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction 0x384a3bb5bbd9718a97322be2878fa88c7cacacb2ac3416f521a621ca1946ddfc has been added to the blockchain;",
+        "Transaction 0xae0bf6400f0b9950a1d456e488549414d118714b81a39233b811b629cf41399b has been added to the blockchain;",
         Duration::from_secs(5),
     );
     MASQNodeUtils::assert_node_wrote_log_containing(
         real_consuming_node.name(),
-        "Transaction 0x6bc98d5db61ddd7676de1f25cb537156b3d9e066cec414fef8dbe9c695908215 has been added to the blockchain;",
+        "Transaction 0x89acc46da0df6ef8c6f5574307ae237a812bd28af524a62131013b5e19ca3e26 has been added to the blockchain;",
         Duration::from_secs(5),
     );
 }
