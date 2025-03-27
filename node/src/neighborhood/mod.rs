@@ -2150,7 +2150,7 @@ mod tests {
         CountryGroups, ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage,
     };
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::ui_gateway::MessageBody;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::MessageTarget;
     use masq_lib::utils::running_test;
@@ -3763,10 +3763,10 @@ mod tests {
         };
         let message = NodeFromUiMessage {
             client_id: 123,
-            body: request.tmb(0),
+            body: request.tmb(234),
         };
         let system = System::new(test_name);
-        let (ui_gateway, _, _) = make_recorder();
+        let (ui_gateway, _recorder, arc_recorder) = make_recorder();
         let mut subject = make_standard_subject();
         subject.logger = Logger::new(test_name);
         let cz = &mut make_node_record(3456, true);
@@ -3890,7 +3890,21 @@ mod tests {
 
         System::current().stop();
         system.run();
-
+        
+        let recorder_result = arc_recorder.lock().unwrap();
+        assert_eq!(
+            recorder_result.get_record::<NodeToUiMessage>(0).body,
+            MessageBody {
+                opcode: "exitLocation".to_string(),
+                path: MessagePath::Conversation(234),
+                payload: Ok("{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"countryCodes\":[\"CZ\",\"SK\"],\"priority\":1},{\"countryCodes\":[\"AT\",\"DE\"],\"priority\":2},{\"countryCodes\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}".to_string())
+            }
+        );
+        assert_eq!(
+            recorder_result
+                .get_record::<NodeToUiMessage>(0).target,
+            MessageTarget::ClientId(123)
+        );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
             "INFO: {}: Fallback Routing is set. Exit location set:",
@@ -3913,8 +3927,8 @@ mod tests {
             show_countries: false,
         };
         let message = NodeFromUiMessage {
-            client_id: 0,
-            body: request.tmb(0),
+            client_id: 234,
+            body: request.tmb(123),
         };
         let system = System::new(test_name);
         let (ui_gateway, _recorder, arc_recorder) = make_recorder();
@@ -4057,15 +4071,20 @@ mod tests {
         System::current().stop();
         system.run();
         let exit_location_recording = &arc_recorder.lock().unwrap();
-        let exit_handler_response = exit_location_recording
-            .get_record::<NodeToUiMessage>(0)
-            .body
-            .payload
-            .clone();
         let log_handler = TestLogHandler::new();
         assert_eq!(
-            exit_handler_response,
-            Err((9223372036854775816, "CZ, SK, IN".to_string(),))
+            exit_location_recording
+                .get_record::<NodeToUiMessage>(0).body,
+            MessageBody {
+                opcode: "exitLocation".to_string(),
+                path: MessagePath::Conversation(123),
+                payload: Err((9223372036854775816, "CZ, SK, IN".to_string(),))
+            }
+        );
+        assert_eq!(
+            exit_location_recording
+                .get_record::<NodeToUiMessage>(0).target,
+            MessageTarget::ClientId(234)
         );
         log_handler.assert_logs_contain_in_order(vec![
             &format!(
@@ -4496,7 +4515,7 @@ mod tests {
             All these Nodes are standard-mode. L is the root Node.
     */
     #[test]
-    fn find_exit_location_test() {
+    fn find_exit_locations_in_packed_grid() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
         let mut generator = 1000;
@@ -4553,7 +4572,7 @@ mod tests {
     }
 
     #[test]
-    fn find_exit_locations_in_row_structure_test() {
+    fn find_exit_locations_in_row_structure() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
         let mut generator = 1000;
@@ -4678,7 +4697,7 @@ mod tests {
     */
 
     #[test]
-    fn route_optimization_test() {
+    fn route_optimization_by_serving_rates() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
         let (recipient, _) = make_node_to_ui_recipient();
@@ -4762,11 +4781,11 @@ mod tests {
             |   |   |   |   |
             U---V---W---X---Y
 
-            All these Nodes are standard-mode. L is the root Node.
+            All these Nodes are standard-mode. L is the root Node. C and T are "CZ" standard nodes
 
     */
     #[test]
-    fn route_optimization_country_codes() {
+    fn route_optimization_with_user_exit_preferences() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
         let (recipient, _) = make_node_to_ui_recipient();
@@ -4816,20 +4835,14 @@ mod tests {
         let (k, l, m, n, o) = make_row(db);
         let (p, q, r, s, t) = make_row(db);
         let (u, v, w, x, y) = make_row(db);
-
         join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
         join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-
-        let mut checkdb = db.clone();
-        designate_root_node(db, &l);
-
         db.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
-        checkdb.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
         db.node_by_key_mut(&t).unwrap().inner.country_code_opt = Some("CZ".to_string());
-        checkdb.node_by_key_mut(&t).unwrap().inner.country_code_opt = Some("CZ".to_string());
-
+        let control_db = db.clone();
+        designate_root_node(db, &l);
         subject.handle_exit_location_message(message, 0, 0);
         let before = Instant::now();
 
@@ -4837,7 +4850,7 @@ mod tests {
             subject.find_best_route_segment(&l, None, 3, 10000, RouteDirection::Over, None);
 
         let after = Instant::now();
-        let exit_node = checkdb.node_by_key(
+        let exit_node = control_db.node_by_key(
             &route_cz
                 .as_ref()
                 .unwrap()
@@ -4859,13 +4872,19 @@ mod tests {
     /*
             Database:
 
-            P---q---R
-
-            Test is written from the standpoint of P. Node q is non-routing.
+            root_key---c_au---b_fr
+                        |
+                       a_fr
+            Test is written from the standpoint of root_key.
+            println!("a {}, b {}, c {}",
+                 make_node_record(2345, true).inner.country_code_opt.unwrap(),
+                 make_node_record(5678, true).inner.country_code_opt.unwrap(),
+                 make_node_record(1234, true).inner.country_code_opt.unwrap()
+            );
     */
 
     #[test]
-    fn find_best_segment_traces_unreachable_country_code_exit_node() {
+    fn exit_node_not_found_due_to_country_code_strict_requirement() {
         let mut subject = make_standard_subject();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
@@ -4880,17 +4899,17 @@ mod tests {
             show_countries: false,
         };
         let db = &mut subject.neighborhood_database;
-        let p = &db.root_mut().public_key().clone();
-        let a = &db.add_node(make_node_record(2345, true)).unwrap();
-        let b = &db.add_node(make_node_record(5678, true)).unwrap();
-        let c = &db.add_node(make_node_record(1234, true)).unwrap();
-        db.add_arbitrary_full_neighbor(p, c);
-        db.add_arbitrary_full_neighbor(c, b);
-        db.add_arbitrary_full_neighbor(c, a);
+        let root_key = &db.root_mut().public_key().clone();
+        let a_fr = &db.add_node(make_node_record(2345, true)).unwrap();
+        let b_fr = &db.add_node(make_node_record(5678, true)).unwrap();
+        let c_au = &db.add_node(make_node_record(1234, true)).unwrap();
+        db.add_arbitrary_full_neighbor(root_key, c_au);
+        db.add_arbitrary_full_neighbor(c_au, b_fr);
+        db.add_arbitrary_full_neighbor(c_au, a_fr);
         subject.handle_exit_location_message(message, 0, 0);
 
         let route_cz =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(root_key, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_cz, None);
     }
@@ -4898,35 +4917,41 @@ mod tests {
     #[test]
     fn route_for_au_country_code_is_constructed_with_fallback_routing() {
         let mut subject = make_standard_subject();
-        let p = &subject
+        let root_key = &subject
             .neighborhood_database
             .root_mut()
             .public_key()
             .clone();
-        let a = &subject
+        let mut a_fr_node = make_node_record(2345, true);
+        a_fr_node.inner.rate_pack.exit_byte_rate = 1;
+        a_fr_node.inner.rate_pack.exit_service_rate = 1;
+        let mut c_au_node = make_node_record(1234, true);
+        c_au_node.inner.rate_pack.exit_byte_rate = 10;
+        c_au_node.inner.rate_pack.exit_service_rate = 10;
+        let a_fr_key = &subject
             .neighborhood_database
-            .add_node(make_node_record(2345, true))
+            .add_node(a_fr_node)
             .unwrap();
-        let b = &subject
+        let b_fr_key = &subject
             .neighborhood_database
             .add_node(make_node_record(5678, true))
             .unwrap();
-        let c = &subject
+        let c_au_key = &subject
             .neighborhood_database
-            .add_node(make_node_record(1234, true))
+            .add_node(c_au_node)
             .unwrap();
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(p, b);
+            .add_arbitrary_full_neighbor(root_key, b_fr_key);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(b, c);
+            .add_arbitrary_full_neighbor(b_fr_key, c_au_key);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(b, a);
+            .add_arbitrary_full_neighbor(b_fr_key, a_fr_key);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(a, c);
+            .add_arbitrary_full_neighbor(a_fr_key, c_au_key);
         let cdb = subject.neighborhood_database.clone();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
@@ -4941,7 +4966,7 @@ mod tests {
         subject.handle_exit_location_message(message, 0, 0);
 
         let route_au =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(root_key, None, 2, 10000, RouteDirection::Over, None);
 
         let exit_node = cdb.node_by_key(
             &route_au
