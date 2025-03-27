@@ -1206,11 +1206,11 @@ mod tests {
             NodeDescriptor::from((
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::BaseSepolia,
+                Chain::EthRopsten,
                 main_cryptde_ref()
             ))
         );
-        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[test]
@@ -1322,11 +1322,11 @@ mod tests {
             NodeDescriptor::from((
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::BaseSepolia,
+                Chain::EthRopsten,
                 main_cryptde_ref()
             ))
         );
-        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[test]
@@ -1571,7 +1571,7 @@ mod tests {
             cryptdes.main
         };
         let expected_descriptor = format!(
-            "masq://base-sepolia:{}@2.3.4.5:3456/4567",
+            "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         TestLogHandler::new().exists_log_containing(
@@ -1611,7 +1611,7 @@ mod tests {
             cryptdes
         };
         let expected_descriptor = format!(
-            "masq://base-sepolia:{}@:",
+            "masq://eth-ropsten:{}@:",
             cryptdes
                 .main
                 .public_key_to_descriptor_fragment(cryptdes.main.public_key())

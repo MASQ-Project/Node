@@ -68,7 +68,7 @@ mod tests {
         let connection = result.unwrap();
         let (chn_value, chn_encrypted) = retrieve_config_row(connection.as_ref(), "chain_name");
         let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
-        assert_eq!(chn_value, Some("base-sepolia".to_string()));
+        assert_eq!(chn_value, Some("eth-ropsten".to_string()));
         assert_eq!(chn_encrypted, false);
         assert_eq!(cs_value, Some("2".to_string()));
         assert_eq!(cs_encrypted, false);

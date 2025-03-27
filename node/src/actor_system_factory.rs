@@ -1197,7 +1197,7 @@ mod tests {
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let persistent_config = PersistentConfigurationMock::default()
-            .chain_name_result("base-sepolia".to_string())
+            .chain_name_result("eth-ropsten".to_string())
             .set_min_hops_result(Ok(()));
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde()),
@@ -1953,7 +1953,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database with a wrong chain name detected; expected: base-sepolia, was: eth-mainnet"
+        expected = "Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
     )]
     fn make_and_start_actors_does_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();
