@@ -855,7 +855,7 @@ mod tests {
 
         let expected_transaction_fee_balance = U256::from(65_520);
         let expected_masq_balance = U256::from(65_535);
-        let expected_gas_price_wei = 1_000_000_000;
+        let expected_gas_price_wei = 1_000_000_000 + 300_000_000;
         assert_eq!(result.consuming_wallet(), &wallet);
         assert_eq!(
             result.consuming_wallet_balances(),
