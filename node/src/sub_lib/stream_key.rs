@@ -88,7 +88,11 @@ impl StreamKey {
             hash: hash.digest().bytes(),
         }
     }
+}
 
+type HashType = [u8; sha1::DIGEST_LENGTH];
+
+impl StreamKey {
     pub fn make_meaningless_stream_key() -> StreamKey {
         StreamKey {
             hash: [0; sha1::DIGEST_LENGTH],
@@ -103,8 +107,6 @@ impl StreamKey {
         }
     }
 }
-
-type HashType = [u8; sha1::DIGEST_LENGTH];
 
 #[cfg(test)]
 mod tests {
