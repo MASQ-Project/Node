@@ -11,7 +11,7 @@ use regex::Regex;
 lazy_static! {
     static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
 }
-
+ *** Replace this with the version from GH-554-dan ***
 pub struct HttpProtocolPack {}
 
 impl ProtocolPack for HttpProtocolPack {
