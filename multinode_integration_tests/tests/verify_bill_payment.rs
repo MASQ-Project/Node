@@ -2,7 +2,7 @@
 
 use crate::verify_bill_payment_utils::utils::{
     test_body, to_wei, AssertionsValues, Debt, DebtsSpecs, FinalServiceFeeBalancesByServingNodes,
-    NodeProfile, Ports, TestInputsBuilder, WholesomeConfig,
+    NodeProfile, Ports, TestInputBuilder, WholesomeConfig,
 };
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -23,7 +23,7 @@ use std::u128;
 mod verify_bill_payment_utils;
 
 #[test]
-fn full_payments_were_processed_for_sufficient_balances() {
+fn payments_processed_fully_as_balances_were_sufficient() {
     // Note: besides the main objectives of this test, it relies on (and so it proves) the premise
     // that each Node, after it achieves an effective connectivity as making a route is enabled,
     // activates the accountancy module whereas the first cycle of scanners is unleashed. That's
@@ -46,7 +46,7 @@ fn full_payments_were_processed_for_sufficient_balances() {
     let owed_to_serving_node_2_minor = debt_threshold_wei + 456_789;
     let owed_to_serving_node_3_minor = debt_threshold_wei + 789_012;
     let consuming_node_initial_service_fee_balance_minor = debt_threshold_wei * 4;
-    let test_inputs = TestInputsBuilder::default()
+    let test_input = TestInputBuilder::default()
         .consuming_node_initial_service_fee_balance_minor(
             consuming_node_initial_service_fee_balance_minor,
         )
@@ -75,7 +75,7 @@ fn full_payments_were_processed_for_sufficient_balances() {
     };
 
     test_body(
-        test_inputs,
+        test_input,
         assertions_values,
         stimulate_consuming_node_to_pay_for_test_with_sufficient_funds,
         activating_serving_nodes_for_test_with_sufficient_funds,
@@ -87,7 +87,8 @@ fn stimulate_consuming_node_to_pay_for_test_with_sufficient_funds(
     real_consuming_node: &MASQRealNode,
     _wholesome_config: &WholesomeConfig,
 ) {
-    for _ in 0..6 {
+    // 1 + 4 Nodes should be enough to compose a route, right?
+    for _ in 0..4 {
         cluster.start_real_node(
             NodeStartupConfigBuilder::standard()
                 .chain(Chain::Dev)
@@ -145,7 +146,8 @@ fn set_old_debts(
         .into_iter()
         .map(|balance_minor| Debt::new(balance_minor, quite_long_ago))
         .collect_vec();
-    DebtsSpecs::new(debts[0], debts[1], debts[2])
+    let debt_array = debts.try_into().unwrap();
+    DebtsSpecs::new(debt_array)
 }
 
 #[test]
@@ -161,14 +163,15 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     // Assuming all Nodes rely on the same set of payment thresholds
     let owed_to_serv_node_1_minor = to_wei(payment_thresholds.debt_threshold_gwei + 5_000_000);
     let owed_to_serv_node_2_minor = to_wei(payment_thresholds.debt_threshold_gwei + 20_000_000);
-    // Account of Node 3 will be a victim of tx fee insufficiency and will fall away, as its debt
-    // is the heaviest, implying the smallest weight evaluated and the last priority compared to
-    // those two others.
+    // Account of Node 3 will be a victim of tx fee insufficiency and will drop out, as its debt
+    // is the heaviest, implying the smallest weight evaluated and the smallest priority compared to
+    // the two others.
     let owed_to_serv_node_3_minor = to_wei(payment_thresholds.debt_threshold_gwei + 60_000_000);
     let enough_balance_for_serving_node_1_and_2 =
         owed_to_serv_node_1_minor + owed_to_serv_node_2_minor;
+    let missing_portion_to_the_full_amount = to_wei(2_345_678);
     let consuming_node_initial_service_fee_balance_minor =
-        enough_balance_for_serving_node_1_and_2 - to_wei(2_345_678);
+        enough_balance_for_serving_node_1_and_2 - missing_portion_to_the_full_amount;
     let gas_price_major = 60;
     let tx_fee_needed_to_pay_for_one_payment_major = {
         // We'll need littler funds, but we can stand mild inaccuracy from assuming the use of
@@ -185,12 +188,12 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         let transaction_fee_margin = PurePercentage::try_from(15).unwrap();
         transaction_fee_margin.increase_by_percent_for(gas_limit_dev_chain * gas_price_major)
     };
-    const AFFORDABLE_PAYMENTS_COUNT: u128 = 2;
+    let affordable_payments_count_by_tx_fee = 2;
     let tx_fee_needed_to_pay_for_one_payment_minor: u128 =
         to_wei(tx_fee_needed_to_pay_for_one_payment_major);
     let consuming_node_transaction_fee_balance_minor =
-        AFFORDABLE_PAYMENTS_COUNT * tx_fee_needed_to_pay_for_one_payment_minor;
-    let test_inputs = TestInputsBuilder::default()
+        affordable_payments_count_by_tx_fee * tx_fee_needed_to_pay_for_one_payment_minor;
+    let test_input = TestInputBuilder::default()
         .ui_ports(Ports::new(
             find_free_port(),
             find_free_port(),
@@ -202,7 +205,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
         .consuming_node_initial_service_fee_balance_minor(
             consuming_node_initial_service_fee_balance_minor,
         )
-        .debts_config(DebtsSpecs::new(
+        .debts_config(DebtsSpecs::new([
             // This account will be the most significant and will deserve the full balance
             Debt::new(
                 owed_to_serv_node_1_minor,
@@ -219,7 +222,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
                 owed_to_serv_node_3_minor,
                 payment_thresholds.maturity_threshold_sec + 30_000,
             ),
-        ))
+        ]))
         .payment_thresholds_all_nodes(payment_thresholds)
         .consuming_node_gas_price_major(gas_price_major)
         .build();
@@ -240,7 +243,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     };
 
     test_body(
-        test_inputs,
+        test_input,
         assertions_values,
         stimulate_consuming_node_to_pay_for_test_with_insufficient_funds,
         activating_serving_nodes_for_test_with_insufficient_funds,
