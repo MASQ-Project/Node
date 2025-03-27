@@ -1,6 +1,7 @@
 use masq_lib::constants::TLS_PORT;
+use crate::proxy_server::Host;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
+use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
 use crate::sub_lib::binary_traverser::BinaryTraverser;
 use crate::sub_lib::cryptde::PlainData;
@@ -26,7 +27,7 @@ impl ProtocolPack for TlsProtocolPack {
             return None;
         }
         match Self::host_name_from_client_hello(&mut xvsr) {
-            Ok(name) => Some(Host { name, port: Some(self.standard_port()) }),
+            Ok(name) => Some(Host { name, port: TLS_PORT }),
             Err(()) => None,
         }
     }
@@ -710,7 +711,7 @@ mod tests {
         assert_eq!(
             Some(Host {
                 name: String::from("server.com"),
-                port: Some(TLS_PORT),
+                port: TLS_PORT,
             }),
             result
         );
@@ -755,7 +756,7 @@ mod tests {
         assert_eq!(
             Some(Host {
                 name: String::from("server.com"),
-                port: Some(TLS_PORT)
+                port: TLS_PORT
             }),
             result
         );

@@ -5,12 +5,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Host {
-    pub name: String,
-    pub port: Option<u16>,
-}
+use crate::proxy_server::Host;
 
 pub trait ProtocolPack: Send + Sync {
     fn proxy_protocol(&self) -> ProxyProtocol;

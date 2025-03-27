@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde::Serializer;
 use sodiumoxide::randombytes::randombytes_into;
 use std::fmt;
+use crate::proxy_server::Host;
 
 lazy_static! {
     static ref STREAM_KEY_SALT: [u8; 8] = {
@@ -83,10 +84,13 @@ impl<'a> Visitor<'a> for StreamKeyVisitor {
 }
 
 impl StreamKey {
-    pub fn new(public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey {
+    pub fn new(public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey {
         let mut hash = sha1::Sha1::new();
         hash.update(public_key.as_ref());
-        hash = add_host_name_and_port_to_hash(hash, host_name, host_port);
+        hash = match host_opt {
+            Some(host) => add_host_name_and_port_to_hash(hash, &host.name, host.port),
+            None => todo!("Drive in making fake hostname and port from CryptDE"),
+        };
         hash.update(STREAM_KEY_SALT.as_slice());
         StreamKey {
             hash: hash.digest().bytes(),
@@ -129,7 +133,7 @@ mod tests {
         let host_names = (0..stream_key_count).map(|i| format!("host_name_{}", i));
 
         let stream_keys = host_names
-            .map(|host_name| StreamKey::new(&public_key, &host_name, 443))
+            .map(|host_name| StreamKey::new(&public_key, Some(Host::new(&host_name, 443))))
             .collect_vec();
 
         (0..(stream_key_count - 1)).for_each(|a| {
@@ -146,7 +150,7 @@ mod tests {
         let host_ports = (0..stream_key_count).map(|i| (1024 + i) as u16);
 
         let stream_keys = host_ports
-            .map(|host_port| StreamKey::new(&public_key, "host-name", host_port))
+            .map(|host_port| StreamKey::new(&public_key, Some(Host::new("host-name", host_port))))
             .collect_vec();
 
         (0..(stream_key_count - 1)).for_each(|a| {
@@ -162,7 +166,7 @@ mod tests {
         let stream_key_count = 100;
 
         let stream_keys = (0..stream_key_count)
-            .map(|_| StreamKey::new(&public_key, "host-name", 443))
+            .map(|_| StreamKey::new(&public_key, Some(Host::new("host-name", 443))))
             .collect_vec();
 
         (1..stream_key_count).for_each(|i| {
@@ -174,7 +178,7 @@ mod tests {
     fn stream_keys_from_different_public_keys_are_different() {
         let stream_keys = vec![PublicKey::new(&[1, 2, 3]), PublicKey::new(&[1, 2, 2])]
             .iter()
-            .map(|public_key| StreamKey::new(public_key, "host-name", 443))
+            .map(|public_key| StreamKey::new(public_key, Some(Host::new("host-name", 443))))
             .collect_vec();
 
         assert_ne!(stream_keys[0], stream_keys[1]);
@@ -185,7 +189,7 @@ mod tests {
         let public_key = main_cryptde().public_key();
         let host_name = "host-name";
 
-        let result = StreamKey::new(&public_key, host_name, 443);
+        let result = StreamKey::new(&public_key, Some(Host::new(host_name, 443)));
 
         let mut hash = sha1::Sha1::new();
         hash.update(public_key.as_ref());

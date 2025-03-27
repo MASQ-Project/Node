@@ -55,11 +55,24 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
+use masq_lib::constants::TLS_PORT;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
 pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Host {
+    pub name: String,
+    pub port: u16,
+}
+
+impl Host {
+    pub fn new(name: &str, port: u16) -> Host {
+        Host { name: name.to_string(), port }
+    }
+}
 
 struct ProxyServerOutSubs {
     dispatcher: Recipient<TransmitDataMsg>,
@@ -564,8 +577,8 @@ impl ProxyServer {
     fn tls_connect(&mut self, msg: &InboundClientData) {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
-            Some(ref host) if host.port == Some(443) => {
-                let stream_key = self.find_or_generate_stream_key(msg, &host.name, 443);
+            Some(ref host) if host.port == TLS_PORT => {
+                let stream_key = self.find_or_generate_stream_key(msg, Some(Host::new(&host.name, host.port)));
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
@@ -645,8 +658,7 @@ impl ProxyServer {
     fn find_or_generate_stream_key(
         &mut self,
         ibcd: &InboundClientData,
-        host_name: &str,
-        host_port: u16,
+        host_opt: Option<Host>,
     ) -> StreamKey {
         match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
             Some(stream_key) => {
@@ -661,7 +673,7 @@ impl ProxyServer {
             None => {
                 let stream_key = self
                     .stream_key_factory
-                    .make(self.main_cryptde.public_key(), host_name, host_port);
+                    .make(self.main_cryptde.public_key(), Some(Host::new("booga", 0)));
                 self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
                 debug!(
                     self.logger,
@@ -1140,7 +1152,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .expect("Dispatcher is dead");
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy.find_or_generate_stream_key(&msg, "drive-me-in", 0);
+        let stream_key = proxy.find_or_generate_stream_key(&msg, Some(Host::new("drive-me-in", 0)));
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => {
@@ -1276,14 +1288,14 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self, public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey;
+    fn make(&self, public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self, public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey {
-        StreamKey::new(public_key, host_name, host_port)
+    fn make(&self, public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey {
+        StreamKey::new(public_key, host_opt)
     }
 }
 
@@ -1508,16 +1520,16 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(PublicKey, String, u16)>>>,
+        make_parameters: Arc<Mutex<Vec<(PublicKey, Option<Host>)>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self, public_key: &PublicKey, host_name: &str, host_port: u16) -> StreamKey {
+        fn make(&self, public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey {
             self.make_parameters
                 .lock()
                 .unwrap()
-                .push((public_key.clone(), host_name.to_string(), host_port));
+                .push((public_key.clone(), host_opt));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1532,7 +1544,7 @@ mod tests {
 
         fn make_parameters(
             mut self,
-            params: &Arc<Mutex<Vec<(PublicKey, String, u16)>>>,
+            params: &Arc<Mutex<Vec<(PublicKey, Option<Host>)>>>,
         ) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
@@ -1710,7 +1722,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), "nowhere.com".to_string(), HTTP_PORT)
+            (main_cryptde.public_key().clone(), Some(Host::new("nowhere.com", HTTP_PORT)))
         );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
@@ -1829,7 +1841,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), "realdomain.nu".to_string(), 443)
+            (main_cryptde.public_key().clone(), Some(Host::new("realdomain.nu", 443)))
         );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
@@ -6463,6 +6475,153 @@ mod tests {
             ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, true, false);
 
         prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_prioritizes_existing_stream_key_first() {
+        let host = Host::new("host", 1234);
+        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false, false);
+        subject.keys_and_addrs.insert(stream_key, socket_addr);
+        let ibcd = InboundClientData{
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: b"GET /index.html HTTP/1.1\r\nHost: header.com:3333\r\n\r\n".to_vec(),
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd, Some(Host::new("passed.in", 9999)));
+
+        assert_eq!(result, stream_key);
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_prioritizes_passed_in_host_second() {
+        let host = Host::new("host.com", 3333);
+        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
+            true, None, false, false);
+        let ibcd = InboundClientData{
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: b"GET /index.html HTTP/1.1\r\nHost: header.com:4444\r\n\r\n".to_vec(),
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd, Some(host.clone()));
+
+        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+        assert_eq!(result, stream_key);
+        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_prioritizes_http_data_host_third() {
+        let host = Host::new("host.com", 3333);
+        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
+            true, None, false, false);
+        let ibcd = InboundClientData{
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: b"GET /index.html HTTP/1.1\r\nHost: header.com:4444\r\n\r\n".to_vec(),
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd, None);
+
+        let host = Host::new("header.com", 4444);
+        let stream_key = StreamKey::new(main_cryptde().public_key(),
+                                        Some(host));
+        assert_eq!(result, stream_key);
+        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_prioritizes_tls_data_host_third() {
+        let host = Host::new("host.com", 3333);
+        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
+            true, None, false, false);
+        let ibcd = InboundClientData{
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: vec![
+                0x16, // content_type: Handshake
+                0x00, 0x00, 0x00, 0x00, // version, length: don't care
+                0x01, // handshake_type: ClientHello
+                0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
+                0x01, // session_id_length
+                0x00, // session_id: don't care
+                0x00, 0x01, // cipher_suites_length
+                0x00, // cipher_suite: don't care
+                0x01, // compression_methods_length
+                0x00, // compression_method: don't care
+                0x00, 0x13, // extensions_length
+                0x00, 0x00, // extension_type: server_name
+                0x00, 0x0F, // extension_length
+                0x00, 0x0D, // server_name_list_length
+                0x00, // server_name_type
+                0x00, 0x0A, // server_name_length
+                b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c',
+                b'o', b'm', // server_name
+            ],
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd, None);
+
+        let host = Host::new("server.com", 443);
+        let stream_key = StreamKey::new(main_cryptde().public_key(),
+            Some(host));
+        assert_eq!(result, stream_key);
+        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_uses_random_garbage_as_last_resort() {
+        let host = Host::new("host.com", 3333);
+        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
+            true, None, false, false);
+        let ibcd = InboundClientData{
+            timestamp: SystemTime::now(),
+            peer_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: vec![],
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd, None);
+
+        let host = Host::new("44444444", 0x3434);
+        let stream_key = StreamKey::new(main_cryptde().public_key(),
+            Some(host));
+        assert_eq!(result, stream_key);
+        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
     }
 
     fn make_exit_service_from_key(public_key: PublicKey) -> ExpectedService {
