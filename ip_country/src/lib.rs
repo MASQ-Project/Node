@@ -10,3 +10,5 @@ pub mod ip_country_csv;
 pub mod ip_country_mmdb;
 #[rustfmt::skip]
 pub mod dbip_country;
+#[cfg(test)]
+mod test_utils;

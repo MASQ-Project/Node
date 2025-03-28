@@ -75,7 +75,7 @@ pub trait DBIPParser: Any {
     ) -> (FinalBitQueue, FinalBitQueue, Countries);
 }
 
-fn generate_rust_code(
+pub fn generate_rust_code(
     final_ipv4: FinalBitQueue,
     final_ipv6: FinalBitQueue,
     countries: Countries,

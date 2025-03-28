@@ -695,14 +695,14 @@ mod tests {
 
     lazy_static! {
         static ref SENTINEL: Country = Country::new(0, "ZZ", "Sentinel");
-        static ref AMERICAN_SAMOA: Country = Country::new(1, "AS", "American Samoa");
         static ref ANDORRA: Country = Country::new(1, "AD", "Andorra");
         static ref ANGOLA: Country = Country::new(2, "AO", "Angola");
+        static ref AMERICAN_SAMOA: Country = Country::new(3, "AS", "American Samoa");
         static ref TEST_COUNTRIES: Countries = Countries::old_new(vec![
             SENTINEL.clone(),
-            AMERICAN_SAMOA.clone(),
             ANDORRA.clone(),
             ANGOLA.clone(),
+            AMERICAN_SAMOA.clone(),
         ]);
     }
 
@@ -713,21 +713,21 @@ mod tests {
                     Ipv4Addr::from_str("1.2.3.4").unwrap(),
                     Ipv4Addr::from_str("1.2.3.5").unwrap(),
                 ),
-                country: AMERICAN_SAMOA.clone(),
+                country: ANDORRA.clone(),
             },
             CountryBlock {
                 ip_range: IpRange::V4(
                     Ipv4Addr::from_str("1.2.3.6").unwrap(),
                     Ipv4Addr::from_str("6.7.8.9").unwrap(),
                 ),
-                country: ANDORRA.clone(),
+                country: ANGOLA.clone(),
             },
             CountryBlock {
                 ip_range: IpRange::V4(
                     Ipv4Addr::from_str("10.11.12.13").unwrap(),
                     Ipv4Addr::from_str("11.11.12.13").unwrap(),
                 ),
-                country: ANGOLA.clone(),
+                country: AMERICAN_SAMOA.clone(),
             },
         ]
     }
@@ -769,21 +769,21 @@ mod tests {
                     Ipv6Addr::from_str("1:2:3:4:5:6:7:8").unwrap(),
                     Ipv6Addr::from_str("1:2:3:4:5:6:7:9").unwrap(),
                 ),
-                country: AMERICAN_SAMOA.clone(),
+                country: ANDORRA.clone(),
             },
             CountryBlock {
                 ip_range: IpRange::V6(
                     Ipv6Addr::from_str("1:2:3:4:5:6:7:A").unwrap(),
                     Ipv6Addr::from_str("B:C:D:E:F:10:11:12").unwrap(),
                 ),
-                country: ANDORRA.clone(),
+                country: ANGOLA.clone(),
             },
             CountryBlock {
                 ip_range: IpRange::V6(
                     Ipv6Addr::from_str("13:14:15:16:17:18:19:1A").unwrap(),
                     Ipv6Addr::from_str("14:14:15:16:17:18:19:1A").unwrap(),
                 ),
-                country: ANGOLA.clone(),
+                country: AMERICAN_SAMOA.clone(),
             },
         ]
     }

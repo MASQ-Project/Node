@@ -64,9 +64,11 @@ mod tests {
     use crate::dbip_country;
     use std::str::FromStr;
     use std::time::SystemTime;
+    use crate::dbip_country::COUNTRIES;
 
     #[test]
-    fn finds_ipv4_address_in_fourth_block() {
+    fn finds_ipv4_address() {
+        COUNTRY_CODE_FINDER.ensure_init();
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
             IpAddr::from_str("1.0.6.15").unwrap(),
