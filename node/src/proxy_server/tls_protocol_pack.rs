@@ -1,7 +1,6 @@
-use masq_lib::constants::TLS_PORT;
-use crate::proxy_server::Host;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
+use masq_lib::constants::TLS_PORT;
+use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
 use crate::sub_lib::binary_traverser::BinaryTraverser;
 use crate::sub_lib::cryptde::PlainData;

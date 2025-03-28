@@ -62,18 +62,6 @@ pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
 pub const STREAM_KEY_PURGE_DELAY: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Host {
-    pub name: String,
-    pub port: u16,
-}
-
-impl Host {
-    pub fn new(name: &str, port: u16) -> Host {
-        Host { name: name.to_string(), port }
-    }
-}
-
 struct ProxyServerOutSubs {
     dispatcher: Recipient<TransmitDataMsg>,
     hopper: Recipient<IncipientCoresPackage>,
@@ -578,14 +566,14 @@ impl ProxyServer {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
             Some(ref host) if host.port == TLS_PORT => {
-                let stream_key = self.find_or_generate_stream_key(msg, Some(Host::new(&host.name, host.port)));
+                let stream_key = self.find_or_generate_stream_key(msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(msg.peer_addr),
+                        endpoint: Endpoint::Socket(msg.client_addr),
                         last_data: false,
                         sequence_number: msg.sequence_number,
                         data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
@@ -598,7 +586,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(msg.peer_addr),
+                        endpoint: Endpoint::Socket(msg.client_addr),
                         last_data: true,
                         sequence_number: msg.sequence_number,
                         data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
@@ -640,7 +628,7 @@ impl ProxyServer {
             );
             let ibcd = InboundClientData {
                 timestamp: SystemTime::now(),
-                peer_addr: msg.peer_addr,
+                client_addr: msg.peer_addr,
                 reception_port: Some(nca.reception_port),
                 last_data: true,
                 is_clandestine: false,
@@ -658,28 +646,27 @@ impl ProxyServer {
     fn find_or_generate_stream_key(
         &mut self,
         ibcd: &InboundClientData,
-        host_opt: Option<Host>,
     ) -> StreamKey {
-        match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
+        match self.keys_and_addrs.b_to_a(&ibcd.client_addr) {
             Some(stream_key) => {
                 debug!(
                     self.logger,
                     "find_or_generate_stream_key() retrieved existing key {} for {}",
                     &stream_key,
-                    ibcd.peer_addr
+                    ibcd.client_addr
                 );
                 stream_key
             }
             None => {
                 let stream_key = self
                     .stream_key_factory
-                    .make(self.main_cryptde.public_key(), Some(Host::new("booga", 0)));
-                self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
+                    .make(self.main_cryptde.public_key(), ibcd.client_addr);
+                self.keys_and_addrs.insert(stream_key, ibcd.client_addr);
                 debug!(
                     self.logger,
                     "find_or_generate_stream_key() inserted new key {} for {}",
                     &stream_key,
-                    ibcd.peer_addr
+                    ibcd.client_addr
                 );
                 stream_key
             }
@@ -1130,7 +1117,7 @@ impl IBCDHelper for IBCDHelperReal {
         msg: InboundClientData,
         retire_stream_key: bool,
     ) -> Result<(), String> {
-        let source_addr = msg.peer_addr;
+        let client_addr = msg.client_addr;
         if proxy.consuming_wallet_balance.is_none() && proxy.is_decentralized {
             let protocol_pack = match from_ibcd(&msg) {
                 Err(e) => return Err(e),
@@ -1140,7 +1127,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .server_impersonator()
                 .consuming_wallet_absent();
             let msg = TransmitDataMsg {
-                endpoint: Endpoint::Socket(source_addr),
+                endpoint: Endpoint::Socket(client_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data,
@@ -1152,7 +1139,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .expect("Dispatcher is dead");
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy.find_or_generate_stream_key(&msg, Some(Host::new("drive-me-in", 0)));
+        let stream_key = proxy.find_or_generate_stream_key(&msg);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => {
@@ -1178,7 +1165,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .insert(stream_key, dns_failure_retry);
         }
         let tth_args =
-            TryTransmitToHopperArgs::new(proxy, payload, source_addr, timestamp, retire_stream_key);
+            TryTransmitToHopperArgs::new(proxy, payload, client_addr, timestamp, retire_stream_key);
         let pld = &tth_args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
@@ -1288,14 +1275,14 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self, public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey;
+    fn make(&self, public_key: &PublicKey, client_addr: SocketAddr) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self, public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey {
-        StreamKey::new(public_key, host_opt)
+    fn make(&self, public_key: &PublicKey, client_addr: SocketAddr) -> StreamKey {
+        StreamKey::new(public_key, client_addr)
     }
 }
 
@@ -1520,16 +1507,16 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<(PublicKey, Option<Host>)>>>,
+        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self, public_key: &PublicKey, host_opt: Option<Host>) -> StreamKey {
+        fn make(&self, public_key: &PublicKey, client_addr: SocketAddr) -> StreamKey {
             self.make_parameters
                 .lock()
                 .unwrap()
-                .push((public_key.clone(), host_opt));
+                .push((public_key.clone(), client_addr));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1544,7 +1531,7 @@ mod tests {
 
         fn make_parameters(
             mut self,
-            params: &Arc<Mutex<Vec<(PublicKey, Option<Host>)>>>,
+            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
         ) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
@@ -1656,7 +1643,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr,
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -1722,7 +1709,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), Some(Host::new("nowhere.com", HTTP_PORT)))
+            (main_cryptde.public_key().clone(), socket_addr)
         );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
@@ -1761,7 +1748,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -1770,7 +1757,7 @@ mod tests {
         };
         let tunnelled_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr,
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -1778,7 +1765,7 @@ mod tests {
             data: b"client hello".to_vec(),
         };
         let expected_tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr.clone()),
+            endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             sequence_number: Some(0),
             data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
@@ -1841,7 +1828,7 @@ mod tests {
         let mut make_parameters = make_parameters_arc.lock().unwrap();
         assert_eq!(
             make_parameters.remove(0),
-            (main_cryptde.public_key().clone(), Some(Host::new("realdomain.nu", 443)))
+            (main_cryptde.public_key().clone(), socket_addr)
         );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
@@ -1893,7 +1880,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
+            client_addr: socket_addr,
             reception_port: Some(443),
             last_data: false,
             is_clandestine: false,
@@ -1954,7 +1941,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -2026,7 +2013,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -2094,7 +2081,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2153,7 +2140,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2216,7 +2203,7 @@ mod tests {
             let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
             let msg_from_dispatcher = InboundClientData {
                 timestamp: SystemTime::now(),
-                peer_addr: socket_addr.clone(),
+                client_addr: socket_addr.clone(),
                 reception_port: Some(HTTP_PORT),
                 sequence_number: Some(0),
                 last_data: true,
@@ -2296,7 +2283,7 @@ mod tests {
             let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
             let msg_from_dispatcher = InboundClientData {
                 timestamp: SystemTime::now(),
-                peer_addr: socket_addr.clone(),
+                client_addr: socket_addr.clone(),
                 reception_port: Some(TLS_PORT),
                 sequence_number: Some(0),
                 last_data: true,
@@ -2381,7 +2368,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2501,7 +2488,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2590,7 +2577,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2652,7 +2639,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2706,7 +2693,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2757,7 +2744,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3043,7 +3030,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3165,7 +3152,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3342,7 +3329,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3438,7 +3425,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: false,
@@ -3524,7 +3511,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: false,
@@ -3609,7 +3596,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: client_addr,
+            client_addr: client_addr,
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3700,7 +3687,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -5540,7 +5527,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(80),
             sequence_number: Some(0),
             last_data: false,
@@ -6075,7 +6062,7 @@ mod tests {
         let handle_normal_client_data =
             help_to_handle_normal_client_data_params_arc.lock().unwrap();
         let (inbound_client_data_msg, retire_stream_key) = &handle_normal_client_data[0];
-        assert_eq!(inbound_client_data_msg.peer_addr, socket_addr);
+        assert_eq!(inbound_client_data_msg.client_addr, socket_addr);
         assert_eq!(inbound_client_data_msg.data, Vec::<u8>::new());
         assert_eq!(inbound_client_data_msg.last_data, true);
         assert_eq!(inbound_client_data_msg.is_clandestine, false);
@@ -6091,7 +6078,7 @@ mod tests {
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: false,
@@ -6190,7 +6177,7 @@ mod tests {
             Box::new(ClientRequestPayloadFactoryMock::default().make_result(None));
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
             reception_port: Some(568),
             last_data: true,
             is_clandestine: false,
@@ -6230,7 +6217,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -6299,7 +6286,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -6425,7 +6412,7 @@ mod tests {
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
             reception_port: Some(80),
             last_data: true,
             is_clandestine: false,
@@ -6479,14 +6466,13 @@ mod tests {
 
     #[test]
     fn find_or_generate_stream_key_prioritizes_existing_stream_key_first() {
-        let host = Host::new("host", 1234);
-        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
         let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key(), socket_addr);
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false, false);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         let ibcd = InboundClientData{
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
+            client_addr: socket_addr,
             reception_port: Some(2222),
             last_data: true,
             is_clandestine: false,
@@ -6494,21 +6480,21 @@ mod tests {
             data: b"GET /index.html HTTP/1.1\r\nHost: header.com:3333\r\n\r\n".to_vec(),
         };
 
-        let result = subject.find_or_generate_stream_key(&ibcd, Some(Host::new("passed.in", 9999)));
+        let result = subject.find_or_generate_stream_key(&ibcd);
 
         assert_eq!(result, stream_key);
+        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
     }
 
     #[test]
-    fn find_or_generate_stream_key_prioritizes_passed_in_host_second() {
-        let host = Host::new("host.com", 3333);
-        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
+    fn find_or_generate_stream_key_creates_stream_key_if_necessary() {
         let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key(), socket_addr);
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
             true, None, false, false);
         let ibcd = InboundClientData{
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
+            client_addr: socket_addr,
             reception_port: Some(2222),
             last_data: true,
             is_clandestine: false,
@@ -6516,110 +6502,8 @@ mod tests {
             data: b"GET /index.html HTTP/1.1\r\nHost: header.com:4444\r\n\r\n".to_vec(),
         };
 
-        let result = subject.find_or_generate_stream_key(&ibcd, Some(host.clone()));
+        let result = subject.find_or_generate_stream_key(&ibcd);
 
-        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
-        assert_eq!(result, stream_key);
-        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
-    }
-
-    #[test]
-    fn find_or_generate_stream_key_prioritizes_http_data_host_third() {
-        let host = Host::new("host.com", 3333);
-        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
-        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
-        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
-            true, None, false, false);
-        let ibcd = InboundClientData{
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
-            reception_port: Some(2222),
-            last_data: true,
-            is_clandestine: false,
-            sequence_number: Some(333),
-            data: b"GET /index.html HTTP/1.1\r\nHost: header.com:4444\r\n\r\n".to_vec(),
-        };
-
-        let result = subject.find_or_generate_stream_key(&ibcd, None);
-
-        let host = Host::new("header.com", 4444);
-        let stream_key = StreamKey::new(main_cryptde().public_key(),
-                                        Some(host));
-        assert_eq!(result, stream_key);
-        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
-    }
-
-    #[test]
-    fn find_or_generate_stream_key_prioritizes_tls_data_host_third() {
-        let host = Host::new("host.com", 3333);
-        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
-        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
-        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
-            true, None, false, false);
-        let ibcd = InboundClientData{
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
-            reception_port: Some(2222),
-            last_data: true,
-            is_clandestine: false,
-            sequence_number: Some(333),
-            data: vec![
-                0x16, // content_type: Handshake
-                0x00, 0x00, 0x00, 0x00, // version, length: don't care
-                0x01, // handshake_type: ClientHello
-                0x00, 0x00, 0x00, 0x00, 0x00, // length, version: don't care
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // random: don't care
-                0x01, // session_id_length
-                0x00, // session_id: don't care
-                0x00, 0x01, // cipher_suites_length
-                0x00, // cipher_suite: don't care
-                0x01, // compression_methods_length
-                0x00, // compression_method: don't care
-                0x00, 0x13, // extensions_length
-                0x00, 0x00, // extension_type: server_name
-                0x00, 0x0F, // extension_length
-                0x00, 0x0D, // server_name_list_length
-                0x00, // server_name_type
-                0x00, 0x0A, // server_name_length
-                b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c',
-                b'o', b'm', // server_name
-            ],
-        };
-
-        let result = subject.find_or_generate_stream_key(&ibcd, None);
-
-        let host = Host::new("server.com", 443);
-        let stream_key = StreamKey::new(main_cryptde().public_key(),
-            Some(host));
-        assert_eq!(result, stream_key);
-        assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
-    }
-
-    #[test]
-    fn find_or_generate_stream_key_uses_random_garbage_as_last_resort() {
-        let host = Host::new("host.com", 3333);
-        let stream_key = StreamKey::new(main_cryptde().public_key(), Some(host.clone()));
-        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
-        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(),
-            true, None, false, false);
-        let ibcd = InboundClientData{
-            timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
-            reception_port: Some(2222),
-            last_data: true,
-            is_clandestine: false,
-            sequence_number: Some(333),
-            data: vec![],
-        };
-
-        let result = subject.find_or_generate_stream_key(&ibcd, None);
-
-        let host = Host::new("44444444", 0x3434);
-        let stream_key = StreamKey::new(main_cryptde().public_key(),
-            Some(host));
         assert_eq!(result, stream_key);
         assert_eq!(subject.keys_and_addrs.a_to_b(&stream_key), Some(socket_addr));
     }

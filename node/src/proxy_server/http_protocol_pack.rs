@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
+use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
@@ -7,7 +7,6 @@ use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::utils::index_of;
 use regex::Regex;
-use crate::proxy_server::Host;
 
 lazy_static! {
     static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
@@ -164,7 +163,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("header.host.com"), host.name);
+        assert_eq!(host, Host::new("header.host.com", HTTP_PORT));
         assert_eq!(HTTP_PORT, host.port);
     }
 
@@ -187,8 +186,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("192.168.1.230"), host.name);
-        assert_eq!(HTTP_PORT, host.port);
+        assert_eq!(host, Host::new("192.168.1.230", HTTP_PORT));
     }
 
     #[test]
@@ -197,8 +195,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("header.host.com"), host.name);
-        assert_eq!(5432, host.port);
+        assert_eq!(host, Host::new("header.host.com", 5432));
     }
 
     #[test]
@@ -208,7 +205,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
+        assert_eq!(host.name, String::from("top.host.com"));
     }
 
     #[test]
@@ -227,7 +224,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
+        assert_eq!(host, Host::new("top.host.com", HTTP_PORT));
         assert_eq!(HTTP_PORT, host.port);
     }
 
@@ -239,7 +236,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("good.url.dude"), host.name);
+        assert_eq!(host.name, String::from("good.url.dude"));
     }
 
     #[test]
@@ -259,8 +256,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(8080, host.port);
+        assert_eq!(host, Host::new("top.host.com", 8080));
     }
 
     #[test]
@@ -296,8 +292,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(HTTP_PORT, host.port);
+        assert_eq!(host, Host::new("www.example.com", HTTP_PORT));
     }
 
     #[test]
@@ -306,8 +301,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(8080, host.port);
+        assert_eq!(host, Host::new("www.example.com", 8080));
     }
 
     #[test]
