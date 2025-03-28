@@ -55,6 +55,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
+use masq_lib::constants::TLS_PORT;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -564,7 +565,7 @@ impl ProxyServer {
     fn tls_connect(&mut self, msg: &InboundClientData) {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
-            Some(ref host) if host.port == Some(443) => {
+            Some(ref host) if host.port == TLS_PORT => {
                 let stream_key = self.find_or_generate_stream_key(msg, msg.client_addr);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs

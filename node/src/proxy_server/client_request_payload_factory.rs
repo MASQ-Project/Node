@@ -44,10 +44,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
         let data = PlainData::new(&ibcd.data);
         let target_host = protocol_pack.find_host(&data);
         let (target_hostname, target_port) = match target_host {
-            Some(host) => match host.port {
-                Some(port) => (Some(host.name), port),
-                None => (Some(host.name), protocol_pack.standard_port()),
-            },
+            Some(host) => (Some(host.name), host.port),
             None => (None, protocol_pack.standard_port()),
         };
         Some(ClientRequestPayload_0v1 {
