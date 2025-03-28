@@ -164,7 +164,6 @@ mod tests {
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
         assert_eq!(host, Host::new("header.host.com", HTTP_PORT));
-        assert_eq!(HTTP_PORT, host.port);
     }
 
     #[test]
@@ -225,13 +224,12 @@ mod tests {
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
         assert_eq!(host, Host::new("top.host.com", HTTP_PORT));
-        assert_eq!(HTTP_PORT, host.port);
     }
 
     #[test]
     fn returns_host_name_from_url_when_no_scheme() {
         let data = PlainData::new(
-            b"GET wrong.url.dude/path.html HTTP/1.1\r\nHost: good.url.dude\r\n\r\n",
+            b"GET good.url.dude/path.html HTTP/1.0\r\n\r\n",
         );
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
@@ -242,12 +240,12 @@ mod tests {
     #[test]
     fn can_handle_domain_that_starts_with_http() {
         let data = PlainData::new(
-            b"GET http.url.dude/path.html HTTP/1.1\r\nHost: good.url.dude\r\n\r\n",
+            b"GET bad.url.dude/path.html HTTP/1.1\r\nHost: http.url.dude\r\n\r\n",
         );
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("good.url.dude"), host.name);
+        assert_eq!(String::from("http.url.dude"), host.name);
     }
 
     #[test]
