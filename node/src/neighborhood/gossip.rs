@@ -378,11 +378,16 @@ impl Gossip_0v1 {
                     to: k.clone(),
                 })
             });
+            let country_code = match &nri.country_code_opt {
+                Some(cc) => cc.clone(),
+                None => "ZZ".to_string(),
+            };
             node_renderables.push(NodeRenderable {
                 inner: Some(NodeRenderableInner {
                     version: nri.version,
                     accepts_connections: nri.accepts_connections,
                     routes_data: nri.routes_data,
+                    country_code,
                 }),
                 public_key: nri.public_key.clone(),
                 node_addr: addr.clone(),
@@ -635,8 +640,8 @@ mod tests {
             "\n\tinner: NodeRecordInner_0v1 {\n\t\tpublic_key: 0x01020304,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1434, exit_byte_rate: 1237, exit_service_rate: 1634 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
             "\n\tsigned_data:
-Length: 229 (0xe5) bytes
-0000:   a7 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
+Length: 249 (0xf9) bytes
+0000:   a8 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
 0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
 0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
 0030:   db 18 8d 18  6e 09 18 37  18 49 18 71  18 33 18 d1   ....n..7.I.q.3..
@@ -650,11 +655,12 @@ Length: 229 (0xe5) bytes
 00b0:   6e 65 69 67  68 62 6f 72  73 80 73 61  63 63 65 70   neighbors.saccep
 00c0:   74 73 5f 63  6f 6e 6e 65  63 74 69 6f  6e 73 f5 6b   ts_connections.k
 00d0:   72 6f 75 74  65 73 5f 64  61 74 61 f5  67 76 65 72   routes_data.gver
-00e0:   73 69 6f 6e  02                                      sion.",
+00e0:   73 69 6f 6e  02 70 63 6f  75 6e 74 72  79 5f 63 6f   sion.pcountry_co
+00f0:   64 65 5f 6f  70 74 62 41  55                         de_optbAU",
 	        "\n\tsignature:
 Length: 24 (0x18) bytes
-0000:   01 02 03 04  8a 7e b2 0e  c4 ea fe d8  ac 3c 89 2d   .....~.......<.-
-0010:   2d f1 e9 76  d1 76 db 67                             -..v.v.g"
+0000:   01 02 03 04  ef 19 0e 89  b5 a9 b1 93  33 84 54 9f   ............3.T.
+0010:   88 a2 10 50  79 1c 6f e7                             ...Py.o."
         );
 
         assert_eq!(result, expected);
@@ -691,7 +697,8 @@ Length: 4 (0x4) bytes
         source_node.inner.public_key = PublicKey::new(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[..]);
         let mut target_node = make_node_record(2345, true);
         target_node.inner.public_key = PublicKey::new(&b"ZYXWVUTSRQPONMLKJIHGFEDCBA"[..]);
-        let neighbor = make_node_record(3456, false);
+        let mut neighbor = make_node_record(3456, false);
+        neighbor.inner.country_code_opt = Some("FR".to_string());
         let mut db = db_from_node(&source_node);
         db.add_node(target_node.clone()).unwrap();
         db.add_node(neighbor.clone()).unwrap();
@@ -715,14 +722,14 @@ Length: 4 (0x4) bytes
         let result = gossip.to_dot_graph(&source_node, &target_node);
 
         assert_string_contains(&result, "digraph db { ");
-        assert_string_contains(&result, "\"AwQFBg\" [label=\"AR v0\\nAwQFBg\"]; ");
+        assert_string_contains(&result, "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\"]; ");
         assert_string_contains(
             &result,
-            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
+            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1 AU\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
         );
         assert_string_contains(
             &result,
-            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
+            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0 FR\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
         );
         assert_string_contains(
             &result,

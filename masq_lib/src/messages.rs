@@ -5,6 +5,8 @@ use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use crate::utils::to_string;
+use core::fmt::Display;
+use core::fmt::Formatter;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -845,6 +847,84 @@ pub struct UiWalletAddressesResponse {
     pub earning_wallet_address: String,
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CountryCodes {
+    #[serde(rename = "countryCodes")]
+    pub country_codes: Vec<String>,
+    #[serde(rename = "priority")]
+    pub priority: usize,
+}
+
+impl From<(String, usize)> for CountryCodes {
+    fn from((item, priority): (String, usize)) -> Self {
+        CountryCodes {
+            country_codes: item
+                .split(',')
+                .into_iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<String>>(),
+            priority: priority + 1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationRequest {
+    #[serde(rename = "fallbackRouting")]
+    pub fallback_routing: bool,
+    #[serde(rename = "exitLocations")]
+    pub exit_locations: Vec<CountryCodes>,
+    #[serde(rename = "showCountries")]
+    pub show_countries: bool,
+}
+conversation_message!(UiSetExitLocationRequest, "exitLocation");
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct ExitLocation {
+    pub country_codes: Vec<String>,
+    pub priority: usize,
+}
+
+impl Display for ExitLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Country Codes: {:?}, Priority: {};",
+            self.country_codes, self.priority
+        )
+    }
+}
+
+pub struct ExitLocationSet {
+    pub locations: Vec<ExitLocation>,
+}
+
+impl Display for ExitLocationSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        for exit_location in self.locations.iter() {
+            write!(
+                f,
+                "Country Codes: {:?} - Priority: {}; ",
+                exit_location.country_codes, exit_location.priority
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiSetExitLocationResponse {
+    #[serde(rename = "fallbackRouting")]
+    pub fallback_routing: bool,
+    #[serde(rename = "exitCountrySelection")]
+    pub exit_locations: Vec<ExitLocation>,
+    #[serde(rename = "exitCountries")]
+    pub exit_countries: Option<Vec<String>>,
+    #[serde(rename = "missingCountries")]
+    pub missing_countries: Vec<String>,
+}
+conversation_message!(UiSetExitLocationResponse, "exitLocation");
 
 #[cfg(test)]
 mod tests {
