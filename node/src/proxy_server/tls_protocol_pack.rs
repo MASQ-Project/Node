@@ -4,6 +4,7 @@ use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
 use crate::sub_lib::binary_traverser::BinaryTraverser;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
+use masq_lib::constants::TLS_PORT;
 
 pub struct TlsProtocolPack {}
 
@@ -13,7 +14,7 @@ impl ProtocolPack for TlsProtocolPack {
     }
 
     fn standard_port(&self) -> u16 {
-        443
+        TLS_PORT
     }
 
     fn find_host(&self, data: &PlainData) -> Option<Host> {
@@ -25,7 +26,10 @@ impl ProtocolPack for TlsProtocolPack {
             return None;
         }
         match Self::host_name_from_client_hello(&mut xvsr) {
-            Ok(name) => Some(Host { name, port: None }),
+            Ok(name) => Some(Host {
+                name,
+                port: TLS_PORT,
+            }),
             Err(()) => None,
         }
     }
@@ -112,7 +116,7 @@ mod tests {
     fn knows_its_standard_port() {
         let result = TlsProtocolPack {}.standard_port();
 
-        assert_eq!(result, 443);
+        assert_eq!(result, TLS_PORT);
     }
 
     #[test]
@@ -709,7 +713,7 @@ mod tests {
         assert_eq!(
             Some(Host {
                 name: String::from("server.com"),
-                port: None,
+                port: TLS_PORT,
             }),
             result
         );
@@ -754,7 +758,7 @@ mod tests {
         assert_eq!(
             Some(Host {
                 name: String::from("server.com"),
-                port: None
+                port: TLS_PORT
             }),
             result
         );

@@ -115,7 +115,7 @@ pub enum DispatcherError {
 #[derive(PartialEq, Eq, Clone, Message)]
 pub struct InboundClientData {
     pub timestamp: SystemTime,
-    pub peer_addr: SocketAddr,
+    pub client_addr: SocketAddr,
     pub reception_port: Option<u16>,
     pub last_data: bool,
     pub is_clandestine: bool,
@@ -130,7 +130,7 @@ impl Debug for InboundClientData {
             Err(_) => self.data.hex_dump().to_string(),
         };
         write!(f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
-               self.peer_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
+               self.client_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
     }
 }
 
@@ -138,7 +138,7 @@ impl InboundClientData {
     pub fn clone_but_data(&self) -> InboundClientData {
         InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: self.peer_addr,
+            client_addr: self.client_addr,
             reception_port: self.reception_port,
             last_data: self.last_data,
             is_clandestine: self.is_clandestine,
@@ -273,7 +273,7 @@ mod tests {
     fn inbound_client_data_is_identifiable_as_a_connect() {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: false,
@@ -288,7 +288,7 @@ mod tests {
     fn inbound_client_data_is_not_connect() {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: false,
@@ -303,7 +303,7 @@ mod tests {
     fn inbound_client_data_not_connect_if_no_space_after_method() {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: false,

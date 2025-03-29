@@ -507,7 +507,7 @@ mod tests {
         Transactions in the batch:\n\
         \n\
         gas price:                                   120 wei\n\
-        chain:                                       ropsten\n\
+        chain:                                       sepolia\n\
         \n\
         [wallet address]                             [payment in wei]\n\
         0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
