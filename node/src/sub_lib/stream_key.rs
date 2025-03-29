@@ -93,7 +93,9 @@ impl StreamKey {
             hash: hash.digest().bytes(),
         }
     }
+}
 
+impl StreamKey {
     pub fn make_meaningless_stream_key() -> StreamKey {
         StreamKey {
             hash: [0; sha1::DIGEST_LENGTH],
@@ -127,11 +129,11 @@ fn add_socket_addr_to_hash(mut hash: sha1::Sha1, client_addr: SocketAddr) -> sha
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr};
-    use std::str::FromStr;
     use super::*;
     use crate::test_utils::main_cryptde;
     use itertools::Itertools;
+    use std::net::IpAddr;
+    use std::str::FromStr;
 
     #[test]
     fn stream_keys_with_different_host_names_are_different() {

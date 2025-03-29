@@ -14,7 +14,10 @@ pub struct Host {
 
 impl Host {
     pub fn new(name: &str, port: u16) -> Host {
-        Host { name: name.to_string(), port }
+        Host {
+            name: name.to_string(),
+            port,
+        }
     }
 }
 

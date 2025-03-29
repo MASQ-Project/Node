@@ -75,7 +75,7 @@ impl HttpProtocolPack {
                     Ok(port) => Some(Host { name, port }),
                     Err(_) => None,
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -228,9 +228,7 @@ mod tests {
 
     #[test]
     fn returns_host_name_from_url_when_no_scheme() {
-        let data = PlainData::new(
-            b"GET good.url.dude/path.html HTTP/1.0\r\n\r\n",
-        );
+        let data = PlainData::new(b"GET good.url.dude/path.html HTTP/1.0\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -239,9 +237,8 @@ mod tests {
 
     #[test]
     fn can_handle_domain_that_starts_with_http() {
-        let data = PlainData::new(
-            b"GET bad.url.dude/path.html HTTP/1.1\r\nHost: http.url.dude\r\n\r\n",
-        );
+        let data =
+            PlainData::new(b"GET bad.url.dude/path.html HTTP/1.1\r\nHost: http.url.dude\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
