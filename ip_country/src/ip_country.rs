@@ -1,13 +1,10 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bit_queue::BitQueue;
-use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
-use crate::country_block_stream::CountryBlock;
+use crate::country_block_serde::{FinalBitQueue};
 use crate::ip_country_csv::CSVParser;
 use crate::ip_country_mmdb::MMDBParser;
 use crate::countries::Countries;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::cell::RefCell;
 use std::io;
 use std::any::Any;
 
@@ -98,7 +95,7 @@ pub fn generate_rust_code(
     Ok(())
 }
 
-fn generate_country_list(mut countries: Countries, output: &mut dyn io::Write) -> Result<(), io::Error> {
+fn generate_country_list(countries: Countries, output: &mut dyn io::Write) -> Result<(), io::Error> {
     writeln!(output)?;
     writeln!(output, "use lazy_static::lazy_static;")?;
     writeln!(output, "use crate::country_block_stream::Country;")?;
@@ -106,7 +103,6 @@ fn generate_country_list(mut countries: Countries, output: &mut dyn io::Write) -
     writeln!(output)?;
     writeln!(output, "lazy_static! {{")?;
     writeln!(output, "    pub static ref COUNTRIES: Countries = Countries::new(vec![")?;
-    writeln!(output, "        (\"ZZ\", \"Sentinel\"),")?;
     for country in countries.iter() {
         writeln!(output, "        (\"{}\", \"{}\"),", country.iso3166, country.name)?;
     }
@@ -171,6 +167,8 @@ fn write_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::cell::RefCell;
     use std::io::{Error, ErrorKind};
     use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
     use std::any::TypeId;
@@ -189,7 +187,7 @@ mod tests {
 
         fn parse(
             &self,
-            stdin: &mut dyn io::Read,
+            _stdin: &mut dyn io::Read,
             errors: &mut Vec<String>,
         ) -> (FinalBitQueue, FinalBitQueue, Countries) {
             self.parse_params.lock().unwrap().push(errors.clone());
@@ -215,18 +213,12 @@ mod tests {
             self
         }
 
-        pub fn parse_errors(
-            mut self,
-            errors: Vec<&str>
-        ) -> Self {
+        pub fn parse_errors(self, errors: Vec<&str>) -> Self {
             self.parse_errors.borrow_mut().push(errors.into_iter().map(|s| s.to_string()).collect());
             self
         }
 
-        pub fn parse_result(
-            mut self,
-            result: (FinalBitQueue, FinalBitQueue, &Countries)
-        ) -> Self {
+        pub fn parse_result(self, result: (FinalBitQueue, FinalBitQueue, &Countries)) -> Self {
             self.parse_results.borrow_mut().push((result.0, result.1, result.2.clone()));
             self
         }
@@ -260,7 +252,7 @@ mod tests {
             self
         }
 
-        fn make_result(mut self, result: DBIPParserMock) -> Self {
+        fn make_result(self, result: DBIPParserMock) -> Self {
             self.make_results.borrow_mut().push(result);
             self
         }

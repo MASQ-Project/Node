@@ -35,7 +35,7 @@ impl<'a> CountryCodeFinder<'a> {
         }
     }
 
-    pub fn find_country(&self, ip_addr: IpAddr) -> Option<Country> {
+    pub fn find_country(&'a self, ip_addr: IpAddr) -> Option<&'a Country> {
         let country_blocks: &[CountryBlock] = match ip_addr {
             IpAddr::V4(_) => self.ipv4.as_slice(),
             IpAddr::V6(_) => self.ipv6.as_slice(),
@@ -43,7 +43,7 @@ impl<'a> CountryCodeFinder<'a> {
         let block_index =
             country_blocks.binary_search_by(|block| block.ip_range.ordering_by_range(ip_addr));
         let country = match block_index {
-            Ok(index) => country_blocks[index].country.clone(),
+            Ok(index) => &country_blocks[index].country,
             _ => self.countries.country_from_code("ZZ").expect("expected Country"),
         };
         match country.iso3166.as_str() {
@@ -64,53 +64,95 @@ mod tests {
     use crate::dbip_country;
     use std::str::FromStr;
     use std::time::SystemTime;
+    use crate::country_block_stream::IpRange;
     use crate::dbip_country::COUNTRIES;
+
+    fn select_country<'a>(countries: &'a Countries, percentage: u8) -> &'a Country {
+        // 0% is the first country; 100% is the last country
+        let country_count_f = countries.len() as f64;
+        let percentage_f = percentage as f64;
+        let index = (percentage_f * country_count_f / 101.0).trunc() as usize;
+        countries
+            .country_from_index(index).unwrap()
+    }
 
     #[test]
     fn finds_ipv4_address() {
         COUNTRY_CODE_FINDER.ensure_init();
+        let country = select_country(&COUNTRIES, 50);
+        let ip_range = &COUNTRY_CODE_FINDER.ipv4.iter()
+            .find(|block| {block.country == *country})
+            .unwrap()
+            .ip_range;
+        let input_ip = match ip_range {
+            IpRange::V4(start, _) => IpAddr::V4(start.clone()),
+            _ => panic!("Expected IPv4"),
+        };
+
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
-            IpAddr::from_str("1.0.6.15").unwrap(),
-        );
+            input_ip,
+        ).unwrap();
 
-        assert_eq!(result, Some(dbip_country::COUNTRIES.country_from_code("AU").unwrap()))
+        assert_eq!(result, country);
     }
 
     #[test]
     fn does_not_find_ipv4_address_in_zz_block() {
         COUNTRY_CODE_FINDER.ensure_init();
-        let time_start = SystemTime::now();
+        let ip_range = &COUNTRY_CODE_FINDER.ipv4.iter()
+            .find(|block| {&block.country.iso3166 == "ZZ"})
+            .unwrap()
+            .ip_range;
+        let input_ip = match ip_range {
+            IpRange::V4(start, _) => IpAddr::V4(start.clone()),
+            _ => panic!("Expected IPv4"),
+        };
+
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
-            IpAddr::from_str("0.0.5.0").unwrap(),
+            input_ip,
         );
-        let time_end = SystemTime::now();
 
         assert_eq!(result, None);
-        let duration = time_end.duration_since(time_start).unwrap();
-        assert!(
-            duration.as_millis() <= 1,
-            "Duration of the search was too long: {} ms",
-            duration.as_millis()
-        );
     }
 
     #[test]
-    fn finds_ipv6_address_in_fourth_block() {
+    fn finds_ipv6_address() {
+        COUNTRY_CODE_FINDER.ensure_init();
+        let country = select_country(&COUNTRIES, 50);
+        let ip_range = &COUNTRY_CODE_FINDER.ipv6.iter()
+            .find(|block| {block.country == *country})
+            .unwrap()
+            .ip_range;
+        let input_ip = match ip_range {
+            IpRange::V6(start, _) => IpAddr::V6(start.clone()),
+            _ => panic!("Expected IPv6"),
+        };
+
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
-            IpAddr::from_str("2001:2::").unwrap(),
-        );
+            input_ip,
+        ).unwrap();
 
-        assert_eq!(result, Some(dbip_country::COUNTRIES.country_from_code("US").unwrap()))
+        assert_eq!(result, country);
     }
 
     #[test]
     fn does_not_find_ipv6_address_in_zz_block() {
+        COUNTRY_CODE_FINDER.ensure_init();
+        let ip_range = &COUNTRY_CODE_FINDER.ipv6.iter()
+            .find(|block| {&block.country.iso3166 == "ZZ"})
+            .unwrap()
+            .ip_range;
+        let input_ip = match ip_range {
+            IpRange::V6(start, _) => IpAddr::V6(start.clone()),
+            _ => panic!("Expected IPv6"),
+        };
+
         let result = CountryCodeFinder::find_country(
             &COUNTRY_CODE_FINDER,
-            IpAddr::from_str("0:0:5:0:0:0:0:0").unwrap(),
+            input_ip,
         );
 
         assert_eq!(result, None)

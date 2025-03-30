@@ -22,16 +22,37 @@ impl Countries {
     }
 
     pub fn new(mut country_pairs: Vec<(&str, &str)>) -> Self {
+        // Gotta sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
+        // --or add one at the front, if there isn't already one. (We assume there isn't already
+        // more than one.)
+        let sentinel_info_opt = country_pairs.iter()
+            .enumerate()
+            .find(|(_, (iso3166, _))| *iso3166 == "ZZ")
+            .map(|(index, (_, name))| (index, name.to_string()));
+        if let Some((index, _)) = sentinel_info_opt {
+            country_pairs.remove(index);
+        }
         country_pairs.sort_by(|a, b| a.0.cmp(&b.0));
-        let countries = country_pairs
+        let mut countries = country_pairs
             .iter()
             .enumerate()
-            .map(|(index, (iso3166, name))| Country::new(index, *iso3166, *name))
+            .map(|(index, (iso3166, name))| Country::new(index + 1, *iso3166, *name))
             .collect::<Vec<Country>>();
+        let sentinel_name = if let Some((_, name)) = sentinel_info_opt {
+            name
+        } else {
+            "Sentinel".to_string()
+        };
+        let sentinel = Country::new(
+            0,
+            "ZZ",
+            sentinel_name.as_str()
+        );
+        countries.insert(0, sentinel);
         Self::old_new(countries)
     }
 
-    pub fn country_from_code(&self, iso3166: &str) -> Result<Country, String> {
+    pub fn country_from_code<'a>(&'a self, iso3166: &str) -> Result<&'a Country, String> {
         let index = match self.index_by_iso3166.get(&iso3166.to_ascii_uppercase()) {
             None => return Err(format!("'{}' is not a valid ISO3166 country code", iso3166)),
             Some(index) => *index,
@@ -45,14 +66,14 @@ impl Countries {
         Ok(country)
     }
 
-    pub fn country_from_index(&self, index: usize) -> Result<Country, String> {
+    pub fn country_from_index<'a>(&'a self, index: usize) -> Result<&'a Country, String> {
         match self.countries.get(index) {
             None => Err(format!(
                 "There are only {} Countries; no Country is at index {}",
                 self.countries.len(),
                 index
             )),
-            Some(country) => Ok(country.clone()),
+            Some(country) => Ok(country),
         }
     }
 
@@ -94,11 +115,8 @@ impl Countries {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::dbip_country::COUNTRIES;
-    use crate::country_block_stream::Country;
     use itertools::Itertools;
-
 
     #[test]
     fn sentinel_is_first() {
@@ -153,7 +171,7 @@ mod tests {
         for country in COUNTRIES.countries.iter() {
             let result = COUNTRIES.country_from_code(country.iso3166.as_str()).unwrap();
 
-            assert_eq!(result, *country);
+            assert_eq!(result, country);
         }
     }
 
@@ -162,7 +180,7 @@ mod tests {
         for country in COUNTRIES.countries.iter() {
             let result = COUNTRIES.country_from_code(country.iso3166.to_lowercase().as_str()).unwrap();
 
-            assert_eq!(result, *country);
+            assert_eq!(result, country);
         }
     }
 
@@ -181,7 +199,7 @@ mod tests {
         for country in COUNTRIES.countries.iter() {
             let result = COUNTRIES.country_from_index(country.index).unwrap();
 
-            assert_eq!(result, *country);
+            assert_eq!(result, country);
         }
     }
 

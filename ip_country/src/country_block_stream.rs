@@ -115,11 +115,11 @@ impl TryFrom<(&Countries, StringRecord)> for CountryBlock {
         let country_block = match (start_ip, end_ip) {
             (IpAddr::V4(start), IpAddr::V4(end)) => CountryBlock {
                 ip_range: IpRange::V4(start, end),
-                country,
+                country: country.clone(),
             },
             (IpAddr::V6(start), IpAddr::V6(end)) => CountryBlock {
                 ip_range: IpRange::V6(start, end),
-                country,
+                country: country.clone(),
             },
             (start, end) => panic!(
                 "Start and end addresses must be of the same type, not {} and {}",
@@ -184,7 +184,6 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use lazy_static::lazy_static;
 
     #[test]
     fn ip_range_finds_ipv4_address() {
@@ -287,7 +286,7 @@ mod tests {
                     Ipv4Addr::from_str("1.2.3.4").unwrap(),
                     Ipv4Addr::from_str("5.6.7.8").unwrap()
                 ),
-                country: test_countries().country_from_code("AS").unwrap(),
+                country: test_countries().country_from_code("AS").unwrap().clone(),
             })
         );
     }
@@ -309,7 +308,7 @@ mod tests {
                     Ipv6Addr::from_str("1234:2345:3456:4567:5678:6789:789A:89AB").unwrap(),
                     Ipv6Addr::from_str("4321:5432:6543:7654:8765:9876:A987:BA98").unwrap()
                 ),
-                country: test_countries().country_from_code("VN").unwrap(),
+                country: test_countries().country_from_code("VN").unwrap().clone(),
             })
         );
     }
