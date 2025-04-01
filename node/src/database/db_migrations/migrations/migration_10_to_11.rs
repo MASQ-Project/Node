@@ -35,19 +35,13 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
-    use crate::database::rusqlite_wrappers::ConnectionWrapper;
     use crate::test_utils::database_utils::{
-        assert_create_table_stm_contains_all_parts, bring_db_0_back_to_life_and_return_connection,
-        make_external_data,
+        assert_create_table_stm_contains_all_parts, assert_table_exists,
+        bring_db_0_back_to_life_and_return_connection, make_external_data,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::fs::create_dir_all;
-
-    fn assert_table_exists(conn: &dyn ConnectionWrapper, table_name: &str) {
-        let result = conn.prepare(&format!("SELECT 1 FROM {} LIMIT 1", table_name));
-        assert!(result.is_ok(), "Table {} should exist", table_name);
-    }
 
     #[test]
     fn migration_from_10_to_11_is_applied_correctly() {
