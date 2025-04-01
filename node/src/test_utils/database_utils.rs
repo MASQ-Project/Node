@@ -103,6 +103,12 @@ pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<
         })
 }
 
+pub fn retrieve_sent_payable_row(conn: &dyn ConnectionWrapper, id: u64) -> Option<String> {
+    todo!("retrieve sent_payable row with id: {}", id)
+
+    // TODO: implement the logic to retrieve sent_payable row with id
+}
+
 pub fn assert_table_does_not_exist(conn: &dyn ConnectionWrapper, table_name: &str) {
     let error_stm = conn
         .prepare(&format!("select * from {}", table_name))
