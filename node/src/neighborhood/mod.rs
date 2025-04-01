@@ -2258,27 +2258,64 @@ mod tests {
     }
 
     #[test]
+    fn init_db_countries_works_properly() {
+        let mut subject = make_standard_subject();
+        subject.min_hops = Hops::OneHop;
+        let root_node_key = subject.neighborhood_database.root().public_key().clone();
+        let mut first_neighbor = make_node_record(1111, true);
+        first_neighbor.inner.country_code_opt = Some("CZ".to_string());
+        let mut second_neighbor = make_node_record(2222, true);
+        second_neighbor.inner.country_code_opt = Some("DE".to_string());
+        subject
+            .neighborhood_database
+            .add_node(first_neighbor.clone())
+            .unwrap();
+        subject.neighborhood_database
+            .add_node(second_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(&root_node_key, first_neighbor.public_key());
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(&root_node_key, second_neighbor.public_key());
+        let filled_db_countries = subject.init_db_countries();
+
+        subject
+            .neighborhood_database
+            .remove_arbitrary_half_neighbor(&root_node_key, first_neighbor.public_key());
+        subject
+            .neighborhood_database
+            .remove_arbitrary_half_neighbor(&root_node_key, second_neighbor.public_key());
+        let emptied_db_countries = subject.init_db_countries();
+
+        assert_eq!(filled_db_countries, &["CZ".to_string(), "DE".to_string()]);
+        assert!(emptied_db_countries.is_empty());
+    }
+
+    #[test]
     fn standard_gossip_results_in_exit_node_in_database() {
         let mut subject = make_standard_subject();
         let root_node_key = subject.neighborhood_database.root_key().clone();
-        let root_node = subject.neighborhood_database.root().clone();
         let source_node = make_node_record(1111, true);
-        let new_neighbor = make_node_record(2222, true);
+        let first_node = make_node_record(2222, true);
+        let second_node = make_node_record(3333, false);
         subject
             .neighborhood_database
             .add_node(source_node.clone())
+            .unwrap();
+        subject.neighborhood_database
+            .add_node(second_node.clone())
             .unwrap();
         subject
             .neighborhood_database
             .add_arbitrary_full_neighbor(&root_node_key, source_node.public_key());
         let mut source_db = subject.neighborhood_database.clone();
         source_db.set_root_key(source_node.public_key());
-        source_db.remove_node(&root_node_key);
-        source_db.add_node(root_node).unwrap();
         source_db.add_arbitrary_full_neighbor(source_node.public_key(), &root_node_key);
-        source_db.add_node(new_neighbor.clone()).unwrap();
+        source_db.add_node(first_node.clone()).unwrap();
         source_db
-            .add_arbitrary_full_neighbor(source_node.public_key(), new_neighbor.public_key());
+            .add_arbitrary_full_neighbor(source_node.public_key(), first_node.public_key());
         source_db.root_mut().inner.version = 1;
         let resigner = source_db
             .node_by_key_mut(source_node.public_key())
@@ -2286,7 +2323,8 @@ mod tests {
         resigner.resign();
         let standard_gossip = GossipBuilder::new(&source_db)
             .node(source_node.public_key(), true)
-            .node(new_neighbor.public_key(), false)
+            .node(second_node.public_key(), false)
+            .node(first_node.public_key(), false)
             .build();
         let peer_actors = peer_actors_builder().build();
         subject.handle_bind_message(BindMessage { peer_actors });
@@ -2343,32 +2381,6 @@ mod tests {
             debut_subject.user_exit_preferences.db_countries,
             vec!["AU".to_string()]
         );
-    }
-
-    #[test]
-    fn init_db_countries_works_properly() {
-        let mut subject = make_standard_subject();
-        subject.min_hops = Hops::OneHop;
-        let root_node = subject.neighborhood_database.root().clone();
-        let mut first_neighbor = make_node_record(1111, true);
-        first_neighbor.inner.country_code_opt = Some("CZ".to_string());
-        subject
-            .neighborhood_database
-            .add_node(first_neighbor.clone())
-            .unwrap();
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(root_node.public_key(), first_neighbor.public_key());
-
-        let filled_db_countries = subject.init_db_countries();
-
-        subject
-            .neighborhood_database
-            .remove_arbitrary_half_neighbor(root_node.public_key(), first_neighbor.public_key());
-        let emptied_db_countries = subject.init_db_countries();
-
-        assert_eq!(filled_db_countries, &["CZ".to_string()]);
-        assert!(emptied_db_countries.is_empty());
     }
 
     #[test]
@@ -3824,7 +3836,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "cz We expecting {}, country is too close to be exit",
+                    "cz We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -3835,7 +3847,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "us We expecting {}, country is considered for exit location in fallback",
+                    "us We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -3846,7 +3858,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "sk We expecting 0, country is with Priority: 1"
+                    "sk We expect 0, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood
@@ -3856,7 +3868,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "de We expecting {}, country is too close to be exit",
+                    "de We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -3867,7 +3879,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "at We expecting {}, country is with Priority: 2",
+                    "at We expect {}, country is with Priority: 2",
                     1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
@@ -3878,7 +3890,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     2 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "pl We expecting {}, country is with Priority: 3",
+                    "pl We expect {}, country is with Priority: 3",
                     2 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
             }),
@@ -4003,7 +4015,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "es We expecting {}, country is too close to be exit",
+                    "es We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -4014,7 +4026,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "us We expecting {}, country is considered for exit location in fallback",
+                    "us We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -4025,7 +4037,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "hu We expecting {}, country is too close to be exit",
+                    "hu We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -4036,7 +4048,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "de We expecting {}, country is too close to be exit",
+                    "de We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -4047,7 +4059,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "at We expecting {}, country is considered for exit location in fallback",
+                    "at We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -4058,7 +4070,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "pl We expecting {}, country is too close to be exit",
+                    "pl We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
             }),
@@ -4122,35 +4134,45 @@ mod tests {
             client_id: 8765,
             body: request.tmb(1234),
         };
+        let request_2 = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![],
+            show_countries: false,
+        };
+        let clear_exit_location_message = NodeFromUiMessage {
+            client_id: 6543,
+            body: request_2.tmb(7894),
+        };
         let mut subject = make_standard_subject();
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         subject.logger = Logger::new(test_name);
         let cz = &mut make_node_record(3456, true);
         cz.inner.country_code_opt = Some("CZ".to_string());
-        let r = &make_node_record(4567, true);
+        let standard_node_1 = &make_node_record(4567, true);
         let fr = &mut make_node_record(5678, true);
         fr.inner.country_code_opt = Some("FR".to_string());
-        let t = &make_node_record(7777, true);
-        let db = &mut subject.neighborhood_database.clone();
+        let standard_node_2 = &make_node_record(7777, true);
+        let root_node = subject.neighborhood_database.root().clone();
+        let db = &mut subject.neighborhood_database;
         db.add_node(cz.clone()).unwrap();
-        db.add_node(t.clone()).unwrap();
-        db.add_node(r.clone()).unwrap();
+        db.add_node(standard_node_2.clone()).unwrap();
+        db.add_node(standard_node_1.clone()).unwrap();
         db.add_node(fr.clone()).unwrap();
         let mut dual_edge = |a: &NodeRecord, b: &NodeRecord| {
             db.add_arbitrary_full_neighbor(a.public_key(), b.public_key());
         };
-        dual_edge(&subject.neighborhood_database.root(), cz);
-        dual_edge(cz, t);
-        dual_edge(cz, r);
-        dual_edge(r, fr);
+        dual_edge(&root_node, cz);
+        dual_edge(cz, standard_node_2);
+        dual_edge(cz, standard_node_1);
+        dual_edge(standard_node_1, fr);
         subject.neighborhood_database = db.clone();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         let cz_public_key = cz.inner.public_key.clone();
-        let r_public_key = r.inner.public_key.clone();
+        let sn_1_public_key = standard_node_1.inner.public_key.clone();
         let fr_public_key = fr.inner.public_key.clone();
-        let t_public_key = t.inner.public_key.clone();
+        let sn_2_public_key = standard_node_2.inner.public_key.clone();
         let assert_country_undesirability_populated = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
@@ -4161,17 +4183,17 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "CZ - We expecting zero, country is with Priority: 1"
+                    "CZ - We expect zero, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&r_public_key)
+                        .node_by_key(&sn_1_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting 0, country is not considered for exit location, so country_undesirability doesn't matter"
+                    "We expect 0, country is not considered for exit location, so country_undesirability doesn't matter"
                 );
                 assert_eq!(
                     neighborhood
@@ -4181,23 +4203,19 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "FR - We expecting {}, country is with Priority: 2",
+                    "FR - We expect {}, country is with Priority: 2",
                     1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
                     neighborhood
                         .neighborhood_database
-                        .node_by_key(&t_public_key)
+                        .node_by_key(&sn_2_public_key)
                         .unwrap()
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting 0, country is not considered for exit location, so country_undesirability doesn't matter"
+                    "We expect 0, country is not considered for exit location, so country_undesirability doesn't matter"
                 );
-            }),
-        };
-        let assert_neighborhood_exit_location = AssertionsMessage {
-            assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
                     neighborhood.user_exit_preferences.exit_countries,
                     vec!["FR".to_string()]
@@ -4208,19 +4226,10 @@ mod tests {
                 );
             }),
         };
-        let request_2 = UiSetExitLocationRequest {
-            fallback_routing: true,
-            exit_locations: vec![],
-            show_countries: false,
-        };
-        let clear_exit_location_message = NodeFromUiMessage {
-            client_id: 6543,
-            body: request_2.tmb(7894),
-        };
         let cz_public_key_2 = cz.inner.public_key.clone();
-        let r_public_key_2 = r.inner.public_key.clone();
+        let r_public_key_2 = standard_node_1.inner.public_key.clone();
         let fr_public_key_2 = fr.inner.public_key.clone();
-        let t_public_key_2 = t.inner.public_key.clone();
+        let t_public_key_2 = standard_node_2.inner.public_key.clone();
         let assert_country_undesirability_and_exit_preference_cleared = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
@@ -4231,7 +4240,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting zero, exit_location was unset"
+                    "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
                     neighborhood
@@ -4241,7 +4250,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting zero, exit_location was unset"
+                    "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
                     neighborhood
@@ -4251,7 +4260,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting zero, exit_location was unset"
+                    "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
                     neighborhood
@@ -4261,7 +4270,7 @@ mod tests {
                         .metadata
                         .country_undesirability,
                     0u32,
-                    "We expecting zero, exit_location was unset"
+                    "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
                     neighborhood.user_exit_preferences.exit_countries.is_empty(),
@@ -4279,9 +4288,6 @@ mod tests {
         subject_addr
             .try_send(assert_country_undesirability_populated)
             .unwrap();
-        subject_addr
-            .try_send(assert_neighborhood_exit_location)
-            .unwrap();
         subject_addr.try_send(clear_exit_location_message).unwrap();
         subject_addr
             .try_send(assert_country_undesirability_and_exit_preference_cleared)
@@ -4292,7 +4298,6 @@ mod tests {
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let record_one: &NodeToUiMessage = ui_gateway_recording.get_record(0);
         let record_two: &NodeToUiMessage = ui_gateway_recording.get_record(1);
-
         assert_eq!(ui_gateway_recording.len(), 2);
         assert_eq!(
             record_one.body,
@@ -6047,60 +6052,6 @@ mod tests {
         );
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
-    }
-
-    #[test]
-    fn handle_gossip_produces_new_entry_in_db_countries() {
-        init_test_logging();
-        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
-        let first_neighbor = make_node_record(1050, true);
-        let mut subject = neighborhood_from_nodes(&subject_node, Some(&first_neighbor));
-        let second_neighbor = make_node_record(1234, false);
-        let mut new_neighbor = make_node_record(2345, false);
-        new_neighbor.inner.country_code_opt = Some("FR".to_string());
-        let first_key = subject
-            .neighborhood_database
-            .add_node(first_neighbor)
-            .unwrap();
-        let second_key = subject
-            .neighborhood_database
-            .add_node(second_neighbor)
-            .unwrap();
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(subject_node.public_key(), &first_key);
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(&first_key, &second_key);
-        subject.user_exit_preferences.db_countries = subject.init_db_countries();
-        let assertion_db_countries = subject.user_exit_preferences.db_countries.clone();
-        let peer_actors = peer_actors_builder().build();
-        subject.handle_bind_message(BindMessage { peer_actors });
-
-        let mut neighbor_db = subject.neighborhood_database.clone();
-        neighbor_db.add_node(new_neighbor.clone()).unwrap();
-        neighbor_db.set_root_key(&first_key);
-        neighbor_db.add_arbitrary_full_neighbor(&second_key, new_neighbor.public_key());
-        let mut new_second_neighbor = neighbor_db.node_by_key_mut(&second_key).unwrap();
-        new_second_neighbor.inner.version = 2;
-        new_second_neighbor.resign();
-        let gossip = GossipBuilder::new(&neighbor_db)
-            .node(&first_key, true)
-            .node(&second_key, false)
-            .node(new_neighbor.public_key(), false)
-            .build();
-
-        subject.handle_gossip(
-            gossip,
-            SocketAddr::from_str("1.0.5.0:1050").unwrap(),
-            make_cpm_recipient().0,
-        );
-
-        assert!(assertion_db_countries.is_empty());
-        assert_eq!(
-            &subject.user_exit_preferences.db_countries,
-            &["FR".to_string()]
-        )
     }
 
     #[test]
