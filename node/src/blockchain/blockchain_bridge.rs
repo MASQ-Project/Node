@@ -745,6 +745,7 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
+        let expected_gas_price = (9395240960 * 13) / 10; // 30% increase
         assert_eq!(
             blockchain_agent_with_context_msg_actual.protected_qualified_payables,
             qualified_payables
@@ -759,7 +760,7 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .agreed_fee_per_computation_unit(),
-            0x230000000
+            expected_gas_price
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual
@@ -776,7 +777,7 @@ mod tests {
             blockchain_agent_with_context_msg_actual
                 .agent
                 .estimated_transaction_fee_total(1),
-            (1 * 0x230000000 * (gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
+            (1 * expected_gas_price * (gas_limit_const_part + WEB3_MAXIMAL_GAS_LIMIT_MARGIN))
         );
         assert_eq!(
             blockchain_agent_with_context_msg_actual.response_skeleton_opt,
