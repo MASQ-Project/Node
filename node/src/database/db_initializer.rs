@@ -1230,7 +1230,7 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
-                    Chain::EthRopsten,
+                    Chain::BaseSepolia,
                     NeighborhoodModeLight::Standard,
                     Some("password".to_string()),
                 )),
