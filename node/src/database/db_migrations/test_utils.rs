@@ -9,19 +9,6 @@ use masq_lib::utils::to_string;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
-pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
-    &["rowid", "integer", "primary", "key"],
-    &["tx_hash", "text", "not", "null"],
-    &["receiver_address", "text", "not", "null"],
-    &["amount_high_b", "integer", "not", "null"],
-    &["amount_low_b", "integer", "not", "null"],
-    &["timestamp", "integer", "not", "null"],
-    &["gas_price_wei", "integer", "not", "null"],
-    &["nonce", "integer", "not", "null"],
-    &["status", "text", "not", "null"],
-    &["retried", "integer", "not", "null"],
-];
-
 #[derive(Default)]
 pub struct DBMigDeclaratorMock {
     db_password_results: RefCell<Vec<Option<String>>>,
@@ -79,29 +66,5 @@ impl DBMigDeclarator for DBMigDeclaratorMock {
 
     fn logger(&self) -> &Logger {
         unimplemented!("Not needed so far")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::database::db_migrations::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(
-            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
-            &[
-                &["rowid", "integer", "primary", "key"],
-                &["tx_hash", "text", "not", "null"],
-                &["receiver_address", "text", "not", "null"],
-                &["amount_high_b", "integer", "not", "null"],
-                &["amount_low_b", "integer", "not", "null"],
-                &["timestamp", "integer", "not", "null"],
-                &["gas_price_wei", "integer", "not", "null"],
-                &["nonce", "integer", "not", "null"],
-                &["status", "text", "not", "null"],
-                &["retried", "integer", "not", "null"]
-            ]
-        );
     }
 }

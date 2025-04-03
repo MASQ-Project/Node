@@ -647,7 +647,7 @@ impl Debug for DbInitializationConfig {
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
-    use crate::database::db_migrations::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
+    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,

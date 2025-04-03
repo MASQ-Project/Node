@@ -35,7 +35,7 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
-    use crate::database::db_migrations::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
+    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts, assert_table_exists,
         bring_db_0_back_to_life_and_return_connection, make_external_data,
