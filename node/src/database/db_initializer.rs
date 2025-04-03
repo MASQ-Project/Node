@@ -647,6 +647,7 @@ impl Debug for DbInitializationConfig {
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
+    use crate::database::db_migrations::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
@@ -754,19 +755,11 @@ mod tests {
         let mut stmt = conn.prepare("select rowid, tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei, nonce, status, retried from sent_payable").unwrap();
         let mut sent_payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(sent_payable_contents.next().is_none());
-        let expected_key_words: &[&[&str]] = &[
-            &["rowid", "integer", "primary", "key"],
-            &["tx_hash", "text", "not", "null"],
-            &["receiver_address", "text", "not", "null"],
-            &["amount_high_b", "integer", "not", "null"],
-            &["amount_low_b", "integer", "not", "null"],
-            &["timestamp", "integer", "not", "null"],
-            &["gas_price_wei", "integer", "not", "null"],
-            &["nonce", "integer", "not", "null"],
-            &["status", "text", "not", "null"],
-            &["retried", "integer", "not", "null"],
-        ];
-        assert_create_table_stm_contains_all_parts(&*conn, "sent_payable", expected_key_words);
+        assert_create_table_stm_contains_all_parts(
+            &*conn,
+            "sent_payable",
+            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+        );
         let expected_key_words: &[&[&str]] = &[&["tx_hash"]];
         assert_index_stm_is_coupled_with_right_parameter(
             conn.as_ref(),

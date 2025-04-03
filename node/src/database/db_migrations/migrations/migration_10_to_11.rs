@@ -35,6 +35,7 @@ mod tests {
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
+    use crate::database::db_migrations::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts, assert_table_exists,
         bring_db_0_back_to_life_and_return_connection, make_external_data,
@@ -55,38 +56,27 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize_to_version(
-            &dir_path,
-            10,
-            DbInitializationConfig::create_or_migrate(make_external_data()),
-        );
+        let _prev_connection = subject
+            .initialize_to_version(
+                &dir_path,
+                10,
+                DbInitializationConfig::create_or_migrate(make_external_data()),
+            )
+            .unwrap();
 
-        assert!(result.is_ok());
+        let connection = subject
+            .initialize_to_version(
+                &dir_path,
+                11,
+                DbInitializationConfig::create_or_migrate(make_external_data()),
+            )
+            .unwrap();
 
-        let result = subject.initialize_to_version(
-            &dir_path,
-            11,
-            DbInitializationConfig::create_or_migrate(make_external_data()),
-        );
-
-        let connection = result.unwrap();
         assert_table_exists(connection.as_ref(), "sent_payable");
-        let expected_key_words: &[&[&str]] = &[
-            &["rowid", "integer", "primary", "key"],
-            &["tx_hash", "text", "not", "null"],
-            &["receiver_address", "text", "not", "null"],
-            &["amount_high_b", "integer", "not", "null"],
-            &["amount_low_b", "integer", "not", "null"],
-            &["timestamp", "integer", "not", "null"],
-            &["gas_price_wei", "integer", "not", "null"],
-            &["nonce", "integer", "not", "null"],
-            &["status", "text", "not", "null"],
-            &["retried", "integer", "not", "null"],
-        ];
         assert_create_table_stm_contains_all_parts(
             &*connection,
             "sent_payable",
-            expected_key_words,
+            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             "DbMigrator: Database successfully migrated from version 10 to 11",
