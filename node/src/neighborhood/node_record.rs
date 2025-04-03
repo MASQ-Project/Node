@@ -348,6 +348,9 @@ pub struct NodeRecordMetadata {
     pub node_addr_opt: Option<NodeAddr>,
     pub unreachable_hosts: HashSet<String>,
     pub node_location_opt: Option<NodeLocation>,
+    // country_undesirability is used in combination with FallbackRouting. If FallbackRouting is set 
+    // to false, we do not consider the undesirability of countries other than those selected for exit. 
+    // Therefore, we use a value of 0 for exit nodes in countries that are not considered for exit.
     pub country_undesirability: u32,
     //TODO introduce scores for latency #582 and reliability #583
     //TODO introduce check for node_location_opt, to verify full neighbors country code (we know his IP, so we can verify it)

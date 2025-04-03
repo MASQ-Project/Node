@@ -563,7 +563,6 @@ impl Neighborhood {
                     }
                     self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
                 }
-
                 self.search_for_a_new_route();
             }
             ConfigChange::UpdatePassword(new_password) => {
@@ -2047,11 +2046,12 @@ pub enum FallbackPreference {
     ExitCountryNoFallback,
 }
 
+//TODO create big comment about all members and its utilization
 #[derive(Clone, Debug)]
 pub struct UserExitPreferences {
     exit_countries: Vec<String>, //if we cross number of country_codes used in one workflow over 34, we want to change this member to HashSet<String>
     fallback_preference: FallbackPreference,
-    locations_opt: Option<Vec<ExitLocation>>, //TODO remove Option from NeighborhoodMetadata and create there TODO to ptimize it in future via reference
+    locations_opt: Option<Vec<ExitLocation>>, //TODO remove Option from NeighborhoodMetadata and create there TODO to optimize it in future via reference
     db_countries: Vec<String>,
 }
 
@@ -2135,6 +2135,7 @@ mod tests {
     use serde_cbor;
     use std::any::TypeId;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
     use std::path::Path;
@@ -2207,6 +2208,21 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+
+    impl Neighborhood {
+        fn get_node_country_undesirability(
+            &self,
+            pubkey: &PublicKey
+        ) -> u32
+        {
+            self
+                .neighborhood_database
+                .node_by_key(pubkey)
+                .unwrap()
+                .metadata
+                .country_undesirability
+        }
+    }
 
     impl NeighborhoodDatabase {
         pub fn set_root_key(&mut self, key: &PublicKey) {
@@ -2297,8 +2313,8 @@ mod tests {
     fn standard_gossip_results_in_exit_node_in_database() {
         let mut subject = make_standard_subject();
         let root_node_key = subject.neighborhood_database.root_key().clone();
-        let source_node = make_node_record(1111, true);
-        let first_node = make_node_record(2222, true);
+        let source_node = make_node_record(1111, true); //US
+        let first_node = make_node_record(2222, true); //FR
         let second_node = make_node_record(3333, false);
         subject
             .neighborhood_database
@@ -2345,29 +2361,30 @@ mod tests {
     }
 
     #[test]
-    fn introduction_always_results_with_half_neighborship_in_gossip() {
-        let mut debut_subject = make_debut_subject();
+    fn introduction_results_in_full_neighborship_in_debutant_db_and_enrich_db_countries_on_one_hop() {
+        let debut_node = make_global_cryptde_node_record(1111, true);
+        let mut debut_subject = neighborhood_from_nodes(&debut_node, None);
+        debut_subject.min_hops = Hops::OneHop;
+        let persistent_config =
+            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
+        debut_subject.persistent_config_opt = Some(Box::new(persistent_config));
         let debut_root_key = debut_subject.neighborhood_database.root_key().clone();
-        let introducer_node = make_node_record(3333, true);
-        let introducee = make_node_record(2222, true);
+        let introducer_node = make_node_record(3333, true); //AU
+        let introducee = make_node_record(2222, true); //FR
         let introducer_root_key = introducer_node.public_key().clone();
         let mut introducer_db = debut_subject.neighborhood_database.clone();
-
         introducer_db.set_root_key(&introducer_root_key);
-        introducer_db.add_node(introducer_node).unwrap();
+        introducer_db.add_node(introducer_node.clone()).unwrap();
         introducer_db.add_arbitrary_half_neighbor(&introducer_root_key, &debut_root_key);
         introducer_db.add_node(introducee.clone()).unwrap();
         introducer_db.add_arbitrary_full_neighbor(&introducer_root_key, introducee.public_key());
-
         let introduction_gossip = GossipBuilder::new(&introducer_db)
             .node(&introducer_root_key, true)
             .node(introducee.public_key(), true)
             .build();
         let peer_actors = peer_actors_builder().build();
-        debut_subject.min_hops = Hops::OneHop;
         let exit_nodes_before_gossip = debut_subject.init_db_countries();
         debut_subject.handle_bind_message(BindMessage { peer_actors });
-        let introduction_gossip_check = introduction_gossip.clone();
 
         debut_subject.handle_gossip(
             introduction_gossip,
@@ -2375,7 +2392,6 @@ mod tests {
             make_cpm_recipient().0,
         );
 
-        println!("introduction_gossip: {:?}", introduction_gossip_check.node_records);
         assert!(exit_nodes_before_gossip.is_empty());
         assert_eq!(
             debut_subject.user_exit_preferences.db_countries,
@@ -3829,66 +3845,36 @@ mod tests {
                     FallbackPreference::ExitCountryWithFallback
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&cz_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&cz_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "cz We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&us_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&us_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "us We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&sk_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&sk_public_key),
                     0u32,
                     "sk We expect 0, country is with Priority: 1"
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&de_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&de_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "de We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&at_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&at_public_key),
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
                     "at We expect {}, country is with Priority: 2",
                     1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&pl_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&pl_public_key),
                     2 * COUNTRY_UNDESIRABILITY_FACTOR,
                     "pl We expect {}, country is with Priority: 3",
                     2 * COUNTRY_UNDESIRABILITY_FACTOR
@@ -4008,67 +3994,37 @@ mod tests {
                     FallbackPreference::ExitCountryWithFallback
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&es_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&es_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "es We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&us_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&us_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "us We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&hu_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&hu_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "hu We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&de_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&de_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "de We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&at_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&at_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "at We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&pl_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&pl_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
                     "pl We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
@@ -4176,43 +4132,23 @@ mod tests {
         let assert_country_undesirability_populated = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&cz_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&cz_public_key),
                     0u32,
                     "CZ - We expect zero, country is with Priority: 1"
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&sn_1_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&sn_1_public_key),
                     0u32,
                     "We expect 0, country is not considered for exit location, so country_undesirability doesn't matter"
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&fr_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&fr_public_key),
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
                     "FR - We expect {}, country is with Priority: 2",
                     1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&sn_2_public_key)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&sn_2_public_key),
                     0u32,
                     "We expect 0, country is not considered for exit location, so country_undesirability doesn't matter"
                 );
@@ -4233,42 +4169,22 @@ mod tests {
         let assert_country_undesirability_and_exit_preference_cleared = AssertionsMessage {
             assertions: Box::new(move |neighborhood: &mut Neighborhood| {
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&cz_public_key_2)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&cz_public_key_2),
                     0u32,
                     "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&r_public_key_2)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&r_public_key_2),
                     0u32,
                     "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&fr_public_key_2)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&fr_public_key_2),
                     0u32,
                     "We expect zero, exit_location was unset"
                 );
                 assert_eq!(
-                    neighborhood
-                        .neighborhood_database
-                        .node_by_key(&t_public_key_2)
-                        .unwrap()
-                        .metadata
-                        .country_undesirability,
+                    neighborhood.get_node_country_undesirability(&t_public_key_2),
                     0u32,
                     "We expect zero, exit_location was unset"
                 );
@@ -4523,50 +4439,10 @@ mod tests {
     fn find_exit_locations_in_packed_grid() {
         let mut subject = make_standard_subject();
         let db = &mut subject.neighborhood_database;
-        let mut generator = 1000;
-        let mut make_node = |db: &mut NeighborhoodDatabase| {
-            let node = &db.add_node(make_node_record(generator, true)).unwrap();
-            generator += 1;
-            node.clone()
-        };
-        let mut make_row = |db: &mut NeighborhoodDatabase| {
-            let n1 = make_node(db);
-            let n2 = make_node(db);
-            let n3 = make_node(db);
-            let n4 = make_node(db);
-            let n5 = make_node(db);
-            db.add_arbitrary_full_neighbor(&n1, &n2);
-            db.add_arbitrary_full_neighbor(&n2, &n3);
-            db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_full_neighbor(&n4, &n5);
-            (n1, n2, n3, n4, n5)
-        };
-        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
-            let (f1, f2, f3, f4, f5) = first_row;
-            let (s1, s2, s3, s4, s5) = second_row;
-            db.add_arbitrary_full_neighbor(f1, s1);
-            db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_full_neighbor(f3, s3);
-            db.add_arbitrary_full_neighbor(f4, s4);
-            db.add_arbitrary_full_neighbor(f5, s5);
-        };
-        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
-            let root_node_key = db.root_key().clone();
-            db.set_root_key(key);
-            db.remove_node(&root_node_key);
-        };
-        let (a, b, c, d, e) = make_row(db);
-        let (f, g, h, i, j) = make_row(db);
-        let (k, l, m, n, o) = make_row(db);
-        let (p, q, r, s, t) = make_row(db);
-        let (u, v, w, x, y) = make_row(db);
-        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
-        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
-        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
-        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-        designate_root_node(db, &l);
+        let keys = make_db_with_regular_5_x_5_network(db);
+        designate_root_node(db, keys.get("l").unwrap());
 
-        let mut exit_nodes = subject.find_exit_locations(&l, 3);
+        let mut exit_nodes = subject.find_exit_locations(keys.get("l").unwrap(), 3);
 
         let total_exit_nodes = exit_nodes.len();
         exit_nodes.sort();
@@ -4605,11 +4481,6 @@ mod tests {
         db.add_arbitrary_full_neighbor(&f2, &f3);
         db.add_arbitrary_full_neighbor(&f3, &f4);
         db.add_arbitrary_full_neighbor(&f4, &f5);
-        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
-            let root_node_key = db.root_key().clone();
-            db.set_root_key(key);
-            db.remove_node(&root_node_key);
-        };
         designate_root_node(db, &n1);
 
         let mut exit_nodes = subject.find_exit_locations(&n1, 3);
@@ -4712,58 +4583,18 @@ mod tests {
             exit_locations: vec![],
             show_countries: false,
         };
-        let mut generator = 1000;
-        let mut make_node = |db: &mut NeighborhoodDatabase| {
-            let node = &db.add_node(make_node_record(generator, true)).unwrap();
-            generator += 1;
-            node.clone()
-        };
-        let mut make_row = |db: &mut NeighborhoodDatabase| {
-            let n1 = make_node(db);
-            let n2 = make_node(db);
-            let n3 = make_node(db);
-            let n4 = make_node(db);
-            let n5 = make_node(db);
-            db.add_arbitrary_full_neighbor(&n1, &n2);
-            db.add_arbitrary_full_neighbor(&n2, &n3);
-            db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_full_neighbor(&n4, &n5);
-            (n1, n2, n3, n4, n5)
-        };
-        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
-            let (f1, f2, f3, f4, f5) = first_row;
-            let (s1, s2, s3, s4, s5) = second_row;
-            db.add_arbitrary_full_neighbor(f1, s1);
-            db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_full_neighbor(f3, s3);
-            db.add_arbitrary_full_neighbor(f4, s4);
-            db.add_arbitrary_full_neighbor(f5, s5);
-        };
-        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
-            let root_node_key = db.root_key().clone();
-            db.set_root_key(key);
-            db.remove_node(&root_node_key);
-        };
-        let (a, b, c, d, e) = make_row(db);
-        let (f, g, h, i, j) = make_row(db);
-        let (k, l, m, n, o) = make_row(db);
-        let (p, q, r, s, t) = make_row(db);
-        let (u, v, w, x, y) = make_row(db);
-        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
-        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
-        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
-        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-        designate_root_node(db, &l);
+        let keys = make_db_with_regular_5_x_5_network(db);
+        designate_root_node(db, keys.get("l").unwrap());
         subject.handle_exit_location_message(message, 0, 0);
         let before = Instant::now();
 
         // All the target-designated routes from L to N
         let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
+            .find_best_route_segment(&keys.get("l").unwrap(), Some(&keys.get("n").unwrap()), 3, 10000, RouteDirection::Back, None)
             .unwrap();
 
         let after = Instant::now();
-        assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
+        assert_eq!(route, vec![keys.get("l").unwrap(), keys.get("g").unwrap(), keys.get("h").unwrap(), keys.get("i").unwrap(), keys.get("n").unwrap()]); // Cheaper than [&l, &q, &r, &s, &n]
         let interval = after.duration_since(before);
         assert!(
             interval.as_millis() <= 100,
@@ -4774,24 +4605,25 @@ mod tests {
 
     /* Complex testing of country_undesirability on large network with aim to find fallback routing and non fallback routing mechanisms
 
-    Database:
+        Database:
 
-            A---B---C---D---E
-            |   |   |   |   |
-            F---G---H---I---J
-            |   |   |   |   |
-            K---L---M---N---O
-            |   |   |   |   |
-            P---Q---R---S---T
-            |   |   |   |   |
-            U---V---W---X---Y
+                A---B---C---D---E
+                |   |   |   |   |
+                F---G---H---I---J
+                |   |   |   |   |
+                K---L---M---N---O
+                |   |   |   |   |
+                P---Q---R---S---T
+                |   |   |   |   |
+                U---V---W---X---Y
 
-            All these Nodes are standard-mode. L is the root Node. C and T are "CZ" standard nodes
+                All these Nodes are standard-mode. L is the root Node. C and T are "CZ" standard nodes
 
-    */
+        */
     #[test]
     fn route_optimization_with_user_exit_preferences() {
         let mut subject = make_standard_subject();
+        subject.min_hops = Hops::TwoHops;
         let db = &mut subject.neighborhood_database;
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
@@ -4803,56 +4635,16 @@ mod tests {
             }],
             show_countries: false,
         };
-        let mut generator = 1000;
-        let mut make_node = |db: &mut NeighborhoodDatabase| {
-            let node = &db.add_node(make_node_record(generator, true)).unwrap();
-            generator += 1;
-            node.clone()
-        };
-        let mut make_row = |db: &mut NeighborhoodDatabase| {
-            let n1 = make_node(db);
-            let n2 = make_node(db);
-            let n3 = make_node(db);
-            let n4 = make_node(db);
-            let n5 = make_node(db);
-            db.add_arbitrary_full_neighbor(&n1, &n2);
-            db.add_arbitrary_full_neighbor(&n2, &n3);
-            db.add_arbitrary_full_neighbor(&n3, &n4);
-            db.add_arbitrary_full_neighbor(&n4, &n5);
-            (n1, n2, n3, n4, n5)
-        };
-        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
-            let (f1, f2, f3, f4, f5) = first_row;
-            let (s1, s2, s3, s4, s5) = second_row;
-            db.add_arbitrary_full_neighbor(f1, s1);
-            db.add_arbitrary_full_neighbor(f2, s2);
-            db.add_arbitrary_full_neighbor(f3, s3);
-            db.add_arbitrary_full_neighbor(f4, s4);
-            db.add_arbitrary_full_neighbor(f5, s5);
-        };
-        let designate_root_node = |db: &mut NeighborhoodDatabase, key: &PublicKey| {
-            let root_node_key = db.root_key().clone();
-            db.set_root_key(key);
-            db.remove_node(&root_node_key);
-        };
-        let (a, b, c, d, e) = make_row(db);
-        let (f, g, h, i, j) = make_row(db);
-        let (k, l, m, n, o) = make_row(db);
-        let (p, q, r, s, t) = make_row(db);
-        let (u, v, w, x, y) = make_row(db);
-        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
-        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
-        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
-        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
-        db.node_by_key_mut(&c).unwrap().inner.country_code_opt = Some("CZ".to_string());
-        db.node_by_key_mut(&t).unwrap().inner.country_code_opt = Some("CZ".to_string());
+        let keys = make_db_with_regular_5_x_5_network(db);
+        db.node_by_key_mut(&keys.get("c").unwrap()).unwrap().inner.country_code_opt = Some("CZ".to_string());
+        db.node_by_key_mut(&keys.get("t").unwrap()).unwrap().inner.country_code_opt = Some("CZ".to_string());
         let control_db = db.clone();
-        designate_root_node(db, &l);
+        designate_root_node(db, &keys.get("l").unwrap());
         subject.handle_exit_location_message(message, 0, 0);
         let before = Instant::now();
 
         let route_cz =
-            subject.find_best_route_segment(&l, None, 3, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(&keys.get("l").unwrap(), None, 3, 10000, RouteDirection::Over, None);
 
         let after = Instant::now();
         let exit_node = control_db.node_by_key(
@@ -7624,15 +7416,6 @@ mod tests {
         subject
     }
 
-    fn make_debut_subject() -> Neighborhood {
-        let root_node = make_global_cryptde_node_record(9999, true);
-        let mut subject = neighborhood_from_nodes(&root_node, None);
-        let persistent_config =
-            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
-        subject.persistent_config_opt = Some(Box::new(persistent_config));
-        subject
-    }
-
     fn make_o_r_e_subject() -> (NodeRecord, NodeRecord, NodeRecord, Neighborhood) {
         let mut subject = make_standard_subject();
         let o = &subject.neighborhood_database.root().clone();
@@ -7858,5 +7641,72 @@ mod tests {
         neighborhood.neighborhood_database = db;
 
         neighborhood
+    }
+
+    /*
+        Database:
+
+
+        A---B---C---D---E
+        |   |   |   |   |
+        F---G---H---I---J
+        |   |   |   |   |
+        K---L---M---N---O
+        |   |   |   |   |
+        P---Q---R---S---T
+        |   |   |   |   |
+        U---V---W---X---Y
+     */
+    fn make_db_with_regular_5_x_5_network(db: &mut NeighborhoodDatabase) -> HashMap<&'static str, PublicKey> {
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let mut make_row = |db: &mut NeighborhoodDatabase| {
+            let n1 = make_node(db);
+            let n2 = make_node(db);
+            let n3 = make_node(db);
+            let n4 = make_node(db);
+            let n5 = make_node(db);
+            db.add_arbitrary_full_neighbor(&n1, &n2);
+            db.add_arbitrary_full_neighbor(&n2, &n3);
+            db.add_arbitrary_full_neighbor(&n3, &n4);
+            db.add_arbitrary_full_neighbor(&n4, &n5);
+            (n1, n2, n3, n4, n5)
+        };
+        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
+            let (f1, f2, f3, f4, f5) = first_row;
+            let (s1, s2, s3, s4, s5) = second_row;
+            db.add_arbitrary_full_neighbor(f1, s1);
+            db.add_arbitrary_full_neighbor(f2, s2);
+            db.add_arbitrary_full_neighbor(f3, s3);
+            db.add_arbitrary_full_neighbor(f4, s4);
+            db.add_arbitrary_full_neighbor(f5, s5);
+        };
+        let (a, b, c, d, e) = make_row(db);
+        let (f, g, h, i, j) = make_row(db);
+        let (k, l, m, n, o) = make_row(db);
+        let (p, q, r, s, t) = make_row(db);
+        let (u, v, w, x, y) = make_row(db);
+        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
+        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
+        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
+        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
+        let keypairs = [
+            ("a", a), ("b", b), ("c", c), ("d", d), ("e", e),
+            ("f", f), ("g", g), ("h", h), ("i", i), ("j", j),
+            ("k", k), ("l", l), ("m", m), ("n", n), ("o", o),
+            ("p", p), ("q", q), ("r", r), ("s", s), ("t", t),
+            ("u", u), ("v", v), ("w", w), ("x", x), ("y", y)
+        ];
+        HashMap::from_iter(keypairs)
+    }
+
+    fn designate_root_node(db: &mut NeighborhoodDatabase, key: &PublicKey) {
+        let root_node_key = db.root_key().clone();
+        db.set_root_key(key);
+        db.remove_node(&root_node_key);
     }
 }

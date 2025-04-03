@@ -590,6 +590,60 @@ descriptor (for example, if it's still waiting on the router to get a public IP 
 Node descriptor (for example, if its neighborhood mode is not Standard), the `nodeDescriptorOpt`
 field will be null or absent.
 
+#### `exit-location`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "fallbackRouting": <boolean>,
+    "exitLocations": [
+            {
+                "countryCodes": [string, ..],
+                "priority": <positive integer> 
+            },
+        ],  
+    "showCountries": <boolean>
+}
+```
+##### Description:
+This command requests information about the countries available for exit in our neighborhood and allows us to set up the 
+desired locations with their priority. The priority provides the node's perspective on how important a particular country 
+is for our preferences.
+
+This command can be used in two ways:
+1. If we use the command with showCountries set to true, it retrieves information about the available countries in our neighborhood. In this case, other parameters are ignored. 
+2. If we want to set an exit location, we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
+
+The fallbackRouting parameter determines whether we want to block exit for a particular country. If this country is no longer 
+available, the route to exit will fail during construction. If fallbackRouting is set to true, we can exit through any available 
+country if none of our specified exitLocations are accessible.
+
+Priorities are used to determine the preferred exit countries. Priority 1 is the highest, while higher numbers indicate 
+lower priority. For example, if we specify DE with priority 1 and FR with priority 2, then an exit through France will 
+only be used if a German exit is unavailable or significantly more expensive.
+
+#### `exit-location`
+##### Direction: Response
+##### Correspondent: UI
+##### Layout:
+
+```
+"payload": {
+    "fallbackRouting": <boolean>,
+    "exitCountrySelection": <[
+            {
+                "countryCodes": [string, ..],
+                "priority": <positive integer> 
+            },
+        ]>,
+    "exitCountries": <optional[string, ..]>
+    "missingCountries": <[string, ..]>
+}
+```
+##### Description:
+
+
 #### `financials`
 ##### Direction: Request
 ##### Correspondent: Node
