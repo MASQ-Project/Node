@@ -56,9 +56,11 @@ pub struct DBIPParserFactoryReal {}
 impl DBIPParserFactory for DBIPParserFactoryReal {
     fn make(&self, args: &Vec<String>) -> Box<dyn DBIPParser> {
         if args.contains(&"--csv".to_string()) {
-            return Box::new(CSVParser {})
+            Box::new(CSVParser {})
         }
-        return Box::new(MMDBParser {})
+        else {
+            Box::new(MMDBParser::new())
+        }
     }
 }
 
