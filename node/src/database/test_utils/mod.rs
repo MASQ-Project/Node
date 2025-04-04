@@ -12,6 +12,19 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+pub const SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE: &[&[&str]] = &[
+    &["rowid", "integer", "primary", "key"],
+    &["tx_hash", "text", "not", "null"],
+    &["receiver_address", "text", "not", "null"],
+    &["amount_high_b", "integer", "not", "null"],
+    &["amount_low_b", "integer", "not", "null"],
+    &["timestamp", "integer", "not", "null"],
+    &["gas_price_wei", "integer", "not", "null"],
+    &["nonce", "integer", "not", "null"],
+    &["status", "text", "not", "null"],
+    &["retried", "integer", "not", "null"],
+];
+
 #[derive(Debug, Default)]
 pub struct ConnectionWrapperMock<'conn> {
     prepare_params: Arc<Mutex<Vec<String>>>,
@@ -112,5 +125,29 @@ impl DbInitializerMock {
     ) -> DbInitializerMock {
         self.initialize_results.borrow_mut().push(result);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::database::test_utils::SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+            &[
+                &["rowid", "integer", "primary", "key"],
+                &["tx_hash", "text", "not", "null"],
+                &["receiver_address", "text", "not", "null"],
+                &["amount_high_b", "integer", "not", "null"],
+                &["amount_low_b", "integer", "not", "null"],
+                &["timestamp", "integer", "not", "null"],
+                &["gas_price_wei", "integer", "not", "null"],
+                &["nonce", "integer", "not", "null"],
+                &["status", "text", "not", "null"],
+                &["retried", "integer", "not", "null"]
+            ]
+        );
     }
 }

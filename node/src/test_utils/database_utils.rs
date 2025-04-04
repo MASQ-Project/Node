@@ -103,6 +103,11 @@ pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<
         })
 }
 
+pub fn assert_table_exists(conn: &dyn ConnectionWrapper, table_name: &str) {
+    let result = conn.prepare(&format!("select * from {}", table_name));
+    assert!(result.is_ok(), "Table {} should exist", table_name);
+}
+
 pub fn assert_table_does_not_exist(conn: &dyn ConnectionWrapper, table_name: &str) {
     let error_stm = conn
         .prepare(&format!("select * from {}", table_name))
