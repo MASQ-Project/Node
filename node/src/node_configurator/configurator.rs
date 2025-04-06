@@ -614,7 +614,6 @@ impl Configurator {
         let routing_service_rate = rate_pack.routing_service_rate;
         let exit_byte_rate = rate_pack.exit_byte_rate;
         let exit_service_rate = rate_pack.exit_service_rate;
-        let pending_payable_sec = scan_intervals.pending_payable_scan_interval.as_secs();
         let payable_sec = scan_intervals.payable_scan_interval.as_secs();
         let receivable_sec = scan_intervals.receivable_scan_interval.as_secs();
         let threshold_interval_sec = payment_thresholds.threshold_interval_sec;
@@ -652,7 +651,6 @@ impl Configurator {
             },
             start_block_opt,
             scan_intervals: UiScanIntervals {
-                pending_payable_sec,
                 payable_sec,
                 receivable_sec,
             },
@@ -2591,7 +2589,6 @@ mod tests {
                 },
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
-                    pending_payable_sec: 122,
                     payable_sec: 125,
                     receivable_sec: 128
                 }
@@ -2610,7 +2607,6 @@ mod tests {
                 exit_service_rate: 13,
             }))
             .scan_intervals_result(Ok(ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(122),
                 payable_scan_interval: Duration::from_secs(125),
                 receivable_scan_interval: Duration::from_secs(128),
             }))
@@ -2722,7 +2718,6 @@ mod tests {
                 },
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
-                    pending_payable_sec: 122,
                     payable_sec: 125,
                     receivable_sec: 128
                 }
@@ -2760,7 +2755,6 @@ mod tests {
                 exit_service_rate: 0,
             }))
             .scan_intervals_result(Ok(ScanIntervals {
-                pending_payable_scan_interval: Default::default(),
                 payable_scan_interval: Default::default(),
                 receivable_scan_interval: Default::default(),
             }))
@@ -2815,7 +2809,6 @@ mod tests {
                 },
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
-                    pending_payable_sec: 0,
                     payable_sec: 0,
                     receivable_sec: 0
                 }

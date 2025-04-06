@@ -177,7 +177,6 @@ impl CombinedParams {
                     ScanIntervals,
                     &parsed_values,
                     Duration::from_secs,
-                    "pending_payable_scan_interval",
                     "payable_scan_interval",
                     "receivable_scan_interval"
                 )))
@@ -224,8 +223,7 @@ impl Display for ScanIntervals {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}|{}|{}",
-            self.pending_payable_scan_interval.as_secs(),
+            "{}|{}",
             self.payable_scan_interval.as_secs(),
             self.receivable_scan_interval.as_secs()
         )
@@ -550,14 +548,13 @@ mod tests {
 
     #[test]
     fn scan_intervals_from_combined_params() {
-        let scan_intervals_str = "110|115|113";
+        let scan_intervals_str = "115|113";
 
         let result = ScanIntervals::try_from(scan_intervals_str).unwrap();
 
         assert_eq!(
             result,
             ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(110),
                 payable_scan_interval: Duration::from_secs(115),
                 receivable_scan_interval: Duration::from_secs(113)
             }
@@ -567,14 +564,13 @@ mod tests {
     #[test]
     fn scan_intervals_to_combined_params() {
         let scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(60),
             payable_scan_interval: Duration::from_secs(70),
             receivable_scan_interval: Duration::from_secs(100),
         };
 
         let result = scan_intervals.to_string();
 
-        assert_eq!(result, "60|70|100".to_string());
+        assert_eq!(result, "70|100".to_string());
     }
 
     #[test]

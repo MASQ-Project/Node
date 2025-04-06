@@ -525,8 +525,6 @@ pub struct UiRatePack {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiScanIntervals {
-    #[serde(rename = "pendingPayableSec")]
-    pub pending_payable_sec: u64,
     #[serde(rename = "payableSec")]
     pub payable_sec: u64,
     #[serde(rename = "receivableSec")]
@@ -779,20 +777,18 @@ pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub enum ScanType {
+pub enum CommendableScanType {
     Payables,
     Receivables,
-    PendingPayables,
 }
 
-impl FromStr for ScanType {
+impl FromStr for CommendableScanType {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            s if &s.to_lowercase() == "payables" => Ok(ScanType::Payables),
-            s if &s.to_lowercase() == "receivables" => Ok(ScanType::Receivables),
-            s if &s.to_lowercase() == "pendingpayables" => Ok(ScanType::PendingPayables),
+            s if &s.to_lowercase() == "payables" => Ok(CommendableScanType::Payables),
+            s if &s.to_lowercase() == "receivables" => Ok(CommendableScanType::Receivables),
             s => Err(format!("Unrecognized ScanType: '{}'", s)),
         }
     }
@@ -801,7 +797,7 @@ impl FromStr for ScanType {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiScanRequest {
     #[serde(rename = "scanType")]
-    pub scan_type: ScanType,
+    pub scan_type: CommendableScanType,
 }
 conversation_message!(UiScanRequest, "scan");
 
@@ -1157,34 +1153,26 @@ mod tests {
 
     #[test]
     fn scan_type_from_string_happy_path() {
-        let result: Vec<ScanType> = vec![
-            "Payables",
-            "pAYABLES",
-            "Receivables",
-            "rECEIVABLES",
-            "PendingPayables",
-            "pENDINGpAYABLES",
-        ]
-        .into_iter()
-        .map(|s| ScanType::from_str(s).unwrap())
-        .collect();
+        let result: Vec<CommendableScanType> =
+            vec!["Payables", "pAYABLES", "Receivables", "rECEIVABLES"]
+                .into_iter()
+                .map(|s| CommendableScanType::from_str(s).unwrap())
+                .collect();
 
         assert_eq!(
             result,
             vec![
-                ScanType::Payables,
-                ScanType::Payables,
-                ScanType::Receivables,
-                ScanType::Receivables,
-                ScanType::PendingPayables,
-                ScanType::PendingPayables,
+                CommendableScanType::Payables,
+                CommendableScanType::Payables,
+                CommendableScanType::Receivables,
+                CommendableScanType::Receivables,
             ]
         )
     }
 
     #[test]
     fn scan_type_from_string_error() {
-        let result = ScanType::from_str("unrecognized");
+        let result = CommendableScanType::from_str("unrecognized");
 
         assert_eq!(
             result,

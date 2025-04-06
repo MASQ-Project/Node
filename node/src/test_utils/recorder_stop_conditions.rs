@@ -155,11 +155,11 @@ macro_rules! match_every_type_id{
 }
 
 mod tests {
+    use crate::accountant::scanners::ScanType;
     use crate::accountant::{ResponseSkeleton, ScanError, ScanForPayables};
     use crate::daemon::crash_notification::CrashNotification;
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
-    use masq_lib::messages::ScanType;
     use std::any::TypeId;
     use std::net::{IpAddr, Ipv4Addr};
     use std::vec;

@@ -1827,7 +1827,6 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(100),
                     payable_scan_interval: Duration::from_secs(101),
                     receivable_scan_interval: Duration::from_secs(102),
                 }))
@@ -1855,7 +1854,6 @@ mod tests {
             .unwrap();
 
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
             payable_scan_interval: Duration::from_secs(150),
             receivable_scan_interval: Duration::from_secs(130),
         };
@@ -1903,7 +1901,6 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(180),
                     payable_scan_interval: Duration::from_secs(150),
                     receivable_scan_interval: Duration::from_secs(130),
                 }))
@@ -1935,7 +1932,6 @@ mod tests {
             unban_below_gwei: 20000,
         };
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
             payable_scan_interval: Duration::from_secs(150),
             receivable_scan_interval: Duration::from_secs(130),
         };

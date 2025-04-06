@@ -36,7 +36,6 @@ use futures::Future;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use regex::Regex;
 use std::path::Path;
@@ -47,6 +46,7 @@ use ethabi::Hash;
 use web3::types::H256;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::ScanType;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -583,7 +583,6 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::U64;
-    use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::mock_blockchain_client_server::MBCSBuilder;

@@ -1949,9 +1949,8 @@ mod tests {
     fn scan_intervals_get_method_works() {
         persistent_config_plain_data_assertions_for_simple_get_method!(
             "scan_intervals",
-            "40|60|50",
+            "60|50",
             ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(40),
                 payable_scan_interval: Duration::from_secs(60),
                 receivable_scan_interval: Duration::from_secs(50),
             }

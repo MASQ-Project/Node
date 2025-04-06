@@ -5,8 +5,8 @@ use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::B
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
-    ScanForPendingPayables, ScanForReceivables, SentPayables,
+    ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables, ScanForReceivables,
+    SentPayables,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -163,7 +163,6 @@ recorder_message_handler_t_m_p!(RequestTransactionReceipts);
 recorder_message_handler_t_m_p!(RetrieveTransactions);
 recorder_message_handler_t_m_p!(ScanError);
 recorder_message_handler_t_m_p!(ScanForPayables);
-recorder_message_handler_t_m_p!(ScanForPendingPayables);
 recorder_message_handler_t_m_p!(ScanForReceivables);
 recorder_message_handler_t_m_p!(SentPayables);
 recorder_message_handler_t_m_p!(StartMessage);

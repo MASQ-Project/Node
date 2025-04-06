@@ -8,16 +8,16 @@ pub mod test_utils;
 
 use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::Scanner;
+use crate::accountant::scanners::AccessibleScanner;
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
 
-pub trait MultistagePayableScanner<BeginMessage, EndMessage>:
-    Scanner<BeginMessage, EndMessage> + SolvencySensitivePaymentInstructor
+pub trait MultistagePayableScanner<StartMessage, EndMessage>:
+    AccessibleScanner<StartMessage, EndMessage> + SolvencySensitivePaymentInstructor
 where
-    BeginMessage: Message,
+    StartMessage: Message,
     EndMessage: Message,
 {
 }
