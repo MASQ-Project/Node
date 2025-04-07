@@ -165,15 +165,18 @@ impl CountryBlockSerializer {
     }
 
     pub fn finish(mut self) -> (FinalBitQueue, FinalBitQueue) {
+eprintln!("Starting finish");
         let last_ipv4 = Ipv4Addr::new(0xFF, 0xFF, 0xFF, 0xFF);
         let last_ipv6 = Ipv6Addr::new(
             0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
         );
         if self.ipv4.prev_end.ip != last_ipv4 {
+eprintln!("Adding last IPv4");
             self.ipv4
                 .add_ip(Ipv4Addr::plus_one_ip(self.ipv4.prev_end.ip), last_ipv4, 0);
         }
         if self.ipv6.prev_end.ip != last_ipv6 {
+eprintln!("Adding last IPv6");
             self.ipv6
                 .add_ip(Ipv6Addr::plus_one_ip(self.ipv6.prev_end.ip), last_ipv6, 0);
         }
@@ -181,6 +184,7 @@ impl CountryBlockSerializer {
         let block_count_ipv4 = self.ipv4.block_count;
         let bit_queue_ipv6 = self.ipv6.bit_queue;
         let block_count_ipv6 = self.ipv6.block_count;
+eprintln!("Returning final tuple");
         (
             FinalBitQueue {
                 bit_queue: bit_queue_ipv4,

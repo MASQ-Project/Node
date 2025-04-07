@@ -263,8 +263,8 @@ mod tests {
     static TEST_DATA: &str = "I represent test data arriving on standard input.";
     lazy_static! {
         static ref TEST_COUNTRIES: Countries = Countries::new(vec![
-            ("FR", "France"),
-            ("CA", "Canada"),
+            ("FR".to_string(), "France".to_string()),
+            ("CA".to_string(), "Canada".to_string()),
         ]);
     }
 

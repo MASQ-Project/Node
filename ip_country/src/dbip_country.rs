@@ -5,12 +5,17 @@ use lazy_static::lazy_static;
 use crate::countries::Countries;
 
 lazy_static! {
-    pub static ref COUNTRIES: Countries = Countries::new(vec![
-        ("ZZ", "Sentinel"),
-        ("AD", "Andorra"),
-        ("AO", "Angola"),
-        ("AS", "American Samoa"),
-    ]);
+    pub static ref COUNTRIES: Countries = Countries::new(
+        vec![
+            ("ZZ", "Sentinel"),
+            ("AD", "Andorra"),
+            ("AO", "Angola"),
+            ("AS", "American Samoa"),
+        ]
+        .into_iter()
+        .map(|(code, name)| (code.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>()
+    );
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {

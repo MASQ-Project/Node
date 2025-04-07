@@ -21,13 +21,13 @@ impl Countries {
         }
     }
 
-    pub fn new(mut country_pairs: Vec<(&str, &str)>) -> Self {
+    pub fn new(mut country_pairs: Vec<(String, String)>) -> Self {
         // Gotta sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
         // --or add one at the front, if there isn't already one. (We assume there isn't already
         // more than one.)
         let sentinel_info_opt = country_pairs.iter()
             .enumerate()
-            .find(|(_, (iso3166, _))| *iso3166 == "ZZ")
+            .find(|(_, (iso3166, _))| iso3166 == "ZZ")
             .map(|(index, (_, name))| (index, name.to_string()));
         if let Some((index, _)) = sentinel_info_opt {
             country_pairs.remove(index);
@@ -36,7 +36,7 @@ impl Countries {
         let mut countries = country_pairs
             .iter()
             .enumerate()
-            .map(|(index, (iso3166, name))| Country::new(index + 1, *iso3166, *name))
+            .map(|(index, (iso3166, name))| Country::new(index + 1, iso3166, name))
             .collect::<Vec<Country>>();
         let sentinel_name = if let Some((_, name)) = sentinel_info_opt {
             name

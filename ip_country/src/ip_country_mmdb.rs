@@ -1,302 +1,193 @@
 use crate::ip_country::DBIPParser;
 use std::io;
 use std::any::Any;
-use std::net::IpAddr;
-use maxminddb::{MaxMindDbError, Reader, Within, WithinItem};
-use serde::Deserialize;
-use crate::country_block_serde::{FinalBitQueue};
-use crate::countries::Countries;
+use std::collections::HashSet;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::path::PathBuf;
+use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use itertools::Itertools;
 use maxminddb::geoip2::City;
+use maxminddb::{Reader, Within};
+use serde::Deserialize;
+use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
+use crate::countries::Countries;
+use crate::country_block_stream::{Country, CountryBlock, IpRange};
 
-pub fn factory<'de>() -> Box<dyn MmdbReaderWrapperFactory<'de>> {
-    Box::new(MmdbReaderWrapperFactoryReal::new())
+pub struct MMDBParser {
 }
 
-pub struct MMDBParser<'de> {
-    factory: Box<dyn MmdbReaderWrapperFactory<'de>>,
-}
-
-impl DBIPParser for MMDBParser<'static> {
+impl DBIPParser for MMDBParser {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn parse(
         &self,
-        _stdin: &mut dyn io::Read,
-        _errors: &mut Vec<String>,
+        stdin: &mut dyn io::Read,
+        errors: &mut Vec<String>,
     ) -> (FinalBitQueue, FinalBitQueue, Countries) {
-        todo!()
+        let mut bytes: Vec<u8> = vec![];
+eprintln!("Reading stdin");
+        match stdin.read_to_end(&mut bytes) {
+            Ok(_) => {}
+            Err(e) => {
+                todo!("Error reading from stdin: {}", e);
+            }
+        };
+eprintln!("Making Reader");
+        let reader = match Reader::from_source(bytes) {
+            Ok(r) => r,
+            Err(e) => {
+                todo!("Error opening MaxMind DB: {}", e);
+            }
+        };
+        let mut country_pairs: HashSet<(String, String)> = HashSet::new();
+
+        let ip_network = match Ipv4Network::new(Ipv4Addr::new(0, 0, 0, 0), 0) {
+            Ok(ipn) => ipn,
+            Err(e) => {
+                todo!("Error creating IP network: {}", e);
+            }
+        };
+eprintln!("Calling within() for IPv4");
+        let within = match reader.within::<City>(
+            IpNetwork::V4(ip_network),
+        ) {
+            Ok(w) => w,
+            Err(e) => {
+                todo!("Error creating within iterator: {}", e);
+            }
+        };
+eprintln!("Extracting IPv4 data");
+        let ipv4_ranges = Self::extract_data(within, &mut country_pairs, errors);
+
+        let ip_network = match Ipv6Network::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0) {
+            Ok(ipn) => ipn,
+            Err(e) => {
+                todo!("Error creating IP network: {}", e);
+            }
+        };
+eprintln!("Calling within() for IPv6");
+        let within = match reader.within::<City>(
+            IpNetwork::V6(ip_network),
+        ) {
+            Ok(w) => w,
+            Err(e) => {
+                todo!("Error creating within iterator: {}", e);
+            }
+        };
+eprintln!("Extracting IPv6 data");
+        let ipv6_ranges = Self::extract_data(within, &mut country_pairs, errors);
+
+eprintln!("Creating Countries structure");
+        let country_pairs_vec = country_pairs.into_iter().collect_vec();
+        let countries = Countries::new(country_pairs_vec);
+
+        let make_country_blocks = |ranges: Vec<(String, IpRange)>| {
+            ranges.into_iter().map(|(code, ip_range)| {
+                match countries.country_from_code(code.as_str()) {
+                    Ok(country) => CountryBlock {
+                        ip_range,
+                        country: country.clone(),
+                    },
+                    Err(e) => {
+                        eprintln!("Error finding country from code {} for IP range {:?}: {}", code, ip_range, e);
+                        CountryBlock {
+                            ip_range,
+                            country: Country::new(0, "ZZ", "Unknown"),
+                        }
+                    }
+                }
+            }).collect_vec()
+        };
+        let mut serializer = CountryBlockSerializer::new();
+eprintln!("Making IPv4 CountryBlocks");
+        let country_blocks = make_country_blocks(ipv4_ranges);
+eprintln!("Serializing IPv4 CountryBlocks");
+        country_blocks.into_iter().for_each(|block| serializer.add(block));
+eprintln!("Making IPv6 CountryBlocks");
+        let country_blocks = make_country_blocks(ipv6_ranges);
+eprintln!("Serializing IPv6 CountryBlocks");
+        country_blocks.into_iter().for_each(|block| serializer.add(block));
+eprintln!("Finishing serialization");
+        let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
+
+eprintln!("Returning final tuple");
+        (ipv4_bit_queue, ipv6_bit_queue, countries)
     }
 }
 
-impl<'de> MMDBParser<'de> {
+impl MMDBParser {
     pub fn new() -> Self {
-        // UNTESTED CODE
-        MMDBParser::new_from_factory(factory())
-    }
+        Self {
 
-    fn new_from_factory(factory: Box<dyn MmdbReaderWrapperFactory<'de>>) -> MMDBParser<'de> {
-        MMDBParser {
-            factory,
         }
     }
-}
 
-trait WithinWrapper<'de>: Iterator<Item=Result<WithinItem<City<'de>>, MaxMindDbError>> {}
-
-struct WithinWrapperReal<'de> {
-    delegate: Within<'de, City<'de>, Vec<u8>>
-}
-
-impl<'de> WithinWrapper<'de> for WithinWrapperReal<'de> {}
-
-impl<'de> Iterator for WithinWrapperReal<'de> {
-    type Item = Result<WithinItem<City<'de>>, MaxMindDbError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.delegate.next()
+    fn extract_data<'de>(
+        within: Within<'de, City<'de>, Vec<u8>>,
+        country_pairs: &mut HashSet<(String, String)>,
+        _errors: &mut Vec<String>
+    ) -> Vec<(String, IpRange)> {
+        let mut coded_ranges: Vec<(String, IpRange)> = vec![];
+        within.for_each(|item_result| {
+            match item_result {
+                Ok(item) => {
+                    match item.info.country {
+                        Some(country) => {
+                            match (country.iso_code, country.names.map(|ns| ns.get("en").map(|n| n.to_string()))) {
+                                (Some(code), Some(Some(name))) => {
+                                    country_pairs.insert((code.to_string(), name.to_string()));
+                                    let ip_range = Self::ipn_to_range(item.ip_net);
+                                    coded_ranges.push((code.to_string(), ip_range));
+                                }
+                                (Some(code), Some(None)) => {
+                                    todo!("Country code {:?} found but no name", code);
+                                }
+                                (None, Some(Some(name))) => {
+                                    todo!("Country code not found for country: {:?}", name);
+                                }
+                                // (None, Some(None)) => {
+                                //     todo!("Country code and name not found for item: {:?}", item);
+                                // }
+                                _ => {
+                                    todo!("What's this?")
+                                }
+                            }
+                        }
+                        None => todo!("Country info not found for item: {:?}", item),
+                    }
+                }
+                Err(e) => {
+                    todo!("Error processing item: {}", e);
+                }
+            }
+        });
+        coded_ranges
     }
-}
 
-trait MmdbReaderWrapper<'de> {
-    fn within(&'de self, cidr: ipnetwork::IpNetwork) -> 
-        Result<Box<dyn WithinWrapper<Item=Result<WithinItem<City<'de>>, MaxMindDbError>> + 'de>, MaxMindDbError>;
-}
-
-struct MmdbReaderWrapperReal {
-    delegate: Reader<Vec<u8>>
-}
-
-impl<'de> MmdbReaderWrapper<'de> for MmdbReaderWrapperReal {
-    fn within(&'de self, cidr: ipnetwork::IpNetwork) -> 
-        Result<
-            Box<dyn WithinWrapper<Item=Result<WithinItem<City<'de>>, MaxMindDbError>> + 'de>,
-            MaxMindDbError
-        > {
-        self.delegate.within(cidr).map (|within| {
-            Box::new(WithinWrapperReal { delegate: within })
-              as Box<dyn WithinWrapper<Item=Result<WithinItem<City<'de>>, MaxMindDbError>> + 'de>
-        })
-    }
-}
-
-impl<'de> MmdbReaderWrapperReal {
-    pub fn from_source(buf: Vec<u8>) -> Result<MmdbReaderWrapperReal, MaxMindDbError> {
-        let delegate = Reader::from_source(buf)?;
-        Ok(Self { delegate })
-    }
-}
-
-trait MmdbReaderWrapperFactory<'de> {
-    fn make(
-        &self,
-        buf: Vec<u8>,
-    ) -> Result<Box<dyn MmdbReaderWrapper<'de>>, MaxMindDbError>;
-}
-
-struct MmdbReaderWrapperFactoryReal {}
-
-impl<'de> MmdbReaderWrapperFactory<'de> for MmdbReaderWrapperFactoryReal {
-    fn make(
-        &self,
-        buf: Vec<u8>,
-    ) -> Result<Box<dyn MmdbReaderWrapper<'de>>, MaxMindDbError> {
-        Ok(Box::new(MmdbReaderWrapperReal::from_source(buf)?))
-    }
-}
-
-impl MmdbReaderWrapperFactoryReal {
-    pub fn new() -> MmdbReaderWrapperFactoryReal {
-        MmdbReaderWrapperFactoryReal {}
+    fn ipn_to_range(ipn: IpNetwork) -> IpRange {
+        match ipn {
+            IpNetwork::V4(ipn) => IpRange::V4 (ipn.network().into(), ipn.broadcast().into()),
+            IpNetwork::V6(ipn) => IpRange::V6 (ipn.network().into(), ipn.broadcast().into()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::collections::BTreeMap;
+    use std::cmp::min;
+    use std::fs::File;
     use std::net::IpAddr;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
-    use ipnetwork::IpNetwork;
-    use maxminddb::{MaxMindDbError, Within};
-    use maxminddb::geoip2::city::Country;
-    use test_utilities::byte_array_reader_writer::ByteArrayReader;
-    use crate::ip_country_mmdb::{MmdbReaderWrapper, MmdbReaderWrapperFactory, MmdbReaderWrapperReal};
-
-    struct WithinWrapperMock {
-        iter: Box<dyn Iterator<Item=Result<WithinItem<City<'static>>, MaxMindDbError>>>
-    }
-
-    impl<'de> WithinWrapper<'de> for WithinWrapperMock {
-    }
-
-    impl<'de> Iterator for WithinWrapperMock {
-        type Item = Result<WithinItem<City<'de>>, MaxMindDbError>;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            self.iter.next()
-        }
-    }
-
-    impl WithinWrapperMock {
-        pub fn new(results: Vec<Result<(IpNetwork, &'static str, &'static str), MaxMindDbError>>) -> Self {
-            let items = results.into_iter()
-                .map(|result| {
-                    result.map(|item| {
-                        let (ip_network, iso3166, name) = item;
-                        Self::convert((ip_network, iso3166, name))
-                    })
-                })
-                .collect::<Vec<_>>();
-            Self { iter: Box::new(items.into_iter()) }
-        }
-
-        fn convert(item: (IpNetwork, &'static str, &'static str)) -> WithinItem<City<'static>> {
-            let (ip_network, iso3166, name) = item;
-            let mut names = BTreeMap::new();
-            names.insert("en", name);
-            let country = Country {
-                geoname_id: None,
-                is_in_european_union: None,
-                iso_code: Some(iso3166),
-                names: Some(names),
-            };
-            let city = City {
-                city: None,
-                continent: None,
-                country: Some(country),
-                location: None,
-                postal: None,
-                registered_country: None,
-                represented_country: None,
-                subdivisions: None,
-                traits: None,
-            };
-            WithinItem {
-                ip_net: ip_network,
-                info: city,
-            }
-        }
-    }
-
-    struct MmdbReaderWrapperMock {
-        within_params: Arc<Mutex<Vec<IpNetwork>>>,
-        within_results: RefCell<Vec<Result<WithinWrapperMock, MaxMindDbError>>>
-    }
-
-    impl<'de> MmdbReaderWrapper<'de> for MmdbReaderWrapperMock {
-        fn within(&'de self, cidr: IpNetwork) -> Result<
-            Box<dyn WithinWrapper<Item=Result<
-                WithinItem<City<'de>>,
-                MaxMindDbError
-            >> + 'de>,
-            MaxMindDbError
-        > {
-            self.within_params.lock().unwrap().push(cidr);
-            let result = self.within_results.borrow_mut().remove(0);
-            result.map (|within_wrapper_mock|
-                Box::new(within_wrapper_mock)
-                    as Box<dyn WithinWrapper<Item=Result<WithinItem<City<'de>>, MaxMindDbError>> + 'de>
-            )
-        }
-    }
-
-    impl MmdbReaderWrapperMock {
-        pub fn new() -> MmdbReaderWrapperMock {
-            Self{
-                within_params: Arc::new(Mutex::new(vec![])),
-                within_results: RefCell::new(vec![]),
-            }
-        }
-
-        pub fn within_params(mut self, params: &Arc<Mutex<Vec<IpNetwork>>>) -> Self {
-            self.within_params = params.clone();
-            self
-        }
-
-        pub fn within_result(mut self, result: Result<WithinWrapperMock, MaxMindDbError>) -> Self {
-            self.within_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    struct MmdbReaderWrapperFactoryMock {
-        make_params: Arc<Mutex<Vec<Vec<u8>>>>,
-        make_results: RefCell<Vec<Result<MmdbReaderWrapperMock, MaxMindDbError>>>
-    }
-
-    impl<'de> MmdbReaderWrapperFactory<'de> for MmdbReaderWrapperFactoryMock {
-        fn make(
-            &self,
-            buf: Vec<u8>,
-        ) -> Result<Box<dyn MmdbReaderWrapper<'de>>, MaxMindDbError> {
-            self.make_params.lock().unwrap().push(buf);
-            self.make_results.borrow_mut().remove(0)
-                .map(|x| Box::new(x) as Box<dyn MmdbReaderWrapper<'de>>)
-        }
-    }
-
-    impl<'de> MmdbReaderWrapperFactoryMock {
-        pub fn new() -> Self {
-            Self{
-                make_params: Arc::new(Mutex::new(vec![])),
-                make_results: RefCell::new(vec![]),
-            }
-        }
-
-        pub fn make_params(mut self, params: &Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
-            self.make_params = params.clone();
-            self
-        }
-
-        pub fn make_result(mut self, result: Result<MmdbReaderWrapperMock, MaxMindDbError>) -> Self {
-            self.make_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    static FAKE_MMDB_DATA: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-    /// Iterate over blocks of IP networks in the opened MaxMind DB
-    ///
-    /// Example:
-    ///
-    /// ```
-    /// use ipnetwork::IpNetwork;
-    /// use maxminddb::{geoip2, Within};
-    ///
-    /// let reader = maxminddb::Reader::open_readfile("test-data/test-data/GeoIP2-City-Test.mmdb").unwrap();
-    ///
-    /// let ip_net = IpNetwork::V6("::/0".parse().unwrap());
-    /// let mut iter: Within<geoip2::City, _> = reader.within(ip_net).unwrap();
-    /// while let Some(next) = iter.next() {
-    ///     let item = next.unwrap();
-    ///     println!("ip_net={}, city={:?}", item.ip_net, item.info);
-    /// }
-    /// ```
+    use crate::country_finder::CountryCodeFinder;
 
     #[test]
     fn happy_path() {
-        let within_params_arc = Arc::new(Mutex::new(vec![]));
-        let reader = MmdbReaderWrapperMock::new()
-            .within_params(&within_params_arc)
-            .within_result(Ok(WithinWrapperMock::new(vec![
-                Ok((IpNetwork::from_str("1.2.3.0/24").unwrap(), "CZ", "Czech Republic")),
-                Ok((IpNetwork::from_str("3.2.1.0/24").unwrap(), "IN", "India")),
-            ])))
-            .within_result(Ok(WithinWrapperMock::new(vec![
-                Ok((IpNetwork::from_str("1::2::3::0/120").unwrap(), "CZ", "Czech Republic")),
-                Ok((IpNetwork::from_str("3::2::1::0/120").unwrap(), "IN", "India")),
-            ])));
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let factory = MmdbReaderWrapperFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Ok(reader));
-        let subject = MMDBParser::new_from_factory(Box::new(factory));
-        let mut stdin = ByteArrayReader::new(FAKE_MMDB_DATA);
+        let file = PathBuf::from("data/dbip-country-lite.mmdb");
+        let mut stdin = File::open(&file).unwrap();
+        let subject = MMDBParser::new();
         let mut errors = vec![];
 
         let (ipv4_bit_queue, ipv6_bit_queue, countries) =
@@ -304,15 +195,32 @@ mod tests {
 
         let expected_errors: Vec<String> = vec![];
         assert_eq!(errors, expected_errors);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(*make_params, vec![FAKE_MMDB_DATA.to_vec()]);
-        let within_params = within_params_arc.lock().unwrap();
-        assert_eq!(
-            *within_params,
-            vec![
-                IpNetwork::new(IpAddr::from_str("0.0.0.0").unwrap(), 0).unwrap(),
-                IpNetwork::new(IpAddr::from_str("::").unwrap(), 0).unwrap(),
-            ]
-        )
+eprintln! ("No errors! Creating CountryCodeFinder");
+        let country_code_finder = CountryCodeFinder::new(
+            &countries,
+            country_data_from_bit_queue(ipv4_bit_queue),
+            country_data_from_bit_queue(ipv6_bit_queue)
+        );
+eprintln!("Finding country for 55.55.55.55");
+        let ipv4_five_country = country_code_finder.find_country(IpAddr::from_str("55.55.55.55").unwrap());
+        assert_eq!(ipv4_five_country.map(|c| c.iso3166.clone()), Some("US".to_string()));
+eprintln!("Finding country for 5555:5555:5555:5555:5555:5555:5555");
+        let ipv6_five_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:5555:5555").unwrap());
+        assert_eq!(ipv6_five_country.map(|c| c.iso3166.clone()), Some("CH".to_string()));
+    }
+
+    fn country_data_from_bit_queue(mut bit_queue: FinalBitQueue) -> (Vec<u64>, usize) {
+        let len = bit_queue.bit_queue.len();
+        let mut result = vec![];
+        loop {
+            let len = bit_queue.bit_queue.len();
+            let next_len = min(64, len);
+            if next_len == 0 { break; }
+            match bit_queue.bit_queue.take_bits(next_len) {
+                Some(bits) => result.push(bits),
+                None => break
+            }
+        }
+        (result, len)
     }
 }
