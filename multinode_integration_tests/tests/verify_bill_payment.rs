@@ -2,7 +2,7 @@
 
 use crate::verify_bill_payment_utils::utils::{
     test_body, to_wei, AssertionsValues, Debt, DebtsSpecs, FinalServiceFeeBalancesByServingNodes,
-    NodeProfile, Ports, TestInputBuilder, WholesomeConfig,
+    NodeProfile, TestInputBuilder, UiPorts, WholesomeConfig,
 };
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
@@ -194,7 +194,7 @@ fn payments_were_adjusted_due_to_insufficient_balances() {
     let consuming_node_transaction_fee_balance_minor =
         affordable_payments_count_by_tx_fee * tx_fee_needed_to_pay_for_one_payment_minor;
     let test_input = TestInputBuilder::default()
-        .ui_ports(Ports::new(
+        .ui_ports(UiPorts::new(
             find_free_port(),
             find_free_port(),
             find_free_port(),
@@ -289,7 +289,7 @@ fn activating_serving_nodes_for_test_with_insufficient_funds(
                 node_config,
             );
             let ui_port = serving_node_attributes
-                .serving_node_profile
+                .node_profile
                 .ui_port()
                 .expect("ui port missing");
 

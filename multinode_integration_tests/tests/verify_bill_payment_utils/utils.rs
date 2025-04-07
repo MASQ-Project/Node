@@ -21,9 +21,7 @@ use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
     BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
 };
-use node_lib::blockchain::blockchain_interface::lower_level_interface::{
-    LowBlockchainInt, ResultForBalance,
-};
+use node_lib::blockchain::blockchain_interface::lower_level_interface::LowBlockchainInt;
 use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
@@ -97,10 +95,6 @@ pub fn test_body(
     wholesome_config.assert_serving_nodes_addressed_received_payments(&assertions_values)
 }
 
-const MNEMONIC_PHRASE: &str =
-    "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle \
-    lamp absent write kind term toddler sphere ripple idle dragon curious hold";
-
 pub struct TestInput {
     // The contract owner wallet is populated with 100 ETH as defined in the set of commands with
     // which we start up the Ganache server.
@@ -114,7 +108,7 @@ pub struct TestInput {
 
 #[derive(Default)]
 pub struct TestInputBuilder {
-    ui_ports_opt: Option<Ports>,
+    ui_ports_opt: Option<UiPorts>,
     consuming_node_initial_tx_fee_balance_minor_opt: Option<u128>,
     consuming_node_initial_service_fee_balance_minor_opt: Option<u128>,
     debts_config_opt: Option<DebtsSpecs>,
@@ -123,7 +117,7 @@ pub struct TestInputBuilder {
 }
 
 impl TestInputBuilder {
-    pub fn ui_ports(mut self, ports: Ports) -> Self {
+    pub fn ui_ports(mut self, ports: UiPorts) -> Self {
         self.ui_ports_opt = Some(ports);
         self
     }
@@ -199,7 +193,7 @@ impl TestInputBuilder {
         }
     }
 
-    fn resolve_ports(ui_ports_opt: Option<Ports>) -> (Option<u16>, [Option<u16>; 3]) {
+    fn resolve_ports(ui_ports_opt: Option<UiPorts>) -> (Option<u16>, [Option<u16>; 3]) {
         match ui_ports_opt {
             Some(ui_ports) => {
                 let ui_ports_as_opt = ui_ports.serving_nodes.into_iter().map(Some).collect_vec();
@@ -255,18 +249,51 @@ pub struct BlockchainParams {
     seed: Seed,
 }
 
+impl BlockchainParams {
+    fn new(
+        chain: Chain,
+        server_url: String,
+        blockchain_interface: &ExtendedBlockchainInterface,
+    ) -> Self {
+        let seed = make_seed();
+        let (contract_owner_wallet, _) =
+            make_node_wallet_and_private_key(&seed, &derivation_path(0, 0));
+        let contract_owner_addr =
+            blockchain_interface.deploy_smart_contract(&contract_owner_wallet, chain);
+
+        assert_eq!(
+            contract_owner_addr,
+            chain.rec().contract,
+            "Either the contract has been modified or Ganache is not accurately mimicking Ethereum. \
+         Resulted contact addr {:?} doesn't much what's expected: {:?}",
+            contract_owner_addr,
+            chain.rec().contract
+        );
+
+        BlockchainParams {
+            chain,
+            server_url,
+            contract_owner_wallet,
+            seed,
+        }
+    }
+}
+
 struct ExtendedBlockchainInterface {
     node_standard_interface: Box<dyn BlockchainInterface>,
     raw_interface: RawBlockchainInterface,
 }
 
 impl ExtendedBlockchainInterface {
-    fn new(
-        node_internal_interface: Box<dyn BlockchainInterface>,
-        raw_interface: RawBlockchainInterface,
-    ) -> Self {
+    fn new(chain: Chain, server_url: &str) -> Self {
+        let (event_loop_handle, http) =
+            Http::with_max_parallel(&server_url, REQUESTS_IN_PARALLEL).unwrap();
+        let web3 = Web3::new(http.clone());
+        let raw_interface = RawBlockchainInterface::new(web3);
+        let node_standard_interface =
+            Box::new(BlockchainInterfaceWeb3::new(http, event_loop_handle, chain));
         Self {
-            node_standard_interface: node_internal_interface,
+            node_standard_interface,
             raw_interface,
         }
     }
@@ -372,23 +399,20 @@ impl ExtendedBlockchainInterface {
         &self,
         wallet: &Wallet,
         expected_balance: u128,
-        balance_specification: &str,
-        balance_fetcher: fn(&dyn LowBlockchainInt, &Wallet) -> ResultForBalance,
+        asserted_balance: AssertedBalance,
     ) {
-        let actual_balance = {
-            let lower_blockchain_int = self.node_standard_interface.lower_interface();
-            balance_fetcher(lower_blockchain_int, &wallet).unwrap_or_else(|_| {
-                panic!(
-                    "Failed to retrieve {} for {}",
-                    balance_specification, wallet
-                )
-            })
+        let balance_fetcher = match asserted_balance {
+            AssertedBalance::TransactionFee => LowBlockchainInt::get_transaction_fee_balance,
+            AssertedBalance::ServiceFee => LowBlockchainInt::get_service_fee_balance,
         };
+        let lower_blockchain_int = self.node_standard_interface.lower_interface();
+        let actual_balance = balance_fetcher(lower_blockchain_int, &wallet)
+            .unwrap_or_else(|_| panic!("Failed to retrieve {:?} for {}", asserted_balance, wallet));
         assert_eq!(
             actual_balance,
             web3::types::U256::from(expected_balance),
-            "Actual {} {} doesn't much with expected {} for {}",
-            balance_specification,
+            "Actual {:?} {} doesn't much with expected {} for {}",
+            asserted_balance,
             actual_balance,
             expected_balance,
             wallet
@@ -404,17 +428,28 @@ impl ExtendedBlockchainInterface {
         self.single_balance_assertion(
             wallet,
             expected_tx_fee_balance,
-            "ETH balance",
-            |blockchain_interface, wallet| blockchain_interface.get_transaction_fee_balance(wallet),
+            AssertedBalance::TransactionFee,
         );
 
         self.single_balance_assertion(
             wallet,
             expected_service_fee_balance,
-            "MASQ balance",
-            |blockchain_interface, wallet| blockchain_interface.get_service_fee_balance(wallet),
+            AssertedBalance::ServiceFee,
         );
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AssertedBalance {
+    TransactionFee,
+    ServiceFee,
+}
+
+lazy_static! {
+    static ref GAS_PRICE: ethereum_types::U256 =
+        50_u64.try_into().expect("Gas price, internal error");
+    static ref GAS_LIMIT: ethereum_types::U256 =
+        1_000_000_u64.try_into().expect("Gas limit, internal error");
 }
 
 struct RawBlockchainInterface {
@@ -480,7 +515,7 @@ pub struct GlobalValues {
     pub test_inputs: TestInput,
     pub blockchain_params: BlockchainParams,
     pub now_in_common: SystemTime,
-    blockchain_interfaces: ExtendedBlockchainInterface,
+    blockchain_interface: ExtendedBlockchainInterface,
 }
 
 pub struct WholesomeConfig {
@@ -589,48 +624,30 @@ pub fn establish_test_frame(
         Ok(cluster) => cluster,
         Err(e) => panic!("{}", e),
     };
-    let blockchain_server = BlockchainServer::new("ganache-cli");
-    blockchain_server.start();
-    blockchain_server.wait_until_ready();
-    let server_url = blockchain_server.url().to_string();
+    let (blockchain_server, server_url) = start_blockchain_server();
     let chain = cluster.chain();
-    let (event_loop_handle, http) =
-        Http::with_max_parallel(&server_url, REQUESTS_IN_PARALLEL).unwrap();
-    let web3 = Web3::new(http.clone());
-    let raw_blockchain_interface = RawBlockchainInterface::new(web3);
-    let node_standard_interface =
-        Box::new(BlockchainInterfaceWeb3::new(http, event_loop_handle, chain));
-    let blockchain_interfaces =
-        ExtendedBlockchainInterface::new(node_standard_interface, raw_blockchain_interface);
-    let seed = make_seed();
-    let (contract_owner_wallet, _) =
-        make_node_wallet_and_private_key(&seed, &derivation_path(0, 0));
-    let contract_owner_addr =
-        blockchain_interfaces.deploy_smart_contract(&contract_owner_wallet, chain);
-    let blockchain_params = BlockchainParams {
-        chain,
-        server_url,
-        contract_owner_wallet,
-        seed,
-    };
-
+    let blockchain_interface = ExtendedBlockchainInterface::new(chain, &server_url);
+    let blockchain_params = BlockchainParams::new(chain, server_url, &blockchain_interface);
     let global_values = GlobalValues {
         test_inputs,
         blockchain_params,
-        blockchain_interfaces,
+        blockchain_interface,
         now_in_common: now,
     };
-    assert_eq!(
-        contract_owner_addr,
-        chain.rec().contract,
-        "Either the contract has been modified or Ganache is not accurately mimicking Ethereum. \
-         Resulted contact addr {:?} doesn't much what's expected: {:?}",
-        contract_owner_addr,
-        chain.rec().contract
-    );
-
     (cluster, global_values, blockchain_server)
 }
+
+fn start_blockchain_server() -> (BlockchainServer, String) {
+    let blockchain_server = BlockchainServer::new("ganache-cli");
+    blockchain_server.start();
+    blockchain_server.wait_until_ready();
+    let url = blockchain_server.url().to_string();
+    (blockchain_server, url)
+}
+
+const MNEMONIC_PHRASE: &str =
+    "timber cage wide hawk phone shaft pattern movie army dizzy hen tackle \
+    lamp absent write kind term toddler sphere ripple idle dragon curious hold";
 
 fn make_seed() -> Seed {
     let mnemonic = Mnemonic::from_phrase(MNEMONIC_PHRASE, Language::English).unwrap();
@@ -650,8 +667,8 @@ fn make_db_init_config(chain: Chain) -> DbInitializationConfig {
 }
 
 fn load_contract_in_bytes() -> Vec<u8> {
-    let file_path = test_input_data_standard_dir().join("smart_contract_for_on_blockchain_test");
-    let mut file = File::open(file_path).expect("couldn't acquire a handle to the data file");
+    let file_path = test_input_data_standard_dir().join("verify_bill_payments_smart_contract");
+    let mut file = File::open(file_path).expect("couldn't acquire a file handle");
     let mut data = String::new();
     file.read_to_string(&mut data).unwrap();
     let data = data
@@ -659,14 +676,7 @@ fn load_contract_in_bytes() -> Vec<u8> {
         .filter(|char| !char.is_whitespace())
         .collect::<String>();
     data.from_hex::<Vec<u8>>()
-        .expect("bad contract: contains non-hexadecimal characters")
-}
-
-lazy_static! {
-    static ref GAS_PRICE: ethereum_types::U256 =
-        50_u64.try_into().expect("Gas price, internal error");
-    static ref GAS_LIMIT: ethereum_types::U256 =
-        1_000_000_u64.try_into().expect("Gas limit, internal error");
+        .expect("contract contains non-hexadecimal characters")
 }
 
 fn make_node_wallet_and_private_key(seed: &Seed, derivation_path: &str) -> (Wallet, String) {
@@ -712,14 +722,14 @@ impl GlobalValues {
         let (consuming_node_config, consuming_node_wallet) =
             self.get_node_config_and_wallet(&consuming_node_profile);
         let initial_transaction_fee_balance = initial_tx_fee_balance_opt.unwrap_or(ONE_ETH_IN_WEI);
-        self.blockchain_interfaces
+        self.blockchain_interface
             .transfer_transaction_fee_amount_to_address(
                 &self.blockchain_params.contract_owner_wallet,
                 &consuming_node_wallet,
                 initial_transaction_fee_balance,
                 1,
             );
-        self.blockchain_interfaces
+        self.blockchain_interface
             .transfer_service_fee_amount_to_address(
                 self.blockchain_params.contract_owner_wallet.address(),
                 &self.blockchain_params.contract_owner_wallet,
@@ -729,7 +739,7 @@ impl GlobalValues {
                 self.blockchain_params.chain,
             );
 
-        self.blockchain_interfaces.assert_balances(
+        self.blockchain_interface.assert_balances(
             &consuming_node_wallet,
             initial_transaction_fee_balance,
             initial_service_fee_balance_minor,
@@ -803,7 +813,7 @@ impl GlobalValues {
                 .receivable_dao
                 .more_money_receivable(timestamp, &consuming_node.consuming_wallet, balance)
                 .unwrap();
-            self.blockchain_interfaces
+            self.blockchain_interface
                 .assert_balances(&serving_node.earning_wallet, 0, 0);
             Self::set_start_block_to_zero(&serving_node.common.prepared_node.db_path)
         })
@@ -860,7 +870,7 @@ impl WholesomeConfig {
                 &serving_node_actual,
                 expected_wallet_addr,
                 "{:?} wallet {} mismatched with expected {}",
-                serving_node.serving_node_profile.serving_node_by_name,
+                serving_node.node_profile.serving_node_by_name,
                 serving_node_actual,
                 expected_wallet_addr
             );
@@ -868,7 +878,7 @@ impl WholesomeConfig {
     }
 
     fn assert_payments_via_direct_blockchain_scanning(&self, assertions_values: &AssertionsValues) {
-        let blockchain_interfaces = &self.global_values.blockchain_interfaces;
+        let blockchain_interfaces = &self.global_values.blockchain_interface;
         blockchain_interfaces.assert_balances(
             &self.consuming_node.consuming_wallet,
             assertions_values.final_consuming_node_transaction_fee_balance_minor,
@@ -900,7 +910,7 @@ impl WholesomeConfig {
             .iter()
             .zip(actually_received_payments.into_iter())
             .for_each(|(serving_node, received_payment)| {
-                let original_debt = serving_node.serving_node_profile.debt_specs().balance_minor;
+                let original_debt = serving_node.node_profile.debt_specs().balance_minor;
                 let expected_final_balance = original_debt - received_payment;
                 Self::wait_for_exact_balance_in_receivables(
                     &serving_node.receivable_dao,
@@ -927,12 +937,12 @@ impl WholesomeConfig {
 
 pub const ONE_ETH_IN_WEI: u128 = 10_u128.pow(18);
 
-pub struct Ports {
+pub struct UiPorts {
     consuming_node: u16,
     serving_nodes: [u16; 3],
 }
 
-impl Ports {
+impl UiPorts {
     pub fn new(
         consuming_node: u16,
         serving_node_1: u16,
@@ -971,7 +981,7 @@ pub struct ConsumingNode {
 
 #[derive(Debug)]
 pub struct ServingNode {
-    pub serving_node_profile: ServingNodeProfile,
+    pub node_profile: ServingNodeProfile,
     pub common: NodeAttributesCommon,
     pub earning_wallet: Wallet,
     pub receivable_dao: ReceivableDaoReal,
@@ -979,7 +989,7 @@ pub struct ServingNode {
 
 impl ServingNode {
     fn debt_balance_and_timestamp(&self, now: SystemTime) -> (u128, SystemTime) {
-        let debt_specs = self.serving_node_profile.debt_specs();
+        let debt_specs = self.node_profile.debt_specs();
         (debt_specs.balance_minor, debt_specs.proper_timestamp(now))
     }
 }
@@ -1004,7 +1014,7 @@ impl ConsumingNode {
 
 impl ServingNode {
     fn new(
-        serving_node_profile: ServingNodeProfile,
+        node_profile: ServingNodeProfile,
         prepared_node: PreparedNodeInfo,
         config: NodeStartupConfig,
         earning_wallet: Wallet,
@@ -1012,7 +1022,7 @@ impl ServingNode {
     ) -> Self {
         let common = NodeAttributesCommon::new(prepared_node, config);
         Self {
-            serving_node_profile,
+            node_profile,
             common,
             earning_wallet,
             receivable_dao,
