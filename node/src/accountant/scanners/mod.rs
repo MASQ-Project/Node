@@ -19,7 +19,7 @@ use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{
 };
 use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_receipt, handle_status_with_failure, handle_status_with_success, PendingPayableScanReport};
 use crate::accountant::scanners::scanners_utils::receivable_scanner_utils::balance_and_age;
-use crate::accountant::{PendingPayableId, ScanForPendingPayables};
+use crate::accountant::{PendingPayableId, ScanForPendingPayables, SettableSkeletonOptHolder};
 use crate::accountant::{
     comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -131,6 +131,7 @@ impl GuardedStartableScanner<RequestTransactionReceipts> for Scanners {
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
     ) -> Result<RequestTransactionReceipts, BeginScanError> {
+        eprintln!("Trying to start the pending payable scan");
         match (
             self.pending_payable.scan_started_at(),
             self.payable.scan_started_at(),
@@ -1214,7 +1215,7 @@ impl ScanSchedulers {
 }
 
 pub trait ScanScheduler {
-    fn schedule(&self, ctx: &mut Context<Accountant>);
+    fn schedule(&self, ctx: &mut Context<Accountant>, response_skeleton_opt: Option<ResponseSkeleton>);
     as_any_ref_in_trait!();
     as_any_mut_in_trait!();
 }
@@ -1225,7 +1226,7 @@ pub struct PeriodicalScanScheduler<Message: Default> {
 }
 
 impl<Message: Default + 'static> ScanScheduler for PeriodicalScanScheduler<Message> {
-    fn schedule(&self, ctx: &mut Context<Accountant>) {
+    fn schedule(&self, ctx: &mut Context<Accountant>, _response_skeleton_opt: Option<ResponseSkeleton>) {
         // the default of the message implies response_skeleton_opt to be None
         // because scheduled scans don't respond
         let _ = self
@@ -1240,10 +1241,13 @@ pub struct ImminentScanScheduler<Message: Default> {
     pub handle: Box<dyn NotifyHandle<Message, Accountant>>,
 }
 
-impl<Message: Default + 'static> ScanScheduler for ImminentScanScheduler<Message> {
-    fn schedule(&self, ctx: &mut Context<Accountant>) {
-        // the default of the message implies response_skeleton_opt to be None
-        // because scheduled scans don't respond
+impl<Message: Default + SettableSkeletonOptHolder + 'static> ScanScheduler for ImminentScanScheduler<Message> {
+    fn schedule(&self, ctx: &mut Context<Accountant>, response_skeleton_opt: Option<ResponseSkeleton>) {
+        let mut msg = Message::default();
+        if let Some(skeleton) = response_skeleton_opt {
+            todo!()
+            //msg.set_skeleton(skeleton)
+        }
         let _ = self.handle.notify(Message::default(), ctx);
     }
     as_any_ref_in_trait_impl!();
