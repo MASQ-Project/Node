@@ -15,7 +15,9 @@ use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::{add_chain_specific_directory, find_free_port};
 use std::net::TcpStream;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+use itertools::Itertools;
+use sysinfo::{ProcessExt, System, SystemExt};
 use utils::CommandConfig;
 
 #[test]
@@ -57,7 +59,7 @@ fn ui_requests_something_and_gets_corresponding_response() {
 
 #[test]
 fn log_broadcasts_are_correctly_received_integration() {
-    thread::sleep(Duration::from_secs(5));
+    wait_for_masq_node_ends();
     fdlimit::raise_fd_limit();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
@@ -96,11 +98,28 @@ fn log_broadcasts_are_correctly_received_integration() {
     node.wait_for_exit();
 }
 
+fn wait_for_masq_node_ends() {
+    let mut system = System::new_all();
+    let deadline = SystemTime::now() + Duration::from_secs(5);
+    loop {
+        if SystemTime::now() > deadline {
+            panic!("Previous instance of MASQNode does not stops");
+        }
+        system.refresh_all();
+        let processes = system.processes().clone();
+        if processes.into_values().find(|process| process.name().contains("MASQNode")).is_none() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
 #[test]
 fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     //Daemon's probe to check if the Node is alive causes an unwanted new reference
     //for the Daemon's client, so we need to make the Daemon send a close message
     //breaking any reference to him immediately
+    wait_for_masq_node_ends();
     fdlimit::raise_fd_limit();
     let data_directory = ensure_node_home_directory_exists(
         "ui_gateway_test",
@@ -182,6 +201,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
 
 #[test]
 fn cleanup_after_deceased_clients_integration() {
+    wait_for_masq_node_ends();
     fdlimit::raise_fd_limit();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(

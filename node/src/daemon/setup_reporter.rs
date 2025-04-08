@@ -69,7 +69,7 @@ pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) 
         .collect::<SetupCluster>()
 }
 
-fn daemon_shared_app() -> App<'static, 'static> {
+fn setup_reporter_shared_app() -> App<'static, 'static> {
     shared_app(app_head()).arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
@@ -228,7 +228,7 @@ impl SetupReporterReal {
     }
 
     pub fn get_default_params() -> SetupCluster {
-        let schema = daemon_shared_app();
+        let schema = setup_reporter_shared_app();
         schema
             .p
             .opts
@@ -498,7 +498,7 @@ impl SetupReporterReal {
         environment: bool,
         config_file: bool,
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
-        let app = daemon_shared_app();
+        let app = setup_reporter_shared_app();
         let mut vcls: Vec<Box<dyn VirtualCommandLine>> = vec![];
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
