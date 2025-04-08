@@ -12,7 +12,7 @@ use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
 use web3::{Error, Web3};
 
-const GAS_PRICE_INCREASE_PERCENTAGE: u128 = 80;
+pub const GAS_PRICE_INCREASE_PERCENTAGE: u128 = 80;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TransactionReceiptResult {
