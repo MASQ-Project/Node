@@ -852,7 +852,7 @@ conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 // in the future according to future user interface needs of more specification
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct CountryGroups {
-    #[serde(rename = "countryCodes")]
+    #[serde(rename = "CountryGroups")]
     pub country_codes: Vec<String>,
     pub priority: usize,
 }
@@ -883,7 +883,7 @@ conversation_message!(UiSetExitLocationRequest, "exitLocation");
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ExitLocation {
-    #[serde(rename = "countryCodes")]
+    #[serde(rename = "CountryGroups")]
     pub country_codes: Vec<String>,
     pub priority: usize,
 }

@@ -2090,13 +2090,13 @@ impl UserExitPreferences {
     }
 
     fn should_set_country_undesirability(country_code: &String, exit_location: &ExitLocation) -> bool {
-        exit_location.country_codes.contains(&country_code)
+        exit_location.country_codes.contains(country_code)
             && country_code != ZZ_COUNTRY_CODE_STRING
     }
 
     fn is_unreachable_country_penalty(&self, country_code: &String) -> bool {
         (self.fallback_preference == FallbackPreference::ExitCountryWithFallback
-            && !self.exit_countries.contains(&country_code))
+            && !self.exit_countries.contains(country_code))
             || country_code == ZZ_COUNTRY_CODE_STRING
     }
 
@@ -3895,7 +3895,7 @@ mod tests {
             MessageBody {
                 opcode: "exitLocation".to_string(),
                 path: MessagePath::Conversation(234),
-                payload: Ok("{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"countryCodes\":[\"CZ\",\"SK\"],\"priority\":1},{\"countryCodes\":[\"AT\",\"DE\"],\"priority\":2},{\"countryCodes\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}".to_string())
+                payload: Ok("{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"CountryGroups\":[\"CZ\",\"SK\"],\"priority\":1},{\"CountryGroups\":[\"AT\",\"DE\"],\"priority\":2},{\"CountryGroups\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}".to_string())
             }
         );
         assert_eq!(
