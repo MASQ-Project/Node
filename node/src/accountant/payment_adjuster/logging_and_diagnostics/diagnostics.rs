@@ -100,7 +100,7 @@ pub mod ordinary_diagnostic_functions {
     use thousands::Separable;
     use web3::types::Address;
 
-    pub fn thriving_competitor_found_diagnostics(
+    pub fn diagnostics_for_accounts_above_disqualification_limit(
         account_info: &UnconfirmedAdjustment,
         disqualification_limit: u128,
     ) {

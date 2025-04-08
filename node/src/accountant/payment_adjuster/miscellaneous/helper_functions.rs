@@ -199,7 +199,7 @@ mod tests {
     use std::time::SystemTime;
 
     #[test]
-    fn no_affordable_accounts_found_found_returns_true_for_non_finalized_accounts() {
+    fn no_affordable_accounts_found_returns_true_for_non_finalized_accounts() {
         let result = no_affordable_accounts_found(&Either::Left(vec![]));
 
         assert_eq!(result, true)

@@ -12,7 +12,7 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::utils::convert_collection;
 use std::vec;
-use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::thriving_competitor_found_diagnostics;
+use crate::accountant::payment_adjuster::logging_and_diagnostics::diagnostics::ordinary_diagnostic_functions::diagnostics_for_accounts_above_disqualification_limit;
 
 pub trait ServiceFeeAdjuster {
     fn perform_adjustment_by_service_fee(
@@ -41,12 +41,14 @@ impl ServiceFeeAdjuster for ServiceFeeAdjusterReal {
         let checked_accounts = Self::try_confirm_some_accounts(unconfirmed_adjustments);
 
         match checked_accounts {
-            Either::Left(no_accounts_above_disq_limit) => Self::disqualify_single_account(
+            Either::Left(only_accounts_below_disq_limit) => Self::disqualify_single_account(
                 disqualification_arbiter,
-                no_accounts_above_disq_limit,
+                only_accounts_below_disq_limit,
                 logger,
             ),
-            Either::Right(some_accounts_above_disq_limit) => some_accounts_above_disq_limit,
+            Either::Right(some_accounts_above_or_even_to_disq_limit) => {
+                some_accounts_above_or_even_to_disq_limit
+            }
         }
     }
 }
@@ -74,16 +76,16 @@ impl ServiceFeeAdjusterReal {
     fn try_confirm_some_accounts(
         unconfirmed_adjustments: Vec<UnconfirmedAdjustment>,
     ) -> Either<Vec<UnconfirmedAdjustment>, AdjustmentIterationResult> {
-        let (accounts_above_disq_limit, accounts_below_disq_limit) =
+        let (accounts_above_or_even_to_disq_limit, accounts_below_disq_limit) =
             Self::filter_and_process_confirmable_accounts(unconfirmed_adjustments);
 
-        if accounts_above_disq_limit.is_empty() {
+        if accounts_above_or_even_to_disq_limit.is_empty() {
             Either::Left(accounts_below_disq_limit)
         } else {
             let remaining_undecided_accounts: Vec<WeighedPayable> =
                 convert_collection(accounts_below_disq_limit);
             let pre_processed_decided_accounts: Vec<AdjustedAccountBeforeFinalization> =
-                convert_collection(accounts_above_disq_limit);
+                convert_collection(accounts_above_or_even_to_disq_limit);
             Either::Right(AdjustmentIterationResult {
                 decided_accounts: pre_processed_decided_accounts,
                 remaining_undecided_accounts,
@@ -119,27 +121,31 @@ impl ServiceFeeAdjusterReal {
         Vec<UnconfirmedAdjustment>,
     ) {
         let init: (Vec<UnconfirmedAdjustment>, Vec<UnconfirmedAdjustment>) = (vec![], vec![]);
-        let fold_guts = |(mut above_disq_limit, mut below_disq_limit): (Vec<_>, Vec<_>),
-                         current: UnconfirmedAdjustment| {
-            let disqualification_limit = current.disqualification_limit_minor();
-            if current.proposed_adjusted_balance_minor >= disqualification_limit {
-                thriving_competitor_found_diagnostics(&current, disqualification_limit);
-                let mut adjusted = current;
-                adjusted.proposed_adjusted_balance_minor = disqualification_limit;
-                above_disq_limit.push(adjusted)
-            } else {
-                below_disq_limit.push(current)
-            }
-            (above_disq_limit, below_disq_limit)
-        };
+        let fold_guts =
+            |(mut above_or_even_to_disq_limit, mut below_disq_limit): (Vec<_>, Vec<_>),
+             current: UnconfirmedAdjustment| {
+                let disqualification_limit = current.disqualification_limit_minor();
+                if current.proposed_adjusted_balance_minor >= disqualification_limit {
+                    diagnostics_for_accounts_above_disqualification_limit(
+                        &current,
+                        disqualification_limit,
+                    );
+                    let mut adjusted = current;
+                    adjusted.proposed_adjusted_balance_minor = disqualification_limit;
+                    above_or_even_to_disq_limit.push(adjusted)
+                } else {
+                    below_disq_limit.push(current)
+                }
+                (above_or_even_to_disq_limit, below_disq_limit)
+            };
 
-        let (accounts_above_disq_limit, accounts_below_disq_limit) =
+        let (accounts_above_or_even_to_disq_limit, accounts_below_disq_limit) =
             unconfirmed_adjustments.into_iter().fold(init, fold_guts);
 
-        let decided_accounts = if accounts_above_disq_limit.is_empty() {
+        let decided_accounts = if accounts_above_or_even_to_disq_limit.is_empty() {
             vec![]
         } else {
-            convert_collection(accounts_above_disq_limit)
+            convert_collection(accounts_above_or_even_to_disq_limit)
         };
 
         (decided_accounts, accounts_below_disq_limit)

@@ -25,6 +25,8 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::percentage::PurePercentage;
 
+type TxCount = u16;
+
 pub struct PreparatoryAnalyzer {}
 
 impl PreparatoryAnalyzer {
@@ -104,9 +106,12 @@ impl PreparatoryAnalyzer {
 
     fn handle_errors_if_present(
         number_of_accounts: usize,
-        transaction_fee_check_result: Result<Option<u16>, TransactionFeeImmoderateInsufficiency>,
+        transaction_fee_check_result: Result<
+            Option<TxCount>,
+            TransactionFeeImmoderateInsufficiency,
+        >,
         service_fee_check_result: Result<(), ServiceFeeImmoderateInsufficiency>,
-    ) -> Result<Option<u16>, PaymentAdjusterError> {
+    ) -> Result<Option<TxCount>, PaymentAdjusterError> {
         let construct_error =
             |tx_fee_check_err_opt: Option<TransactionFeeImmoderateInsufficiency>,
              service_fee_check_err_opt: Option<ServiceFeeImmoderateInsufficiency>| {
@@ -168,7 +173,7 @@ impl PreparatoryAnalyzer {
         per_transaction_requirement_minor: u128,
         number_of_qualified_accounts: usize,
         logger: &Logger,
-    ) -> Result<Option<u16>, TransactionFeeImmoderateInsufficiency> {
+    ) -> Result<Option<TxCount>, TransactionFeeImmoderateInsufficiency> {
         let per_txn_requirement_minor_with_margin =
             gas_price_margin.increase_by_percent_for(per_transaction_requirement_minor);
 
@@ -178,8 +183,8 @@ impl PreparatoryAnalyzer {
             number_of_qualified_accounts,
         );
 
-        let max_tx_count_we_can_afford: u16 = verified_tx_counts.affordable;
-        let required_tx_count: u16 = verified_tx_counts.required;
+        let max_tx_count_we_can_afford = verified_tx_counts.affordable;
+        let required_tx_count = verified_tx_counts.required;
 
         if max_tx_count_we_can_afford == 0 {
             Err(TransactionFeeImmoderateInsufficiency {
@@ -192,9 +197,9 @@ impl PreparatoryAnalyzer {
             log_insufficient_transaction_fee_balance(
                 logger,
                 required_tx_count,
+                max_tx_count_we_can_afford,
                 per_txn_requirement_minor_with_margin,
                 cw_transaction_fee_balance_minor,
-                max_tx_count_we_can_afford,
             );
 
             Ok(Some(max_tx_count_we_can_afford))
@@ -610,10 +615,10 @@ mod tests {
     }
 
     #[test]
-    fn recheck_if_service_fee_adjustment_is_needed_works_nicely_for_weighted_payables() {
+    fn recheck_if_service_fee_adjustment_is_needed_works_nicely_for_weighed_payables() {
         init_test_logging();
         let test_name =
-            "recheck_if_service_fee_adjustment_is_needed_works_nicely_for_weighted_payables";
+            "recheck_if_service_fee_adjustment_is_needed_works_nicely_for_weighed_payables";
         let balance_1 = multiply_by_billion(2_000_000);
         let mut weighed_account_1 = make_meaningless_weighed_account(123);
         weighed_account_1
@@ -630,33 +635,33 @@ mod tests {
             .balance_wei = balance_2;
         let accounts = vec![weighed_account_1, weighed_account_2];
         let service_fee_totally_required_minor = balance_1 + balance_2;
-        // We start at a value being one bigger than required, and in the act, we subtract from it
-        // so that we also get the exact edge and finally also not enough by one.
-        let cw_service_fee_balance_minor = service_fee_totally_required_minor + 1;
         let error_factory = LateServiceFeeSingleTxErrorFactory::new(&accounts);
         let logger = Logger::new(test_name);
         let subject = PreparatoryAnalyzer::new();
 
-        [(0, false), (1, false), (2, true)].iter().for_each(
-            |(subtrahend_from_cw_balance, adjustment_is_needed_expected)| {
-                let service_fee_balance = cw_service_fee_balance_minor - subtrahend_from_cw_balance;
-                let adjustment_is_needed_actual = subject
-                    .recheck_if_service_fee_adjustment_is_needed(
-                        &accounts,
-                        service_fee_balance,
-                        error_factory.clone(),
-                        &logger,
-                    )
-                    .unwrap();
-                assert_eq!(adjustment_is_needed_actual, *adjustment_is_needed_expected);
-            },
-        );
+        [
+            (service_fee_totally_required_minor - 1, false),
+            (service_fee_totally_required_minor, false),
+            (service_fee_totally_required_minor + 1, true),
+        ]
+        .iter()
+        .for_each(|(service_fee_balance, adjustment_is_needed_expected)| {
+            let adjustment_is_needed_actual = subject
+                .recheck_if_service_fee_adjustment_is_needed(
+                    &accounts,
+                    *service_fee_balance,
+                    error_factory.clone(),
+                    &logger,
+                )
+                .unwrap();
+            assert_eq!(adjustment_is_needed_actual, *adjustment_is_needed_expected);
+        });
 
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Mature payables amount to {} MASQ wei while the consuming wallet \
             holds only {}",
             service_fee_totally_required_minor.separate_with_commas(),
-            (cw_service_fee_balance_minor - 2).separate_with_commas()
+            (service_fee_totally_required_minor - 1).separate_with_commas()
         ));
     }
 

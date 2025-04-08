@@ -78,7 +78,7 @@ impl PaymentAdjusterInner {
         })
     }
     pub fn subtract_from_remaining_cw_service_fee_balance_minor(&self, subtrahend: u128) {
-        let updated_thought_cw_balance = self.get_value(
+        let updated_cw_balance = self.get_value(
             "subtract_from_remaining_cw_service_fee_balance_minor",
             |guts_ref| {
                 guts_ref
@@ -89,7 +89,7 @@ impl PaymentAdjusterInner {
         );
         self.set_value(
             "subtract_from_remaining_cw_service_fee_balance_minor",
-            |guts_mut| guts_mut.remaining_cw_service_fee_balance_minor = updated_thought_cw_balance,
+            |guts_mut| guts_mut.remaining_cw_service_fee_balance_minor = updated_cw_balance,
         )
     }
 
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn reducing_remaining_cw_service_fee_balance_works() {
+    fn subtracting_remaining_cw_service_fee_balance_works() {
         let initial_cw_service_fee_balance_minor = 123_123_678_678;
         let subject = PaymentAdjusterInner::default();
         subject.initialize_guts(None, initial_cw_service_fee_balance_minor, 12345);
