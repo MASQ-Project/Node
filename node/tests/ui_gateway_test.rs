@@ -105,7 +105,12 @@ fn wait_for_masq_node_ends() {
             panic!("Previous instance of MASQNode does not stops");
         }
         system.refresh_all();
-        if system.processes().into_iter().find(|(_, process)| process.name().contains("MASQNode")).is_none() {
+        if system
+            .processes()
+            .into_iter()
+            .find(|(_, process)| process.name().contains("MASQNode"))
+            .is_none()
+        {
             break;
         }
         thread::sleep(Duration::from_millis(500));

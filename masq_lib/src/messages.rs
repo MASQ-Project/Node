@@ -848,7 +848,7 @@ pub struct UiWalletAddressesResponse {
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
-// CountryGroups are inbound data for ExitLocations from UI. These data structures could be enriched 
+// CountryGroups are inbound data for ExitLocations from UI. These data structures could be enriched
 // in the future according to future user interface needs of more specification
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct CountryGroups {

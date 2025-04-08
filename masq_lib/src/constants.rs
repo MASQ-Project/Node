@@ -204,14 +204,8 @@ mod tests {
             NODE_RECORD_INNER_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }
         );
-        assert_eq!(
-            PAYLOAD_ZERO_SIZE,
-            0usize
-        );
-        assert_eq!(
-            DEFAULT_PREALLOCATION_VEC,
-            10
-        )
+        assert_eq!(PAYLOAD_ZERO_SIZE, 0usize);
+        assert_eq!(DEFAULT_PREALLOCATION_VEC, 10)
     }
 
     #[test]

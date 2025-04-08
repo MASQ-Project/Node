@@ -425,7 +425,10 @@ pub mod tests {
         );
         let stdout = stdout_arc.lock().unwrap();
         let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Fallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1\n");
+        assert_eq!(
+            &stdout.get_string(),
+            "Fallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1\n"
+        );
         assert_eq!(&stderr.get_string(), "");
     }
 
@@ -485,26 +488,26 @@ pub mod tests {
             "Countries available for exit-location: [\"CZ\"]\n"
         );
     }
-    
+
     #[test]
     fn providing_show_countries_with_other_argument_fails() {
         let result_expected_one = "SetExitLocationCommand error: The argument '--country-codes <COUNTRY-CODES>' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
         let result_expected_two = "SetExitLocationCommand error: The argument '--show-countries' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
-        
+
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--show-countries".to_string(),
             "--country-codes".to_string(),
             "CZ".to_string(),
         ])
-            .unwrap_err();
-        
+        .unwrap_err();
+
         assert!(
             result.contains(result_expected_one) || result.contains(result_expected_two),
             "result was {:?}, but expected {:?} or {:?}",
             result,
             result_expected_one,
             result_expected_two
-        ); 
+        );
     }
 }
