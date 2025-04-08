@@ -2,6 +2,7 @@
 
 use crate::messages::ExitLocation;
 use std::fmt::{Display, Formatter};
+use itertools::Itertools;
 
 pub struct ExitLocationSet {
     pub locations: Vec<ExitLocation>,
@@ -9,13 +10,10 @@ pub struct ExitLocationSet {
 
 impl Display for ExitLocationSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        for exit_location in self.locations.iter() {
-            write!(
-                f,
-                "Country Codes: {:?} - Priority: {}; ",
-                exit_location.country_codes, exit_location.priority
-            )?;
-        }
+
+        let exit_location_string = self.locations.iter().map(|exit_location|
+            format!("Country Codes: {:?} - Priority: {}", exit_location.country_codes, exit_location.priority)).collect_vec().join("; ");
+        write!(f, "{}", exit_location_string)?;
         Ok(())
     }
 }

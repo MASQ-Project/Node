@@ -3908,7 +3908,7 @@ mod tests {
             "INFO: {}: Fallback Routing is set. Exit location set:",
             test_name
             ),
-            &"Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3;"
+            &"Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3"
         ]);
     }
 
@@ -4059,7 +4059,7 @@ mod tests {
                 "INFO: {}: Fallback Routing is set. Exit location set:",
                 test_name
             ),
-            &"Country Codes: [\"CZ\", \"SK\", \"IN\"] - Priority: 1;",
+            &"Country Codes: [\"CZ\", \"SK\", \"IN\"] - Priority: 1",
             &format!(
                 "WARN: {}: Exit Location: following desired countries are missing in Neighborhood [\"CZ\", \"SK\", \"IN\"]",
                 test_name
@@ -4249,7 +4249,7 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-                "INFO: {}: Fallback Routing NOT set. Exit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2;",
+                "INFO: {}: Fallback Routing NOT set. Exit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2",
                 test_name
             ),
             &format!(
