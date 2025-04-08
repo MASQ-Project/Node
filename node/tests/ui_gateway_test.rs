@@ -16,7 +16,6 @@ use masq_lib::utils::{add_chain_specific_directory, find_free_port};
 use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, SystemTime};
-use itertools::Itertools;
 use sysinfo::{ProcessExt, System, SystemExt};
 use utils::CommandConfig;
 
@@ -106,8 +105,7 @@ fn wait_for_masq_node_ends() {
             panic!("Previous instance of MASQNode does not stops");
         }
         system.refresh_all();
-        let processes = system.processes().clone();
-        if processes.into_values().find(|process| process.name().contains("MASQNode")).is_none() {
+        if system.processes().into_iter().find(|(_, process)| process.name().contains("MASQNode")).is_none() {
             break;
         }
         thread::sleep(Duration::from_millis(500));
