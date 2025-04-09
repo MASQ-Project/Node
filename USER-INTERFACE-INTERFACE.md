@@ -611,7 +611,7 @@ This command requests information about the countries available for exit in our 
 desired locations with their priority. The priority provides the node's perspective on how important a particular country 
 is for our preferences.
 
-This command can be used in two ways:
+This command can be used in two ways which can't be combined:
 1. If we use the command with showCountries set to true, it retrieves information about the available countries in our neighborhood. In this case, other parameters are ignored. 
 2. If we want to set an exit location, we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
 
@@ -637,12 +637,19 @@ only be used if a German exit is unavailable or significantly more expensive.
                 "priority": <positive integer> 
             },
         ]>,
-    "exitCountries": <optional[string, ..]>
     "missingCountries": <[string, ..]>
+    "exitCountries": <optional[string, ..]>
 }
 ```
 ##### Description:
+In response, the Node sends a payload to the UI that contains either the Exit Location settings (which may include missing countries) or a list of exit countries.
 
+Exit Location settings consist of fallbackRouting, exitCountrySelection, and missingCountries, where:
+1. fallbackRouting is a boolean representing the user's choice to enable or disable fallback routing within the neighborhood. 
+2. exitCountrySelection is an array of objects, where each object represents a set of country codes along with their assigned priority. 
+3. missingCountries is an array of strings representing a list of countries that are currently unavailable in the Node's Neighborhood Database.
+
+Exit Countries (or exitCountries) is an optional array containing ISO country code strings. These represent the countries currently available in the Node's Neighborhood Database. The user can select from these countries to configure the Exit Location settings.
 
 #### `financials`
 ##### Direction: Request
