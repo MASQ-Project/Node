@@ -3611,39 +3611,39 @@ mod tests {
     #[test]
     fn min_hops_change_affects_db_countries_and_exit_location_settings() {
         let mut subject = make_standard_subject();
-        let root_node = subject.neighborhood_database.root().clone(); //CH
-        let neighbor_one = make_node_record(1234, true); //AU
-        let neighbor_two = make_node_record(2345, true); //FR
-        let neighbor_three = make_node_record(3456, true); //CN
-        let neighbor_four = make_node_record(4567, true); //US
+        let root_node_ch = subject.neighborhood_database.root().clone();
+        let neighbor_one_au = make_node_record(1234, true);
+        let neighbor_two_fr = make_node_record(2345, true);
+        let neighbor_three_cn = make_node_record(3456, true);
+        let neighbor_four_us = make_node_record(4567, true);
         subject
             .neighborhood_database
-            .add_node(neighbor_one.clone())
+            .add_node(neighbor_one_au.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(neighbor_two.clone())
+            .add_node(neighbor_two_fr.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(neighbor_three.clone())
+            .add_node(neighbor_three_cn.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_node(neighbor_four.clone())
+            .add_node(neighbor_four_us.clone())
             .unwrap();
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(root_node.public_key(), neighbor_one.public_key());
+            .add_arbitrary_full_neighbor(root_node_ch.public_key(), neighbor_one_au.public_key());
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor_one.public_key(), neighbor_two.public_key());
+            .add_arbitrary_full_neighbor(neighbor_one_au.public_key(), neighbor_two_fr.public_key());
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor_two.public_key(), neighbor_three.public_key());
+            .add_arbitrary_full_neighbor(neighbor_two_fr.public_key(), neighbor_three_cn.public_key());
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor_three.public_key(), neighbor_four.public_key());
+            .add_arbitrary_full_neighbor(neighbor_three_cn.public_key(), neighbor_four_us.public_key());
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
         let exit_locations_by_priority = vec![ExitLocation {
             country_codes: vec!["FR".to_string(), "US".to_string()],
@@ -4707,11 +4707,6 @@ mod tests {
                         |
                        a_fr
             Test is written from the standpoint of root_key.
-            println!("a {}, b {}, c {}",
-                 make_node_record(2345, true).inner.country_code_opt.unwrap(),
-                 make_node_record(5678, true).inner.country_code_opt.unwrap(),
-                 make_node_record(1234, true).inner.country_code_opt.unwrap()
-            );
     */
 
     #[test]
@@ -4804,35 +4799,35 @@ mod tests {
     #[test]
     fn route_for_fr_country_code_is_constructed_without_fallback_routing() {
         let mut subject = make_standard_subject();
-        let p = &subject
+        let root_key = &subject
             .neighborhood_database
             .root_mut()
             .public_key()
             .clone();
-        let a = &subject
+        let a_fr = &subject
             .neighborhood_database
             .add_node(make_node_record(2345, true))
             .unwrap();
-        let b = &subject
+        let b_fr = &subject
             .neighborhood_database
             .add_node(make_node_record(5678, true))
             .unwrap();
-        let c = &subject
+        let c_au = &subject
             .neighborhood_database
             .add_node(make_node_record(1234, true))
             .unwrap();
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(p, b);
+            .add_arbitrary_full_neighbor(root_key, b_fr);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(b, c);
+            .add_arbitrary_full_neighbor(b_fr, c_au);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(b, a);
+            .add_arbitrary_full_neighbor(b_fr, a_fr);
         subject
             .neighborhood_database
-            .add_arbitrary_full_neighbor(a, c);
+            .add_arbitrary_full_neighbor(a_fr, c_au);
         let cdb = subject.neighborhood_database.clone();
         let (recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(recipient);
@@ -4847,7 +4842,7 @@ mod tests {
         subject.handle_exit_location_message(message, 0, 0);
 
         let route_fr =
-            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(root_key, None, 2, 10000, RouteDirection::Over, None);
 
         let exit_node = cdb.node_by_key(&route_fr.as_ref().unwrap().last().unwrap());
         assert_eq!(
