@@ -4789,9 +4789,10 @@ mod tests {
             show_countries: false,
         };
         subject.handle_exit_location_message(message, 0, 0);
+        let subject_min_hops = 2;
 
         let route_au =
-            subject.find_best_route_segment(root_key, None, 2, 10000, RouteDirection::Over, None);
+            subject.find_best_route_segment(root_key, None, subject_min_hops, 10000, RouteDirection::Over, None);
 
         let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().last().unwrap());
         assert_eq!(
