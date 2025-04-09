@@ -134,6 +134,15 @@ pub struct FinalBitQueue {
     pub block_count: usize,
 }
 
+impl Default for FinalBitQueue {
+    fn default() -> Self {
+        Self {
+            bit_queue: BitQueue::new(),
+            block_count: 0,
+        }
+    }
+}
+
 pub struct CountryBlockSerializer {
     ipv4: Ipv4Serializer,
     ipv6: Ipv6Serializer,

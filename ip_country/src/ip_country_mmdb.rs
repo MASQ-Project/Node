@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
 use itertools::Itertools;
 use maxminddb::geoip2::City;
-use maxminddb::{Reader, Within};
+use maxminddb::{Reader, Within, WithinItem};
 use serde::Deserialize;
 use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::countries::Countries;
@@ -27,63 +27,50 @@ impl DBIPParser for MMDBParser {
         errors: &mut Vec<String>,
     ) -> (FinalBitQueue, FinalBitQueue, Countries) {
         let mut bytes: Vec<u8> = vec![];
-eprintln!("Reading stdin");
         match stdin.read_to_end(&mut bytes) {
             Ok(_) => {}
             Err(e) => {
-                todo!("Error reading from stdin: {}", e);
+                errors.push(format!("Error reading from stdin: {}", e));
             }
         };
-eprintln!("Making Reader");
         let reader = match Reader::from_source(bytes) {
             Ok(r) => r,
             Err(e) => {
-                todo!("Error opening MaxMind DB: {}", e);
+                errors.push(format!("Error opening MaxMind DB: {}", e));
+                return (FinalBitQueue::default(), FinalBitQueue::default(), Countries::new(vec![]));
             }
         };
         let mut country_pairs: HashSet<(String, String)> = HashSet::new();
 
-        let ip_network = match Ipv4Network::new(Ipv4Addr::new(0, 0, 0, 0), 0) {
-            Ok(ipn) => ipn,
-            Err(e) => {
-                todo!("Error creating IP network: {}", e);
-            }
-        };
-eprintln!("Calling within() for IPv4");
-        let within = match reader.within::<City>(
+        let ip_network = Ipv4Network::new(Ipv4Addr::new(0, 0, 0, 0), 0).expect("Ipv4Network stopped working");
+        let ipv4_ranges = match reader.within::<City>(
             IpNetwork::V4(ip_network),
         ) {
-            Ok(w) => w,
+            Ok(w) => {
+                Self::extract_data(w, &mut country_pairs, errors)
+            },
             Err(e) => {
-                todo!("Error creating within iterator: {}", e);
+                errors.push(format!("Error creating within iterator: {}", e));
+                vec![]
             }
         };
-eprintln!("Extracting IPv4 data");
-        let ipv4_ranges = Self::extract_data(within, &mut country_pairs, errors);
 
-        let ip_network = match Ipv6Network::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0) {
-            Ok(ipn) => ipn,
-            Err(e) => {
-                todo!("Error creating IP network: {}", e);
-            }
-        };
-eprintln!("Calling within() for IPv6");
-        let within = match reader.within::<City>(
+        let ip_network = Ipv6Network::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0).expect("Ipv6Network stopped working");
+        let ipv6_ranges = match reader.within::<City>(
             IpNetwork::V6(ip_network),
         ) {
-            Ok(w) => w,
+            Ok(w) => {
+                Self::extract_data(w, &mut country_pairs, errors)            },
             Err(e) => {
-                todo!("Error creating within iterator: {}", e);
+                errors.push(format!("Error creating within iterator: {}", e));
+                vec![]
             }
         };
-eprintln!("Extracting IPv6 data");
-        let ipv6_ranges = Self::extract_data(within, &mut country_pairs, errors);
 
-eprintln!("Creating Countries structure");
         let country_pairs_vec = country_pairs.into_iter().collect_vec();
         let countries = Countries::new(country_pairs_vec);
 
-        let make_country_blocks = |ranges: Vec<(String, IpRange)>| {
+        let mut make_country_blocks = |ranges: Vec<(String, IpRange)>| {
             ranges.into_iter().map(|(code, ip_range)| {
                 match countries.country_from_code(code.as_str()) {
                     Ok(country) => CountryBlock {
@@ -91,7 +78,7 @@ eprintln!("Creating Countries structure");
                         country: country.clone(),
                     },
                     Err(e) => {
-                        eprintln!("Error finding country from code {} for IP range {:?}: {}", code, ip_range, e);
+                        errors.push(format!("Error finding country from code {} for IP range {:?}: {}", code, ip_range, e));
                         CountryBlock {
                             ip_range,
                             country: Country::new(0, "ZZ", "Unknown"),
@@ -101,18 +88,12 @@ eprintln!("Creating Countries structure");
             }).collect_vec()
         };
         let mut serializer = CountryBlockSerializer::new();
-eprintln!("Making IPv4 CountryBlocks");
         let country_blocks = make_country_blocks(ipv4_ranges);
-eprintln!("Serializing IPv4 CountryBlocks");
         country_blocks.into_iter().for_each(|block| serializer.add(block));
-eprintln!("Making IPv6 CountryBlocks");
         let country_blocks = make_country_blocks(ipv6_ranges);
-eprintln!("Serializing IPv6 CountryBlocks");
         country_blocks.into_iter().for_each(|block| serializer.add(block));
-eprintln!("Finishing serialization");
         let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
 
-eprintln!("Returning final tuple");
         (ipv4_bit_queue, ipv6_bit_queue, countries)
     }
 }
@@ -127,7 +108,7 @@ impl MMDBParser {
     fn extract_data<'de>(
         within: Within<'de, City<'de>, Vec<u8>>,
         country_pairs: &mut HashSet<(String, String)>,
-        _errors: &mut Vec<String>
+        errors: &mut Vec<String>
     ) -> Vec<(String, IpRange)> {
         let mut coded_ranges: Vec<(String, IpRange)> = vec![];
         within.for_each(|item_result| {
@@ -141,25 +122,36 @@ impl MMDBParser {
                                     let ip_range = Self::ipn_to_range(item.ip_net);
                                     coded_ranges.push((code.to_string(), ip_range));
                                 }
-                                (Some(code), Some(None)) => {
-                                    todo!("Country code {:?} found but no name", code);
+                                (Some(code), _) => {
+                                    errors.push(format!("Country code {:?} found but no name - using 'Unknown'", code));
+                                    country_pairs.insert((code.to_string(), "Unknown".to_string()));
+                                    let ip_range = Self::ipn_to_range(item.ip_net);
+                                    coded_ranges.push((code.to_string(), ip_range));
                                 }
                                 (None, Some(Some(name))) => {
-                                    todo!("Country code not found for country: {:?}", name);
+                                    errors.push(format!("Country code not found for country: {:?} - using Sentinel", name));
+                                    country_pairs.insert(("ZZ".to_string(), "Sentinel".to_string()));
+                                    let ip_range = Self::ipn_to_range(item.ip_net);
+                                    coded_ranges.push(("ZZ".to_string(), ip_range));
                                 }
-                                // (None, Some(None)) => {
-                                //     todo!("Country code and name not found for item: {:?}", item);
-                                // }
-                                _ => {
-                                    todo!("What's this?")
+                                (None, _) => {
+                                    errors.push(format!("Country code and name not found for range: {:?} - using Sentinel", item.ip_net));
+                                    country_pairs.insert(("ZZ".to_string(), "Sentinel".to_string()));
+                                    let ip_range = Self::ipn_to_range(item.ip_net);
+                                    coded_ranges.push(("ZZ".to_string(), ip_range));
                                 }
                             }
                         }
-                        None => todo!("Country info not found for item: {:?}", item),
+                        None => {
+                            errors.push(format!("No country information found for range: {:?} - using Sentinel", item.ip_net));
+                            country_pairs.insert(("ZZ".to_string(), "Sentinel".to_string()));
+                            let ip_range = Self::ipn_to_range(item.ip_net);
+                            coded_ranges.push(("ZZ".to_string(), ip_range));
+                        },
                     }
                 }
                 Err(e) => {
-                    todo!("Error processing item: {}", e);
+                    errors.push(format!("Error processing item: {}", e));
                 }
             }
         });
@@ -179,34 +171,167 @@ mod tests {
     use super::*;
     use std::cmp::min;
     use std::fs::File;
+    use std::io::Read;
     use std::net::IpAddr;
     use std::str::FromStr;
     use crate::country_finder::CountryCodeFinder;
 
+    struct BadRead {
+        delegate: Box<dyn Read>
+    }
+
+    impl Read for BadRead {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self.delegate.read(buf) {
+                Ok(len) => {
+                    if len == 0 {
+                        Err(io::Error::from(io::ErrorKind::BrokenPipe))
+                    } else {
+                        Ok(len)
+                    }
+                }
+                Err(e) => Err(e)
+            }
+        }
+    }
+
     #[test]
-    fn happy_path() {
-        let file = PathBuf::from("data/dbip-country-lite.mmdb");
+    fn bad_stream() {
+        /*
+            54.36.84.100/22,France,FR
+            142.44.196.0/25,India,IN
+            5555:5555:5555:5555:5555:5555:5555:5555/96,Czechia,CZ
+         */
+        let file = PathBuf::from("data/country-scratch-out.mmdb");
+        let delegate = File::open(&file).unwrap();
+        let mut stdin = BadRead {
+            delegate: Box::new(delegate)
+        };
+        let subject = MMDBParser::new();
+        let mut errors = vec![];
+
+        let result = subject.parse(&mut stdin, &mut errors);
+
+        assert_eq!(
+            errors,
+            vec!["Error reading from stdin: broken pipe".to_string()]
+        );
+        let country_code_finder = CountryCodeFinder::new(
+            &result.2,
+            country_data_from_bit_queue(result.0),
+            country_data_from_bit_queue(result.1)
+        );
+
+        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("54.36.84.100").unwrap());
+        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("FR".to_string()));
+        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("142.44.196.0").unwrap());
+        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("IN".to_string()));
+        let ipv6_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:5555:5555").unwrap());
+        assert_eq!(ipv6_country.map(|c| c.iso3166.clone()), Some("CZ".to_string()));
+    }
+
+    #[test]
+    fn improperly_formatted() {
+        /*
+            <text file>
+         */
+        let file = PathBuf::from("data/improperly-formatted.mmdb");
         let mut stdin = File::open(&file).unwrap();
         let subject = MMDBParser::new();
         let mut errors = vec![];
 
-        let (ipv4_bit_queue, ipv6_bit_queue, countries) =
-            subject.parse(&mut stdin, &mut errors);
+        let result = subject.parse(&mut stdin, &mut errors);
+
+        assert_eq!(
+            errors,
+            vec!["Error opening MaxMind DB: Invalid database: Could not find MaxMind DB metadata in file.".to_string()]
+        );
+        assert_eq!(result.0.block_count, 0);
+        assert_eq!(result.1.block_count, 0);
+        assert_eq!(result.2.len(), 1); // ZZ only
+    }
+
+    #[test]
+    fn corrupted() {
+        /*
+            <corrupted version of mmdb file>
+         */
+        let file = PathBuf::from("data/corrupted.mmdb");
+        let mut stdin = File::open(&file).unwrap();
+        let subject = MMDBParser::new();
+        let mut errors = vec![];
+
+        let result = subject.parse(&mut stdin, &mut errors);
+
+        assert_eq!(
+            errors,
+            vec![
+                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
+                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
+                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
+                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
+                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
+                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
+            ]
+        );
+        assert_eq!(result.0.block_count, 5);
+        assert_eq!(result.1.block_count, 3);
+        assert_eq!(result.2.len(), 3);
+    }
+
+    #[test]
+    fn happy_path() {
+        /*
+            54.36.84.100/22,France,FR
+            142.44.196.0/25,India,IN
+            5555:5555:5555:5555:5555:5555:5555:5555/96,Czechia,CZ
+         */
+        let file = PathBuf::from("data/country-scratch-out.mmdb");
+        let mut stdin = File::open(&file).unwrap();
+        let subject = MMDBParser::new();
+        let mut errors = vec![];
+
+        let result = subject.parse(&mut stdin, &mut errors);
 
         let expected_errors: Vec<String> = vec![];
         assert_eq!(errors, expected_errors);
-eprintln! ("No errors! Creating CountryCodeFinder");
         let country_code_finder = CountryCodeFinder::new(
-            &countries,
-            country_data_from_bit_queue(ipv4_bit_queue),
-            country_data_from_bit_queue(ipv6_bit_queue)
+            &result.2,
+            country_data_from_bit_queue(result.0),
+            country_data_from_bit_queue(result.1)
         );
-eprintln!("Finding country for 55.55.55.55");
-        let ipv4_five_country = country_code_finder.find_country(IpAddr::from_str("55.55.55.55").unwrap());
-        assert_eq!(ipv4_five_country.map(|c| c.iso3166.clone()), Some("US".to_string()));
-eprintln!("Finding country for 5555:5555:5555:5555:5555:5555:5555");
-        let ipv6_five_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:5555:5555").unwrap());
-        assert_eq!(ipv6_five_country.map(|c| c.iso3166.clone()), Some("CH".to_string()));
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("0.0.0.0").unwrap());
+        assert_eq!(country_opt, None);
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("54.36.83.255").unwrap());
+        assert_eq!(country_opt, None);
+        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("54.36.84.0").unwrap());
+        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("FR".to_string()));
+        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("54.36.87.255").unwrap());
+        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("FR".to_string()));
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("54.36.88.0").unwrap());
+        assert_eq!(country_opt, None);
+
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("142.44.195.255").unwrap());
+        assert_eq!(country_opt, None);
+        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("142.44.196.0").unwrap());
+        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("IN".to_string()));
+        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("142.44.196.127").unwrap());
+        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("IN".to_string()));
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("142.44.196.128").unwrap());
+        assert_eq!(country_opt, None);
+
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("0000:0000:0000:0000:0000:0000:0000:0000").unwrap());
+        assert_eq!(country_opt, None);
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5554:FFFF:FFFF").unwrap());
+        assert_eq!(country_opt, None);
+        let ipv6_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:0000:0000").unwrap());
+        assert_eq!(ipv6_country.map(|c| c.iso3166.clone()), Some("CZ".to_string()));
+        let ipv6_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:FFFF:FFFF").unwrap());
+        assert_eq!(ipv6_country.map(|c| c.iso3166.clone()), Some("CZ".to_string()));
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5556:0000:0000").unwrap());
+        assert_eq!(country_opt, None);
+        let country_opt = country_code_finder.find_country(IpAddr::from_str("FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF").unwrap());
+        assert_eq!(country_opt, None);
     }
 
     fn country_data_from_bit_queue(mut bit_queue: FinalBitQueue) -> (Vec<u64>, usize) {
@@ -223,4 +348,12 @@ eprintln!("Finding country for 5555:5555:5555:5555:5555:5555:5555");
         }
         (result, len)
     }
+
+    // fn make_finder<'a>((ipv4_bit_queue, ipv6_bit_queue, countries): (FinalBitQueue, FinalBitQueue, Countries)) -> CountryCodeFinder<'a> {
+    //     CountryCodeFinder::new(
+    //         &countries,
+    //         country_data_from_bit_queue(ipv4_bit_queue),
+    //         country_data_from_bit_queue(ipv6_bit_queue)
+    //     )
+    // }
 }
