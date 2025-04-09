@@ -2446,25 +2446,21 @@ mod tests {
 
           The source node(S) will gossip about Node A and B
           to the destination node(D).
-
-          Country Codes
-          node_a: "FR"
-          node_b: "US"
         */
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a = make_node_record(5678, true);
-        let node_b = make_node_record(4567, true);
+        let node_a_fr = make_node_record(5678, true);
+        let node_b_us = make_node_record(4567, true);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
         src_db.add_node(dest_db.root().clone()).unwrap();
-        src_db.add_node(node_a.clone()).unwrap();
-        src_db.add_node(node_b.clone()).unwrap();
+        src_db.add_node(node_a_fr.clone()).unwrap();
+        src_db.add_node(node_b_us.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
-        src_db.add_arbitrary_half_neighbor(src_root.public_key(), &node_a.public_key());
-        src_db.add_arbitrary_full_neighbor(src_root.public_key(), &node_b.public_key());
+        src_db.add_arbitrary_half_neighbor(src_root.public_key(), &node_a_fr.public_key());
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), &node_b_us.public_key());
         src_db
             .node_by_key_mut(src_root.public_key())
             .unwrap()
@@ -2472,8 +2468,8 @@ mod tests {
         src_db.resign_node(src_root.public_key());
         let gossip = GossipBuilder::new(&src_db)
             .node(src_root.public_key(), true)
-            .node(node_a.public_key(), false)
-            .node(node_b.public_key(), false)
+            .node(node_a_fr.public_key(), false)
+            .node(node_b_us.public_key(), false)
             .build();
         let subject = StandardGossipHandler::new(Logger::new("test"));
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
@@ -2504,7 +2500,7 @@ mod tests {
 
         assert_eq!(
             dest_db
-                .node_by_key(node_a.public_key())
+                .node_by_key(node_a_fr.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
@@ -2512,7 +2508,7 @@ mod tests {
         );
         assert_eq!(
             dest_db
-                .node_by_key(node_b.public_key())
+                .node_by_key(node_b_us.public_key())
                 .unwrap()
                 .metadata
                 .country_undesirability,
@@ -2526,12 +2522,12 @@ mod tests {
         );
         assert!(dest_db.has_full_neighbor(dest_db.root().public_key(), src_db.root().public_key()));
         assert_eq!(
-            &src_db.node_by_key(node_a.public_key()).unwrap().inner,
-            &dest_db.node_by_key(node_a.public_key()).unwrap().inner
+            &src_db.node_by_key(node_a_fr.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_a_fr.public_key()).unwrap().inner
         );
         assert_eq!(
-            &src_db.node_by_key(node_b.public_key()).unwrap().inner,
-            &dest_db.node_by_key(node_b.public_key()).unwrap().inner
+            &src_db.node_by_key(node_b_us.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_b_us.public_key()).unwrap().inner
         );
         System::current().stop();
         assert_eq!(system.run(), 0);

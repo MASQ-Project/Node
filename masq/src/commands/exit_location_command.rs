@@ -289,8 +289,8 @@ pub mod tests {
         let message_body = Ok(UiSetExitLocationResponse {
             fallback_routing: true,
             exit_country_selection: vec![],
-            exit_countries: None,      //Some(vec!["FR".to_string()]),
-            missing_countries: vec![], // vec!["CZ".to_string()],
+            exit_countries: None,
+            missing_countries: vec![],
         }
         .tmb(1234));
 
