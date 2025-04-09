@@ -5,11 +5,10 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, SubCommand};
-use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
-use masq_lib::messages::{
-    CountryCodes, ExitLocationSet, UiSetExitLocationRequest, UiSetExitLocationResponse,
-};
+use clap::{App, Arg, ArgGroup, SubCommand};
+use masq_lib::constants::EXIT_COUNTRY_MISSING_COUNTRIES_ERROR;
+use masq_lib::exit_locations::ExitLocationSet;
+use masq_lib::messages::{CountryGroups, UiSetExitLocationRequest, UiSetExitLocationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 use std::fmt::Debug;
@@ -40,7 +39,7 @@ const FALLBACK_ROUTING_HELP: &str = "If you just want to make a suggestion, and 
      masq> exit-location --country-codes \"CZ\" --fallback-routing  \n\t// Set exit-location for \"CZ\" country with fallback-routing on \n\
      masq> exit-location --country-codes \"CZ\"                     \n\t// Set exit-location for \"CZ\" country with fallback-routing off \n\n";
 
-const SHOW_COUNTRIES_HELP: &str = "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
+const SHOW_COUNTRIES_HELP: &str = "Use this flag to display all country codes available for exit Nodes in your Neighborhood:  \n\n\
     masq> exit-location --show-countries ";
 
 pub fn exit_location_subcommand() -> App<'static, 'static> {
@@ -49,7 +48,7 @@ pub fn exit_location_subcommand() -> App<'static, 'static> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SetExitLocationCommand {
-    pub exit_locations: Vec<CountryCodes>,
+    pub exit_locations: Vec<CountryGroups>,
     pub fallback_routing: bool,
     pub show_countries: bool,
 }
@@ -64,7 +63,7 @@ impl SetExitLocationCommand {
                         .expect("Expected Country Codes")
                         .into_iter()
                         .enumerate()
-                        .map(|(index, code)| CountryCodes::from((code.to_string(), index)))
+                        .map(|(index, code)| CountryGroups::from((code.to_string(), index)))
                         .collect(),
                     false => vec![],
                 };
@@ -111,14 +110,15 @@ impl Command for SetExitLocationCommand {
                             "No countries available for exit-location!"
                         ),
                     }
+                } else {
+                    match exit_location_response.fallback_routing {
+                        true => short_writeln!(context.stdout(), "Fallback Routing is set.",),
+                        false => short_writeln!(context.stdout(), "Fallback Routing NOT set.",),
+                    }
                 }
-                match exit_location_response.fallback_routing {
-                    true => short_writeln!(context.stdout(), "Fallback Routing is set.",),
-                    false => short_writeln!(context.stdout(), "Fallback Routing NOT set.",),
-                }
-                if !exit_location_response.exit_locations.is_empty() {
+                if !exit_location_response.exit_country_selection.is_empty() {
                     let location_set = ExitLocationSet {
-                        locations: exit_location_response.exit_locations,
+                        locations: exit_location_response.exit_country_selection,
                     };
                     if !exit_location_response.missing_countries.is_empty() {
                         short_writeln!(
@@ -135,15 +135,11 @@ impl Command for SetExitLocationCommand {
                     }
                     short_writeln!(context.stdout(), "Exit location set: {}", location_set);
                 } else if exit_location_response.fallback_routing
-                    && exit_location_response.exit_locations.is_empty()
+                    && exit_location_response.exit_country_selection.is_empty()
                 {
                     short_writeln!(context.stdout(), "Exit location is Unset.");
                 }
                 Ok(())
-            }
-            Err(Payload(code, message)) if code == EXIT_COUNTRY_ERROR => {
-                short_writeln!(context.stderr(), "Error: Something went wrong!");
-                Err(Payload(code, message))
             }
             Err(Payload(code, message)) => {
                 short_writeln!(context.stderr(), "code: {}\nmessage: {}", code, message);
@@ -194,6 +190,13 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
                 .takes_value(false)
                 .required(false),
         )
+        .group(
+            ArgGroup::with_name("show-countries-fallback")
+                .args(&["show-countries", "fallback-routing"]),
+        )
+        .group(
+            ArgGroup::with_name("show-countries-ccodes").args(&["show-countries", "country-codes"]),
+        )
 }
 
 #[cfg(test)]
@@ -205,9 +208,9 @@ pub mod tests {
         Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
     };
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::constants::{EXIT_COUNTRY_ERROR, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR};
+    use masq_lib::constants::EXIT_COUNTRY_MISSING_COUNTRIES_ERROR;
     use masq_lib::messages::{
-        CountryCodes, ExitLocation, ToMessageBody, UiSetExitLocationRequest,
+        CountryGroups, ExitLocation, ToMessageBody, UiSetExitLocationRequest,
         UiSetExitLocationResponse,
     };
     use std::sync::{Arc, Mutex};
@@ -246,7 +249,7 @@ pub mod tests {
         );
         assert_eq!(
             SHOW_COUNTRIES_HELP,
-                    "To display all country codes available for exit in Database, use this flag without anything else:  \n\n\
+                    "Use this flag to display all country codes available for exit Nodes in your Neighborhood:  \n\n\
             masq> exit-location --show-countries "
         );
     }
@@ -270,67 +273,44 @@ pub mod tests {
         );
         assert_eq!(
             stderr.lock().unwrap().get_string(),
-            "code: 9223372036854775817\nmessage: \"CZ, SK, IN\"\n".to_string()
+            "code: 9223372036854775816\nmessage: \"CZ, SK, IN\"\n".to_string()
         );
         assert_eq!(
             result,
             Err(CommandError::Payload(
-                9223372036854775817,
+                9223372036854775816,
                 "\"CZ, SK, IN\"".to_string()
             ))
         );
     }
 
     #[test]
-    fn testing_exit_location_general_error() {
-        let factory = CommandFactoryReal::new();
-        let mut context = CommandContextMock::new().transact_result(Err(
-            ContextError::PayloadError(EXIT_COUNTRY_ERROR, "".to_string()),
-        ));
-        let subject = factory.make(&["exit-location".to_string()]).unwrap();
-
-        let result = subject.execute(&mut context);
-        let stderr = context.stderr_arc();
-        let stdout = context.stdout_arc();
-        assert!(stdout.lock().unwrap().get_string().is_empty());
-        assert_eq!(
-            stderr.lock().unwrap().get_string(),
-            "Error: Something went wrong!\n".to_string()
-        );
-        assert_eq!(result, Err(Payload(9223372036854775816, "".to_string())));
-    }
-
-    #[test]
     fn testing_handler_for_exit_location_responose() {
         let message_body = Ok(UiSetExitLocationResponse {
-            fallback_routing: false,
-            exit_locations: vec![
-                ExitLocation {
-                    country_codes: vec!["CZ".to_string()],
-                    priority: 1,
-                },
-                ExitLocation {
-                    country_codes: vec!["FR".to_string()],
-                    priority: 2,
-                },
-            ],
-            exit_countries: Some(vec!["FR".to_string()]),
-            missing_countries: vec!["CZ".to_string()],
+            fallback_routing: true,
+            exit_country_selection: vec![],
+            exit_countries: None,
+            missing_countries: vec![],
         }
         .tmb(1234));
 
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(message_body);
-        let subject = factory.make(&["exit-location".to_string()]).unwrap();
+        let subject = factory
+            .make(&[
+                "exit-location".to_string(),
+                "--fallback-routing".to_string(),
+            ])
+            .unwrap();
 
         let result = subject.execute(&mut context);
         let stderr = context.stderr_arc();
         let stdout = context.stdout_arc();
-        assert_eq!(stdout.lock().unwrap().get_string(), "Countries available for exit-location: [\"FR\"]\nFallback Routing NOT set.\nFollowing countries are missing in Database: [\"CZ\"]\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; Country Codes: [\"FR\"] - Priority: 2; \n".to_string());
         assert_eq!(
-            stderr.lock().unwrap().get_string(),
-            "code: 9223372036854775817\nmessage: [\"CZ\"]\n".to_string()
+            stdout.lock().unwrap().get_string(),
+            "Fallback Routing is set.\nExit location is Unset.\n".to_string()
         );
+        assert_eq!(stderr.lock().unwrap().get_string(), "".to_string());
         assert_eq!(result, Ok(()));
     }
 
@@ -341,7 +321,7 @@ pub mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: true,
-                exit_locations: vec![
+                exit_country_selection: vec![
                     ExitLocation {
                         country_codes: vec!["CZ".to_string(), "SK".to_string()],
                         priority: 1,
@@ -375,15 +355,15 @@ pub mod tests {
         let expected_request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["CZ".to_string(), "SK".to_string()],
                     priority: 1,
                 },
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["AT".to_string(), "DE".to_string()],
                     priority: 2,
                 },
-                CountryCodes {
+                CountryGroups {
                     country_codes: vec!["PL".to_string()],
                     priority: 3,
                 },
@@ -397,7 +377,7 @@ pub mod tests {
             &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
         );
         let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location set: Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3; \n");
+        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location set: Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3\n");
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
     }
@@ -409,7 +389,7 @@ pub mod tests {
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: false,
-                exit_locations: vec![ExitLocation {
+                exit_country_selection: vec![ExitLocation {
                     country_codes: vec!["CZ".to_string()],
                     priority: 1,
                 }],
@@ -431,7 +411,7 @@ pub mod tests {
         assert_eq!(result, Ok(()));
         let expected_request = UiSetExitLocationRequest {
             fallback_routing: false,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
@@ -445,57 +425,35 @@ pub mod tests {
         );
         let stdout = stdout_arc.lock().unwrap();
         let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Fallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1; \n");
+        assert_eq!(
+            &stdout.get_string(),
+            "Fallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1\n"
+        );
         assert_eq!(&stderr.get_string(), "");
     }
 
     #[test]
     fn providing_no_arguments_cause_exit_location_reset_request() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiSetExitLocationResponse {
-                fallback_routing: true,
+        let result = SetExitLocationCommand::new(&["exit-location".to_string()]).unwrap();
+
+        assert_eq!(
+            result,
+            SetExitLocationCommand {
                 exit_locations: vec![],
-                exit_countries: None,
-                missing_countries: vec![],
+                fallback_routing: true,
+                show_countries: false
             }
-            .tmb(0)));
-        let stderr_arc = context.stderr_arc();
-        let stdout_arc = context.stdout_arc();
-        let subject = SetExitLocationCommand::new(&["exit-location".to_string()]).unwrap();
-
-        let result = subject.execute(&mut context);
-
-        assert_eq!(result, Ok(()));
-        let expected_request = UiSetExitLocationRequest {
-            fallback_routing: true,
-            exit_locations: vec![],
-            show_countries: false,
-        };
-        let transact_params = transact_params_arc.lock().unwrap();
-        let expected_message_body = expected_request.tmb(0);
-        assert_eq!(
-            transact_params.as_slice(),
-            &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
-        );
-        let stderr = stderr_arc.lock().unwrap();
-        assert_eq!(&stderr.get_string(), "");
-        let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(
-            &stdout.get_string(),
-            "Fallback Routing is set.\nExit location is Unset.\n"
         );
     }
 
     #[test]
-    fn providing_show_countries_cause_request_for_list_of_countries() {
+    fn providing_show_countries_flag_cause_request_for_list_of_countries() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: false,
-                exit_locations: vec![],
+                exit_country_selection: vec![],
                 exit_countries: Some(vec!["CZ".to_string()]),
                 missing_countries: vec![],
             }
@@ -527,7 +485,29 @@ pub mod tests {
         let stdout = stdout_arc.lock().unwrap();
         assert_eq!(
             &stdout.get_string(),
-            "Countries available for exit-location: [\"CZ\"]\nFallback Routing NOT set.\n"
+            "Countries available for exit-location: [\"CZ\"]\n"
+        );
+    }
+
+    #[test]
+    fn providing_show_countries_with_other_argument_fails() {
+        let result_expected_one = "SetExitLocationCommand error: The argument '--country-codes <COUNTRY-CODES>' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        let result_expected_two = "SetExitLocationCommand error: The argument '--show-countries' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+
+        let result = SetExitLocationCommand::new(&[
+            "exit-location".to_string(),
+            "--show-countries".to_string(),
+            "--country-codes".to_string(),
+            "CZ".to_string(),
+        ])
+        .unwrap_err();
+
+        assert!(
+            result.contains(result_expected_one) || result.contains(result_expected_two),
+            "result was {:?}, but expected {:?} or {:?}",
+            result,
+            result_expected_one,
+            result_expected_two
         );
     }
 }

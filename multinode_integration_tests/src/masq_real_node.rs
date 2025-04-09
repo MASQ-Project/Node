@@ -15,6 +15,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::{localhost, to_string};
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
+use node_lib::neighborhood::node_location::get_node_location;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS;
 use node_lib::sub_lib::accountant::{
     PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
@@ -759,6 +760,10 @@ impl MASQNode for MASQRealNode {
 
     fn routes_data(&self) -> bool {
         self.guts.routes_data
+    }
+
+    fn country_code_opt(&self) -> Option<String> {
+        MASQNodeUtils::derive_country_code_opt(&self.node_addr())
     }
 }
 

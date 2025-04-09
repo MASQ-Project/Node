@@ -1,10 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::BootstrapperConfig;
-use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
+use crate::neighborhood::gossip::{
+    AccessibleGossipRecord, GossipBuilder, GossipNodeRecord, Gossip_0v1,
+};
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_location::NodeLocation;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1, NodeRecordInputs};
-use crate::neighborhood::{AccessibleGossipRecord, Neighborhood, DEFAULT_MIN_HOPS};
+use crate::neighborhood::{Neighborhood, DEFAULT_MIN_HOPS};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -26,8 +28,8 @@ lazy_static! {
     pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
         (
             IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
-            "FR".to_string(),
-            true
+            "CN".to_string(),
+            false
         ),
         (
             IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
@@ -83,7 +85,7 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
     let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
-    let (_ip, country_code, free_world_bit) = pick_country_code_record(n % 6);
+    let (_ip, country_code, free_world_bit) = pick_country_code_record(n);
     let location_opt = match has_ip {
         true => match country_code.is_empty() {
             false => Some(NodeLocation {

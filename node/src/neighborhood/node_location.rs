@@ -40,6 +40,7 @@ mod tests {
 
     #[test]
     fn construct_node_record_metadata_with_free_world_bit() {
+        //TODO check in From impl for AGR that construction of metadata contains proper country_code and fwb, then delete this test
         let mut metadata = NodeRecordMetadata::new();
         metadata.node_location_opt = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
         assert_eq!(

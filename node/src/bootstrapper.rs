@@ -506,7 +506,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
         );
-        // initialization od CountryFinder
+        // initialization of CountryFinder
         let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,

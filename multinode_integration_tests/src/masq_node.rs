@@ -7,6 +7,7 @@ use masq_lib::constants::{
     MASQ_URL_PREFIX,
 };
 use masq_lib::utils::to_string;
+use node_lib::neighborhood::node_location::get_node_location;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -210,6 +211,7 @@ pub trait MASQNode: Any {
     fn chain(&self) -> Chain;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
+    fn country_code_opt(&self) -> Option<String>;
 }
 
 pub struct MASQNodeUtils {}
@@ -298,6 +300,15 @@ impl MASQNodeUtils {
             PathBuf::from(start)
         } else {
             Self::start_from(start.parent().unwrap())
+        }
+    }
+
+    pub fn derive_country_code_opt(node_addr: &NodeAddr) -> Option<String> {
+        let country_code = get_node_location(Some(node_addr.ip_addr()));
+        if let Some(cc) = country_code {
+            Some(cc.country_code)
+        } else {
+            None
         }
     }
 }

@@ -7,7 +7,6 @@ use std::io;
 
 const COUNTRY_BLOCK_BIT_SIZE: usize = 64;
 
-#[allow(unused_must_use)]
 pub fn ip_country(
     _args: Vec<String>,
     stdin: &mut dyn io::Read,
@@ -52,8 +51,9 @@ pub fn ip_country(
             *** DO NOT USE THIS CODE ***
 "#,
             error_list
-        );
-        write!(stderr, "{}", error_list);
+        )
+        .expect("expected WANRNING output");
+        write!(stderr, "{}", error_list).expect("expected error list output");
         1
     }
 }

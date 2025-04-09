@@ -848,18 +848,19 @@ pub struct UiWalletAddressesResponse {
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
+// CountryGroups are inbound data for ExitLocations from UI. These data structures could be enriched
+// in the future according to future user interface needs of more specification
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct CountryCodes {
-    #[serde(rename = "countryCodes")]
+pub struct CountryGroups {
+    #[serde(rename = "CountryGroups")]
     pub country_codes: Vec<String>,
-    #[serde(rename = "priority")]
     pub priority: usize,
 }
 
-impl From<(String, usize)> for CountryCodes {
-    fn from((item, priority): (String, usize)) -> Self {
-        CountryCodes {
-            country_codes: item
+impl From<(String, usize)> for CountryGroups {
+    fn from((country, priority): (String, usize)) -> Self {
+        CountryGroups {
+            country_codes: country
                 .split(',')
                 .into_iter()
                 .map(|x| x.to_string())
@@ -874,7 +875,7 @@ pub struct UiSetExitLocationRequest {
     #[serde(rename = "fallbackRouting")]
     pub fallback_routing: bool,
     #[serde(rename = "exitLocations")]
-    pub exit_locations: Vec<CountryCodes>,
+    pub exit_locations: Vec<CountryGroups>,
     #[serde(rename = "showCountries")]
     pub show_countries: bool,
 }
@@ -882,6 +883,7 @@ conversation_message!(UiSetExitLocationRequest, "exitLocation");
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ExitLocation {
+    #[serde(rename = "CountryGroups")]
     pub country_codes: Vec<String>,
     pub priority: usize,
 }
@@ -896,29 +898,12 @@ impl Display for ExitLocation {
     }
 }
 
-pub struct ExitLocationSet {
-    pub locations: Vec<ExitLocation>,
-}
-
-impl Display for ExitLocationSet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        for exit_location in self.locations.iter() {
-            write!(
-                f,
-                "Country Codes: {:?} - Priority: {}; ",
-                exit_location.country_codes, exit_location.priority
-            )?;
-        }
-        Ok(())
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiSetExitLocationResponse {
     #[serde(rename = "fallbackRouting")]
     pub fallback_routing: bool,
     #[serde(rename = "exitCountrySelection")]
-    pub exit_locations: Vec<ExitLocation>,
+    pub exit_country_selection: Vec<ExitLocation>,
     #[serde(rename = "exitCountries")]
     pub exit_countries: Option<Vec<String>>,
     #[serde(rename = "missingCountries")]
