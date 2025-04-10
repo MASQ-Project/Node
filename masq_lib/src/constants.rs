@@ -26,6 +26,8 @@ pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 
 pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
 
+pub const PAYLOAD_ZERO_SIZE: usize = 0usize;
+
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
@@ -75,8 +77,7 @@ pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
 pub const SCAN_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 7;
-pub const EXIT_COUNTRY_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 8;
-pub const EXIT_COUNTRY_MISSING_COUNTRIES_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 9;
+pub const EXIT_COUNTRY_MISSING_COUNTRIES_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 8;
 
 //accountant
 pub const ACCOUNTANT_PREFIX: u64 = 0x0040_0000_0000_0000;
@@ -105,6 +106,9 @@ pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropst
 pub const BASE_MAINNET_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, MAINNET);
 pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+
+//allocations
+pub const DEFAULT_PREALLOCATION_VEC: usize = 10;
 
 #[cfg(test)]
 mod tests {
@@ -200,6 +204,8 @@ mod tests {
             NODE_RECORD_INNER_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }
         );
+        assert_eq!(PAYLOAD_ZERO_SIZE, 0usize);
+        assert_eq!(DEFAULT_PREALLOCATION_VEC, 10)
     }
 
     #[test]

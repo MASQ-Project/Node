@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use masq_lib::messages::{
-    CountryCodes, ToMessageBody, UiSetConfigurationRequest, UiSetExitLocationRequest,
+    CountryGroups, ToMessageBody, UiSetConfigurationRequest, UiSetExitLocationRequest,
 };
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use multinode_integration_tests_lib::masq_node::{MASQNode, PortSelector};
@@ -71,7 +71,7 @@ fn http_end_to_end_routing_test_with_exit_location() {
     ui.send_request(
         UiSetExitLocationRequest {
             fallback_routing: false,
-            exit_locations: vec![CountryCodes {
+            exit_locations: vec![CountryGroups {
                 country_codes: vec!["FR".to_string()],
                 priority: 1,
             }],

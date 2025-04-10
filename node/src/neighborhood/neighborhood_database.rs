@@ -410,7 +410,6 @@ mod tests {
 
         let last_update = subject.root().metadata.last_update;
         this_node.metadata.last_update = last_update;
-
         assert_eq!(subject.this_node, this_node.public_key().clone());
         assert_eq!(
             subject.by_public_key,
@@ -446,7 +445,6 @@ mod tests {
 
         let last_update = subject.root().metadata.last_update;
         this_node.metadata.last_update = last_update;
-
         assert_eq!(subject.this_node, this_node.public_key().clone());
         assert_eq!(
             subject.by_public_key,
@@ -506,7 +504,6 @@ mod tests {
     #[test]
     fn node_by_key_works() {
         let mut this_node = make_node_record(1234, true);
-
         let one_node = make_node_record(4567, true);
         let another_node = make_node_record(5678, true);
         let mut subject = NeighborhoodDatabase::new(
@@ -519,14 +516,8 @@ mod tests {
         subject.add_node(one_node.clone()).unwrap();
 
         let this_pubkey = this_node.public_key();
-        let updated_record = subject
-            .by_public_key
-            .iter()
-            .filter(|(pubkey, _node_record)| *pubkey == this_pubkey)
-            .exactly_one()
-            .unwrap();
-        this_node.metadata.last_update = updated_record.1.metadata.last_update;
-
+        let updated_record = subject.node_by_key(this_pubkey).unwrap();
+        this_node.metadata.last_update = updated_record.metadata.last_update;
         assert_eq!(
             subject.node_by_key(this_node.public_key()).unwrap().clone(),
             this_node
@@ -554,14 +545,8 @@ mod tests {
         subject.add_node(one_node.clone()).unwrap();
 
         let this_pubkey = this_node.public_key();
-        let updated_record = subject
-            .by_public_key
-            .iter()
-            .filter(|(pubkey, _node_record)| *pubkey == this_pubkey)
-            .exactly_one()
-            .unwrap();
-        this_node.metadata.last_update = updated_record.1.metadata.last_update;
-
+        let updated_record = subject.node_by_key(this_pubkey).unwrap();
+        this_node.metadata.last_update = updated_record.metadata.last_update;
         assert_eq!(
             subject
                 .node_by_ip(&this_node.node_addr_opt().unwrap().ip_addr())
@@ -595,20 +580,19 @@ mod tests {
         );
         subject.add_node(node_a.clone()).unwrap();
         subject.add_node(node_b.clone()).unwrap();
-        let mut iterator: u16 = 7890;
+        let mut ipnumber: u16 = 7890;
         let mut keys_nums: Vec<(PublicKey, u16)> = vec![];
 
         let mutable_nodes = subject.nodes_mut();
         for node in mutable_nodes {
-            let (seg1, seg2, seg3, seg4) = make_segments(iterator);
+            let (seg1, seg2, seg3, seg4) = make_segments(ipnumber);
             node.metadata.node_addr_opt = Some(NodeAddr::new(
                 &make_segmented_ip(seg1, seg2, seg3, seg4),
-                &[iterator],
+                &[ipnumber],
             ));
-            keys_nums.push((node.inner.public_key.clone(), iterator));
-            iterator += 1;
+            keys_nums.push((node.inner.public_key.clone(), ipnumber));
+            ipnumber += 1;
         }
-
         for (pub_key, num) in keys_nums {
             let (seg1, seg2, seg3, seg4) = make_segments(num);
             assert_eq!(
@@ -865,7 +849,7 @@ mod tests {
         );
         assert_string_contains(
             &result,
-            "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\\n3.4.5.6:3456\"];",
+            "\"AwQFBg\" [label=\"AR v0 CN\\nAwQFBg\\n3.4.5.6:3456\"];",
         );
         assert_string_contains(
             &result,
@@ -903,13 +887,8 @@ mod tests {
         subject.new_public_ip(new_public_ip);
 
         let this_pubkey = this_node.public_key();
-        let updated_record = subject
-            .by_public_key
-            .iter()
-            .filter(|(pubkey, _node_record)| *pubkey == this_pubkey)
-            .exactly_one()
-            .unwrap();
-        old_node.metadata.last_update = updated_record.1.metadata.last_update;
+        let updated_record = subject.node_by_key(this_pubkey).unwrap();
+        old_node.metadata.last_update = updated_record.metadata.last_update;
 
         let mut new_node = subject.root().clone();
         assert_eq!(subject.node_by_ip(&new_public_ip), Some(&new_node));

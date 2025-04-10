@@ -590,6 +590,67 @@ descriptor (for example, if it's still waiting on the router to get a public IP 
 Node descriptor (for example, if its neighborhood mode is not Standard), the `nodeDescriptorOpt`
 field will be null or absent.
 
+#### `exit-location`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "fallbackRouting": <boolean>,
+    "exitLocations": [
+            {
+                "countryCodes": [string, ..],
+                "priority": <positive integer> 
+            },
+        ],  
+    "showCountries": <boolean>
+}
+```
+##### Description:
+This command requests information about the countries available for exit in our neighborhood and allows us to set up the 
+desired locations with their priority. The priority provides the node's perspective on how important a particular country 
+is for our preferences.
+
+This command can be used in two ways which can't be combined:
+1. If we use the command with showCountries set to true, it retrieves information about the available countries in our neighborhood. In this case, other parameters are ignored. 
+2. If we want to set an exit location, we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
+
+The fallbackRouting parameter determines whether we want to block exit for a particular country. If this country is no longer 
+available, the route to exit will fail during construction. If fallbackRouting is set to true, we can exit through any available 
+country if none of our specified exitLocations are accessible.
+
+Priorities are used to determine the preferred exit countries. Priority 1 is the highest, while higher numbers indicate 
+lower priority. For example, if we specify DE with priority 1 and FR with priority 2, then an exit through France will 
+only be used if a German exit is unavailable or significantly more expensive.
+
+#### `exit-location`
+##### Direction: Response
+##### Correspondent: UI
+##### Layout:
+
+```
+"payload": {
+    "fallbackRouting": <boolean>,
+    "exitCountrySelection": <[
+            {
+                "countryCodes": [string, ..],
+                "priority": <positive integer> 
+            },
+        ]>,
+    "missingCountries": <[string, ..]>
+    "exitCountries": <optional[string, ..]>
+}
+```
+##### Description:
+In response, the Node sends a payload to the UI that contains either the Exit Location settings (which may include missing countries) or a list of exit countries.
+
+Exit Location settings consist of fallbackRouting, exitCountrySelection, and missingCountries, where:
+1. fallbackRouting is a boolean representing the user's choice to enable or disable fallback routing within the neighborhood. 
+2. exitCountrySelection is an array of objects, where each object represents a set of country codes along with their assigned priority. 
+3. missingCountries is an array of strings representing a list of countries that are currently unavailable in the Node's Neighborhood Database.
+
+Exit Countries (or exitCountries) is an optional array containing ISO country code strings. These represent the countries currently available in the Node's Neighborhood Database. The user can select from these countries to configure the Exit Location settings.
+
 #### `financials`
 ##### Direction: Request
 ##### Correspondent: Node

@@ -108,7 +108,7 @@ impl CommandFactoryReal {
 mod tests {
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
-    use masq_lib::messages::CountryCodes;
+    use masq_lib::messages::CountryGroups;
 
     #[test]
     fn complains_about_unrecognized_subcommand() {
@@ -282,7 +282,7 @@ mod tests {
                 .downcast_ref::<SetExitLocationCommand>()
                 .unwrap(),
             &SetExitLocationCommand {
-                exit_locations: vec![CountryCodes {
+                exit_locations: vec![CountryGroups {
                     country_codes: vec!["CZ".to_string()],
                     priority: 1
                 }],

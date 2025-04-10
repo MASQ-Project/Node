@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime};
 #[test]
 fn debtors_are_credited_once_but_not_twice() {
     if is_running_under_github_actions() {
-        eprintln!("This test doesn't pass under GitHub Actions; don't know why, test_node_1 does not contain local descriptor in log after startup");
+        eprintln!("This test doesn't pass under GitHub Actions; don't know why");
         return;
     }
     let mbcs_port = find_free_port();
