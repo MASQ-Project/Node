@@ -6,6 +6,7 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use crate::countries::Countries;
+use crate::country_block_serde::FinalBitQueue;
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Country {
@@ -31,6 +32,17 @@ pub enum IpRange {
 }
 
 impl IpRange {
+    pub fn new(start: IpAddr, end: IpAddr) -> Self {
+        match (start, end) {
+            (IpAddr::V4(start), IpAddr::V4(end)) => IpRange::V4(start, end),
+            (IpAddr::V6(start), IpAddr::V6(end)) => IpRange::V6(start, end),
+            (start, end) => panic!(
+                "Start and end addresses must be of the same type, not {} and {}",
+                start, end
+            ),
+        }
+    }
+
     pub fn contains(&self, ip_addr: IpAddr) -> bool {
         match self {
             IpRange::V4(begin, end) => match ip_addr {
@@ -49,6 +61,20 @@ impl IpRange {
                     u128::from(candidate),
                 ),
             },
+        }
+    }
+
+    pub fn start(&self) -> IpAddr {
+        match self {
+            IpRange::V4(start, _) => IpAddr::V4(*start),
+            IpRange::V6(start, _) => IpAddr::V6(*start),
+        }
+    }
+
+    pub fn end(&self) -> IpAddr {
+        match self {
+            IpRange::V4(_, end) => IpAddr::V4(*end),
+            IpRange::V6(_, end) => IpAddr::V6(*end),
         }
     }
 
@@ -84,6 +110,25 @@ impl IpRange {
 
     fn contains_inner(begin: u128, end: u128, candidate: u128) -> bool {
         (begin <= candidate) && (candidate <= end)
+    }
+}
+
+pub fn are_consecutive(first: IpAddr, second: IpAddr) -> bool {
+    match (first, second) {
+        (IpAddr::V4(first), IpAddr::V4(second)) => {
+            let first = u32::from(first);
+            let second = u32::from(second);
+            second == first + 1
+        }
+        (IpAddr::V6(first), IpAddr::V6(second)) => {
+            let first = u128::from(first);
+            let second = u128::from(second);
+            second == first + 1
+        }
+        (first, second) => panic!(
+            "IP addresses must be of the same type, not {} and {}",
+            first, second
+        ),
     }
 }
 

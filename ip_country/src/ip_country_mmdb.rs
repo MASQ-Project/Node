@@ -2,16 +2,14 @@ use crate::ip_country::DBIPParser;
 use std::io;
 use std::any::Any;
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::path::PathBuf;
-use ipnetwork::{IpNetwork, Ipv4Network, Ipv6Network};
+use std::net::{Ipv4Addr, Ipv6Addr};
+use ipnetwork::{IpNetwork, Ipv6Network};
 use itertools::Itertools;
 use maxminddb::geoip2::City;
-use maxminddb::{Reader, Within, WithinItem};
-use serde::Deserialize;
+use maxminddb::{Reader, Within};
 use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::countries::Countries;
-use crate::country_block_stream::{Country, CountryBlock, IpRange};
+use crate::country_block_stream::{are_consecutive, Country, CountryBlock, IpRange};
 
 pub struct MMDBParser {
 }
@@ -41,22 +39,8 @@ impl DBIPParser for MMDBParser {
             }
         };
         let mut country_pairs: HashSet<(String, String)> = HashSet::new();
-
-        let ip_network = Ipv4Network::new(Ipv4Addr::new(0, 0, 0, 0), 0).expect("Ipv4Network stopped working");
-        let ipv4_ranges = match reader.within::<City>(
-            IpNetwork::V4(ip_network),
-        ) {
-            Ok(w) => {
-                Self::extract_data(w, &mut country_pairs, errors)
-            },
-            Err(e) => {
-                errors.push(format!("Error creating within iterator: {}", e));
-                vec![]
-            }
-        };
-
         let ip_network = Ipv6Network::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0).expect("Ipv6Network stopped working");
-        let ipv6_ranges = match reader.within::<City>(
+        let ip_ranges = match reader.within::<City>(
             IpNetwork::V6(ip_network),
         ) {
             Ok(w) => {
@@ -88,9 +72,7 @@ impl DBIPParser for MMDBParser {
             }).collect_vec()
         };
         let mut serializer = CountryBlockSerializer::new();
-        let country_blocks = make_country_blocks(ipv4_ranges);
-        country_blocks.into_iter().for_each(|block| serializer.add(block));
-        let country_blocks = make_country_blocks(ipv6_ranges);
+        let country_blocks = make_country_blocks(ip_ranges);
         country_blocks.into_iter().for_each(|block| serializer.add(block));
         let (ipv4_bit_queue, ipv6_bit_queue) = serializer.finish();
 
@@ -111,34 +93,52 @@ impl MMDBParser {
         errors: &mut Vec<String>
     ) -> Vec<(String, IpRange)> {
         let mut coded_ranges: Vec<(String, IpRange)> = vec![];
+        let mut add_or_coalesce = |code: &str, ip_range: IpRange| {
+            let new_range_opt = match coded_ranges.last() {
+                None => None,
+                Some((last_code, last_range)) => {
+                    if (last_code == code) && are_consecutive(last_range.end(), ip_range.start()) {
+                        Some(IpRange::new(last_range.start(), ip_range.end()))
+                    }
+                    else {
+                        None
+                    }
+                }
+            };
+            if let Some(new_range) = new_range_opt {
+                // coalesce with last range
+                let _ = coded_ranges.pop();
+                coded_ranges.push((code.to_string(), new_range));
+            } else {
+                // add new range
+                coded_ranges.push((code.to_string(), ip_range));
+            }
+        };
         within.for_each(|item_result| {
             match item_result {
                 Ok(item) => {
+                    let ip_range = Self::ipn_to_range(item.ip_net);
                     match item.info.country {
                         Some(country) => {
                             match (country.iso_code, country.names.map(|ns| ns.get("en").map(|n| n.to_string()))) {
                                 (Some(code), Some(Some(name))) => {
                                     country_pairs.insert((code.to_string(), name.to_string()));
-                                    let ip_range = Self::ipn_to_range(item.ip_net);
-                                    coded_ranges.push((code.to_string(), ip_range));
+                                    add_or_coalesce(code, ip_range);
                                 }
                                 (Some(code), _) => {
                                     errors.push(format!("Country code {:?} found but no name - using 'Unknown'", code));
                                     country_pairs.insert((code.to_string(), "Unknown".to_string()));
-                                    let ip_range = Self::ipn_to_range(item.ip_net);
-                                    coded_ranges.push((code.to_string(), ip_range));
+                                    add_or_coalesce(code, ip_range);
                                 }
                                 (None, Some(Some(name))) => {
                                     errors.push(format!("Country code not found for country: {:?} - using Sentinel", name));
                                     country_pairs.insert(("ZZ".to_string(), "Sentinel".to_string()));
-                                    let ip_range = Self::ipn_to_range(item.ip_net);
-                                    coded_ranges.push(("ZZ".to_string(), ip_range));
+                                    add_or_coalesce("ZZ", ip_range);
                                 }
                                 (None, _) => {
                                     errors.push(format!("Country code and name not found for range: {:?} - using Sentinel", item.ip_net));
                                     country_pairs.insert(("ZZ".to_string(), "Sentinel".to_string()));
-                                    let ip_range = Self::ipn_to_range(item.ip_net);
-                                    coded_ranges.push(("ZZ".to_string(), ip_range));
+                                    add_or_coalesce("ZZ", ip_range);
                                 }
                             }
                         }
@@ -146,10 +146,10 @@ impl MMDBParser {
                             errors.push(format!("No country information found for range: {:?} - using Sentinel", item.ip_net));
                             country_pairs.insert(("ZZ".to_string(), "Sentinel".to_string()));
                             let ip_range = Self::ipn_to_range(item.ip_net);
-                            coded_ranges.push(("ZZ".to_string(), ip_range));
+                            add_or_coalesce("ZZ", ip_range);
                         },
                     }
-                }
+                },
                 Err(e) => {
                     errors.push(format!("Error processing item: {}", e));
                 }
@@ -173,7 +173,9 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
     use std::net::IpAddr;
+    use std::path::PathBuf;
     use std::str::FromStr;
+    use crate::country_block_serde::{CountryBlockDeserializer, Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer};
     use crate::country_finder::CountryCodeFinder;
 
     struct BadRead {
@@ -200,6 +202,7 @@ mod tests {
         /*
             54.36.84.100/22,France,FR
             142.44.196.0/25,India,IN
+            142.44.196.128/25,India,IN
             5555:5555:5555:5555:5555:5555:5555:5555/96,Czechia,CZ
          */
         let file = PathBuf::from("data/country-scratch-out.mmdb");
@@ -269,12 +272,9 @@ mod tests {
                 "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
                 "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
                 "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
-                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
-                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
-                "Error processing item: Invalid database: the MaxMind DB file's data pointer resolves to an invalid location".to_string(),
             ]
         );
-        assert_eq!(result.0.block_count, 5);
+        assert_eq!(result.0.block_count, 3);
         assert_eq!(result.1.block_count, 3);
         assert_eq!(result.2.len(), 3);
     }
@@ -284,54 +284,64 @@ mod tests {
         /*
             54.36.84.100/22,France,FR
             142.44.196.0/25,India,IN
+            142.44.196.128/25,India,IN
             5555:5555:5555:5555:5555:5555:5555:5555/96,Czechia,CZ
-         */
+        */
         let file = PathBuf::from("data/country-scratch-out.mmdb");
         let mut stdin = File::open(&file).unwrap();
         let subject = MMDBParser::new();
         let mut errors = vec![];
 
-        let result = subject.parse(&mut stdin, &mut errors);
+        let (ipv4_bits, ipv6_bits, countries) = subject.parse(&mut stdin, &mut errors);
 
-        let expected_errors: Vec<String> = vec![];
-        assert_eq!(errors, expected_errors);
-        let country_code_finder = CountryCodeFinder::new(
-            &result.2,
-            country_data_from_bit_queue(result.0),
-            country_data_from_bit_queue(result.1)
+        let ipv4_data = to_u64s(ipv4_bits);
+        let ipv4_country_blocks = Ipv4CountryBlockDeserializer::new(ipv4_data, &countries)
+            .collect::<Vec<CountryBlock>>();
+        let ipv6_data = to_u64s(ipv6_bits);
+        let ipv6_country_blocks = Ipv6CountryBlockDeserializer::new(ipv6_data, &countries)
+            .collect::<Vec<CountryBlock>>();
+        assert_eq!(
+            ipv4_country_blocks,
+            vec![
+                CountryBlock {
+                    ip_range: IpRange::V4(Ipv4Addr::new(0, 0, 0, 0).into(), Ipv4Addr::new(54, 36, 83, 255).into()),
+                    country: Country::new(0, "ZZ", "Sentinel")
+                },
+                CountryBlock {
+                    ip_range: IpRange::V4(Ipv4Addr::new(54, 36, 84, 0).into(), Ipv4Addr::new(54, 36, 87, 255).into()),
+                    country: Country::new(2, "FR", "France")
+                },
+                CountryBlock {
+                    ip_range: IpRange::V4(Ipv4Addr::new(54, 36, 88, 0).into(), Ipv4Addr::new(142, 44, 195, 255).into()),
+                    country: Country::new(0, "ZZ", "Sentinel")
+                },
+                CountryBlock {
+                    ip_range: IpRange::V4(Ipv4Addr::new(142, 44, 196, 0).into(), Ipv4Addr::new(142, 44, 196, 255).into()),
+                    country: Country::new(3, "IN", "India")
+                },
+                CountryBlock {
+                    ip_range: IpRange::V4(Ipv4Addr::new(142, 44, 197, 0).into(), Ipv4Addr::new(255, 255, 255, 255).into()),
+                    country: Country::new(0, "ZZ", "Sentinel")
+                },
+            ]
         );
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("0.0.0.0").unwrap());
-        assert_eq!(country_opt, None);
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("54.36.83.255").unwrap());
-        assert_eq!(country_opt, None);
-        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("54.36.84.0").unwrap());
-        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("FR".to_string()));
-        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("54.36.87.255").unwrap());
-        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("FR".to_string()));
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("54.36.88.0").unwrap());
-        assert_eq!(country_opt, None);
-
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("142.44.195.255").unwrap());
-        assert_eq!(country_opt, None);
-        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("142.44.196.0").unwrap());
-        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("IN".to_string()));
-        let ipv4_country = country_code_finder.find_country(IpAddr::from_str("142.44.196.127").unwrap());
-        assert_eq!(ipv4_country.map(|c| c.iso3166.clone()), Some("IN".to_string()));
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("142.44.196.128").unwrap());
-        assert_eq!(country_opt, None);
-
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("0000:0000:0000:0000:0000:0000:0000:0000").unwrap());
-        assert_eq!(country_opt, None);
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5554:FFFF:FFFF").unwrap());
-        assert_eq!(country_opt, None);
-        let ipv6_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:0000:0000").unwrap());
-        assert_eq!(ipv6_country.map(|c| c.iso3166.clone()), Some("CZ".to_string()));
-        let ipv6_country = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5555:FFFF:FFFF").unwrap());
-        assert_eq!(ipv6_country.map(|c| c.iso3166.clone()), Some("CZ".to_string()));
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("5555:5555:5555:5555:5555:5556:0000:0000").unwrap());
-        assert_eq!(country_opt, None);
-        let country_opt = country_code_finder.find_country(IpAddr::from_str("FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF").unwrap());
-        assert_eq!(country_opt, None);
+        assert_eq!(
+            ipv6_country_blocks,
+            vec![
+                CountryBlock {
+                    ip_range: IpRange::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0).into(), Ipv6Addr::new(0x5555,0x5555,0x5555,0x5555,0x5555,0x5554, 0xFFFF, 0xFFFF).into()),
+                    country: Country::new(0, "ZZ", "Sentinel")
+                },
+                CountryBlock {
+                    ip_range: IpRange::V6(Ipv6Addr::new(0x5555,0x5555,0x5555,0x5555,0x5555,0x5555, 0, 0).into(), Ipv6Addr::new(0x5555,0x5555,0x5555,0x5555,0x5555,0x5555, 0xFFFF, 0xFFFF).into()),
+                    country: Country::new(1, "CZ", "Czechia")
+                },
+                CountryBlock {
+                    ip_range: IpRange::V6(Ipv6Addr::new(0x5555,0x5555,0x5555,0x5555,0x5555,0x5556, 0, 0).into(), Ipv6Addr::new(0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF, 0xFFFF, 0xFFFF).into()),
+                    country: Country::new(0, "ZZ", "Sentinel")
+                },
+            ]
+        )
     }
 
     fn country_data_from_bit_queue(mut bit_queue: FinalBitQueue) -> (Vec<u64>, usize) {
@@ -349,11 +359,16 @@ mod tests {
         (result, len)
     }
 
-    // fn make_finder<'a>((ipv4_bit_queue, ipv6_bit_queue, countries): (FinalBitQueue, FinalBitQueue, Countries)) -> CountryCodeFinder<'a> {
-    //     CountryCodeFinder::new(
-    //         &countries,
-    //         country_data_from_bit_queue(ipv4_bit_queue),
-    //         country_data_from_bit_queue(ipv6_bit_queue)
-    //     )
-    // }
+    fn to_u64s(mut final_bit_queue: FinalBitQueue) -> (Vec<u64>, usize) {
+        let mut result = vec![];
+        let len = final_bit_queue.bit_queue.len();
+        let mut bits_remaining = len;
+        while (bits_remaining > 0) {
+            let bits_to_take = min(64, bits_remaining);
+            let bits = final_bit_queue.bit_queue.take_bits(bits_to_take).unwrap();
+            result.push(bits);
+            bits_remaining -= bits_to_take;
+        }
+        (result, len)
+    }
 }
