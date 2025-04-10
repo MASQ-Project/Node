@@ -6,7 +6,6 @@ use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use crate::countries::Countries;
-use crate::country_block_serde::FinalBitQueue;
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Country {

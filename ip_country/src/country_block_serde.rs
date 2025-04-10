@@ -45,7 +45,7 @@ previous address are stored, like this:
 
 For IPv4, the difference-count-minus-one is stored as two bits, and for IPv6 it's stored as three
 bits. Make sure you add 1 to the value before you use it. (The data is stored this way because
-there can't be no changes (that'd imply a zero-length block), but it _is_ possible that every part
+there can't be zero changes (that'd imply a zero-length block), but it _is_ possible that every part
 of the new start address is different, and that number wouldn't fit into the available bit field.)
 
 Each difference is stored as two fields: an index and a value, like this:
@@ -146,6 +146,12 @@ impl Default for FinalBitQueue {
 pub struct CountryBlockSerializer {
     ipv4: Ipv4Serializer,
     ipv6: Ipv6Serializer,
+}
+
+impl Default for CountryBlockSerializer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CountryBlockSerializer {

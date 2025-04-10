@@ -67,7 +67,7 @@ mod tests {
     use crate::country_block_stream::IpRange;
     use crate::dbip_country::COUNTRIES;
 
-    fn select_country<'a>(countries: &'a Countries, percentage: u8) -> &'a Country {
+    fn select_country(countries: &Countries, percentage: u8) -> &Country {
         // 0% is the first country; 100% is the last country
         let country_count_f = countries.len() as f64;
         let percentage_f = percentage as f64;

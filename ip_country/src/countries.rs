@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use crate::country_block_stream::Country;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Countries {
     countries: Vec<Country>,
     index_by_iso3166: HashMap<String, usize>,
@@ -22,7 +22,7 @@ impl Countries {
     }
 
     pub fn new(mut country_pairs: Vec<(String, String)>) -> Self {
-        // Gotta sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
+        // Must sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
         // --or add one at the front, if there isn't already one. (We assume there isn't already
         // more than one.)
         let sentinel_info_opt = country_pairs.iter()
@@ -52,7 +52,7 @@ impl Countries {
         Self::old_new(countries)
     }
 
-    pub fn country_from_code<'a>(&'a self, iso3166: &str) -> Result<&'a Country, String> {
+    pub fn country_from_code(&self, iso3166: &str) -> Result<&Country, String> {
         let index = match self.index_by_iso3166.get(&iso3166.to_ascii_uppercase()) {
             None => return Err(format!("'{}' is not a valid ISO3166 country code", iso3166)),
             Some(index) => *index,
@@ -66,7 +66,7 @@ impl Countries {
         Ok(country)
     }
 
-    pub fn country_from_index<'a>(&'a self, index: usize) -> Result<&'a Country, String> {
+    pub fn country_from_index(&self, index: usize) -> Result<&Country, String> {
         match self.countries.get(index) {
             None => Err(format!(
                 "There are only {} Countries; no Country is at index {}",
@@ -79,6 +79,7 @@ impl Countries {
 
     pub fn iter(&self) -> impl Iterator<Item = &Country> {self.countries.iter()}
 
+    #[allow(clippy::len_without_is_empty)] // A Countries object is never empty: always has Sentinel
     pub fn len(&self) -> usize {self.countries.len()}
 }
 

@@ -2,7 +2,7 @@ use crate::ip_country::DBIPParser;
 use std::io;
 use std::any::Any;
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv6Addr};
 use ipnetwork::{IpNetwork, Ipv6Network};
 use itertools::Itertools;
 use maxminddb::geoip2::City;
@@ -12,6 +12,12 @@ use crate::countries::Countries;
 use crate::country_block_stream::{are_consecutive, Country, CountryBlock, IpRange};
 
 pub struct MMDBParser {
+}
+
+impl Default for MMDBParser {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DBIPParser for MMDBParser {
@@ -82,9 +88,7 @@ impl DBIPParser for MMDBParser {
 
 impl MMDBParser {
     pub fn new() -> Self {
-        Self {
-
-        }
+        Self {}
     }
 
     fn extract_data<'de>(
@@ -93,12 +97,12 @@ impl MMDBParser {
         errors: &mut Vec<String>
     ) -> Vec<(String, IpRange)> {
         let mut coded_ranges: Vec<(String, IpRange)> = vec![];
-        let mut add_or_coalesce = |code: &str, ip_range: IpRange| {
+        let mut add_or_coalesce = |cur_code: &str, cur_range: IpRange| {
             let new_range_opt = match coded_ranges.last() {
                 None => None,
                 Some((last_code, last_range)) => {
-                    if (last_code == code) && are_consecutive(last_range.end(), ip_range.start()) {
-                        Some(IpRange::new(last_range.start(), ip_range.end()))
+                    if (last_code == cur_code) && are_consecutive(last_range.end(), cur_range.start()) {
+                        Some(IpRange::new(last_range.start(), cur_range.end()))
                     }
                     else {
                         None
@@ -108,10 +112,10 @@ impl MMDBParser {
             if let Some(new_range) = new_range_opt {
                 // coalesce with last range
                 let _ = coded_ranges.pop();
-                coded_ranges.push((code.to_string(), new_range));
+                coded_ranges.push((cur_code.to_string(), new_range));
             } else {
                 // add new range
-                coded_ranges.push((code.to_string(), ip_range));
+                coded_ranges.push((cur_code.to_string(), cur_range));
             }
         };
         within.for_each(|item_result| {
@@ -122,7 +126,7 @@ impl MMDBParser {
                         Some(country) => {
                             match (country.iso_code, country.names.map(|ns| ns.get("en").map(|n| n.to_string()))) {
                                 (Some(code), Some(Some(name))) => {
-                                    country_pairs.insert((code.to_string(), name.to_string()));
+                                    country_pairs.insert((code.to_string(), name));
                                     add_or_coalesce(code, ip_range);
                                 }
                                 (Some(code), _) => {
@@ -160,8 +164,8 @@ impl MMDBParser {
 
     fn ipn_to_range(ipn: IpNetwork) -> IpRange {
         match ipn {
-            IpNetwork::V4(ipn) => IpRange::V4 (ipn.network().into(), ipn.broadcast().into()),
-            IpNetwork::V6(ipn) => IpRange::V6 (ipn.network().into(), ipn.broadcast().into()),
+            IpNetwork::V4(ipn) => IpRange::V4 (ipn.network(), ipn.broadcast()),
+            IpNetwork::V6(ipn) => IpRange::V6 (ipn.network(), ipn.broadcast()),
         }
     }
 }
@@ -172,10 +176,10 @@ mod tests {
     use std::cmp::min;
     use std::fs::File;
     use std::io::Read;
-    use std::net::IpAddr;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
     use std::str::FromStr;
-    use crate::country_block_serde::{CountryBlockDeserializer, Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer};
+    use crate::country_block_serde::{Ipv4CountryBlockDeserializer, Ipv6CountryBlockDeserializer};
     use crate::country_finder::CountryCodeFinder;
 
     struct BadRead {
@@ -363,7 +367,7 @@ mod tests {
         let mut result = vec![];
         let len = final_bit_queue.bit_queue.len();
         let mut bits_remaining = len;
-        while (bits_remaining > 0) {
+        while bits_remaining > 0 {
             let bits_to_take = min(64, bits_remaining);
             let bits = final_bit_queue.bit_queue.take_bits(bits_to_take).unwrap();
             result.push(bits);

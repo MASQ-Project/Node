@@ -48,13 +48,13 @@ pub fn ip_country(
 }
 
 pub trait DBIPParserFactory {
-    fn make(&self, args: &Vec<String>) -> Box<dyn DBIPParser>;
+    fn make(&self, args: &[String]) -> Box<dyn DBIPParser>;
 }
 
 pub struct DBIPParserFactoryReal {}
 
 impl DBIPParserFactory for DBIPParserFactoryReal {
-    fn make(&self, args: &Vec<String>) -> Box<dyn DBIPParser> {
+    fn make(&self, args: &[String]) -> Box<dyn DBIPParser> {
         if args.contains(&"--csv".to_string()) {
             Box::new(CSVParser {})
         }
@@ -100,15 +100,19 @@ pub fn generate_rust_code(
 fn generate_country_list(countries: Countries, output: &mut dyn io::Write) -> Result<(), io::Error> {
     writeln!(output)?;
     writeln!(output, "use lazy_static::lazy_static;")?;
-    writeln!(output, "use crate::country_block_stream::Country;")?;
     writeln!(output, "use crate::countries::Countries;")?;
     writeln!(output)?;
     writeln!(output, "lazy_static! {{")?;
-    writeln!(output, "    pub static ref COUNTRIES: Countries = Countries::new(vec![")?;
+    writeln!(output, "    pub static ref COUNTRIES: Countries = Countries::new(")?;
+    writeln!(output, "        vec![")?;
     for country in countries.iter() {
-        writeln!(output, "        (\"{}\", \"{}\"),", country.iso3166, country.name)?;
+        writeln!(output, "            (\"{}\", \"{}\"),", country.iso3166, country.name)?;
     }
-    writeln!(output, "    ]);")?;
+    writeln!(output, "        ]")?;
+    writeln!(output, "        .into_iter()")?;
+    writeln!(output, "        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))")?;
+    writeln!(output, "        .collect::<Vec<(String, String)>>()")?;
+    writeln!(output, "    );")?;
     writeln!(output, "}}")?;
     Ok(())
 }
@@ -184,7 +188,7 @@ mod tests {
 
     impl DBIPParser for DBIPParserMock {
         fn as_any(&self) -> &dyn Any {
-            return self;
+            self
         }
 
         fn parse(
@@ -232,9 +236,9 @@ mod tests {
     }
 
     impl DBIPParserFactory for DBIPParserFactoryMock {
-        fn make(&self, args: &Vec<String>) -> Box<dyn DBIPParser> {
-            self.make_params.lock().unwrap().push(args.clone());
-            return Box::new(self.make_results.borrow_mut().remove(0))
+        fn make(&self, args: &[String]) -> Box<dyn DBIPParser> {
+            self.make_params.lock().unwrap().push(args.to_vec());
+            Box::new(self.make_results.borrow_mut().remove(0))
         }
     }
 
@@ -329,15 +333,19 @@ mod tests {
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
 use lazy_static::lazy_static;
-use crate::country_block_stream::Country;
 use crate::countries::Countries;
 
 lazy_static! {
-    pub static ref COUNTRIES: Countries = Countries::new(vec![
-        ("ZZ", "Sentinel"),
-        ("CA", "Canada"),
-        ("FR", "France"),
-    ]);
+    pub static ref COUNTRIES: Countries = Countries::new(
+        vec![
+            ("ZZ", "Sentinel"),
+            ("CA", "Canada"),
+            ("FR", "France"),
+        ]
+        .into_iter()
+        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>()
+    );
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
@@ -408,15 +416,19 @@ pub fn ipv6_country_block_count() -> usize {
 // GENERATED CODE: REGENERATE, DO NOT MODIFY!
 
 use lazy_static::lazy_static;
-use crate::country_block_stream::Country;
 use crate::countries::Countries;
 
 lazy_static! {
-    pub static ref COUNTRIES: Countries = Countries::new(vec![
-        ("ZZ", "Sentinel"),
-        ("CA", "Canada"),
-        ("FR", "France"),
-    ]);
+    pub static ref COUNTRIES: Countries = Countries::new(
+        vec![
+            ("ZZ", "Sentinel"),
+            ("CA", "Canada"),
+            ("FR", "France"),
+        ]
+        .into_iter()
+        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>()
+    );
 }
 
 pub fn ipv4_country_data() -> (Vec<u64>, usize) {
