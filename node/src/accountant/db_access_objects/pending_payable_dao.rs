@@ -15,10 +15,11 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
-use web3::types::H256;
+use web3::types::{Address, H256};
+use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxStatus;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum PendingPayableDaoError {
+pub enum SentPayableDaoError {
     InsertionFailed(String),
     UpdateFailed(String),
     SignConversionError(u64),
@@ -28,27 +29,43 @@ pub enum PendingPayableDaoError {
 }
 
 #[derive(Debug)]
-pub struct TransactionHashes {
+pub struct TxIdentifiers {
     pub rowid_results: Vec<(u64, H256)>,
     pub no_rowid_results: Vec<H256>,
 }
 
-pub trait PendingPayableDao {
-    // Note that the order of the returned results is not guaranteed
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes;
-    fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint>;
-    fn insert_new_fingerprints(
-        &self,
-        hashes_and_amounts: &[HashAndAmount],
-        batch_wide_timestamp: SystemTime,
-    ) -> Result<(), PendingPayableDaoError>;
-    fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
-    fn increment_scan_attempts(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
-    fn mark_failures(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
+struct TransactionRecord {
+    tx: Tx,
+    status: TxStatus,
 }
 
-impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn fingerprints_rowids(&self, hashes: &[H256]) -> TransactionHashes {
+struct Tx {
+    // GH-608: Perhaps TxReceipt could be a similar structure to be used
+    receiver_address: Address,
+    amount: u128,
+    tx_hash: String,
+    timestamp: SystemTime,
+    gas_price_wei: u64,
+    nonce: u32,
+}
+
+struct StatusChange {
+    new_status: TxStatus,
+}
+
+pub trait SentPayableDao {
+    // Note that the order of the returned results is not guaranteed
+    fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers;
+    fn retrieve_pending_txs(&self) -> Vec<Tx>;
+
+    fn retrieve_txs_to_retry(&self) -> Vec<Tx>;
+    fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError>;
+    fn change_statuses(&self, ids: &[StatusChange]) -> Result<(), SentPayableDaoError>;
+}
+
+impl SentPayableDao for SentPayableDaoReal<'_> {
+    fn transaction_rowids(&self, hashes: &[H256]) -> TxIdentifiers {
         //Vec<(Option<u64>, H256)> {
         fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(u64, H256)> {
             let hash_str: String = row.get(0).expectv("hash");
@@ -81,7 +98,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .cloned()
             .collect();
 
-        TransactionHashes {
+        TxIdentifiers {
             rowid_results: all_found_records,
             no_rowid_results: hashes_of_missing_rowids,
         }
@@ -128,7 +145,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         &self,
         hashes_and_amounts: &[HashAndAmount],
         batch_wide_timestamp: SystemTime,
-    ) -> Result<(), PendingPayableDaoError> {
+    ) -> Result<(), SentPayableDaoError> {
         fn values_clause_for_fingerprints_to_insert(
             hashes_and_amounts: &[HashAndAmount],
             batch_wide_timestamp: SystemTime,
@@ -162,11 +179,11 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                 hashes_and_amounts.len(),
                 x
             ),
-            Err(e) => Err(PendingPayableDaoError::InsertionFailed(e.to_string())),
+            Err(e) => Err(SentPayableDaoError::InsertionFailed(e.to_string())),
         }
     }
 
-    fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+    fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), SentPayableDaoError> {
         let sql = format!(
             "delete from pending_payable where rowid in ({})",
             Self::serialize_ids(ids)
@@ -183,11 +200,11 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                 ids.len(),
                 num
             ),
-            Err(e) => Err(PendingPayableDaoError::RecordDeletion(e.to_string())),
+            Err(e) => Err(SentPayableDaoError::RecordDeletion(e.to_string())),
         }
     }
 
-    fn increment_scan_attempts(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+    fn increment_scan_attempts(&self, ids: &[u64]) -> Result<(), SentPayableDaoError> {
         let sql = format!(
             "update pending_payable set attempt = attempt + 1 where rowid in ({})",
             Self::serialize_ids(ids)
@@ -199,11 +216,11 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                 ids.len(),
                 num
             ),
-            Err(e) => Err(PendingPayableDaoError::UpdateFailed(e.to_string())),
+            Err(e) => Err(SentPayableDaoError::UpdateFailed(e.to_string())),
         }
     }
 
-    fn mark_failures(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+    fn mark_failures(&self, ids: &[u64]) -> Result<(), SentPayableDaoError> {
         let sql = format!(
             "update pending_payable set process_error = 'ERROR' where rowid in ({})",
             Self::serialize_ids(ids)
@@ -220,7 +237,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                     ids.len(), num
                 )
             ,
-            Err(e) => Err(PendingPayableDaoError::ErrorMarkFailed(e.to_string())),
+            Err(e) => Err(SentPayableDaoError::ErrorMarkFailed(e.to_string())),
         }
     }
 }
@@ -241,11 +258,11 @@ impl PendingPayable {
 }
 
 #[derive(Debug)]
-pub struct PendingPayableDaoReal<'a> {
+pub struct SentPayableDaoReal<'a> {
     conn: Box<dyn ConnectionWrapper + 'a>,
 }
 
-impl<'a> PendingPayableDaoReal<'a> {
+impl<'a> SentPayableDaoReal<'a> {
     pub fn new(conn: Box<dyn ConnectionWrapper + 'a>) -> Self {
         Self { conn }
     }
@@ -260,12 +277,12 @@ impl<'a> PendingPayableDaoReal<'a> {
 }
 
 pub trait PendingPayableDaoFactory {
-    fn make(&self) -> Box<dyn PendingPayableDao>;
+    fn make(&self) -> Box<dyn SentPayableDao>;
 }
 
 impl PendingPayableDaoFactory for DaoFactoryReal {
-    fn make(&self) -> Box<dyn PendingPayableDao> {
-        Box::new(PendingPayableDaoReal::new(self.make_connection()))
+    fn make(&self) -> Box<dyn SentPayableDao> {
+        Box::new(SentPayableDaoReal::new(self.make_connection()))
     }
 }
 
@@ -273,7 +290,7 @@ impl PendingPayableDaoFactory for DaoFactoryReal {
 mod tests {
     use crate::accountant::checked_conversion;
     use crate::accountant::db_access_objects::pending_payable_dao::{
-        PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
+        SentPayableDao, SentPayableDaoError, SentPayableDaoReal,
     };
     use crate::accountant::db_access_objects::utils::from_time_t;
     use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
@@ -305,7 +322,7 @@ mod tests {
         let hash_2 = make_tx_hash(6789);
         let amount_2 = 44445;
         let batch_wide_timestamp = from_time_t(200_000_000);
-        let subject = PendingPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
         let hash_and_amount_1 = HashAndAmount {
             hash: hash_1,
             amount: amount_1,
@@ -366,14 +383,14 @@ mod tests {
         let hash = make_tx_hash(45466);
         let amount = 55556;
         let timestamp = from_time_t(200_000_000);
-        let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hash_and_amount = HashAndAmount { hash, amount };
 
         let result = subject.insert_new_fingerprints(&[hash_and_amount], timestamp);
 
         assert_eq!(
             result,
-            Err(PendingPayableDaoError::InsertionFailed(
+            Err(SentPayableDaoError::InsertionFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -395,7 +412,7 @@ mod tests {
         let hash_1 = make_tx_hash(4546);
         let amount_1 = 55556;
         let batch_wide_timestamp = from_time_t(200_000_000);
-        let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hash_and_amount = HashAndAmount {
             hash: hash_1,
             amount: amount_1,
@@ -413,7 +430,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(195_000_000);
         // use full range tx hashes because SqLite has tendencies to see the value as a hex and convert it to an integer,
         // then complain about its excessive size if supplied in unquoted strings
@@ -438,7 +455,7 @@ mod tests {
                 .unwrap();
         }
 
-        let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
+        let result = subject.transaction_rowids(&[hash_1, hash_2]);
 
         let first_expected_pair = &(1, hash_1);
         assert!(
@@ -466,7 +483,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
         let hash_1 = make_tx_hash(11119);
         let hash_2 = make_tx_hash(22229);
         let hash_3 = make_tx_hash(33339);
@@ -494,7 +511,7 @@ mod tests {
             .unwrap();
         subject.delete_fingerprints(&[1]).unwrap();
 
-        let result = subject.fingerprints_rowids(&[hash_1, hash_2, hash_3, hash_4]);
+        let result = subject.transaction_rowids(&[hash_1, hash_2, hash_3, hash_4]);
 
         assert_eq!(result.rowid_results, vec![(2, hash_3),]);
         assert_eq!(result.no_rowid_results, vec![hash_1, hash_2, hash_4]);
@@ -509,7 +526,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
         let batch_wide_timestamp = from_time_t(195_000_000);
         let hash_1 = make_tx_hash(11119);
         let amount_1 = 787;
@@ -567,7 +584,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(198_000_000);
         let hash = make_tx_hash(10000);
         let amount = 333;
@@ -619,7 +636,7 @@ mod tests {
                 .execute([])
                 .unwrap();
         }
-        let subject = PendingPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
 
         let _ = subject.return_all_errorless_fingerprints();
     }
@@ -633,7 +650,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(conn);
+        let subject = SentPayableDaoReal::new(conn);
         {
             subject
                 .insert_new_fingerprints(
@@ -684,13 +701,13 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let rowid = 45;
-        let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.delete_fingerprints(&[rowid]);
 
         assert_eq!(
             result,
-            Err(PendingPayableDaoError::RecordDeletion(
+            Err(SentPayableDaoError::RecordDeletion(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -710,7 +727,7 @@ mod tests {
             .unwrap();
         let rowid_1 = 1;
         let rowid_2 = 2;
-        let subject = PendingPayableDaoReal::new(conn);
+        let subject = SentPayableDaoReal::new(conn);
         {
             subject
                 .insert_new_fingerprints(
@@ -751,7 +768,7 @@ mod tests {
             amount: 3344,
         };
         let timestamp = from_time_t(190_000_000);
-        let subject = PendingPayableDaoReal::new(conn);
+        let subject = SentPayableDaoReal::new(conn);
         {
             subject
                 .insert_new_fingerprints(
@@ -794,13 +811,13 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
-        let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.increment_scan_attempts(&[1]);
 
         assert_eq!(
             result,
-            Err(PendingPayableDaoError::UpdateFailed(
+            Err(SentPayableDaoError::UpdateFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -818,7 +835,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(conn);
+        let subject = SentPayableDaoReal::new(conn);
 
         let _ = subject.increment_scan_attempts(&[1, 2]);
     }
@@ -843,7 +860,7 @@ mod tests {
             amount: amount_2,
         };
         let timestamp = from_time_t(190_000_000);
-        let subject = PendingPayableDaoReal::new(conn);
+        let subject = SentPayableDaoReal::new(conn);
         {
             subject
                 .insert_new_fingerprints(&[hash_and_amount_1, hash_and_amount_2], timestamp)
@@ -919,13 +936,13 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
-        let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.mark_failures(&[1]);
 
         assert_eq!(
             result,
-            Err(PendingPayableDaoError::ErrorMarkFailed(
+            Err(SentPayableDaoError::ErrorMarkFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -943,7 +960,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = PendingPayableDaoReal::new(conn);
+        let subject = SentPayableDaoReal::new(conn);
 
         let _ = subject.mark_failures(&[10, 20]);
     }
