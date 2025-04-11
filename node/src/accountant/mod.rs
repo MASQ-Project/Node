@@ -22,10 +22,10 @@ use crate::accountant::db_access_objects::utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
+use crate::accountant::scanners::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::{BeginScanError, ScanSchedulers, ScanType, Scanners, GuardedStartableScanner};
+use crate::accountant::scanners::{BeginScanError, ScanSchedulers, ScanType, Scanners, ScanWithStarter};
 use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
@@ -76,6 +76,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::accountant::scanners::payable_scanner::MultistageDualPayableScanner;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -152,11 +153,16 @@ pub struct ScanForPendingPayables {
 }
 
 #[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
-pub struct ScanForPayables {
+pub struct ScanForNewPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl SettableSkeletonOptHolder for ScanForPayables {
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
+pub struct ScanForRetryPayables {
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl SettableSkeletonOptHolder for ScanForNewPayables {
     fn set_skeleton(&mut self, response_skeleton: ResponseSkeleton) {
         todo!()
     }
@@ -227,10 +233,10 @@ impl Handler<ScanForPendingPayables> for Accountant {
     }
 }
 
-impl Handler<ScanForPayables> for Accountant {
+impl Handler<ScanForNewPayables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ScanForPayables, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ScanForNewPayables, _ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton = msg.response_skeleton_opt;
         self.handle_request_of_scan_for_payable(response_skeleton);
     }
@@ -244,7 +250,6 @@ impl Handler<ScanForReceivables> for Accountant {
         self.schedule_next_scan(ScanType::Receivables, ctx, None);
     }
 }
-
 
 impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
@@ -609,7 +614,12 @@ impl Accountant {
         }
     }
 
-    fn schedule_next_scan(&self, scan_type: ScanType, ctx: &mut Context<Self>, response_skeleton_opt: Option<ResponseSkeleton>) {
+    fn schedule_next_scan(
+        &self,
+        scan_type: ScanType,
+        ctx: &mut Context<Self>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) {
         self.scan_schedulers
             .schedulers
             .get(&scan_type)
@@ -854,7 +864,7 @@ impl Accountant {
     ) {
         let result: Result<QualifiedPayablesMessage, BeginScanError> =
             match self.consuming_wallet_opt.as_ref() {
-                Some(consuming_wallet) => self.scanners.start_scan_guarded(
+                Some(consuming_wallet) => self.scanners.start_new_payable_scan_guarded(
                     consuming_wallet,
                     SystemTime::now(),
                     response_skeleton_opt,
@@ -885,7 +895,7 @@ impl Accountant {
     ) -> bool {
         let result: Result<RequestTransactionReceipts, BeginScanError> =
             match self.consuming_wallet_opt.as_ref() {
-                Some(consuming_wallet) => self.scanners.start_scan_guarded(
+                Some(consuming_wallet) => self.scanners.start_pending_payable_scan_guarded(
                     consuming_wallet, // This argument is not used and is therefore irrelevant
                     SystemTime::now(),
                     response_skeleton_opt,
@@ -896,8 +906,7 @@ impl Accountant {
 
         match result {
             Ok(scan_message) => {
-                self
-                    .request_transaction_receipts_sub_opt
+                self.request_transaction_receipts_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
@@ -926,7 +935,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
         let result: Result<RetrieveTransactions, BeginScanError> =
-            self.scanners.start_scan_guarded(
+            self.scanners.start_receivable_scan_guarded(
                 &self.earning_wallet,
                 SystemTime::now(),
                 response_skeleton_opt,
@@ -1072,7 +1081,7 @@ mod tests {
     use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::{BeginScanError, PeriodicalScanScheduler};
     use crate::accountant::test_utils::DaoWithDestination::{
@@ -2211,7 +2220,7 @@ mod tests {
         };
         let request_transaction_receipts_2 = RequestTransactionReceipts {
             pending_payable: vec![pending_payable_fingerprint_2],
-            response_skeleton_opt: None
+            response_skeleton_opt: None,
         };
         let pending_payable_scanner = ScannerMock::new()
             .started_at_result(None)
@@ -2222,9 +2231,7 @@ mod tests {
             .start_scan_result(Ok(request_transaction_receipts_1.clone()))
             .start_scan_result(Ok(request_transaction_receipts_2.clone()));
         let qualified_payables_msg = QualifiedPayablesMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(
-                123,
-            )]),
+            protected_qualified_payables: protect_payables_in_test(vec![make_payable_account(123)]),
             consuming_wallet: consuming_wallet.clone(),
             response_skeleton_opt: None,
         };
@@ -2260,7 +2267,7 @@ mod tests {
         subject.scan_schedulers.update_imminent_scheduler(
             ScanType::Payables,
             Some(Box::new(
-                NotifyHandleMock::<ScanForPayables>::default()
+                NotifyHandleMock::<ScanForNewPayables>::default()
                     .notify_params(&notify_payable_params_arc)
                     .capture_msg_and_let_it_fly_on(),
             )),
@@ -2334,33 +2341,27 @@ mod tests {
         assert_eq!(
             *notify_payables_params,
             vec![
-                ScanForPayables {
+                ScanForNewPayables {
                     response_skeleton_opt: None
                 },
-                ScanForPayables {
+                ScanForNewPayables {
                     response_skeleton_opt: None
                 },
-                ScanForPayables {
+                ScanForNewPayables {
                     response_skeleton_opt: None
                 }
             ]
         );
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        let actual_requested_receipts_1 = blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0);
-        assert_eq!(
-            actual_requested_receipts_1,
-            &request_transaction_receipts_1
-        );
-        let actual_requested_receipts_2 = blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(1);
-        assert_eq!(
-            actual_requested_receipts_2,
-            &request_transaction_receipts_2
-        );
-        let actual_qualified_payables = blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(2);
-        assert_eq!(
-            actual_qualified_payables,
-            &qualified_payables_msg
-        )
+        let actual_requested_receipts_1 =
+            blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(0);
+        assert_eq!(actual_requested_receipts_1, &request_transaction_receipts_1);
+        let actual_requested_receipts_2 =
+            blockchain_bridge_recording.get_record::<RequestTransactionReceipts>(1);
+        assert_eq!(actual_requested_receipts_2, &request_transaction_receipts_2);
+        let actual_qualified_payables =
+            blockchain_bridge_recording.get_record::<QualifiedPayablesMessage>(2);
+        assert_eq!(actual_qualified_payables, &qualified_payables_msg)
     }
 
     fn assert_start_scan_params_after_called_twice(
@@ -2537,9 +2538,12 @@ mod tests {
             .build();
         subject.outbound_payments_instructions_sub_opt = Some(outbound_payments_instructions_sub);
 
-        let _result: Result<QualifiedPayablesMessage, BeginScanError> = subject
-            .scanners
-            .start_scan_guarded(&consuming_wallet, SystemTime::now(), None, &subject.logger);
+        let _result = subject.scanners.start_new_payable_scan_guarded(
+            &consuming_wallet,
+            SystemTime::now(),
+            None,
+            &subject.logger,
+        );
 
         System::current().stop();
         system.run();
@@ -2645,13 +2649,13 @@ mod tests {
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .bootstrapper_config(config)
             .build();
-        let message_before = ScanForPayables {
+        let message_before = ScanForNewPayables {
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 111,
                 context_id: 222,
             }),
         };
-        let message_after = ScanForPayables {
+        let message_after = ScanForNewPayables {
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 333,
                 context_id: 444,
@@ -2661,12 +2665,12 @@ mod tests {
         let addr = subject.start();
         addr.try_send(message_before.clone()).unwrap();
 
-        addr.try_send(ScanForPayables {
+        addr.try_send(ScanForNewPayables {
             response_skeleton_opt: None,
         })
         .unwrap();
 
-        // We ignored the second ScanForPayables message because the first message meant a scan
+        // We ignored the second ScanForNewPayables message because the first message meant a scan
         // was already in progress; now let's reset the state by ending the first scan by a failure
         // and see that the third scan attempt will be processed willingly again.
         addr.try_send(ReportTransactionReceipts {
@@ -2740,7 +2744,7 @@ mod tests {
         let account_addr = subject.start();
 
         let _ = account_addr
-            .try_send(ScanForPayables {
+            .try_send(ScanForNewPayables {
                 response_skeleton_opt: None,
             })
             .unwrap();
@@ -3700,7 +3704,7 @@ mod tests {
             vec![vec![fingerprint_2_fourth_round.clone()]]
         );
         let expected_scan_for_payable_msg_and_interval = (
-            ScanForPayables {
+            ScanForNewPayables {
                 response_skeleton_opt: None,
             },
             Duration::from_millis(payable_scan_interval),

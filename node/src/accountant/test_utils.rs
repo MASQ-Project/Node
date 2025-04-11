@@ -14,8 +14,8 @@ use crate::accountant::db_access_objects::receivable_dao::{
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
@@ -118,7 +118,7 @@ pub enum DaoWithDestination<T> {
 enum DestinationMarker {
     AccountantBody,
     PendingPayableScanner,
-    PayableScanner,
+    SharedPayableScanner,
     ReceivableScanner,
 }
 
@@ -130,7 +130,7 @@ impl<T> DaoWithDestination<T> {
                 matches!(dest_marker, DestinationMarker::PendingPayableScanner)
             }
             Self::ForPayableScanner(_) => {
-                matches!(dest_marker, DestinationMarker::PayableScanner)
+                matches!(dest_marker, DestinationMarker::SharedPayableScanner)
             }
             Self::ForReceivableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::ReceivableScanner)
@@ -235,13 +235,13 @@ macro_rules! create_or_update_factory {
 
 const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
-    DestinationMarker::PayableScanner,
+    DestinationMarker::SharedPayableScanner,
     DestinationMarker::PendingPayableScanner,
 ];
 
 const PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
     DestinationMarker::AccountantBody,
-    DestinationMarker::PayableScanner,
+    DestinationMarker::SharedPayableScanner,
     DestinationMarker::PendingPayableScanner,
 ];
 

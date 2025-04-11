@@ -6,16 +6,24 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
-use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::AccessibleScanner;
+use crate::accountant::db_access_objects::payable_dao::PayableDao;
+use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
+use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
+use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::{AccessibleScanner, InaccessibleScanner, ScanWithStarter};
+use crate::accountant::{ScanForNewPayables, ScanForRetryPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
-use itertools::Either;
+use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
+use masq_lib::messages::ToMessageBody;
+use masq_lib::utils::ExpectValue;
 
-pub trait MultistagePayableScanner<StartMessage, EndMessage>:
-    AccessibleScanner<StartMessage, EndMessage> + SolvencySensitivePaymentInstructor
+pub trait MultistageDualPayableScanner<StartMessage, EndMessage>:
+    ScanWithStarter<ScanForNewPayables, StartMessage>
+    + ScanWithStarter<ScanForRetryPayables, StartMessage>
+    + AccessibleScanner<StartMessage, EndMessage>
+    + SolvencySensitivePaymentInstructor
 where
     StartMessage: Message,
     EndMessage: Message,
@@ -55,7 +63,7 @@ impl PreparedAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::PreparedAdjustment;
+    use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
 
     impl Clone for PreparedAdjustment {
         fn clone(&self) -> Self {

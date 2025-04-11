@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
 
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
+use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
-    ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables, ScanForReceivables,
-    SentPayables,
+    ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForNewPayables,
+    ScanForReceivables, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -162,7 +162,7 @@ recorder_message_handler_t_m_p!(ReportTransactionReceipts);
 recorder_message_handler_t_m_p!(RequestTransactionReceipts);
 recorder_message_handler_t_m_p!(RetrieveTransactions);
 recorder_message_handler_t_m_p!(ScanError);
-recorder_message_handler_t_m_p!(ScanForPayables);
+recorder_message_handler_t_m_p!(ScanForNewPayables);
 recorder_message_handler_t_m_p!(ScanForReceivables);
 recorder_message_handler_t_m_p!(SentPayables);
 recorder_message_handler_t_m_p!(StartMessage);

@@ -156,7 +156,7 @@ macro_rules! match_every_type_id{
 
 mod tests {
     use crate::accountant::scanners::ScanType;
-    use crate::accountant::{ResponseSkeleton, ScanError, ScanForPayables};
+    use crate::accountant::{ResponseSkeleton, ScanError, ScanForNewPayables};
     use crate::daemon::crash_notification::CrashNotification;
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
@@ -168,7 +168,7 @@ mod tests {
     fn remove_matched_conditions_works_with_unsorted_indexes() {
         let mut conditions = vec![
             StopCondition::StopOnType(TypeId::of::<StartMessage>()),
-            StopCondition::StopOnType(TypeId::of::<ScanForPayables>()),
+            StopCondition::StopOnType(TypeId::of::<ScanForNewPayables>()),
             StopCondition::StopOnType(TypeId::of::<ScanError>()),
         ];
         let indexes = vec![2, 0];
@@ -181,7 +181,7 @@ mod tests {
         } else {
             panic!("expected StopOnType but got a different variant")
         };
-        assert_eq!(type_id, TypeId::of::<ScanForPayables>())
+        assert_eq!(type_id, TypeId::of::<ScanForNewPayables>())
     }
 
     #[test]
@@ -254,7 +254,7 @@ mod tests {
                 exemplar: Box::new(StartMessage {}),
             },
         ]);
-        let first_msg = ScanForPayables {
+        let first_msg = ScanForNewPayables {
             response_skeleton_opt: None,
         };
         let second_msg = StartMessage {};
@@ -269,7 +269,7 @@ mod tests {
         };
 
         assert_eq!(
-            cond_set.resolve_stop_conditions::<ScanForPayables>(&first_msg),
+            cond_set.resolve_stop_conditions::<ScanForNewPayables>(&first_msg),
             false
         );
         let len_after_stage_1 = inspect_len_of_any(&cond_set, 1);
@@ -301,7 +301,7 @@ mod tests {
                 }),
             },
             StopCondition::StopOnMatch {
-                exemplar: Box::new(ScanForPayables {
+                exemplar: Box::new(ScanForNewPayables {
                     response_skeleton_opt: Some(ResponseSkeleton {
                         client_id: 1234,
                         context_id: 789,
@@ -310,14 +310,14 @@ mod tests {
             },
             StopCondition::StopOnType(TypeId::of::<NewPublicIp>()),
         ]);
-        let tested_msg_1 = ScanForPayables {
+        let tested_msg_1 = ScanForNewPayables {
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 789,
             }),
         };
 
-        let kill_system = cond_set.resolve_stop_conditions::<ScanForPayables>(&tested_msg_1);
+        let kill_system = cond_set.resolve_stop_conditions::<ScanForNewPayables>(&tested_msg_1);
 
         assert_eq!(kill_system, false);
         match &cond_set {
