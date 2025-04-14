@@ -14,7 +14,6 @@ use multinode_integration_tests_lib::neighborhood_constructor::construct_neighbo
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::NodeRecord;
-use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::hopper::{
@@ -31,6 +30,7 @@ use std::convert::TryInto;
 use std::net::Ipv4Addr;
 use std::thread;
 use std::time::Duration;
+use node_lib::neighborhood::gossip::AccessibleGossipRecord;
 
 const EXAMPLE_HTML_RESPONSE: &str = "<!doctype html>
     <html>

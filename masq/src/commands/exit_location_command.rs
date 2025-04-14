@@ -491,7 +491,8 @@ pub mod tests {
 
     #[test]
     fn providing_show_countries_with_other_argument_fails() {
-        let result_expected = "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        let result_expected =
+            "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
 
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),

@@ -5,7 +5,7 @@ use csv::{StringRecord, StringRecordIter};
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
+// use std::str::FromStr;
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Country {
@@ -177,21 +177,23 @@ impl TryFrom<(&Countries, StringRecord)> for CountryBlock {
 }
 
 impl CountryBlock {
-    fn ip_addr_from_iter(iter: &mut StringRecordIter) -> Result<IpAddr, String> {
-        let ip_string = match iter.next() {
-            None => return Err("Missing IP address in CSV record".to_string()),
-            Some(s) => s,
-        };
-        let ip_addr = match IpAddr::from_str(ip_string) {
-            Err(e) => {
-                return Err(format!(
-                    "Invalid ({:?}) IP address in CSV record: '{}'",
-                    e, ip_string
-                ))
-            }
-            Ok(ip) => ip,
-        };
-        Ok(ip_addr)
+
+    fn ip_addr_from_iter(_iter: &mut StringRecordIter) -> Result<IpAddr, String> {
+        todo!("Move this code into ip_country_csv.rs");
+        // let ip_string = match iter.next() {
+        //     None => return Err("Missing IP address in CSV record".to_string()),
+        //     Some(s) => s,
+        // };
+        // let ip_addr = match IpAddr::from_str(ip_string) {
+        //     Err(e) => {
+        //         return Err(format!(
+        //             "Invalid ({:?}) IP address in CSV record: '{}'",
+        //             e, ip_string
+        //         ))
+        //     }
+        //     Ok(ip) => ip,
+        // };
+        // Ok(ip_addr)
     }
 
     fn validate_ips_are_sequential<SingleIntegerIPRep, IP>(start: IP, end: IP) -> Result<(), String>
