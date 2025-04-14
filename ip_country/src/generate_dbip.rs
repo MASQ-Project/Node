@@ -1,13 +1,13 @@
+use bit_vec::BitVec;
+use ipnetwork::IpNetwork;
 use maxminddb::{Reader, Within};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::env;
+use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::env;
-use std::fs;
-use ipnetwork::IpNetwork;
-use serde_json::Value;
-use std::collections::HashMap;
-use bit_vec::BitVec;
 
 // Bit sizes for encoding
 const IPV4_DIFF_COUNT_BITS: usize = 2;
@@ -27,7 +27,7 @@ struct LocationData {
 /// Extracts country code and name from the MaxMind database record
 fn extract_location_data(info: &Value) -> Option<LocationData> {
     let country = info.get("country")?;
-    
+
     Some(LocationData {
         country_code: country.get("iso_code")?.as_str()?.to_string(),
         country_name: country.get("names")?.get("en")?.as_str()?.to_string(),
@@ -43,27 +43,31 @@ fn write_bits(bits: &mut BitVec, value: u64, bit_count: usize) {
 
 /// Encodes the differences between two IP addresses as segments
 /// Returns a vector of (segment_index, new_value) pairs and the count of differences
-fn encode_ip_differences(prev_ip: &[u8], curr_ip: &[u8], segment_size: usize) -> (Vec<(usize, u64)>, usize) {
+fn encode_ip_differences(
+    prev_ip: &[u8],
+    curr_ip: &[u8],
+    segment_size: usize,
+) -> (Vec<(usize, u64)>, usize) {
     let mut differences = Vec::new();
     let segments = prev_ip.len() / segment_size;
-    
+
     for i in 0..segments {
         let prev_segment = match segment_size {
             1 => prev_ip[i] as u64,
-            2 => ((prev_ip[i*2] as u64) << 8) | (prev_ip[i*2+1] as u64),
-            _ => unreachable!()
+            2 => ((prev_ip[i * 2] as u64) << 8) | (prev_ip[i * 2 + 1] as u64),
+            _ => unreachable!(),
         };
         let curr_segment = match segment_size {
             1 => curr_ip[i] as u64,
-            2 => ((curr_ip[i*2] as u64) << 8) | (curr_ip[i*2+1] as u64),
-            _ => unreachable!()
+            2 => ((curr_ip[i * 2] as u64) << 8) | (curr_ip[i * 2 + 1] as u64),
+            _ => unreachable!(),
         };
-        
+
         if prev_segment != curr_segment {
             differences.push((i, curr_segment));
         }
     }
-    
+
     let len = differences.len();
     (differences, len)
 }
@@ -75,7 +79,7 @@ fn process_networks<F, T>(
     country_data: &mut (Vec<String>, Vec<String>, HashMap<String, usize>),
     output: &mut File,
     name: &str,
-    mut process_ip: F
+    mut process_ip: F,
 ) -> Result<usize, Box<dyn std::error::Error>>
 where
     F: FnMut(&IpNetwork, &[u8], &mut BitVec, usize) -> bool,
@@ -89,7 +93,9 @@ where
     for result in iter {
         let item = result?;
         if let Some(location_data) = extract_location_data(&item.info) {
-            if let std::collections::hash_map::Entry::Vacant(e) = country_to_index.entry(location_data.country_code.clone()) {
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                country_to_index.entry(location_data.country_code.clone())
+            {
                 let index = country_codes.len();
                 country_codes.push(location_data.country_code);
                 country_names.push(location_data.country_name);
@@ -111,7 +117,7 @@ where
     // Second pass to process IPs with complete country index
     let mut bits = BitVec::new();
     let iter: Within<Value, _> = reader.within(network)?;
-    
+
     for result in iter {
         let item = result?;
         if let Some(location_data) = extract_location_data(&item.info) {
@@ -139,7 +145,11 @@ where
     }
 
     // Write data function
-    writeln!(output, "pub fn {}_country_data() -> (Vec<u64>, usize) {{", name)?;
+    writeln!(
+        output,
+        "pub fn {}_country_data() -> (Vec<u64>, usize) {{",
+        name
+    )?;
     writeln!(output, "    let data = vec![")?;
     for value in data {
         writeln!(output, "        {:#x},", value)?;
@@ -155,30 +165,30 @@ where
 fn get_project_paths() -> (PathBuf, PathBuf) {
     let current_dir = env::current_dir().expect("Failed to get current directory");
     let args: Vec<String> = env::args().collect();
-    
+
     // Create a temporary directory for output
     let temp_dir = env::temp_dir().join("ip_country_gen");
     fs::create_dir_all(&temp_dir).expect("Failed to create temporary directory");
-    
+
     let output_dir = if args.len() > 1 {
         PathBuf::from(&args[1])
     } else {
         temp_dir
     };
-    
+
     // First, try to find the database file in the current directory
     let db_path = current_dir.join("src").join("dbip.mmdb");
     if db_path.exists() {
         let output_path = output_dir.join("dbip_country.rs");
         return (db_path, output_path);
     }
-    
+
     panic!("Could not find dbip.mmdb in src directory. Please run download_dbip.sh first.");
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (db_path, output_path) = get_project_paths();
-    
+
     println!("Reading database from {:?}", db_path);
     let reader = Reader::open_readfile(&db_path)?;
 
@@ -189,9 +199,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut country_data = (country_codes, country_names, country_to_index);
 
     let mut output = File::create(&output_path)?;
-    
+
     // Write header
-    writeln!(output, "// This file is generated automatically. Do not edit.")?;
+    writeln!(
+        output,
+        "// This file is generated automatically. Do not edit."
+    )?;
     writeln!(output, "// Generated from: {:?}", db_path)?;
     writeln!(output, "// Generated on: {}", chrono::Utc::now())?;
     writeln!(output)?;
@@ -219,7 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 false
             }
-        }
+        },
     )?;
 
     // Process IPv6 networks
@@ -246,7 +259,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 false
             }
-        }
+        },
     )?;
 
     // Write block count functions
@@ -263,6 +276,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------------");
     println!("{}", output_path.display());
     println!("----------------------------------------");
-    println!("Contains {} IPv4 and {} IPv6 entries", ipv4_count, ipv6_count);
+    println!(
+        "Contains {} IPv4 and {} IPv6 entries",
+        ipv4_count, ipv6_count
+    );
     Ok(())
-} 
+}

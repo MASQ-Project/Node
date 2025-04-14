@@ -1,12 +1,12 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bit_queue::BitQueue;
-use crate::country_block_serde::{FinalBitQueue};
+use crate::countries::Countries;
+use crate::country_block_serde::FinalBitQueue;
 use crate::ip_country_csv::CSVParser;
 use crate::ip_country_mmdb::MMDBParser;
-use crate::countries::Countries;
-use std::io;
 use std::any::Any;
+use std::io;
 
 const COUNTRY_BLOCK_BIT_SIZE: usize = 64;
 
@@ -57,8 +57,7 @@ impl DBIPParserFactory for DBIPParserFactoryReal {
     fn make(&self, args: &[String]) -> Box<dyn DBIPParser> {
         if args.contains(&"--csv".to_string()) {
             Box::new(CSVParser {})
-        }
-        else {
+        } else {
             Box::new(MMDBParser::new())
         }
     }
@@ -97,20 +96,33 @@ pub fn generate_rust_code(
     Ok(())
 }
 
-fn generate_country_list(countries: Countries, output: &mut dyn io::Write) -> Result<(), io::Error> {
+fn generate_country_list(
+    countries: Countries,
+    output: &mut dyn io::Write,
+) -> Result<(), io::Error> {
     writeln!(output)?;
     writeln!(output, "use lazy_static::lazy_static;")?;
     writeln!(output, "use crate::countries::Countries;")?;
     writeln!(output)?;
     writeln!(output, "lazy_static! {{")?;
-    writeln!(output, "    pub static ref COUNTRIES: Countries = Countries::new(")?;
+    writeln!(
+        output,
+        "    pub static ref COUNTRIES: Countries = Countries::new("
+    )?;
     writeln!(output, "        vec![")?;
     for country in countries.iter() {
-        writeln!(output, "            (\"{}\", \"{}\"),", country.iso3166, country.name)?;
+        writeln!(
+            output,
+            "            (\"{}\", \"{}\"),",
+            country.iso3166, country.name
+        )?;
     }
     writeln!(output, "        ]")?;
     writeln!(output, "        .into_iter()")?;
-    writeln!(output, "        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))")?;
+    writeln!(
+        output,
+        "        .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))"
+    )?;
     writeln!(output, "        .collect::<Vec<(String, String)>>()")?;
     writeln!(output, "    );")?;
     writeln!(output, "}}")?;
@@ -173,14 +185,14 @@ fn write_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use lazy_static::lazy_static;
+    use std::any::TypeId;
     use std::cell::RefCell;
     use std::io::{Error, ErrorKind};
+    use std::sync::{Arc, Mutex};
     use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
-    use std::any::TypeId;
-    use lazy_static::lazy_static;
 
-    struct DBIPParserMock{
+    struct DBIPParserMock {
         parse_params: Arc<Mutex<Vec<Vec<String>>>>,
         parse_errors: RefCell<Vec<Vec<String>>>,
         parse_results: RefCell<Vec<(FinalBitQueue, FinalBitQueue, Countries)>>,
@@ -211,26 +223,27 @@ mod tests {
             }
         }
 
-        pub fn parse_params(
-            mut self,
-            params: &Arc<Mutex<Vec<Vec<String>>>>,
-        ) -> Self {
+        pub fn parse_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
             self.parse_params = params.clone();
             self
         }
 
         pub fn parse_errors(self, errors: Vec<&str>) -> Self {
-            self.parse_errors.borrow_mut().push(errors.into_iter().map(|s| s.to_string()).collect());
+            self.parse_errors
+                .borrow_mut()
+                .push(errors.into_iter().map(|s| s.to_string()).collect());
             self
         }
 
         pub fn parse_result(self, result: (FinalBitQueue, FinalBitQueue, &Countries)) -> Self {
-            self.parse_results.borrow_mut().push((result.0, result.1, result.2.clone()));
+            self.parse_results
+                .borrow_mut()
+                .push((result.0, result.1, result.2.clone()));
             self
         }
     }
 
-    struct DBIPParserFactoryMock{
+    struct DBIPParserFactoryMock {
         make_params: Arc<Mutex<Vec<Vec<String>>>>,
         make_results: RefCell<Vec<DBIPParserMock>>,
     }
@@ -250,10 +263,7 @@ mod tests {
             }
         }
 
-        fn make_params(
-            mut self,
-            params: &Arc<Mutex<Vec<Vec<String>>>>,
-        ) -> Self {
+        fn make_params(mut self, params: &Arc<Mutex<Vec<Vec<String>>>>) -> Self {
             self.make_params = params.clone();
             self
         }
@@ -274,7 +284,7 @@ mod tests {
 
     #[test]
     fn csv_makes_csv() {
-        let subject = DBIPParserFactoryReal{};
+        let subject = DBIPParserFactoryReal {};
 
         let result = subject.make(&vec!["--csv".to_string()]);
 
@@ -283,7 +293,7 @@ mod tests {
 
     #[test]
     fn mmdb_makes_mmdb() {
-        let subject = DBIPParserFactoryReal{};
+        let subject = DBIPParserFactoryReal {};
 
         let result = subject.make(&vec!["--mmdb".to_string()]);
 
@@ -291,8 +301,8 @@ mod tests {
     }
 
     #[test]
-    fn nothing_makes_mmdb() {
-        let subject = DBIPParserFactoryReal{};
+    fn missing_parameter_makes_mmdb() {
+        let subject = DBIPParserFactoryReal {};
 
         let result = subject.make(&vec![]);
 
@@ -300,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn happy_path_csv_test() {
+    fn happy_path_test() {
         let mut stdin = ByteArrayReader::new(TEST_DATA.as_bytes());
         let mut stdout = ByteArrayWriter::new();
         let mut stderr = ByteArrayWriter::new();
@@ -315,9 +325,15 @@ mod tests {
         let parser_factory = DBIPParserFactoryMock::new()
             .make_params(&make_params_arc)
             .make_result(parser);
-        let args = vec!["--csv".to_string()];
+        let args = vec![];
 
-        let result = ip_country(args.clone(), &mut stdin, &mut stdout, &mut stderr, &parser_factory);
+        let result = ip_country(
+            args.clone(),
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+            &parser_factory,
+        );
 
         assert_eq!(result, 0);
         let make_params = make_params_arc.lock().unwrap();
@@ -374,7 +390,7 @@ pub fn ipv6_country_block_count() -> usize {
         21
 }
 "#
-                .to_string()
+            .to_string()
         );
         assert_eq!(stderr_string, "".to_string());
     }
@@ -389,10 +405,7 @@ pub fn ipv6_country_block_count() -> usize {
         let ipv6_result = final_bit_queue(0x8877665544332211, 21);
         let parser = DBIPParserMock::new()
             .parse_params(&parse_params_arc)
-            .parse_errors(vec![
-                "First error",
-                "Second error"
-            ])
+            .parse_errors(vec!["First error", "Second error"])
             .parse_result((ipv4_result, ipv6_result, &TEST_COUNTRIES));
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let parser_factory = DBIPParserFactoryMock::new()
@@ -400,7 +413,13 @@ pub fn ipv6_country_block_count() -> usize {
             .make_result(parser);
         let args = vec!["--csv".to_string()];
 
-        let result = ip_country(args.clone(), &mut stdin, &mut stdout, &mut stderr, &parser_factory);
+        let result = ip_country(
+            args.clone(),
+            &mut stdin,
+            &mut stdout,
+            &mut stderr,
+            &parser_factory,
+        );
 
         assert_eq!(result, 1);
         let make_params = make_params_arc.lock().unwrap();
@@ -467,12 +486,13 @@ Second error
             Fix the errors and regenerate the code.
             *** DO NOT USE THIS CODE ***
 "#
-                .to_string()
+            .to_string()
         );
-        assert_eq!(stderr_string,
-r#"First error
+        assert_eq!(
+            stderr_string,
+            r#"First error
 Second error"#
-                       .to_string()
+                .to_string()
         );
     }
 
@@ -482,7 +502,7 @@ Second error"#
         let stdout = &mut ByteArrayWriter::new();
         let stderr = &mut ByteArrayWriter::new();
         stdout.reject_next_write(Error::new(ErrorKind::WriteZero, "Bad file Descriptor"));
-        let factory = DBIPParserFactoryReal{};
+        let factory = DBIPParserFactoryReal {};
 
         let result = ip_country(vec!["--csv".to_string()], stdin, stdout, stderr, &factory);
 
@@ -496,6 +516,9 @@ Second error"#
     fn final_bit_queue(contents: u64, block_count: usize) -> FinalBitQueue {
         let mut bit_queue = BitQueue::new();
         bit_queue.add_bits(contents, 64);
-        FinalBitQueue {bit_queue, block_count}
+        FinalBitQueue {
+            bit_queue,
+            block_count,
+        }
     }
 }

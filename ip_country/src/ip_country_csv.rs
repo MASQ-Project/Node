@@ -1,10 +1,10 @@
+use crate::countries::Countries;
 use crate::country_block_serde::{CountryBlockSerializer, FinalBitQueue};
 use crate::country_block_stream::CountryBlock;
-use crate::countries::Countries;
-use std::io;
 use crate::ip_country::DBIPParser;
-use std::any::Any;
 use lazy_static::lazy_static;
+use std::any::Any;
+use std::io;
 
 lazy_static! {
     static ref HARD_CODED_COUNTRIES: Countries = Countries::new(
@@ -287,7 +287,7 @@ impl DBIPParser for CSVParser {
                 Ok(string_record) => {
                     let countries: &Countries = &HARD_CODED_COUNTRIES;
                     CountryBlock::try_from((countries, string_record))
-                },
+                }
                 Err(e) => Err(format!("CSV format error: {:?}", e)),
             })
             .enumerate()
@@ -309,7 +309,7 @@ impl DBIPParser for CSVParser {
 mod tests {
     use super::*;
     use std::cmp::min;
-    use test_utilities::byte_array_reader_writer::{ByteArrayReader};
+    use test_utilities::byte_array_reader_writer::ByteArrayReader;
 
     static PROPER_TEST_DATA: &str = "0.0.0.0,0.255.255.255,ZZ
 1.0.0.0,1.0.0.255,AU
@@ -361,10 +361,9 @@ BOOGA,BOOGA,BOOGA
     fn happy_path_test() {
         let mut stdin = ByteArrayReader::new(PROPER_TEST_DATA.as_bytes());
         let mut errors = vec![];
-        let subject = CSVParser{};
+        let subject = CSVParser {};
 
-        let (ipv4_bit_queue, ipv6_bit_queue, countries) =
-            subject.parse(&mut stdin, &mut errors);
+        let (ipv4_bit_queue, ipv6_bit_queue, countries) = subject.parse(&mut stdin, &mut errors);
 
         let expected_errors: Vec<String> = vec![];
         assert_eq!(errors, expected_errors);
@@ -375,20 +374,44 @@ BOOGA,BOOGA,BOOGA
         assert_eq!(
             ipv4_compressed,
             vec![
-                9259400846767034371, 153151013337962502, 5192703286562554892, 6944551727792783886,
-                0]
+                9259400846767034371,
+                153151013337962502,
+                5192703286562554892,
+                6944551727792783886,
+                0
+            ]
         );
         assert_eq!(ipv6_bit_queue.bit_queue.len(), 1513);
         assert_eq!(ipv6_bit_queue.block_count, 20);
         let ipv6_compressed: Vec<u64> = ipv6_bit_queue.into();
         assert_eq!(
             ipv6_compressed,
-            vec![3458768911871246343, 54043281427922944, 12108302188053268224, 4611686082891046986,
-                 216173056991952900, 16161919892486895616, 422215216529409, 3075958771080495132,
-                 432354978795882369, 13835570455618023424, 18647717209048234, 1533581226265280536,
-                 14483576403638004480, 2562548218038607874, 2062837088453, 30786350749988,
-                 2112345178780806, 31525223174541312, 2163041463893637376, 13835084483327426560,
-                 1345171479032233985, 18014559570755704, 12433312672202621696, 122954]
+            vec![
+                3458768911871246343,
+                54043281427922944,
+                12108302188053268224,
+                4611686082891046986,
+                216173056991952900,
+                16161919892486895616,
+                422215216529409,
+                3075958771080495132,
+                432354978795882369,
+                13835570455618023424,
+                18647717209048234,
+                1533581226265280536,
+                14483576403638004480,
+                2562548218038607874,
+                2062837088453,
+                30786350749988,
+                2112345178780806,
+                31525223174541312,
+                2163041463893637376,
+                13835084483327426560,
+                1345171479032233985,
+                18014559570755704,
+                12433312672202621696,
+                122954
+            ]
         );
     }
 
@@ -396,10 +419,9 @@ BOOGA,BOOGA,BOOGA
     fn sad_path_test() {
         let mut stdin = ByteArrayReader::new(BAD_TEST_DATA.as_bytes());
         let mut errors = vec![];
-        let subject = CSVParser{};
+        let subject = CSVParser {};
 
-        let (ipv4_bit_queue, ipv6_bit_queue, countries) =
-            subject.parse(&mut stdin, &mut errors);
+        let (ipv4_bit_queue, ipv6_bit_queue, countries) = subject.parse(&mut stdin, &mut errors);
 
         assert_eq!(countries, HARD_CODED_COUNTRIES.clone());
         assert_eq!(ipv4_bit_queue.bit_queue.len(), 239);
@@ -408,7 +430,10 @@ BOOGA,BOOGA,BOOGA
         assert_eq!(
             ipv4_compressed,
             vec![
-                9259400846767034371, 10385300779421407238, 12351125828770205212, 1616904448
+                9259400846767034371,
+                10385300779421407238,
+                12351125828770205212,
+                1616904448
             ]
         );
         assert_eq!(ipv6_bit_queue.bit_queue.len(), 1513);
@@ -416,12 +441,32 @@ BOOGA,BOOGA,BOOGA
         let ipv6_compressed: Vec<u64> = ipv6_bit_queue.into();
         assert_eq!(
             ipv6_compressed,
-            vec![3458768911871246343, 54043281427922944, 12108302188053268224, 4611686082891046986,
-                 216173056991952900, 16161919892486895616, 422215216529409, 3075958771080495132,
-                 432354978795882369, 13835570455618023424, 18647717209048234, 1533581226265280536,
-                 14483576403638004480, 2562548218038607874, 2062837088453, 30786350749988,
-                 2112345178780806, 31525223174541312, 2163041463893637376, 13835084483327426560,
-                 1345171479032233985, 18014559570755704, 12433312672202621696, 122954]
+            vec![
+                3458768911871246343,
+                54043281427922944,
+                12108302188053268224,
+                4611686082891046986,
+                216173056991952900,
+                16161919892486895616,
+                422215216529409,
+                3075958771080495132,
+                432354978795882369,
+                13835570455618023424,
+                18647717209048234,
+                1533581226265280536,
+                14483576403638004480,
+                2562548218038607874,
+                2062837088453,
+                30786350749988,
+                2112345178780806,
+                31525223174541312,
+                2163041463893637376,
+                13835084483327426560,
+                1345171479032233985,
+                18014559570755704,
+                12433312672202621696,
+                122954
+            ]
         );
         assert_eq!(errors, vec![
             "Line 3: CSV format error: Error(UnequalLengths { pos: Some(Position { byte: 67, line: 4, record: 3 }), expected_len: 3, len: 2 })",
@@ -437,7 +482,10 @@ BOOGA,BOOGA,BOOGA
         fn into(mut self) -> Vec<u64> {
             let mut result = vec![];
             while !self.bit_queue.is_empty() {
-                let bits = self.bit_queue.take_bits(min(64, self.bit_queue.len())).unwrap();
+                let bits = self
+                    .bit_queue
+                    .take_bits(min(64, self.bit_queue.len()))
+                    .unwrap();
                 result.push(bits);
             }
             result

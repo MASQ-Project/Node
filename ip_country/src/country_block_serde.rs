@@ -1,11 +1,11 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::bit_queue::BitQueue;
+use crate::countries::Countries;
 use crate::country_block_serde::semi_private_items::{
     DeserializerPrivate, Difference, IPIntoOctets, IPIntoSegments, PlusMinusOneIP,
 };
 use crate::country_block_stream::{CountryBlock, IpRange};
-use crate::countries::Countries;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -444,7 +444,11 @@ pub type Ipv4CountryBlockDeserializer<'a> = CountryBlockDeserializer<'a, Ipv4Add
 
 impl<'a> Ipv4CountryBlockDeserializer<'a> {
     pub fn new(country_data: (Vec<u64>, usize), countries: &'a Countries) -> Self {
-        Self::new_generic(country_data, Ipv4Addr::new(0xFF, 0xFF, 0xFF, 0xFE), countries)
+        Self::new_generic(
+            country_data,
+            Ipv4Addr::new(0xFF, 0xFF, 0xFF, 0xFE),
+            countries,
+        )
     }
 }
 
@@ -572,7 +576,9 @@ where
                         self.prev_record.start.ip,
                         IPType::minus_one_ip(next_record.start.ip),
                     )),
-                    country: self.countries.country_from_index(self.prev_record.country_idx)
+                    country: self
+                        .countries
+                        .country_from_index(self.prev_record.country_idx)
                         .expect("Country not found")
                         .clone(),
                 };
@@ -583,7 +589,9 @@ where
                 self.empty = true;
                 Some(CountryBlock {
                     ip_range: IpRange::from((self.prev_record.start.ip, Self::max_ip_value())),
-                    country: self.countries.country_from_index(self.prev_record.country_idx)
+                    country: self
+                        .countries
+                        .country_from_index(self.prev_record.country_idx)
                         .expect("Country not found")
                         .clone(),
                 })
@@ -695,11 +703,11 @@ fn bit_queue_from_country_data(country_data_pair: (Vec<u64>, usize)) -> BitQueue
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::country_block_stream::{Country, IpRange};
     use crate::countries::Countries;
+    use crate::country_block_stream::{Country, IpRange};
+    use lazy_static::lazy_static;
     use std::net::Ipv4Addr;
     use std::str::FromStr;
-    use lazy_static::lazy_static;
 
     lazy_static! {
         static ref SENTINEL: Country = Country::new(0, "ZZ", "Sentinel");
@@ -717,52 +725,52 @@ mod tests {
     fn ipv4_country_blocks() -> Vec<CountryBlock> {
         vec![
             CountryBlock {
-                ip_range: IpRange::V4 (
+                ip_range: IpRange::V4(
                     Ipv4Addr::from_str("1.2.3.4").unwrap(),
-                    Ipv4Addr::from_str("1.2.3.5").unwrap()
+                    Ipv4Addr::from_str("1.2.3.5").unwrap(),
                 ),
                 country: AMERICAN_SAMOA.clone(),
             },
             CountryBlock {
-                ip_range: IpRange::V4 (
+                ip_range: IpRange::V4(
                     Ipv4Addr::from_str("1.2.3.6").unwrap(),
-                    Ipv4Addr::from_str("6.7.8.9").unwrap()
+                    Ipv4Addr::from_str("6.7.8.9").unwrap(),
                 ),
                 country: ANDORRA.clone(),
             },
             CountryBlock {
-                ip_range: IpRange::V4 (
+                ip_range: IpRange::V4(
                     Ipv4Addr::from_str("10.11.12.13").unwrap(),
-                    Ipv4Addr::from_str("11.11.12.13").unwrap()
+                    Ipv4Addr::from_str("11.11.12.13").unwrap(),
                 ),
                 country: ANGOLA.clone(),
-            }
+            },
         ]
     }
 
     fn ipv6_country_blocks() -> Vec<CountryBlock> {
         vec![
             CountryBlock {
-                ip_range: IpRange::V6 (
+                ip_range: IpRange::V6(
                     Ipv6Addr::from_str("1:2:3:4:5:6:7:8").unwrap(),
-                    Ipv6Addr::from_str("1:2:3:4:5:6:7:9").unwrap()
+                    Ipv6Addr::from_str("1:2:3:4:5:6:7:9").unwrap(),
                 ),
                 country: AMERICAN_SAMOA.clone(),
             },
             CountryBlock {
-                ip_range: IpRange::V6 (
+                ip_range: IpRange::V6(
                     Ipv6Addr::from_str("1:2:3:4:5:6:7:A").unwrap(),
-                    Ipv6Addr::from_str("B:C:D:E:F:10:11:12").unwrap()
+                    Ipv6Addr::from_str("B:C:D:E:F:10:11:12").unwrap(),
                 ),
                 country: ANDORRA.clone(),
             },
             CountryBlock {
-                ip_range: IpRange::V6 (
+                ip_range: IpRange::V6(
                     Ipv6Addr::from_str("13:14:15:16:17:18:19:1A").unwrap(),
-                    Ipv6Addr::from_str("14:14:15:16:17:18:19:1A").unwrap()
+                    Ipv6Addr::from_str("14:14:15:16:17:18:19:1A").unwrap(),
                 ),
                 country: ANGOLA.clone(),
-            }
+            },
         ]
     }
 
@@ -1025,8 +1033,10 @@ mod tests {
         let remaining_bit_count = bit_queue.len();
         let data = bit_queue.take_bits(remaining_bit_count).unwrap();
         bit_data.push(data);
-        let mut subject =
-            CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new((bit_data, bit_queue_len), &TEST_COUNTRIES);
+        let mut subject = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new(
+            (bit_data, bit_queue_len),
+            &TEST_COUNTRIES,
+        );
         let mut actual_country_blocks: Vec<CountryBlock> = vec![];
         loop {
             match subject.next() {
@@ -1042,7 +1052,7 @@ mod tests {
     fn finish_does_not_touch_complete_ipv4_list() {
         // let mut country_blocks = ipv4_country_blocks();
         let mut subject = CountryBlockSerializer::new();
-        expected_ipv4().into_iter().for_each(|cb| {subject.add(cb)});
+        expected_ipv4().into_iter().for_each(|cb| subject.add(cb));
         let (final_ipv4, _) = subject.finish();
         let mut bitqueue = final_ipv4.bit_queue;
         let len = bitqueue.len();
@@ -1055,16 +1065,18 @@ mod tests {
         let data = bitqueue.take_bits(remaining_bit_count).unwrap();
         vec_64.push(data);
 
-        let mut deserializer = CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new((vec_64, len), &TEST_COUNTRIES);
+        let mut deserializer =
+            CountryBlockDeserializer::<Ipv4Addr, u8, 4>::new((vec_64, len), &TEST_COUNTRIES);
 
         let mut country_blocks: Vec<CountryBlock> = vec![];
         loop {
             match deserializer.next() {
                 None => break,
-                Some(country_block) => country_blocks.push(country_block)
+                Some(country_block) => country_blocks.push(country_block),
             }
         }
-        let iso3166s = country_blocks.into_iter()
+        let iso3166s = country_blocks
+            .into_iter()
             .map(|cb| cb.country.iso3166)
             .collect::<Vec<String>>()
             .join(", ");
@@ -1331,8 +1343,10 @@ mod tests {
         let remaining_bit_count = bit_queue.len();
         let data = bit_queue.take_bits(remaining_bit_count).unwrap();
         bit_data.push(data);
-        let mut subject =
-            CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new((bit_data, bit_queue_len), &TEST_COUNTRIES);
+        let mut subject = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new(
+            (bit_data, bit_queue_len),
+            &TEST_COUNTRIES,
+        );
 
         let country_block1 = subject.next().unwrap();
         let country_block2 = subject.next().unwrap();
@@ -1382,7 +1396,7 @@ mod tests {
     #[test]
     fn finish_does_not_touch_complete_ipv6_list() {
         let mut subject = CountryBlockSerializer::new();
-        expected_ipv6().into_iter().for_each(|cb| {subject.add(cb)});
+        expected_ipv6().into_iter().for_each(|cb| subject.add(cb));
         let (_, final_ipv6) = subject.finish();
         let mut bitqueue = final_ipv6.bit_queue;
         let len = bitqueue.len();
@@ -1395,7 +1409,8 @@ mod tests {
         let data = bitqueue.take_bits(remaining_bit_count).unwrap();
         vec_64.push(data);
 
-        let mut deserializer = CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new((vec_64, len), &TEST_COUNTRIES);
+        let mut deserializer =
+            CountryBlockDeserializer::<Ipv6Addr, u16, 8>::new((vec_64, len), &TEST_COUNTRIES);
 
         let result = deserializer.next();
         assert_eq!(result.unwrap().country.iso3166, "ZZ");

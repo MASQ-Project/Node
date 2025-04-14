@@ -700,11 +700,11 @@ Length: 249 (0xf9) bytes
 00c0:   74 73 5f 63  6f 6e 6e 65  63 74 69 6f  6e 73 f5 6b   ts_connections.k
 00d0:   72 6f 75 74  65 73 5f 64  61 74 61 f5  67 76 65 72   routes_data.gver
 00e0:   73 69 6f 6e  02 70 63 6f  75 6e 74 72  79 5f 63 6f   sion.pcountry_co
-00f0:   64 65 5f 6f  70 74 62 41  55                         de_optbAU",
+00f0:   64 65 5f 6f  70 74 62 41  44                         de_optbAD",
 	        "\n\tsignature:
 Length: 24 (0x18) bytes
-0000:   01 02 03 04  ef 19 0e 89  b5 a9 b1 93  33 84 54 9f   ............3.T.
-0010:   88 a2 10 50  79 1c 6f e7                             ...Py.o."
+0000:   01 02 03 04  9b be 7e b3  92 5d fe 69  9e c2 d3 86   ......~..].i....
+0010:   33 15 0d 91  3a 33 31 88                             3...:31."
         );
 
         assert_eq!(result, expected);
@@ -769,11 +769,11 @@ Length: 4 (0x4) bytes
         assert_string_contains(&result, "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\"]; ");
         assert_string_contains(
             &result,
-            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1 AU\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
+            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1 AD\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
         );
         assert_string_contains(
             &result,
-            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0 FR\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
+            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0 AO\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
         );
         assert_string_contains(
             &result,

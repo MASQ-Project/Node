@@ -1,6 +1,4 @@
 
-// GENERATED CODE: REGENERATE, DO NOT MODIFY!
-
 use lazy_static::lazy_static;
 use crate::countries::Countries;
 

@@ -1,11 +1,11 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::countries::Countries;
 use csv::{StringRecord, StringRecordIter};
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use crate::countries::Countries;
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Country {
@@ -140,7 +140,9 @@ pub struct CountryBlock {
 impl TryFrom<(&Countries, StringRecord)> for CountryBlock {
     type Error = String;
 
-    fn try_from((countries, string_record): (&Countries, StringRecord)) -> Result<CountryBlock, String> {
+    fn try_from(
+        (countries, string_record): (&Countries, StringRecord),
+    ) -> Result<CountryBlock, String> {
         let mut iter = string_record.iter();
         let start_ip = Self::ip_addr_from_iter(&mut iter)?;
         let end_ip = Self::ip_addr_from_iter(&mut iter)?;
@@ -308,7 +310,7 @@ mod tests {
 
         assert_eq!(result, false);
     }
-    
+
     fn test_countries() -> Countries {
         Countries::old_new(vec![
             Country::new(0, "ZZ", "Sentinel"),
@@ -383,7 +385,9 @@ mod tests {
     fn try_from_fails_for_missing_end_ip() {
         let string_record = StringRecord::from(vec!["1.2.3.4"]);
 
-        let result = CountryBlock::try_from((&test_countries(), string_record)).err().unwrap();
+        let result = CountryBlock::try_from((&test_countries(), string_record))
+            .err()
+            .unwrap();
 
         assert_eq!(result, "Missing IP address in CSV record".to_string());
     }

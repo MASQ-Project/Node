@@ -2324,8 +2324,10 @@ mod tests {
     fn standard_gossip_results_in_exit_node_in_database() {
         let mut subject = make_standard_subject();
         let root_node_key = subject.neighborhood_database.root_key().clone();
-        let source_node = make_node_record(1111, true); //US
-        let first_node = make_node_record(2222, true); //FR
+        let mut source_node = make_node_record(1111, true); //US
+        source_node.inner.country_code_opt = Some("US".to_string());
+        let mut first_node = make_node_record(2222, true); //FR
+        first_node.inner.country_code_opt = Some("FR".to_string());
         let second_node = make_node_record(3333, false);
         subject
             .neighborhood_database
@@ -2405,7 +2407,7 @@ mod tests {
         assert!(exit_nodes_before_gossip.is_empty());
         assert_eq!(
             debut_subject.user_exit_preferences.db_countries,
-            vec!["AU".to_string()]
+            vec!["AO".to_string()]
         );
     }
 
@@ -3612,10 +3614,14 @@ mod tests {
     fn min_hops_change_affects_db_countries_and_exit_location_settings() {
         let mut subject = make_standard_subject();
         let root_node_ch = subject.neighborhood_database.root().clone();
-        let neighbor_one_au = make_node_record(1234, true);
-        let neighbor_two_fr = make_node_record(2345, true);
-        let neighbor_three_cn = make_node_record(3456, true);
-        let neighbor_four_us = make_node_record(4567, true);
+        let mut neighbor_one_au = make_node_record(1234, true);
+        neighbor_one_au.inner.country_code_opt = Some("AU".to_string());
+        let mut neighbor_two_fr = make_node_record(2345, true);
+        neighbor_two_fr.inner.country_code_opt = Some("FR".to_string());
+        let mut neighbor_three_cn = make_node_record(3456, true);
+        neighbor_three_cn.inner.country_code_opt = Some("CN".to_string());
+        let mut neighbor_four_us = make_node_record(4567, true);
+        neighbor_four_us.inner.country_code_opt = Some("US".to_string());
         subject
             .neighborhood_database
             .add_node(neighbor_one_au.clone())
@@ -3635,15 +3641,18 @@ mod tests {
         subject
             .neighborhood_database
             .add_arbitrary_full_neighbor(root_node_ch.public_key(), neighbor_one_au.public_key());
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor_one_au.public_key(), neighbor_two_fr.public_key());
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor_two_fr.public_key(), neighbor_three_cn.public_key());
-        subject
-            .neighborhood_database
-            .add_arbitrary_full_neighbor(neighbor_three_cn.public_key(), neighbor_four_us.public_key());
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            neighbor_one_au.public_key(),
+            neighbor_two_fr.public_key(),
+        );
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            neighbor_two_fr.public_key(),
+            neighbor_three_cn.public_key(),
+        );
+        subject.neighborhood_database.add_arbitrary_full_neighbor(
+            neighbor_three_cn.public_key(),
+            neighbor_four_us.public_key(),
+        );
         subject.user_exit_preferences.db_countries = subject.init_db_countries();
         let exit_locations_by_priority = vec![ExitLocation {
             country_codes: vec!["FR".to_string(), "US".to_string()],
@@ -4161,8 +4170,8 @@ mod tests {
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&sn_2_public_key),
-                    0u32,
-                    "We expect 0, country is not considered for exit location, so country_undesirability doesn't matter"
+                    UNREACHABLE_COUNTRY_PENALTY,
+                    "We expect 100M, country is not considered for exit location, so is unreachable"
                 );
                 assert_eq!(
                     neighborhood.user_exit_preferences.exit_countries,
@@ -4778,7 +4787,7 @@ mod tests {
         let message = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![CountryGroups {
-                country_codes: vec!["AU".to_string()],
+                country_codes: vec!["AO".to_string()],
                 priority: 1,
             }],
             show_countries: false,
@@ -4786,13 +4795,19 @@ mod tests {
         subject.handle_exit_location_message(message, 0, 0);
         let subject_min_hops = 2;
 
-        let route_au =
-            subject.find_best_route_segment(root_key, None, subject_min_hops, 10000, RouteDirection::Over, None);
+        let route_au = subject.find_best_route_segment(
+            root_key,
+            None,
+            subject_min_hops,
+            10000,
+            RouteDirection::Over,
+            None,
+        );
 
         let exit_node = cdb.node_by_key(&route_au.as_ref().unwrap().last().unwrap());
         assert_eq!(
             exit_node.unwrap().inner.country_code_opt,
-            Some("AU".to_string())
+            Some("AO".to_string())
         );
     }
 
@@ -4804,17 +4819,23 @@ mod tests {
             .root_mut()
             .public_key()
             .clone();
+        let mut a_fr_node = make_node_record(2345, true);
+        a_fr_node.inner.country_code_opt = Some("FR".to_string());
         let a_fr = &subject
             .neighborhood_database
-            .add_node(make_node_record(2345, true))
+            .add_node(a_fr_node)
             .unwrap();
+        let mut b_fr_node = make_node_record(5678, true);
+        b_fr_node.inner.country_code_opt = Some("FR".to_string());
         let b_fr = &subject
             .neighborhood_database
-            .add_node(make_node_record(5678, true))
+            .add_node(b_fr_node)
             .unwrap();
+        let mut c_au_node = make_node_record(1234, true);
+        c_au_node.inner.country_code_opt = Some("AU".to_string());
         let c_au = &subject
             .neighborhood_database
-            .add_node(make_node_record(1234, true))
+            .add_node(c_au_node)
             .unwrap();
         subject
             .neighborhood_database
@@ -5829,7 +5850,7 @@ mod tests {
 
         assert_eq!(
             subject.neighborhood_database.root().inner.country_code_opt,
-            Some("US".to_string())
+            Some("AO".to_string())
         );
         assert_eq!(
             subject.neighborhood_database.root().inner.country_code_opt,
@@ -6225,12 +6246,12 @@ mod tests {
         });
         let tlh = TestLogHandler::new();
         tlh.await_log_containing(
-            &format!("\"BAYFBw\" [label=\"AR v0 US\\nBAYFBw\\n4.6.5.7:4657\"];"),
+            &format!("\"BAYFBw\" [label=\"AR v0 AO\\nBAYFBw\\n4.6.5.7:4657\"];"),
             5000,
         );
 
         tlh.exists_log_containing("Received Gossip: digraph db { ");
-        tlh.exists_log_containing("\"AQMCBA\" [label=\"AR v0 AU\\nAQMCBA\"];");
+        tlh.exists_log_containing("\"AQMCBA\" [label=\"AR v0 AO\\nAQMCBA\"];");
         tlh.exists_log_containing(&format!(
             "\"{}\" [label=\"{}\"] [shape=none];",
             cryptde.public_key(),

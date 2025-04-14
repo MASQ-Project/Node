@@ -1,7 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::collections::HashMap;
 use crate::country_block_stream::Country;
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Countries {
@@ -25,7 +25,8 @@ impl Countries {
         // Must sort these by iso3166, but we need to keep the sentinel coded as "ZZ" at the front
         // --or add one at the front, if there isn't already one. (We assume there isn't already
         // more than one.)
-        let sentinel_info_opt = country_pairs.iter()
+        let sentinel_info_opt = country_pairs
+            .iter()
             .enumerate()
             .find(|(_, (iso3166, _))| iso3166 == "ZZ")
             .map(|(index, (_, name))| (index, name.to_string()));
@@ -38,16 +39,7 @@ impl Countries {
             .enumerate()
             .map(|(index, (iso3166, name))| Country::new(index + 1, iso3166, name))
             .collect::<Vec<Country>>();
-        let sentinel_name = if let Some((_, name)) = sentinel_info_opt {
-            name
-        } else {
-            "Sentinel".to_string()
-        };
-        let sentinel = Country::new(
-            0,
-            "ZZ",
-            sentinel_name.as_str()
-        );
+        let sentinel = Country::new(0, "ZZ", "Sentinel");
         countries.insert(0, sentinel);
         Self::old_new(countries)
     }
@@ -77,10 +69,14 @@ impl Countries {
         }
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Country> {self.countries.iter()}
+    pub fn iter(&self) -> impl Iterator<Item = &Country> {
+        self.countries.iter()
+    }
 
     #[allow(clippy::len_without_is_empty)] // A Countries object is never empty: always has Sentinel
-    pub fn len(&self) -> usize {self.countries.len()}
+    pub fn len(&self) -> usize {
+        self.countries.len()
+    }
 }
 
 // impl TryFrom<&str> for Country {
@@ -118,6 +114,61 @@ impl Countries {
 mod tests {
     use crate::dbip_country::COUNTRIES;
     use itertools::Itertools;
+    use crate::countries::Countries;
+    use crate::country_block_stream::Country;
+
+    #[test]
+    fn countries_without_a_sentinel_grow_one() {
+        let country_pairs = vec![
+            ("AD", "Andorra"),
+            ("AO", "Angola"),
+            ("AS", "American Samoa"),
+        ]
+            .into_iter()
+            .map(|(code, name)| (code.to_string(), name.to_string()))
+            .collect::<Vec<(String, String)>>();
+
+        let subject = Countries::new(country_pairs);
+
+        assert_eq!(subject.len(), 4);
+        assert_eq!(subject.country_from_code("ZZ").unwrap(), &Country::new(0, "ZZ", "Sentinel"));
+    }
+
+    #[test]
+    fn countries_with_a_misplaced_sentinel_relocate_it() {
+        let country_pairs = vec![
+            ("AD", "Andorra"),
+            ("AO", "Angola"),
+            ("ZZ", "Sentinel"),
+            ("AS", "American Samoa"),
+        ]
+            .into_iter()
+            .map(|(code, name)| (code.to_string(), name.to_string()))
+            .collect::<Vec<(String, String)>>();
+
+        let subject = Countries::new(country_pairs);
+
+        assert_eq!(subject.len(), 4);
+        assert_eq!(subject.country_from_code("ZZ").unwrap(), &Country::new(0, "ZZ", "Sentinel"));
+    }
+
+    #[test]
+    fn countries_with_a_misnamed_sentinel_rename_it() {
+        let country_pairs = vec![
+            ("AD", "Andorra"),
+            ("AO", "Angola"),
+            ("ZZ", "Something Other Than Sentinel, Perhaps 'Undefined'"),
+            ("AS", "American Samoa"),
+        ]
+            .into_iter()
+            .map(|(code, name)| (code.to_string(), name.to_string()))
+            .collect::<Vec<(String, String)>>();
+
+        let subject = Countries::new(country_pairs);
+
+        assert_eq!(subject.len(), 4);
+        assert_eq!(subject.country_from_code("ZZ").unwrap(), &Country::new(0, "ZZ", "Sentinel"));
+    }
 
     #[test]
     fn sentinel_is_first() {
@@ -129,28 +180,34 @@ mod tests {
 
     #[test]
     fn countries_are_properly_ordered() {
-        COUNTRIES.countries
+        COUNTRIES
+            .countries
             .iter()
             .skip(1)
             .tuple_windows()
-            .for_each(|(a, b)|
+            .for_each(|(a, b)| {
                 assert!(
                     a.iso3166 < b.iso3166,
                     "Country code {} should have come before {}, but was after",
-                    b.iso3166, a.iso3166
+                    b.iso3166,
+                    a.iso3166
                 )
-            );
+            });
     }
 
     #[test]
     fn countries_are_properly_indexed() {
-        COUNTRIES.countries.iter().enumerate().for_each(|(index, country)| {
-            assert_eq!(
-                country.index, index,
-                "Index for {} should have been {} but was {}",
-                country.name, index, country.index
-            )
-        });
+        COUNTRIES
+            .countries
+            .iter()
+            .enumerate()
+            .for_each(|(index, country)| {
+                assert_eq!(
+                    country.index, index,
+                    "Index for {} should have been {} but was {}",
+                    country.name, index, country.index
+                )
+            });
     }
 
     #[test]
@@ -170,7 +227,9 @@ mod tests {
     #[test]
     fn try_from_str_happy_path() {
         for country in COUNTRIES.countries.iter() {
-            let result = COUNTRIES.country_from_code(country.iso3166.as_str()).unwrap();
+            let result = COUNTRIES
+                .country_from_code(country.iso3166.as_str())
+                .unwrap();
 
             assert_eq!(result, country);
         }
@@ -179,7 +238,9 @@ mod tests {
     #[test]
     fn try_from_str_wrong_case() {
         for country in COUNTRIES.countries.iter() {
-            let result = COUNTRIES.country_from_code(country.iso3166.to_lowercase().as_str()).unwrap();
+            let result = COUNTRIES
+                .country_from_code(country.iso3166.to_lowercase().as_str())
+                .unwrap();
 
             assert_eq!(result, country);
         }
@@ -210,6 +271,12 @@ mod tests {
 
         let result = COUNTRIES.country_from_index(4096usize).err().unwrap();
 
-        assert_eq!(result, format!("There are only {} Countries; no Country is at index 4096", count));
+        assert_eq!(
+            result,
+            format!(
+                "There are only {} Countries; no Country is at index 4096",
+                count
+            )
+        );
     }
 }
