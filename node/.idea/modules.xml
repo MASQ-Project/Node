@@ -8,6 +8,7 @@
       <module fileurl="file://$PROJECT_DIR$/../proxy_server_lib/proxy_server_lib.iml" filepath="$PROJECT_DIR$/../proxy_server_lib/proxy_server_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/../ui_gateway_lib/ui_gateway_lib.iml" filepath="$PROJECT_DIR$/../ui_gateway_lib/ui_gateway_lib.iml" />
       <module fileurl="file://$PROJECT_DIR$/../sub_lib/sub_lib.iml" filepath="$PROJECT_DIR$/../sub_lib/sub_lib.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../test_utilities/test_utilities.iml" filepath="$PROJECT_DIR$/../test_utilities/test_utilities.iml" />
     </modules>
   </component>
 </project>
