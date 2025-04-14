@@ -7,7 +7,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::test_utils::vec_to_set;
 use std::collections::HashSet;
-use std::convert::{TryInto};
+use std::convert::TryInto;
 use std::net::IpAddr;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
