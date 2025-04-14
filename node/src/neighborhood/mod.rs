@@ -4821,22 +4821,13 @@ mod tests {
             .clone();
         let mut a_fr_node = make_node_record(2345, true);
         a_fr_node.inner.country_code_opt = Some("FR".to_string());
-        let a_fr = &subject
-            .neighborhood_database
-            .add_node(a_fr_node)
-            .unwrap();
+        let a_fr = &subject.neighborhood_database.add_node(a_fr_node).unwrap();
         let mut b_fr_node = make_node_record(5678, true);
         b_fr_node.inner.country_code_opt = Some("FR".to_string());
-        let b_fr = &subject
-            .neighborhood_database
-            .add_node(b_fr_node)
-            .unwrap();
+        let b_fr = &subject.neighborhood_database.add_node(b_fr_node).unwrap();
         let mut c_au_node = make_node_record(1234, true);
         c_au_node.inner.country_code_opt = Some("AU".to_string());
-        let c_au = &subject
-            .neighborhood_database
-            .add_node(c_au_node)
-            .unwrap();
+        let c_au = &subject.neighborhood_database.add_node(c_au_node).unwrap();
         subject
             .neighborhood_database
             .add_arbitrary_full_neighbor(root_key, b_fr);

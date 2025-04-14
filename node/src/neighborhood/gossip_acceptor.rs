@@ -1421,8 +1421,7 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::neighborhood::{
-        FallbackPreference, UserExitPreferences,
-        UNREACHABLE_COUNTRY_PENALTY,
+        FallbackPreference, UserExitPreferences, UNREACHABLE_COUNTRY_PENALTY,
     };
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};

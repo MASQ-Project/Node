@@ -112,10 +112,10 @@ impl Countries {
 
 #[cfg(test)]
 mod tests {
-    use crate::dbip_country::COUNTRIES;
-    use itertools::Itertools;
     use crate::countries::Countries;
     use crate::country_block_stream::Country;
+    use crate::dbip_country::COUNTRIES;
+    use itertools::Itertools;
 
     #[test]
     fn countries_without_a_sentinel_grow_one() {
@@ -124,14 +124,17 @@ mod tests {
             ("AO", "Angola"),
             ("AS", "American Samoa"),
         ]
-            .into_iter()
-            .map(|(code, name)| (code.to_string(), name.to_string()))
-            .collect::<Vec<(String, String)>>();
+        .into_iter()
+        .map(|(code, name)| (code.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>();
 
         let subject = Countries::new(country_pairs);
 
         assert_eq!(subject.len(), 4);
-        assert_eq!(subject.country_from_code("ZZ").unwrap(), &Country::new(0, "ZZ", "Sentinel"));
+        assert_eq!(
+            subject.country_from_code("ZZ").unwrap(),
+            &Country::new(0, "ZZ", "Sentinel")
+        );
     }
 
     #[test]
@@ -142,14 +145,17 @@ mod tests {
             ("ZZ", "Sentinel"),
             ("AS", "American Samoa"),
         ]
-            .into_iter()
-            .map(|(code, name)| (code.to_string(), name.to_string()))
-            .collect::<Vec<(String, String)>>();
+        .into_iter()
+        .map(|(code, name)| (code.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>();
 
         let subject = Countries::new(country_pairs);
 
         assert_eq!(subject.len(), 4);
-        assert_eq!(subject.country_from_code("ZZ").unwrap(), &Country::new(0, "ZZ", "Sentinel"));
+        assert_eq!(
+            subject.country_from_code("ZZ").unwrap(),
+            &Country::new(0, "ZZ", "Sentinel")
+        );
     }
 
     #[test]
@@ -160,14 +166,17 @@ mod tests {
             ("ZZ", "Something Other Than Sentinel, Perhaps 'Undefined'"),
             ("AS", "American Samoa"),
         ]
-            .into_iter()
-            .map(|(code, name)| (code.to_string(), name.to_string()))
-            .collect::<Vec<(String, String)>>();
+        .into_iter()
+        .map(|(code, name)| (code.to_string(), name.to_string()))
+        .collect::<Vec<(String, String)>>();
 
         let subject = Countries::new(country_pairs);
 
         assert_eq!(subject.len(), 4);
-        assert_eq!(subject.country_from_code("ZZ").unwrap(), &Country::new(0, "ZZ", "Sentinel"));
+        assert_eq!(
+            subject.country_from_code("ZZ").unwrap(),
+            &Country::new(0, "ZZ", "Sentinel")
+        );
     }
 
     #[test]

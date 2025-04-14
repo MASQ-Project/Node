@@ -15,12 +15,12 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
 use ethereum_types::H160;
+use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 
 pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
 pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
@@ -67,10 +67,9 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
     let country_opt = COUNTRY_CODE_FINDER.find_country(ip_addr);
     let location_opt = match has_ip {
-        true => match country_opt {
-            Some(country) => Some(NodeLocation { country_code: country.iso3166.to_string() }),
-            None => None,
-        },
+        true => country_opt.map(|country| NodeLocation {
+            country_code: country.iso3166.clone(),
+        }),
         false => None,
     };
 

@@ -980,7 +980,7 @@ mod tests {
 
     #[test]
     fn validate_exit_key_fails_on_not_valid_country_code() {
-        let result = common_validators::validate_exit_locations(String::from("CZ|SK,RR,XP"));
+        let result = common_validators::validate_exit_locations(String::from("AD|AO,RR,XP"));
 
         assert_eq!(
             result,
@@ -990,7 +990,7 @@ mod tests {
 
     #[test]
     fn validate_exit_key_success() {
-        let result = common_validators::validate_exit_locations(String::from("CZ|SK"));
+        let result = common_validators::validate_exit_locations(String::from("AD|AS"));
 
         assert_eq!(result, Ok(()));
     }

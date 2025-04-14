@@ -29,8 +29,7 @@ mod tests {
 
     #[test]
     fn test_node_location() {
-        let node_location =
-            get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))).unwrap();
+        let node_location = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))).unwrap();
 
         assert_eq!(node_location.country_code, "AD");
     }
