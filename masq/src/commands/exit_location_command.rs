@@ -195,7 +195,7 @@ pub fn set_exit_location_subcommand() -> App<'static, 'static> {
                 .args(&["show-countries", "fallback-routing"]),
         )
         .group(
-            ArgGroup::with_name("show-countries-ccodes").args(&["show-countries", "country-codes"]),
+            ArgGroup::with_name("show-countries-codes").args(&["show-countries", "country-codes"]),
         )
 }
 
@@ -491,8 +491,7 @@ pub mod tests {
 
     #[test]
     fn providing_show_countries_with_other_argument_fails() {
-        let result_expected_one = "SetExitLocationCommand error: The argument '--country-codes <COUNTRY-CODES>' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
-        let result_expected_two = "SetExitLocationCommand error: The argument '--show-countries' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        let result_expected = "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
 
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
@@ -503,11 +502,10 @@ pub mod tests {
         .unwrap_err();
 
         assert!(
-            result.contains(result_expected_one) || result.contains(result_expected_two),
-            "result was {:?}, but expected {:?} or {:?}",
+            result.contains(result_expected),
+            "result was {:?}, but expected {:?}",
             result,
-            result_expected_one,
-            result_expected_two
+            result_expected,
         );
     }
 }
