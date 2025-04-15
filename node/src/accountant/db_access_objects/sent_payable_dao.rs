@@ -19,7 +19,12 @@ pub enum SentPayableDaoError {
     // ErrorMarkFailed(String),
 }
 
-type TxIdentifiers = HashMap<H256, Option<u64>>;
+pub enum TxIdentifier {
+    Id(u64),
+    NotFound,
+}
+
+type TxIdentifiers = HashMap<H256, TxIdentifier>;
 
 pub struct Tx {
     // GH-608: Perhaps TxReceipt could be a similar structure to be used
@@ -122,18 +127,65 @@ mod tests {
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
+    use ethereum_types::{Address, H256};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::time::SystemTime;
 
-    fn make_tx() -> Tx {
-        Tx {
-            hash: Default::default(),
-            receiver_address: Default::default(),
-            amount: 0,
-            timestamp: SystemTime::now(),
-            gas_price_wei: 0,
-            nonce: 0,
+    #[derive(Default)]
+    pub struct TxBuilder {
+        hash_opt: Option<H256>,
+        receiver_address_opt: Option<Address>,
+        amount_opt: Option<u128>,
+        timestamp_opt: Option<SystemTime>,
+        gas_price_wei_opt: Option<u64>,
+        nonce_opt: Option<u32>,
+    }
+
+    impl TxBuilder {
+        pub fn default() -> Self {
+            Default::default()
+        }
+
+        pub fn hash(mut self, hash: H256) -> Self {
+            self.hash_opt = Some(hash);
+            self
+        }
+
+        pub fn receiver_address(mut self, receiver_address: Address) -> Self {
+            self.receiver_address_opt = Some(receiver_address);
+            self
+        }
+
+        pub fn amount(mut self, amount: u128) -> Self {
+            self.amount_opt = Some(amount);
+            self
+        }
+
+        pub fn timestamp(mut self, timestamp: SystemTime) -> Self {
+            self.timestamp_opt = Some(timestamp);
+            self
+        }
+
+        pub fn gas_price_wei(mut self, gas_price_wei: u64) -> Self {
+            self.gas_price_wei_opt = Some(gas_price_wei);
+            self
+        }
+
+        pub fn nonce(mut self, nonce: u32) -> Self {
+            self.nonce_opt = Some(nonce);
+            self
+        }
+
+        pub fn build(self) -> Tx {
+            Tx {
+                hash: self.hash_opt.unwrap_or_default(),
+                receiver_address: self.receiver_address_opt.unwrap_or_default(),
+                amount: self.amount_opt.unwrap_or_default(),
+                timestamp: self.timestamp_opt.unwrap_or_else(SystemTime::now),
+                gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
+                nonce: self.nonce_opt.unwrap_or_default(),
+            }
         }
     }
 
@@ -144,7 +196,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx = make_tx();
+        let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
         let result = subject.insert_new_records(vec![tx]);
@@ -173,7 +225,7 @@ mod tests {
             setup_conn.prepare("select id from example").unwrap()
         };
         let wrapped_conn = ConnectionWrapperMock::default().prepare_result(Ok(failing_stmt));
-        let tx = make_tx();
+        let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let _ = subject.insert_new_records(vec![tx]);
@@ -196,7 +248,7 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
-        let tx = make_tx();
+        let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
         let result = subject.insert_new_records(vec![tx]);
@@ -217,7 +269,15 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
+        let hash1 = H256::from_low_u64_le(1);
+        let hash2 = H256::from_low_u64_le(2);
+        let hash3 = H256::from_low_u64_le(3); // not present in the database
+        let tx1 = TxBuilder::default().hash(hash1).build();
+        let tx2 = TxBuilder::default().hash(hash2).build();
+        subject.insert_new_records(vec![tx1, tx2]).unwrap();
 
-        todo!("first you'll have to write tests for the insertion method");
+        let result = subject.get_tx_identifiers(&vec![hash1, hash2, hash3]);
+
+        todo!("write assertions for the returned TxIdentifiers");
     }
 }
