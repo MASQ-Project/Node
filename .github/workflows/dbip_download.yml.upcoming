@@ -1,0 +1,40 @@
+name: Download DBIP data and generate dbip_country.rs
+
+on:
+  schedule:
+    - cron: "0 0 3 * *" # Runs at midnight on the 3rd of every month
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Download DBIP data in MMDB format
+        run: |
+          export YEAR_MONTH=$(date +%Y-%m)
+          mkdir -p dbip-data
+          curl -L -o dbip-data/dbip-country-lite.mmdb.gz "https://download.db-ip.com/free/dbip-country-lite-$YEAR_MONTH.mmdb.gz"
+          gunzip dbip-data/dbip-country-lite.mmdb.gz
+
+      - name: Generate Rust source file
+        run: |
+          mkdir -p generated
+          echo "// Auto-generated file" > generated/generated_file.rs
+          echo "pub const DATA: &str = \"Generated on $(date)\";" >> generated/generated_file.rs
+
+      - name: Commit and push generated file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B generated-source
+          mv generated/generated_file.rs src/generated_file.rs
+          git add src/generated_file.rs
+          git commit -m "Update generated Rust source file"
+          git push origin generated-source --force
