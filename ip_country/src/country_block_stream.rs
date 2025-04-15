@@ -1,11 +1,7 @@
 // Copyright (c) 2024, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::countries::Countries;
-use csv::{StringRecord, StringRecordIter};
 use std::cmp::Ordering;
-use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 pub struct Country {
