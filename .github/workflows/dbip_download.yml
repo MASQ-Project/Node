@@ -1,8 +1,8 @@
 name: Download DBIP data and generate dbip_country.rs
 
-on:
-  schedule:
-    - cron: "0 0 3 * *" # Runs at midnight on the 3rd of every month
+#on:
+#  schedule:
+#    - cron: "0 0 3 * *" # Runs at midnight on the 3rd of every month
 
 env:
   SKIP_EXPORT: 'false'
@@ -39,8 +39,8 @@ jobs:
 
       - name: Commit and push generated file
         if: ${{ env.SKIP_EXPORT == 'false' }}
-        env:
-          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+#        env:
+#          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
