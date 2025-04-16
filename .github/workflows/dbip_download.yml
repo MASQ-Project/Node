@@ -1,6 +1,7 @@
 name: Download DBIP data and generate dbip_country.rs
 
-#on:
+on:
+  workflow_dispatch:
 #  schedule:
 #    - cron: "0 0 3 * *" # Runs at midnight on the 3rd of every month
 
