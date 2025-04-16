@@ -353,7 +353,7 @@ pub struct NodeRecordMetadata {
     // Therefore, we use a value of 0 for exit nodes in countries that are not considered for exit.
     pub country_undesirability: u32,
     //TODO introduce scores for latency #582 and reliability #583
-    //TODO introduce check for node_location_opt, to verify full neighbors country code (we know his IP, so we can verify it)
+    //TODO #479 introduce check for node_location_opt, to verify full neighbors country code (we know his IP, so we can verify it)
 }
 
 impl NodeRecordMetadata {

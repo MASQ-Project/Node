@@ -93,8 +93,8 @@ impl GossipHandler for DebutHandler {
         if database.node_by_key(&agrs[0].inner.public_key).is_some() {
             return Qualification::Unmatched;
         }
-        // TODO create optimization card: drive in the test and following commented out code,
-        // TODO: Imagine a brand-new network, consisting only of Node A.
+        //TODO: Create optimization card to drive in the following logic:
+        // Imagine a brand-new network, consisting only of Node A.
         // When Node B debuts, Node A cannot respond with an Introduction,
         // since there's nobody to introduce. Therefore, Node A must
         // respond with a single-Node Gossip that will currently be

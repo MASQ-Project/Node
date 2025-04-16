@@ -61,7 +61,7 @@ use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PREALLOCATION_VEC, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, PAYLOAD_ZERO_SIZE,
+    EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, PAYLOAD_ZERO_SIZE,
 };
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
@@ -91,6 +91,7 @@ pub const ZERO_UNDESIRABILITY: u32 = 0;
 pub const COUNTRY_UNDESIRABILITY_FACTOR: u32 = 1_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 pub const ZZ_COUNTRY_CODE_STRING: &str = "ZZ";
+pub const DEFAULT_PREALLOCATION_VEC: usize = 10;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -805,7 +806,7 @@ impl Neighborhood {
             }
             GossipAcceptanceResult::Ban(reason) => {
                 // TODO in case we introduce Ban machinery we want to reinitialize the db_countries here as well
-                // in that case, we need to make new process in init_db_countries to exclude banned node, from the result
+                // That implies new process in init_db_countries to exclude banned node from the result
                 warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source, reason);
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
             }
@@ -1226,8 +1227,8 @@ impl Neighborhood {
         research_neighborhood: bool,
         direction: RouteDirection,
     ) -> bool {
-        if self.is_always_true(last_node_key, research_neighborhood, direction) {
-            true // Zero- and single-hop routes are not subject to exit-too-close restrictions
+        if self.last_node_is_always_true(last_node_key, research_neighborhood, direction) {
+            true // Zero- and single-hop routes are not subject to exit-too-close restrictions, when ExitLocation is not set, or we research neighborhood
         } else {
             if let Some(node_record) = self.neighborhood_database.node_by_key(last_node_key) {
                 if let Some(country_code) = &node_record.inner.country_code_opt {
@@ -1241,7 +1242,7 @@ impl Neighborhood {
         }
     }
 
-    fn is_always_true(
+    fn last_node_is_always_true(
         &self,
         last_node_key: &PublicKey,
         research_neighborhood: bool,
@@ -1273,7 +1274,7 @@ impl Neighborhood {
                 let exit_undesirability =
                     node_record.inner.rate_pack.exit_charge(payload_size) as i64;
                 let country_undesirability = node_record.metadata.country_undesirability as i64;
-                let unreachable_undesirability = if node_record
+                let unreachable_host_undesirability = if node_record
                     .metadata
                     .unreachable_hosts
                     .contains(hostname)
@@ -1292,7 +1293,7 @@ impl Neighborhood {
                 } else {
                     0i64
                 };
-                exit_undesirability + unreachable_undesirability + country_undesirability
+                exit_undesirability + unreachable_host_undesirability + country_undesirability
             }
             UndesirabilityType::ExitAndRouteResponse => {
                 node_record.inner.rate_pack.exit_charge(payload_size) as i64
@@ -2256,6 +2257,13 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "NEIGHBORHOOD");
         assert_eq!(DEFAULT_MIN_HOPS, Hops::ThreeHops);
+        assert_eq!(DEFAULT_PREALLOCATION_VEC, 10);
+        assert_eq!(UNREACHABLE_HOST_PENALTY, 100_000_000i64);
+        assert_eq!(UNREACHABLE_COUNTRY_PENALTY, 100_000_000u32);
+        assert_eq!(ZERO_UNDESIRABILITY, 0u32);
+        assert_eq!(COUNTRY_UNDESIRABILITY_FACTOR, 1_000u32);
+        assert_eq!(RESPONSE_UNDESIRABILITY_FACTOR, 1_000usize); // assumed response length is request * this
+        assert_eq!(ZZ_COUNTRY_CODE_STRING, "ZZ");
     }
 
     #[test]
@@ -3905,7 +3913,7 @@ mod tests {
             MessageBody {
                 opcode: "exitLocation".to_string(),
                 path: MessagePath::Conversation(234),
-                payload: Ok("{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"CountryGroups\":[\"CZ\",\"SK\"],\"priority\":1},{\"CountryGroups\":[\"AT\",\"DE\"],\"priority\":2},{\"CountryGroups\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}".to_string())
+                payload: Ok("{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"countryCodes\":[\"CZ\",\"SK\"],\"priority\":1},{\"countryCodes\":[\"AT\",\"DE\"],\"priority\":2},{\"countryCodes\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}".to_string())
             }
         );
         assert_eq!(
@@ -3925,7 +3933,7 @@ mod tests {
     fn no_exit_location_is_set_if_desired_country_codes_not_present_in_neighborhood_with_fallback_routing_set(
     ) {
         init_test_logging();
-        let test_name = "exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg";
+        let test_name = "no_exit_location_is_set_if_desired_country_codes_not_present_in_neighborhood_with_fallback_routing_set";
         let request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![CountryGroups {
@@ -4703,10 +4711,10 @@ mod tests {
     /*
             Database:
 
-            root_key---c_au---b_fr
+                root---c_au---b_fr
                         |
                        a_fr
-            Test is written from the standpoint of root_key.
+            Test is written from the standpoint of root.
     */
 
     #[test]
@@ -4726,12 +4734,12 @@ mod tests {
         };
         let db = &mut subject.neighborhood_database;
         let root_key = &db.root_mut().public_key().clone();
-        let a_fr = &db.add_node(make_node_record(2345, true)).unwrap();
-        let b_fr = &db.add_node(make_node_record(5678, true)).unwrap();
-        let c_au = &db.add_node(make_node_record(1234, true)).unwrap();
-        db.add_arbitrary_full_neighbor(root_key, c_au);
-        db.add_arbitrary_full_neighbor(c_au, b_fr);
-        db.add_arbitrary_full_neighbor(c_au, a_fr);
+        let a_fr_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let b_fr_key = &db.add_node(make_node_record(5678, true)).unwrap();
+        let c_au_key = &db.add_node(make_node_record(1234, true)).unwrap();
+        db.add_arbitrary_full_neighbor(root_key, c_au_key);
+        db.add_arbitrary_full_neighbor(c_au_key, b_fr_key);
+        db.add_arbitrary_full_neighbor(c_au_key, a_fr_key);
         subject.handle_exit_location_message(message, 0, 0);
 
         let route_cz =
@@ -4740,6 +4748,14 @@ mod tests {
         assert_eq!(route_cz, None);
     }
 
+    /*
+        Database:
+                                    b_fr
+                                   /  |
+                    root -- a_fr <    |
+                                   \  |
+                                     c_au
+    */
     #[test]
     fn route_for_au_country_code_is_constructed_with_fallback_routing() {
         let mut subject = make_standard_subject();

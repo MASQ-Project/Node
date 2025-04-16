@@ -447,7 +447,7 @@ pub mod tests {
     }
 
     #[test]
-    fn providing_show_countries_flag_cause_request_for_list_of_countries() {
+    fn providing_show_countries_flag_causes_request_for_list_of_countries() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -490,10 +490,9 @@ pub mod tests {
     }
 
     #[test]
-    fn providing_show_countries_with_other_argument_fails() {
-        let result_expected_one = "SetExitLocationCommand error: The argument '--country-codes <COUNTRY-CODES>' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
-        let result_expected_two = "SetExitLocationCommand error: The argument '--show-countries' cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
-
+    fn providing_show_countries_with_country_codes_fails() {
+        let result_expected = "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--show-countries".to_string(),
@@ -503,11 +502,29 @@ pub mod tests {
         .unwrap_err();
 
         assert!(
-            result.contains(result_expected_one) || result.contains(result_expected_two),
-            "result was {:?}, but expected {:?} or {:?}",
+            result.contains(result_expected),
+            "result was {:?}, but expected {:?}",
             result,
-            result_expected_one,
-            result_expected_two
+            result_expected,
+        );
+    }
+
+    #[test]
+    fn providing_show_countries_with_fallback_routing_fails() {
+        let result_expected = "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+
+        let result = SetExitLocationCommand::new(&[
+            "exit-location".to_string(),
+            "--show-countries".to_string(),
+            "--fallback-routing".to_string(),
+        ])
+            .unwrap_err();
+
+        assert!(
+            result.contains(result_expected),
+            "result was {:?}, but expected {:?}",
+            result,
+            result_expected,
         );
     }
 }
