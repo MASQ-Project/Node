@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::SystemTime;
 use ethereum_types::H256;
 use web3::types::Address;
+use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
 use crate::accountant::db_access_objects::utils::to_time_t;
@@ -19,12 +21,7 @@ pub enum SentPayableDaoError {
     // ErrorMarkFailed(String),
 }
 
-pub enum TxIdentifier {
-    Id(u64),
-    NotFound,
-}
-
-type TxIdentifiers = HashMap<H256, TxIdentifier>;
+type TxIdentifiers = HashMap<H256, u64>;
 
 pub struct Tx {
     // GH-608: Perhaps TxReceipt could be a similar structure to be used
@@ -46,6 +43,7 @@ pub trait SentPayableDao {
     fn retrieve_pending_txs(&self) -> Vec<Tx>;
     fn retrieve_txs_to_retry(&self) -> Vec<Tx>;
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
+    // TODO: GH-608: We might not need this
     fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError>;
     fn change_statuses(&self, ids: &[StatusChange]) -> Result<(), SentPayableDaoError>;
 }
@@ -81,7 +79,26 @@ impl<'a> SentPayableDaoReal<'a> {
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers {
-        todo!()
+        let sql = format!(
+            "select tx_hash, rowid from sent_payable where tx_hash in ({})",
+            comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .expect("Failed to prepare SQL statement");
+
+        stmt.query_map([], |row| {
+            let tx_hash_str: String = row.get(0).expectv("Failed to get tx_hash");
+            let tx_hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
+            let row_id: u64 = row.get(1).expectv("Failed to get row_id");
+
+            Ok((tx_hash, row_id))
+        })
+        .expect("Failed to execute query")
+        .filter_map(Result::ok)
+        .collect()
     }
 
     fn retrieve_pending_txs(&self) -> Vec<Tx> {
@@ -278,6 +295,8 @@ mod tests {
 
         let result = subject.get_tx_identifiers(&vec![hash1, hash2, hash3]);
 
-        todo!("write assertions for the returned TxIdentifiers");
+        assert_eq!(result.get(&hash1), Some(&1u64));
+        assert_eq!(result.get(&hash2), Some(&2u64));
+        assert_eq!(result.get(&hash3), None);
     }
 }
