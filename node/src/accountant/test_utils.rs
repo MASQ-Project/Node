@@ -12,7 +12,9 @@ use crate::accountant::db_access_objects::pending_payable_dao::{
 use crate::accountant::db_access_objects::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
+use crate::accountant::db_access_objects::utils::{
+    from_unix_timestamp, to_unix_timestamp, CustomQuery,
+};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
 use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
@@ -60,7 +62,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableAccount {
-    let now = to_time_t(SystemTime::now());
+    let now = to_unix_timestamp(SystemTime::now());
     ReceivableAccount {
         wallet: make_wallet(&format!(
             "wallet{}{}",
@@ -68,13 +70,13 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
             if expected_delinquent { "d" } else { "n" }
         )),
         balance_wei: gwei_to_wei(n),
-        last_received_timestamp: from_time_t(now - (n as i64)),
+        last_received_timestamp: from_unix_timestamp(now - (n as i64)),
     }
 }
 
 pub fn make_payable_account(n: u64) -> PayableAccount {
-    let now = to_time_t(SystemTime::now());
-    let timestamp = from_time_t(now - (n as i64));
+    let now = to_unix_timestamp(SystemTime::now());
+    let timestamp = from_unix_timestamp(now - (n as i64));
     make_payable_account_with_wallet_and_balance_and_timestamp_opt(
         make_wallet(&format!("wallet{}", n)),
         gwei_to_wei(n),
@@ -1250,7 +1252,7 @@ pub fn make_custom_payment_thresholds() -> PaymentThresholds {
 pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     PendingPayableFingerprint {
         rowid: 33,
-        timestamp: from_time_t(222_222_222),
+        timestamp: from_unix_timestamp(222_222_222),
         hash: make_tx_hash(456),
         attempt: 1,
         amount: 12345,
@@ -1269,8 +1271,8 @@ pub fn make_payables(
     let unqualified_payable_accounts = vec![PayableAccount {
         wallet: make_wallet("wallet1"),
         balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
-        last_paid_timestamp: from_time_t(
-            to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
+        last_paid_timestamp: from_unix_timestamp(
+            to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
         ),
         pending_payable_opt: None,
     }];
@@ -1280,8 +1282,8 @@ pub fn make_payables(
             balance_wei: gwei_to_wei(
                 payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
             ),
-            last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1,
+            last_paid_timestamp: from_unix_timestamp(
+                to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 - 1,
             ),
             pending_payable_opt: None,
         },
@@ -1290,8 +1292,8 @@ pub fn make_payables(
             balance_wei: gwei_to_wei(
                 payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
             ),
-            last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 100,
+            last_paid_timestamp: from_unix_timestamp(
+                to_unix_timestamp(now) - payment_thresholds.maturity_threshold_sec as i64 - 100,
             ),
             pending_payable_opt: None,
         },

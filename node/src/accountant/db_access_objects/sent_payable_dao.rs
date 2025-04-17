@@ -174,7 +174,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx,
     };
-    use crate::accountant::db_access_objects::utils::now_time_t;
+    use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -241,7 +241,7 @@ mod tests {
                 hash: self.hash_opt.unwrap_or_default(),
                 receiver_address: self.receiver_address_opt.unwrap_or_default(),
                 amount: self.amount_opt.unwrap_or_default(),
-                timestamp: self.timestamp_opt.unwrap_or_else(now_time_t),
+                timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
                 gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
                 nonce: self.nonce_opt.unwrap_or_default(),
                 status: self.status_opt.unwrap_or(TxStatus::Pending),

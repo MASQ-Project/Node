@@ -76,7 +76,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
     };
@@ -124,7 +124,7 @@ mod tests {
             None,
             &wallet_1,
             113344,
-            from_time_t(250_000_000),
+            from_unix_timestamp(250_000_000),
         );
         let config_table_before = fetch_all_from_config_table(conn.as_ref());
 
@@ -160,7 +160,7 @@ mod tests {
         let params: &[&dyn ToSql] = &[
             &wallet,
             &amount,
-            &to_time_t(timestamp),
+            &to_unix_timestamp(timestamp),
             if !hash_str.is_empty() {
                 &hash_str
             } else {
@@ -208,7 +208,7 @@ mod tests {
             Some(transaction_hash_2),
             &wallet_2,
             1111111,
-            from_time_t(200_000_000),
+            from_unix_timestamp(200_000_000),
         );
         let config_table_before = fetch_all_from_config_table(&conn);
 
