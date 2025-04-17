@@ -1,12 +1,9 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::time::SystemTime;
 use ethereum_types::H256;
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoError;
-use crate::accountant::db_access_objects::utils::to_time_t;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
@@ -23,14 +20,16 @@ pub enum SentPayableDaoError {
 
 type TxIdentifiers = HashMap<H256, u64>;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
-    // GH-608: Perhaps TxReceipt could be a similar structure to be used
+    // TODO: GH-608: Perhaps TxReceipt could be a similar structure to be used
     hash: H256,
     receiver_address: Address,
     amount: u128,
-    timestamp: SystemTime,
+    timestamp: i64,
     gas_price_wei: u64,
     nonce: u32,
+    // status: TxStatus,
 }
 
 pub struct StatusChange {
@@ -63,13 +62,14 @@ impl<'a> SentPayableDaoReal<'a> {
         comma_joined_stringifiable(txs, |tx| {
             let amount_checked = checked_conversion::<u128, i128>(tx.amount);
             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
+            // TODO: GH-608: Perhaps you should pick status from the Tx itself
             format!(
                 "('{:?}', '{:?}', {}, {}, {}, {}, {}, 'Pending', 0)",
                 tx.hash,
                 tx.receiver_address,
                 high_bytes,
                 low_bytes,
-                to_time_t(tx.timestamp),
+                tx.timestamp,
                 tx.gas_price_wei,
                 tx.nonce,
             )
@@ -90,9 +90,9 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             .expect("Failed to prepare SQL statement");
 
         stmt.query_map([], |row| {
-            let tx_hash_str: String = row.get(0).expectv("Failed to get tx_hash");
+            let tx_hash_str: String = row.get(0).expectv("tx_hash");
             let tx_hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
-            let row_id: u64 = row.get(1).expectv("Failed to get row_id");
+            let row_id: u64 = row.get(1).expectv("rowid");
 
             Ok((tx_hash, row_id))
         })
@@ -102,7 +102,40 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 
     fn retrieve_pending_txs(&self) -> Vec<Tx> {
-        todo!()
+        let sql = "select tx_hash, receiver_address, amount_high_b, amount_low_b, \
+            timestamp, gas_price_wei, nonce, status from sent_payable where status in ('Pending')"
+            .to_string();
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .expect("Failed to prepare SQL statement");
+
+        stmt.query_map([], |row| {
+            let tx_hash_str: String = row.get(0).expectv("tx_hash");
+            let hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
+            let receiver_address_str: String = row.get(1).expectv("row_id");
+            let receiver_address =
+                Address::from_str(&receiver_address_str[2..]).expect("Failed to parse H160");
+            let amount_high_b = row.get(2).expectv("amount_high_b");
+            let amount_low_b = row.get(3).expectv("amount_low_b");
+            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let timestamp = row.get(4).expectv("timestamp");
+            let gas_price_wei = row.get(5).expectv("gas_price_wei");
+            let nonce = row.get(6).expectv("nonce");
+
+            Ok(Tx {
+                hash,
+                receiver_address,
+                amount,
+                timestamp,
+                gas_price_wei,
+                nonce,
+            })
+        })
+        .expect("Failed to execute query")
+        .filter_map(Result::ok)
+        .collect()
     }
 
     fn retrieve_txs_to_retry(&self) -> Vec<Tx> {
@@ -139,6 +172,7 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::{
         SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx,
     };
+    use crate::accountant::db_access_objects::utils::now_time_t;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -154,7 +188,7 @@ mod tests {
         hash_opt: Option<H256>,
         receiver_address_opt: Option<Address>,
         amount_opt: Option<u128>,
-        timestamp_opt: Option<SystemTime>,
+        timestamp_opt: Option<i64>,
         gas_price_wei_opt: Option<u64>,
         nonce_opt: Option<u32>,
     }
@@ -179,7 +213,7 @@ mod tests {
             self
         }
 
-        pub fn timestamp(mut self, timestamp: SystemTime) -> Self {
+        pub fn timestamp(mut self, timestamp: i64) -> Self {
             self.timestamp_opt = Some(timestamp);
             self
         }
@@ -199,7 +233,7 @@ mod tests {
                 hash: self.hash_opt.unwrap_or_default(),
                 receiver_address: self.receiver_address_opt.unwrap_or_default(),
                 amount: self.amount_opt.unwrap_or_default(),
-                timestamp: self.timestamp_opt.unwrap_or_else(SystemTime::now),
+                timestamp: self.timestamp_opt.unwrap_or_else(now_time_t),
                 gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
                 nonce: self.nonce_opt.unwrap_or_default(),
             }
@@ -298,5 +332,25 @@ mod tests {
         assert_eq!(result.get(&hash1), Some(&1u64));
         assert_eq!(result.get(&hash2), Some(&2u64));
         assert_eq!(result.get(&hash3), None);
+    }
+
+    #[test]
+    fn retrieve_pending_txs_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("sent_payable_dao", "retrieve_pending_txs_works");
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let hash1 = H256::from_low_u64_le(1);
+        let hash2 = H256::from_low_u64_le(2);
+        let tx1 = TxBuilder::default().hash(hash1).build();
+        let tx2 = TxBuilder::default().hash(hash2).build();
+        let txs = vec![tx1, tx2];
+        subject.insert_new_records(txs.clone()).unwrap();
+
+        let result = subject.retrieve_pending_txs();
+
+        assert_eq!(result, txs);
     }
 }

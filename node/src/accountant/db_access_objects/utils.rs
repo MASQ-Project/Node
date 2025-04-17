@@ -21,6 +21,7 @@ use std::string::ToString;
 use std::time::Duration;
 use std::time::SystemTime;
 
+// TODO: GH-608: This should be renamed to to_unix_timestamp and it should be u64
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
         Ok(d) => sign_conversion::<u64, i64>(d.as_secs()).expect("MASQNode has expired"),
@@ -35,6 +36,7 @@ pub fn now_time_t() -> i64 {
     to_time_t(SystemTime::now())
 }
 
+// TODO: GH-608: This should be renamed to from_unix_timestamp and it should be u64
 pub fn from_time_t(time_t: i64) -> SystemTime {
     let interval = Duration::from_secs(time_t as u64);
     SystemTime::UNIX_EPOCH + interval
