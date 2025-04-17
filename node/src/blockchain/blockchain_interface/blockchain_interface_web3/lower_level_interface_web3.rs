@@ -7,6 +7,7 @@ use crate::blockchain::blockchain_interface::lower_level_interface::LowBlockchai
 use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_json::Value;
+use std::fmt::Display;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -23,6 +24,18 @@ pub enum TxStatus {
     Failed,
     Pending,
     Succeeded(TransactionBlock),
+}
+
+impl Display for TxStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TxStatus::Failed => write!(f, "Failed"),
+            TxStatus::Pending => write!(f, "Pending"),
+            TxStatus::Succeeded(block) => {
+                write!(f, "Succeeded({},{})", block.block_number, block.block_hash)
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -29,7 +29,7 @@ pub struct Tx {
     timestamp: i64,
     gas_price_wei: u64,
     nonce: u32,
-    // status: TxStatus,
+    status: TxStatus,
 }
 
 pub struct StatusChange {
@@ -64,7 +64,7 @@ impl<'a> SentPayableDaoReal<'a> {
             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
             // TODO: GH-608: Perhaps you should pick status from the Tx itself
             format!(
-                "('{:?}', '{:?}', {}, {}, {}, {}, {}, 'Pending', 0)",
+                "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}', 0)",
                 tx.hash,
                 tx.receiver_address,
                 high_bytes,
@@ -72,6 +72,7 @@ impl<'a> SentPayableDaoReal<'a> {
                 tx.timestamp,
                 tx.gas_price_wei,
                 tx.nonce,
+                tx.status
             )
         })
     }
@@ -131,6 +132,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 timestamp,
                 gas_price_wei,
                 nonce,
+                status: TxStatus::Pending,
             })
         })
         .expect("Failed to execute query")
@@ -181,7 +183,7 @@ mod tests {
     use ethereum_types::{Address, H256};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
-    use std::time::SystemTime;
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
 
     #[derive(Default)]
     pub struct TxBuilder {
@@ -191,6 +193,7 @@ mod tests {
         timestamp_opt: Option<i64>,
         gas_price_wei_opt: Option<u64>,
         nonce_opt: Option<u32>,
+        status_opt: Option<TxStatus>,
     }
 
     impl TxBuilder {
@@ -228,6 +231,11 @@ mod tests {
             self
         }
 
+        pub fn status(mut self, status: TxStatus) -> Self {
+            self.status_opt = Some(status);
+            self
+        }
+
         pub fn build(self) -> Tx {
             Tx {
                 hash: self.hash_opt.unwrap_or_default(),
@@ -236,6 +244,7 @@ mod tests {
                 timestamp: self.timestamp_opt.unwrap_or_else(now_time_t),
                 gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
                 nonce: self.nonce_opt.unwrap_or_default(),
+                status: self.status_opt.unwrap_or(TxStatus::Pending),
             }
         }
     }
@@ -261,7 +270,17 @@ mod tests {
         };
         assert_eq!(result, Ok(()));
         assert_eq!(row_count, 1);
-        // TODO: GH-608: Add more assertions to verify the inserted data after retrieve functions are implemented
+        // TODO: GH-608: Add more assertions to verify transactions of all statuses are retreived properly
+    }
+
+    #[test]
+    fn insert_new_records_throws_error_when_two_txs_with_same_hash_are_inserted() {
+        todo!("write me");
+    }
+
+    #[test]
+    fn insert_new_records_throws_error_when_txs_with_an_already_present_hash_is_inserted() {
+        todo!("write me");
     }
 
     #[test]
@@ -342,15 +361,31 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let hash1 = H256::from_low_u64_le(1);
-        let hash2 = H256::from_low_u64_le(2);
-        let tx1 = TxBuilder::default().hash(hash1).build();
-        let tx2 = TxBuilder::default().hash(hash2).build();
-        let txs = vec![tx1, tx2];
-        subject.insert_new_records(txs.clone()).unwrap();
+        let tx1 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .status(TxStatus::Pending)
+            .build();
+        let tx3 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .status(TxStatus::Failed)
+            .build();
+        let tx4 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(4))
+            .status(TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: Default::default(),
+            }))
+            .build();
+        subject
+            .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3, tx4])
+            .unwrap();
 
         let result = subject.retrieve_pending_txs();
 
-        assert_eq!(result, txs);
+        assert_eq!(result, vec![tx1, tx2]);
     }
 }
