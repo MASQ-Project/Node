@@ -1750,24 +1750,16 @@ mod tests {
             )
             .unwrap();
 
-        let (debut_reply, dest_public_key, dest_node_addr) = match counter_debut {
+        let (dest_public_key, dest_node_addr) = match counter_debut {
             GossipAcceptanceResult::Reply(
-                ref debut_reply,
+                _,
                 ref dest_public_key,
                 ref dest_node_addr,
-            ) => (debut_reply, dest_public_key, dest_node_addr),
+            ) => (dest_public_key, dest_node_addr),
             x => panic!("Expected Reply, got {:?}", x),
         };
         assert_eq!(dest_public_key, new_debutant.public_key());
         assert_eq!(dest_node_addr, &new_debutant.node_addr_opt().unwrap());
-        assert_eq!(
-            counter_debut,
-            GossipAcceptanceResult::Reply(
-                debut_reply.clone(),
-                dest_public_key.clone(),
-                dest_node_addr.clone()
-            )
-        )
     }
 
     #[test]
