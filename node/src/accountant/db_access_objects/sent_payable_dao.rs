@@ -22,7 +22,6 @@ type TxIdentifiers = HashMap<H256, u64>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
-    // TODO: GH-608: Perhaps TxReceipt could be a similar structure to be used
     hash: H256,
     receiver_address: Address,
     amount: u128,
@@ -56,25 +55,6 @@ impl<'a> SentPayableDaoReal<'a> {
     pub fn new(conn: Box<dyn ConnectionWrapper + 'a>) -> Self {
         // TODO: GH-608: You'll need to write a mock to test this, do that wisely
         Self { conn }
-    }
-
-    fn generate_sql_values_for_insertion(txs: &[Tx]) -> String {
-        comma_joined_stringifiable(txs, |tx| {
-            let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
-            // TODO: GH-608: Perhaps you should pick status from the Tx itself
-            format!(
-                "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}', 0)",
-                tx.hash,
-                tx.receiver_address,
-                high_bytes,
-                low_bytes,
-                tx.timestamp,
-                tx.gas_price_wei,
-                tx.nonce,
-                tx.status
-            )
-        })
     }
 }
 
@@ -150,7 +130,21 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             tx_hash, receiver_address, amount_high_b, amount_low_b, \
             timestamp, gas_price_wei, nonce, status, retried\
             ) values {}",
-            Self::generate_sql_values_for_insertion(&txs)
+            comma_joined_stringifiable(&txs, |tx| {
+                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+                let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
+                format!(
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}', 0)",
+                    tx.hash,
+                    tx.receiver_address,
+                    high_bytes,
+                    low_bytes,
+                    tx.timestamp,
+                    tx.gas_price_wei,
+                    tx.nonce,
+                    tx.status
+                )
+            })
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
