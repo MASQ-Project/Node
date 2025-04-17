@@ -2608,6 +2608,7 @@ mod tests {
             }))
             .scan_intervals_result(Ok(ScanIntervals {
                 payable_scan_interval: Duration::from_secs(125),
+                pending_payable_scan_interval: Duration::from_secs(30),
                 receivable_scan_interval: Duration::from_secs(128),
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {
@@ -2756,6 +2757,7 @@ mod tests {
             }))
             .scan_intervals_result(Ok(ScanIntervals {
                 payable_scan_interval: Default::default(),
+                pending_payable_scan_interval: Default::default(),
                 receivable_scan_interval: Default::default(),
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {

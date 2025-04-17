@@ -874,6 +874,7 @@ pub mod unshared_test_utils {
 
         pub struct NotifyLaterHandleMock<M> {
             notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+            stop_system_after_call_num_opt: RefCell<Option<usize>>,
             send_message_out: bool,
         }
 
@@ -881,6 +882,7 @@ pub mod unshared_test_utils {
             fn default() -> Self {
                 Self {
                     notify_later_params: Arc::new(Mutex::new(vec![])),
+                    stop_system_after_call_num_opt: RefCell::new(None),
                     send_message_out: false,
                 }
             }
@@ -892,9 +894,39 @@ pub mod unshared_test_utils {
                 self
             }
 
+            pub fn stop_system_after_call_count(self, count: usize) -> Self {
+                if count == 0 {
+                    panic!("Should be considered starting from 1")
+                }
+                self.stop_system_after_call_num_opt.replace(Some(count));
+                self
+            }
+
             pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
                 self
+            }
+
+            fn should_stop_the_system(&self) {
+                let stop = if let Some(allowed_calls) =
+                    self.stop_system_after_call_num_opt.borrow().as_ref()
+                {
+                    *allowed_calls == 1
+                } else {
+                    return;
+                };
+                if stop {
+                    System::current().stop()
+                } else {
+                    let allowed_calls = *self
+                        .stop_system_after_call_num_opt
+                        .borrow()
+                        .as_ref()
+                        .unwrap();
+                    let _ = self
+                        .stop_system_after_call_num_opt
+                        .replace(Some(allowed_calls - 1));
+                }
             }
         }
 
@@ -913,6 +945,7 @@ pub mod unshared_test_utils {
                     .lock()
                     .unwrap()
                     .push((msg.clone(), interval));
+                self.should_stop_the_system();
                 if self.send_message_out {
                     let handle = ctx.notify_later(msg, interval);
                     Box::new(NLSpawnHandleHolderReal::new(handle))

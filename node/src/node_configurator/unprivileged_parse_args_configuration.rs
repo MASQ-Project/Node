@@ -1818,7 +1818,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|50|130",
             "--payment-thresholds",
             "100000|10000|1000|20000|1000|20000",
         ];
@@ -1828,6 +1828,7 @@ mod tests {
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
                     payable_scan_interval: Duration::from_secs(101),
+                    pending_payable_scan_interval: Duration::from_secs(33),
                     receivable_scan_interval: Duration::from_secs(102),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1854,7 +1855,8 @@ mod tests {
             .unwrap();
 
         let expected_scan_intervals = ScanIntervals {
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(50),
             receivable_scan_interval: Duration::from_secs(130),
         };
         let expected_payment_thresholds = PaymentThresholds {
@@ -1876,7 +1878,7 @@ mod tests {
             DEFAULT_PENDING_TOO_LONG_SEC
         );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
-        assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
+        assert_eq!(*set_scan_intervals_params, vec!["180|50|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
             *set_payment_thresholds_params,
@@ -1892,7 +1894,7 @@ mod tests {
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|15|130",
             "--payment-thresholds",
             "100000|1000|1000|20000|1000|20000",
         ];
@@ -1901,7 +1903,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    payable_scan_interval: Duration::from_secs(150),
+                    payable_scan_interval: Duration::from_secs(180),
+                    pending_payable_scan_interval: Duration::from_secs(15),
                     receivable_scan_interval: Duration::from_secs(130),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1932,7 +1935,8 @@ mod tests {
             unban_below_gwei: 20000,
         };
         let expected_scan_intervals = ScanIntervals {
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(15),
             receivable_scan_interval: Duration::from_secs(130),
         };
         let expected_suppress_initial_scans = false;

@@ -6,18 +6,14 @@ pub mod blockchain_agent;
 pub mod msgs;
 pub mod test_utils;
 
-use crate::accountant::db_access_objects::payable_dao::PayableDao;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDao;
-use crate::accountant::payment_adjuster::{Adjustment, PaymentAdjuster};
+use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::{AccessibleScanner, InaccessibleScanner, ScanWithStarter};
+use crate::accountant::scanners::{AccessibleScanner, ScanWithStarter};
 use crate::accountant::{ScanForNewPayables, ScanForRetryPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
-use itertools::{Either, Itertools};
+use itertools::Either;
 use masq_lib::logger::Logger;
-use masq_lib::messages::ToMessageBody;
-use masq_lib::utils::ExpectValue;
 
 pub trait MultistageDualPayableScanner<StartMessage, EndMessage>:
     ScanWithStarter<ScanForNewPayables, StartMessage>

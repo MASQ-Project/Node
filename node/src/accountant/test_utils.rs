@@ -1245,7 +1245,7 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
-pub fn make_payables(
+pub fn make_qualified_and_unqualified_payables(
     now: SystemTime,
     payment_thresholds: &PaymentThresholds,
 ) -> (

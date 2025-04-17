@@ -39,6 +39,7 @@ lazy_static! {
     };
     pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
         payable_scan_interval: Duration::from_secs(600),
+        pending_payable_scan_interval: Duration::from_secs(60),
         receivable_scan_interval: Duration::from_secs(600)
     };
 }
@@ -79,6 +80,7 @@ pub struct DaoFactories {
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ScanIntervals {
     pub payable_scan_interval: Duration,
+    pub pending_payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
@@ -230,6 +232,7 @@ mod tests {
         };
         let scan_intervals_expected = ScanIntervals {
             payable_scan_interval: Duration::from_secs(600),
+            pending_payable_scan_interval: Duration::from_secs(60),
             receivable_scan_interval: Duration::from_secs(600),
         };
         assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
