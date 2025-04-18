@@ -8,6 +8,7 @@ use ethereum_types::{H256, U256, U64};
 use futures::Future;
 use serde_json::Value;
 use std::fmt::Display;
+use std::str::FromStr;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, Http};
 use web3::types::{Address, BlockNumber, Filter, Log, TransactionReceipt};
@@ -26,13 +27,47 @@ pub enum TxStatus {
     Succeeded(TransactionBlock),
 }
 
+impl TxStatus {
+    pub fn from_str(s: &str) -> Result<Self, String> {
+        // TODO: GH-608: Test me
+        match s {
+            "Pending" => Ok(TxStatus::Pending),
+            "Failed" => Ok(TxStatus::Failed),
+            s if s.starts_with("Succeeded") => {
+                // The format is "Succeeded(block_number, block_hash)"
+                let parts: Vec<&str> = s[10..s.len() - 1].split(',').collect();
+                if parts.len() != 2 {
+                    return Err("Invalid Succeeded format".to_string());
+                }
+                let block_number = match parts[0].parse() {
+                    Ok(n) => n,
+                    Err(_) => return Err("Invalid block number".to_string()),
+                };
+                let block_hash = match H256::from_str(&parts[1][2..]) {
+                    Ok(h) => h,
+                    Err(_) => return Err("Invalid block hash".to_string()),
+                };
+                Ok(TxStatus::Succeeded(TransactionBlock {
+                    block_hash,
+                    block_number,
+                }))
+            }
+            _ => Err(format!("Unknown status: {}", s)),
+        }
+    }
+}
+
 impl Display for TxStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TxStatus::Failed => write!(f, "Failed"),
             TxStatus::Pending => write!(f, "Pending"),
             TxStatus::Succeeded(block) => {
-                write!(f, "Succeeded({},{})", block.block_number, block.block_hash)
+                write!(
+                    f,
+                    "Succeeded({},{:?})",
+                    block.block_number, block.block_hash
+                )
             }
         }
     }

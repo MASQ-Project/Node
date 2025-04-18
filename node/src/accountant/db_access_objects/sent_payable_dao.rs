@@ -38,6 +38,7 @@ pub struct StatusChange {
 pub trait SentPayableDao {
     // Note that the order of the returned results is not guaranteed
     fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers;
+    fn retrieve_all_txs(&self) -> Vec<Tx>;
     fn retrieve_pending_txs(&self) -> Vec<Tx>;
     fn retrieve_txs_to_retry(&self) -> Vec<Tx>;
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
@@ -76,6 +77,46 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             let row_id: u64 = row.get(1).expectv("rowid");
 
             Ok((tx_hash, row_id))
+        })
+        .expect("Failed to execute query")
+        .filter_map(Result::ok)
+        .collect()
+    }
+
+    fn retrieve_all_txs(&self) -> Vec<Tx> {
+        let sql = "select tx_hash, receiver_address, amount_high_b, amount_low_b, \
+            timestamp, gas_price_wei, nonce, status from sent_payable"
+            .to_string();
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .expect("Failed to prepare SQL statement");
+
+        stmt.query_map([], |row| {
+            let tx_hash_str: String = row.get(0).expectv("tx_hash");
+            let hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
+            let receiver_address_str: String = row.get(1).expectv("row_id");
+            let receiver_address =
+                Address::from_str(&receiver_address_str[2..]).expect("Failed to parse H160");
+            let amount_high_b = row.get(2).expectv("amount_high_b");
+            let amount_low_b = row.get(3).expectv("amount_low_b");
+            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
+            let timestamp = row.get(4).expectv("timestamp");
+            let gas_price_wei = row.get(5).expectv("gas_price_wei");
+            let nonce = row.get(6).expectv("nonce");
+            let status_str: String = row.get(7).expectv("status");
+            let status = TxStatus::from_str(&status_str).expect("Failed to parse TxStatus");
+
+            Ok(Tx {
+                hash,
+                receiver_address,
+                amount,
+                timestamp,
+                gas_price_wei,
+                nonce,
+                status,
+            })
         })
         .expect("Failed to execute query")
         .filter_map(Result::ok)
@@ -250,31 +291,92 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let tx = TxBuilder::default().build();
+        let tx1 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .status(TxStatus::Failed)
+            .build();
+        let tx3 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .status(TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: Default::default(),
+            }))
+            .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
+        let txs = vec![tx1, tx2, tx3];
 
-        let result = subject.insert_new_records(vec![tx]);
+        let result = subject.insert_new_records(txs.clone());
 
-        let row_count: i64 = {
-            let mut stmt = subject
-                .conn
-                .prepare("SELECT COUNT(*) FROM sent_payable")
-                .unwrap();
-            stmt.query_row([], |row| row.get(0)).unwrap()
-        };
+        let retrieved_txs = subject.retrieve_all_txs();
         assert_eq!(result, Ok(()));
-        assert_eq!(row_count, 1);
-        // TODO: GH-608: Add more assertions to verify transactions of all statuses are retreived properly
+        assert_eq!(retrieved_txs.len(), 3);
+        assert_eq!(retrieved_txs, txs);
     }
 
     #[test]
     fn insert_new_records_throws_error_when_two_txs_with_same_hash_are_inserted() {
-        todo!("write me");
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "insert_new_records_throws_error_when_two_txs_with_same_hash_are_inserted",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let hash = H256::from_low_u64_be(1234567890);
+        let tx1 = TxBuilder::default()
+            .hash(hash)
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(hash)
+            .status(TxStatus::Failed)
+            .build();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+
+        let result = subject.insert_new_records(vec![tx1, tx2]);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::InsertionFailed(
+                "UNIQUE constraint failed: sent_payable.tx_hash".to_string()
+            ))
+        );
     }
 
     #[test]
     fn insert_new_records_throws_error_when_txs_with_an_already_present_hash_is_inserted() {
-        todo!("write me");
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "insert_new_records_throws_error_when_txs_with_an_already_present_hash_is_inserted",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let hash = H256::from_low_u64_be(1234567890);
+        let tx1 = TxBuilder::default()
+            .hash(hash)
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(hash)
+            .status(TxStatus::Failed)
+            .build();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let initial_insertion_result = subject.insert_new_records(vec![tx1]);
+
+        let result = subject.insert_new_records(vec![tx2]);
+
+        assert_eq!(initial_insertion_result, Ok(()));
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::InsertionFailed(
+                "UNIQUE constraint failed: sent_payable.tx_hash".to_string()
+            ))
+        );
     }
 
     #[test]
