@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::H256;
 use web3::types::Address;
@@ -35,11 +36,25 @@ pub struct StatusChange {
     new_status: TxStatus,
 }
 
+pub enum RetrieveCondition {
+    IsPending,
+}
+
+impl Display for RetrieveCondition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO: GH-608: Test me separately
+        match self {
+            RetrieveCondition::IsPending => {
+                write!(f, "where status in ('Pending')")
+            }
+        }
+    }
+}
+
 pub trait SentPayableDao {
     // Note that the order of the returned results is not guaranteed
     fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers;
-    fn retrieve_all_txs(&self) -> Vec<Tx>;
-    fn retrieve_pending_txs(&self) -> Vec<Tx>;
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn retrieve_txs_to_retry(&self) -> Vec<Tx>;
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
     // TODO: GH-608: We might not need this
@@ -83,10 +98,14 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn retrieve_all_txs(&self) -> Vec<Tx> {
-        let sql = "select tx_hash, receiver_address, amount_high_b, amount_low_b, \
+    fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<Tx> {
+        let raw_sql = "select tx_hash, receiver_address, amount_high_b, amount_low_b, \
             timestamp, gas_price_wei, nonce, status from sent_payable"
             .to_string();
+        let sql = match condition_opt {
+            None => raw_sql,
+            Some(condition) => format!("{} {}", raw_sql, condition),
+        };
 
         let mut stmt = self
             .conn
@@ -116,44 +135,6 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 gas_price_wei,
                 nonce,
                 status,
-            })
-        })
-        .expect("Failed to execute query")
-        .filter_map(Result::ok)
-        .collect()
-    }
-
-    fn retrieve_pending_txs(&self) -> Vec<Tx> {
-        let sql = "select tx_hash, receiver_address, amount_high_b, amount_low_b, \
-            timestamp, gas_price_wei, nonce, status from sent_payable where status in ('Pending')"
-            .to_string();
-
-        let mut stmt = self
-            .conn
-            .prepare(&sql)
-            .expect("Failed to prepare SQL statement");
-
-        stmt.query_map([], |row| {
-            let tx_hash_str: String = row.get(0).expectv("tx_hash");
-            let hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
-            let receiver_address_str: String = row.get(1).expectv("row_id");
-            let receiver_address =
-                Address::from_str(&receiver_address_str[2..]).expect("Failed to parse H160");
-            let amount_high_b = row.get(2).expectv("amount_high_b");
-            let amount_low_b = row.get(3).expectv("amount_low_b");
-            let amount = BigIntDivider::reconstitute(amount_high_b, amount_low_b) as u128;
-            let timestamp = row.get(4).expectv("timestamp");
-            let gas_price_wei = row.get(5).expectv("gas_price_wei");
-            let nonce = row.get(6).expectv("nonce");
-
-            Ok(Tx {
-                hash,
-                receiver_address,
-                amount,
-                timestamp,
-                gas_price_wei,
-                nonce,
-                status: TxStatus::Pending,
             })
         })
         .expect("Failed to execute query")
@@ -206,9 +187,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::sent_payable_dao::{
-        SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx,
-    };
+    use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx};
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -311,7 +290,7 @@ mod tests {
 
         let result = subject.insert_new_records(txs.clone());
 
-        let retrieved_txs = subject.retrieve_all_txs();
+        let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
         assert_eq!(retrieved_txs.len(), 3);
         assert_eq!(retrieved_txs, txs);
@@ -480,7 +459,7 @@ mod tests {
             .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3, tx4])
             .unwrap();
 
-        let result = subject.retrieve_pending_txs();
+        let result = subject.retrieve_txs(Some(RetrieveCondition::IsPending));
 
         assert_eq!(result, vec![tx1, tx2]);
     }
