@@ -45,7 +45,7 @@ impl Display for RetrieveCondition {
         // TODO: GH-608: Test me separately
         match self {
             RetrieveCondition::IsPending => {
-                write!(f, "where status in ('Pending')")
+                write!(f, "WHERE status IN ('Pending')")
             }
         }
     }
@@ -77,7 +77,7 @@ impl<'a> SentPayableDaoReal<'a> {
 impl SentPayableDao for SentPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers {
         let sql = format!(
-            "select tx_hash, rowid from sent_payable where tx_hash in ({})",
+            "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
         );
 
@@ -99,8 +99,8 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 
     fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<Tx> {
-        let raw_sql = "select tx_hash, receiver_address, amount_high_b, amount_low_b, \
-            timestamp, gas_price_wei, nonce, status from sent_payable"
+        let raw_sql = "SELECT tx_hash, receiver_address, amount_high_b, amount_low_b, \
+            timestamp, gas_price_wei, nonce, status FROM sent_payable"
             .to_string();
         let sql = match condition_opt {
             None => raw_sql,
@@ -148,10 +148,10 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError> {
         let sql = format!(
-            "insert into sent_payable (\
+            "INSERT INTO sent_payable (\
             tx_hash, receiver_address, amount_high_b, amount_low_b, \
             timestamp, gas_price_wei, nonce, status, retried\
-            ) values {}",
+            ) VALUES {}",
             comma_joined_stringifiable(&txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                 let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
@@ -365,9 +365,9 @@ mod tests {
         // Inject a deliberately failing statement into the mocked connection.
         let failing_stmt = {
             setup_conn
-                .execute("create table example (id integer)", [])
+                .execute("CREATE TABLE example (id integer)", [])
                 .unwrap();
-            setup_conn.prepare("select id from example").unwrap()
+            setup_conn.prepare("SELECT id FROM example").unwrap()
         };
         let wrapped_conn = ConnectionWrapperMock::default().prepare_result(Ok(failing_stmt));
         let tx = TxBuilder::default().build();
