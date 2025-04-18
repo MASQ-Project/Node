@@ -612,8 +612,13 @@ desired locations with their priority. The priority provides the node's perspect
 is for our preferences.
 
 This command can be used in two ways which can't be combined:
-1. If we use the command with showCountries set to true, it retrieves information about the available countries in our neighborhood. In this case, other parameters are ignored.
-2. If we want to set an exit location, we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
+1. If we use the command with showCountries set to true.
+2. If we want to set an exit location.
+
+In case 1. it retrieves information about the available countries in our neighborhood. In this case, other parameters are 
+ignored.
+
+In case 2. we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
 
 The fallbackRouting parameter determines whether we want to block exit for a particular country. If this country is no 
 longer available, the route to exit will fail during construction. If fallbackRouting is set to true, we can exit through 
