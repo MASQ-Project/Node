@@ -10,6 +10,8 @@ use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
+const RETRY_THRESHOLD_SECS: i64 = 10 * 60; // 10 minutes
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
     InsertionFailed(String),
@@ -50,10 +52,10 @@ impl Display for RetrieveCondition {
                 write!(f, "WHERE status = 'Pending'")
             }
             RetrieveCondition::ToRetry => {
-                let ten_minutes_ago = current_unix_timestamp() - 60 * 10;
+                let threshold_timestamp = current_unix_timestamp() - RETRY_THRESHOLD_SECS;
                 write!(
                     f,
-                    "WHERE status = 'Pending' AND timestamp <= {ten_minutes_ago}",
+                    "WHERE status = 'Pending' AND timestamp <= {threshold_timestamp}",
                     // "WHERE (status = 'Pending' OR status = 'Failed') AND timestamp <= {ten_minutes_ago}", // TODO: GH-608: Failed Txs should also be included here. Think...
                 )
             }
@@ -197,7 +199,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx};
+    use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx, RETRY_THRESHOLD_SECS};
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -271,6 +273,11 @@ mod tests {
                 status: self.status_opt.unwrap_or(TxStatus::Pending),
             }
         }
+    }
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(RETRY_THRESHOLD_SECS, 10 * 60);
     }
 
     #[test]
@@ -477,7 +484,7 @@ mod tests {
     #[test]
     fn can_retrieve_txs_to_retry() {
         let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_pending_txs");
+            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_txs_to_retry");
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
