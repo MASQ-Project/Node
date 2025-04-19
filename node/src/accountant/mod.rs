@@ -1199,7 +1199,7 @@ mod tests {
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
     use std::any::TypeId;
-    use std::ops::{Add, Sub};
+    use std::ops::{Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -3648,11 +3648,15 @@ mod tests {
         system.run();
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transactions_confirmed_params, vec![two_fingerprints]);
-        let compute_interval_params = compute_interval_params_arc.lock().unwrap();
+        let mut compute_interval_params = compute_interval_params_arc.lock().unwrap();
+        let (_, last_new_payable_timestamp_actual, scan_interval_actual) =
+            compute_interval_params.remove(0);
         assert_eq!(
-            *compute_interval_params,
-            vec![(last_new_payable_scan_timestamp, nominal_interval)]
+            last_new_payable_timestamp_actual,
+            last_new_payable_scan_timestamp
         );
+        assert_eq!(scan_interval_actual, nominal_interval);
+        assert!(compute_interval_params.is_empty());
         let new_payable_notify_later = new_payable_notify_later_arc.lock().unwrap();
         assert_eq!(
             *new_payable_notify_later,
@@ -3719,11 +3723,15 @@ mod tests {
         system.run();
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transactions_confirmed_params, vec![two_fingerprints]);
-        let compute_interval_params = compute_interval_params_arc.lock().unwrap();
+        let mut compute_interval_params = compute_interval_params_arc.lock().unwrap();
+        let (_, last_new_payable_timestamp_actual, scan_interval_actual) =
+            compute_interval_params.remove(0);
         assert_eq!(
-            *compute_interval_params,
-            vec![(last_new_payable_scan_timestamp, nominal_interval)]
+            last_new_payable_timestamp_actual,
+            last_new_payable_scan_timestamp
         );
+        assert_eq!(scan_interval_actual, nominal_interval);
+        assert!(compute_interval_params.is_empty());
         let new_payable_notify_later = new_payable_notify_later_arc.lock().unwrap();
         assert!(
             new_payable_notify_later.is_empty(),
