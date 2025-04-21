@@ -27,9 +27,10 @@ pub enum TxStatus {
     Succeeded(TransactionBlock),
 }
 
-impl TxStatus {
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        // TODO: GH-608: Test me
+impl FromStr for TxStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Pending" => Ok(TxStatus::Pending),
             "Failed" => Ok(TxStatus::Failed),
@@ -39,17 +40,14 @@ impl TxStatus {
                 if parts.len() != 2 {
                     return Err("Invalid Succeeded format".to_string());
                 }
-                let block_number = match parts[0].parse() {
-                    Ok(n) => n,
-                    Err(_) => return Err("Invalid block number".to_string()),
-                };
-                let block_hash = match H256::from_str(&parts[1][2..]) {
-                    Ok(h) => h,
-                    Err(_) => return Err("Invalid block hash".to_string()),
-                };
+                let block_number: u64 = parts[0]
+                    .parse()
+                    .map_err(|_| "Invalid block number".to_string())?;
+                let block_hash =
+                    H256::from_str(&parts[1][2..]).map_err(|_| "Invalid block hash".to_string())?;
                 Ok(TxStatus::Succeeded(TransactionBlock {
                     block_hash,
-                    block_number,
+                    block_number: U64::from(block_number),
                 }))
             }
             _ => Err(format!("Unknown status: {}", s)),
@@ -232,7 +230,7 @@ mod tests {
     use masq_lib::utils::find_free_port;
     use std::str::FromStr;
     use web3::types::{BlockNumber, Bytes, FilterBuilder, Log, TransactionReceipt, U256};
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TxReceipt, TxStatus};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
 
     #[test]
     fn get_transaction_fee_balance_works() {
@@ -658,6 +656,74 @@ mod tests {
 
         assert_eq!(tx_receipt.transaction_hash, H256::from_low_u64_be(0x5678));
         assert_eq!(tx_receipt.status, TxStatus::Pending);
+    }
+
+    #[test]
+    fn tx_status_display_works() {
+        // Test Failed
+        assert_eq!(TxStatus::Failed.to_string(), "Failed");
+
+        // Test Pending
+        assert_eq!(TxStatus::Pending.to_string(), "Pending");
+
+        // Test Succeeded
+        let block_number = U64::from(12345);
+        let block_hash = H256::from_low_u64_be(0xabcdef);
+        let succeeded = TxStatus::Succeeded(TransactionBlock {
+            block_hash,
+            block_number,
+        });
+        assert_eq!(
+            succeeded.to_string(),
+            format!("Succeeded({},0x{:x})", block_number, block_hash)
+        );
+    }
+
+    #[test]
+    fn tx_status_from_str_works() {
+        // Test Pending
+        assert_eq!(TxStatus::from_str("Pending"), Ok(TxStatus::Pending));
+
+        // Test Failed
+        assert_eq!(TxStatus::from_str("Failed"), Ok(TxStatus::Failed));
+
+        // Test Succeeded with valid input
+        let block_number = 123456789;
+        let block_hash = H256::from_low_u64_be(0xabcdef);
+        let input = format!("Succeeded({},0x{:x})", block_number, block_hash);
+        assert_eq!(
+            TxStatus::from_str(&input),
+            Ok(TxStatus::Succeeded(TransactionBlock {
+                block_hash,
+                block_number: U64::from(block_number),
+            }))
+        );
+
+        // Test Succeeded with invalid format
+        assert_eq!(
+            TxStatus::from_str("Succeeded(123)"),
+            Err("Invalid Succeeded format".to_string())
+        );
+
+        // Test Succeeded with invalid block number
+        assert_eq!(
+            TxStatus::from_str(
+                "Succeeded(abc,0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef)"
+            ),
+            Err("Invalid block number".to_string())
+        );
+
+        // Test Succeeded with invalid block hash
+        assert_eq!(
+            TxStatus::from_str("Succeeded(123,0xinvalidhash)"),
+            Err("Invalid block hash".to_string())
+        );
+
+        // Test unknown status
+        assert_eq!(
+            TxStatus::from_str("InProgress"),
+            Err("Unknown status: InProgress".to_string())
+        );
     }
 
     fn create_tx_receipt(
