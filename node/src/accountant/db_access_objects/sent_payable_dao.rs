@@ -26,13 +26,13 @@ type TxIdentifiers = HashMap<H256, u64>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
-    hash: H256,
-    receiver_address: Address,
-    amount: u128,
-    timestamp: i64,
-    gas_price_wei: u64,
-    nonce: u32,
-    status: TxStatus,
+    pub hash: H256,
+    pub receiver_address: Address,
+    pub amount: u128,
+    pub timestamp: i64,
+    pub gas_price_wei: u64,
+    pub nonce: u32,
+    pub status: TxStatus,
 }
 
 pub struct StatusChange {
@@ -54,8 +54,7 @@ impl Display for RetrieveCondition {
                 let threshold_timestamp = current_unix_timestamp() - RETRY_THRESHOLD_SECS;
                 write!(
                     f,
-                    "WHERE status = 'Pending' AND timestamp <= {threshold_timestamp}",
-                    // "WHERE (status = 'Pending' OR status = 'Failed') AND timestamp <= {ten_minutes_ago}", // TODO: GH-608: Failed Txs should also be included here. Think...
+                    "WHERE (status = 'Pending' OR status = 'Failed') AND timestamp <= {threshold_timestamp}",
                 )
             }
         }
@@ -65,12 +64,10 @@ impl Display for RetrieveCondition {
 pub trait SentPayableDao {
     // Note that the order of the returned results is not guaranteed
     fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers;
-    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
-    fn retrieve_txs_to_retry(&self) -> Vec<Tx>;
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
-    // TODO: GH-608: We might not need this
-    fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError>;
+    fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, ids: &[StatusChange]) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -107,6 +104,36 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .expect("Failed to execute query")
         .filter_map(Result::ok)
         .collect()
+    }
+
+    fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError> {
+        let sql = format!(
+            "INSERT INTO sent_payable (\
+            tx_hash, receiver_address, amount_high_b, amount_low_b, \
+            timestamp, gas_price_wei, nonce, status, retried\
+            ) VALUES {}",
+            comma_joined_stringifiable(&txs, |tx| {
+                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
+                let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
+                format!(
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}', 0)",
+                    tx.hash,
+                    tx.receiver_address,
+                    high_bytes,
+                    low_bytes,
+                    tx.timestamp,
+                    tx.gas_price_wei,
+                    tx.nonce,
+                    tx.status
+                )
+            })
+        );
+
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(x) if x == txs.len() => Ok(()),
+            Ok(x) => panic!("expected {} changed rows but got {}", txs.len(), x),
+            Err(e) => Err(SentPayableDaoError::InsertionFailed(e.to_string())),
+        }
     }
 
     fn retrieve_txs(&self, condition_opt: Option<RetrieveCondition>) -> Vec<Tx> {
@@ -153,45 +180,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn retrieve_txs_to_retry(&self) -> Vec<Tx> {
+    fn change_statuses(&self, ids: &[StatusChange]) -> Result<(), SentPayableDaoError> {
         todo!()
-    }
-
-    fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError> {
-        let sql = format!(
-            "INSERT INTO sent_payable (\
-            tx_hash, receiver_address, amount_high_b, amount_low_b, \
-            timestamp, gas_price_wei, nonce, status, retried\
-            ) VALUES {}",
-            comma_joined_stringifiable(&txs, |tx| {
-                let amount_checked = checked_conversion::<u128, i128>(tx.amount);
-                let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
-                format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}', 0)",
-                    tx.hash,
-                    tx.receiver_address,
-                    high_bytes,
-                    low_bytes,
-                    tx.timestamp,
-                    tx.gas_price_wei,
-                    tx.nonce,
-                    tx.status
-                )
-            })
-        );
-
-        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-            Ok(x) if x == txs.len() => Ok(()),
-            Ok(x) => panic!("expected {} changed rows but got {}", txs.len(), x),
-            Err(e) => Err(SentPayableDaoError::InsertionFailed(e.to_string())),
-        }
     }
 
     fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError> {
-        todo!()
-    }
-
-    fn change_statuses(&self, ids: &[StatusChange]) -> Result<(), SentPayableDaoError> {
         todo!()
     }
 }
@@ -208,71 +201,8 @@ mod tests {
     use ethereum_types::{Address, H256};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
+    use crate::accountant::db_access_objects::test_utils::TxBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
-
-    #[derive(Default)]
-    pub struct TxBuilder {
-        hash_opt: Option<H256>,
-        receiver_address_opt: Option<Address>,
-        amount_opt: Option<u128>,
-        timestamp_opt: Option<i64>,
-        gas_price_wei_opt: Option<u64>,
-        nonce_opt: Option<u32>,
-        status_opt: Option<TxStatus>,
-    }
-
-    impl TxBuilder {
-        pub fn default() -> Self {
-            Default::default()
-        }
-
-        pub fn hash(mut self, hash: H256) -> Self {
-            self.hash_opt = Some(hash);
-            self
-        }
-
-        pub fn receiver_address(mut self, receiver_address: Address) -> Self {
-            self.receiver_address_opt = Some(receiver_address);
-            self
-        }
-
-        pub fn amount(mut self, amount: u128) -> Self {
-            self.amount_opt = Some(amount);
-            self
-        }
-
-        pub fn timestamp(mut self, timestamp: i64) -> Self {
-            self.timestamp_opt = Some(timestamp);
-            self
-        }
-
-        pub fn gas_price_wei(mut self, gas_price_wei: u64) -> Self {
-            self.gas_price_wei_opt = Some(gas_price_wei);
-            self
-        }
-
-        pub fn nonce(mut self, nonce: u32) -> Self {
-            self.nonce_opt = Some(nonce);
-            self
-        }
-
-        pub fn status(mut self, status: TxStatus) -> Self {
-            self.status_opt = Some(status);
-            self
-        }
-
-        pub fn build(self) -> Tx {
-            Tx {
-                hash: self.hash_opt.unwrap_or_default(),
-                receiver_address: self.receiver_address_opt.unwrap_or_default(),
-                amount: self.amount_opt.unwrap_or_default(),
-                timestamp: self.timestamp_opt.unwrap_or_else(current_unix_timestamp),
-                gas_price_wei: self.gas_price_wei_opt.unwrap_or_default(),
-                nonce: self.nonce_opt.unwrap_or_default(),
-                status: self.status_opt.unwrap_or(TxStatus::Pending),
-            }
-        }
-    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -520,12 +450,12 @@ mod tests {
             .status(TxStatus::Failed)
             .build();
         subject
-            .insert_new_records(vec![tx1, tx2, tx3.clone(), tx4, tx5])
+            .insert_new_records(vec![tx1, tx2, tx3.clone(), tx4, tx5.clone()])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
 
-        assert_eq!(result, vec![tx3]);
+        assert_eq!(result, vec![tx3, tx5]);
     }
 
     #[test]
@@ -542,7 +472,10 @@ mod tests {
 
         let parts: Vec<&str> = result.split("<=").collect();
         let parsed_timestamp: i64 = parts[1].trim().parse().unwrap();
-        assert_eq!(parts[0], "WHERE status = 'Pending' AND timestamp ");
+        assert_eq!(
+            parts[0],
+            "WHERE (status = 'Pending' OR status = 'Failed') AND timestamp "
+        );
         assert!((parsed_timestamp - expected_threshold).abs() <= 1); // Allow a small tolerance for time differences during test execution
     }
 }
