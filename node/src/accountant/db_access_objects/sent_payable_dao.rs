@@ -46,7 +46,6 @@ pub enum RetrieveCondition {
 
 impl Display for RetrieveCondition {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // TODO: GH-608: Test me separately
         match self {
             RetrieveCondition::IsPending => {
                 write!(f, "WHERE status = 'Pending'")
@@ -527,5 +526,23 @@ mod tests {
         let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
 
         assert_eq!(result, vec![tx3]);
+    }
+
+    #[test]
+    fn retrieve_condition_display_works() {
+        // Test IsPending
+        let is_pending = RetrieveCondition::IsPending;
+        assert_eq!(is_pending.to_string(), "WHERE status = 'Pending'");
+
+        // Test ToRetry
+        let to_retry = RetrieveCondition::ToRetry;
+        let expected_threshold = current_unix_timestamp() - RETRY_THRESHOLD_SECS;
+
+        let result = to_retry.to_string();
+
+        let parts: Vec<&str> = result.split("<=").collect();
+        let parsed_timestamp: i64 = parts[1].trim().parse().unwrap();
+        assert_eq!(parts[0], "WHERE status = 'Pending' AND timestamp ");
+        assert!((parsed_timestamp - expected_threshold).abs() <= 1); // Allow a small tolerance for time differences during test execution
     }
 }
