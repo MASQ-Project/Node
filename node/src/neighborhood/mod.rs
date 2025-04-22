@@ -1801,6 +1801,12 @@ impl Neighborhood {
         }
     }
 
+    // We are using the locations_opt data to store the original request for an exit. This data is used
+    // to recreate the desired exit location when a newly introduced node appears in our Neighborhood DB.
+    //
+    // As we plan to add more functionality to the Exit Location feature from the UI — allowing users
+    // to select multiple countries and set priorities for each CountryBlock — we want to persist this
+    // data in locations_opt, so we can reconstruct all the desired countries when they become available.
     fn extract_exit_locations_from_message(
         &mut self,
         message: &UiSetExitLocationRequest,
