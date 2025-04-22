@@ -1232,6 +1232,10 @@ impl Neighborhood {
         } else {
             if let Some(node_record) = self.neighborhood_database.node_by_key(last_node_key) {
                 if let Some(country_code) = &node_record.inner.country_code_opt {
+                    println!("contains_country_code {}", self
+                        .user_exit_preferences
+                        .exit_countries
+                        .contains(country_code));
                     return self
                         .user_exit_preferences
                         .exit_countries
@@ -1264,16 +1268,13 @@ impl Neighborhood {
     ) -> i64 {
         match undesirability_type {
             UndesirabilityType::Relay => {
-                todo!("UndesirabilityType::Relay");
                 node_record.inner.rate_pack.routing_charge(payload_size) as i64
             }
             UndesirabilityType::ExitRequest(None) => {
-                todo!("UndesirabilityType::ExitRequest(None)");
                 node_record.inner.rate_pack.exit_charge(payload_size) as i64
                     + node_record.metadata.country_undesirability as i64
             }
             UndesirabilityType::ExitRequest(Some(hostname)) => {
-                todo!("UndesirabilityType::ExitRequest(Some(hostname))");
                 let exit_undesirability =
                     node_record.inner.rate_pack.exit_charge(payload_size) as i64;
                 let country_undesirability = node_record.metadata.country_undesirability as i64;
@@ -1299,7 +1300,6 @@ impl Neighborhood {
                 exit_undesirability + unreachable_host_undesirability + country_undesirability
             }
             UndesirabilityType::ExitAndRouteResponse => {
-                todo!("UndesirabilityType::ExitAndRouteResponse");
                 node_record.inner.rate_pack.exit_charge(payload_size) as i64
                     + node_record.inner.rate_pack.routing_charge(payload_size) as i64
             }
@@ -2329,14 +2329,11 @@ mod tests {
 
         subject
             .neighborhood_database
-            .remove_arbitrary_half_neighbor(&root_node_key, first_neighbor.public_key());
-        subject
-            .neighborhood_database
             .remove_arbitrary_half_neighbor(&root_node_key, second_neighbor.public_key());
         let emptied_db_countries = subject.init_db_countries();
 
         assert_eq!(filled_db_countries, &["CZ".to_string(), "DE".to_string()]);
-        assert!(emptied_db_countries.is_empty());
+        assert_eq!(emptied_db_countries, &["CZ".to_string()]);
     }
 
     #[test]
@@ -4253,10 +4250,6 @@ mod tests {
                 fallback_routing: false,
                 exit_country_selection: vec![
                     ExitLocation {
-                        country_codes: vec!["CZ".to_string()],
-                        priority: 1
-                    },
-                    ExitLocation {
                         country_codes: vec!["FR".to_string()],
                         priority: 2
                     }
@@ -4450,6 +4443,80 @@ mod tests {
             result.unwrap_err(),
             "cannot calculate expected service, no keys provided in route segment"
         );
+    }
+
+    #[test]
+    fn handle_exit_location_msg_filtering_out_non_existent_codes_when_fallback_is_off() {
+        /*
+        if we want to filter out nonexistent countries, we can do it followingly in handle_exit_location message in extract_exit_locations_from_message:
+        filter_map(|cc| {
+            let requested_country_codes = &cc.country_codes;
+            countries_not_in_neighborhood
+                .extend(self.enrich_exit_countries_returns_missing(requested_country_codes));
+            let country_codes = match message.fallback_routing {
+                true => cc.country_codes,
+                false => cc.country_codes.into_iter().filter(|code| !countries_not_in_neighborhood.contains(code)).collect_vec()
+            };
+            if !country_codes.is_empty() {
+                Some(ExitLocation {
+                    country_codes,
+                    priority: cc.priority,
+                })
+            } else { None }
+        })
+        */
+        let mut subject = make_standard_subject();
+        subject.min_hops = Hops::TwoHops;
+        let db = &mut subject.neighborhood_database;
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(recipient);
+        let message = UiSetExitLocationRequest {
+            fallback_routing: false,
+            exit_locations: vec![CountryGroups {
+                country_codes: vec!["AU".to_string(), "KR".to_string()],
+                priority: 1,
+            }],
+            show_countries: false,
+        };
+        let keys = make_db_with_regular_5_x_5_network(db);
+
+        designate_root_node(db, &keys.get("l").unwrap());
+
+        subject.handle_exit_location_message(message, 0, 0);
+
+        println!("exits: {:?}", subject.user_exit_preferences.db_countries);
+        assert_eq!(subject.user_exit_preferences.locations_opt, Some(vec![ExitLocation {
+            country_codes: vec!["AU".to_string()],
+            priority: 1,
+        }]));
+    }
+
+    #[test]
+    fn handle_exit_location_msg_not_filtering_out_non_existent_codes_when_fallback_is_on() {
+        let mut subject = make_standard_subject();
+        subject.min_hops = Hops::TwoHops;
+        let db = &mut subject.neighborhood_database;
+        let (recipient, _) = make_node_to_ui_recipient();
+        subject.node_to_ui_recipient_opt = Some(recipient);
+        let message = UiSetExitLocationRequest {
+            fallback_routing: true,
+            exit_locations: vec![CountryGroups {
+                country_codes: vec!["AU".to_string(), "KR".to_string()],
+                priority: 1,
+            }],
+            show_countries: false,
+        };
+        let keys = make_db_with_regular_5_x_5_network(db);
+
+        designate_root_node(db, &keys.get("l").unwrap());
+
+        subject.handle_exit_location_message(message, 0, 0);
+
+        println!("exits: {:?}", subject.user_exit_preferences.db_countries);
+        assert_eq!(subject.user_exit_preferences.locations_opt, Some(vec![ExitLocation {
+            country_codes: vec!["AU".to_string(), "KR".to_string()],
+            priority: 1,
+        }]));
     }
 
     /*
