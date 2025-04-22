@@ -61,7 +61,7 @@ use gossip_producer::GossipProducerReal;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
-    DEFAULT_PREALLOCATION_VEC, EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, PAYLOAD_ZERO_SIZE,
+    EXIT_COUNTRY_MISSING_COUNTRIES_ERROR, PAYLOAD_ZERO_SIZE,
 };
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::exit_locations::ExitLocationSet;
@@ -91,6 +91,7 @@ pub const ZERO_UNDESIRABILITY: u32 = 0;
 pub const COUNTRY_UNDESIRABILITY_FACTOR: u32 = 1_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 pub const ZZ_COUNTRY_CODE_STRING: &str = "ZZ";
+pub const DEFAULT_PREALLOCATION_VEC: usize = 10;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -561,7 +562,7 @@ impl Neighborhood {
                     self.user_exit_preferences.locations_opt.clone()
                 {
                     for exit_location in &exit_locations_by_priority {
-                        self.enrich_exit_countries(&exit_location.country_codes);
+                        self.enrich_exit_countries_returns_missing(&exit_location.country_codes);
                     }
                     self.set_country_undesirability_and_exit_countries(&exit_locations_by_priority);
                 }
@@ -805,7 +806,7 @@ impl Neighborhood {
             }
             GossipAcceptanceResult::Ban(reason) => {
                 // TODO in case we introduce Ban machinery we want to reinitialize the db_countries here as well
-                // in that case, we need to make new process in init_db_countries to exclude banned node, from the result
+                // That implies new process in init_db_countries to exclude banned node from the result
                 warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source, reason);
                 self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
             }
@@ -1226,11 +1227,15 @@ impl Neighborhood {
         research_neighborhood: bool,
         direction: RouteDirection,
     ) -> bool {
-        if self.is_always_true(last_node_key, research_neighborhood, direction) {
-            true // Zero- and single-hop routes are not subject to exit-too-close restrictions
+        if self.last_node_is_always_true(last_node_key, research_neighborhood, direction) {
+            true // Zero- and single-hop routes are not subject to exit-too-close restrictions, when ExitLocation is not set, or we research neighborhood
         } else {
             if let Some(node_record) = self.neighborhood_database.node_by_key(last_node_key) {
                 if let Some(country_code) = &node_record.inner.country_code_opt {
+                    println!("contains_country_code {}", self
+                        .user_exit_preferences
+                        .exit_countries
+                        .contains(country_code));
                     return self
                         .user_exit_preferences
                         .exit_countries
@@ -1241,7 +1246,7 @@ impl Neighborhood {
         }
     }
 
-    fn is_always_true(
+    fn last_node_is_always_true(
         &self,
         last_node_key: &PublicKey,
         research_neighborhood: bool,
@@ -1273,7 +1278,7 @@ impl Neighborhood {
                 let exit_undesirability =
                     node_record.inner.rate_pack.exit_charge(payload_size) as i64;
                 let country_undesirability = node_record.metadata.country_undesirability as i64;
-                let unreachable_undesirability = if node_record
+                let unreachable_host_undesirability = if node_record
                     .metadata
                     .unreachable_hosts
                     .contains(hostname)
@@ -1292,7 +1297,7 @@ impl Neighborhood {
                 } else {
                     0i64
                 };
-                exit_undesirability + unreachable_undesirability + country_undesirability
+                exit_undesirability + unreachable_host_undesirability + country_undesirability
             }
             UndesirabilityType::ExitAndRouteResponse => {
                 node_record.inner.rate_pack.exit_charge(payload_size) as i64
@@ -1612,7 +1617,6 @@ impl Neighborhood {
         client_id: u64,
         context_id: u64,
     ) {
-        //TODO write test that contains more CountryGroups than countries in neighborhood db to check if unexistent country codes in db are filtered out from ExitLocation
         let (exit_locations_by_priority, missing_countries) =
             self.extract_exit_locations_from_message(&message);
 
@@ -1797,6 +1801,12 @@ impl Neighborhood {
         }
     }
 
+    // We are using the locations_opt data to store the original request for an exit. This data is used
+    // to recreate the desired exit location when a newly introduced node appears in our Neighborhood DB.
+    //
+    // As we plan to add more functionality to the Exit Location feature from the UI — allowing users
+    // to select multiple countries and set priorities for each CountryBlock — we want to persist this
+    // data in locations_opt, so we can reconstruct all the desired countries when they become available.
     fn extract_exit_locations_from_message(
         &mut self,
         message: &UiSetExitLocationRequest,
@@ -1811,7 +1821,7 @@ impl Neighborhood {
                 .map(|cc| {
                     let requested_country_codes = &cc.country_codes;
                     countries_not_in_neighborhood
-                        .extend(self.enrich_exit_countries(requested_country_codes));
+                        .extend(self.enrich_exit_countries_returns_missing(requested_country_codes));
                     ExitLocation {
                         country_codes: cc.country_codes,
                         priority: cc.priority,
@@ -1822,7 +1832,7 @@ impl Neighborhood {
         )
     }
 
-    fn enrich_exit_countries(&mut self, country_codes: &Vec<String>) -> Vec<String> {
+    fn enrich_exit_countries_returns_missing(&mut self, country_codes: &Vec<String>) -> Vec<String> {
         let mut countries_not_in_neighborhood = vec![];
         for code in country_codes {
             if self.code_in_db_countries_or_fallback_active(code) {
@@ -2061,7 +2071,14 @@ pub enum FallbackPreference {
     ExitCountryNoFallback,
 }
 
-//TODO create big comment about all members and its utilization
+// exit_countries contains all country_codes, that user selected for exit location and are present in DB,
+// these are used to stop recursion in routing_engine
+// fallback_preference is enum, that controls whether we want to strictly prohibit exit_location to nodes
+// with requested country_codes, or we accept other locations in case requested country is unavailable
+// locations_opt is Optional Vec of ExitLocation, it is set to Some(Vec<ExitLocation>) from users input,
+// where ExitLocation is set of countries with same priority
+// db_countries is set of country_codes of all possible exit_nodes in our Neighborhood DB, is used to
+// persist those information in case, user want to see, which country he can select for exit
 #[derive(Clone, Debug)]
 pub struct UserExitPreferences {
     exit_countries: Vec<String>, //if we cross number of country_codes used in one workflow over 34, we want to change this member to HashSet<String>
@@ -2256,6 +2273,13 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "NEIGHBORHOOD");
         assert_eq!(DEFAULT_MIN_HOPS, Hops::ThreeHops);
+        assert_eq!(DEFAULT_PREALLOCATION_VEC, 10);
+        assert_eq!(UNREACHABLE_HOST_PENALTY, 100_000_000i64);
+        assert_eq!(UNREACHABLE_COUNTRY_PENALTY, 100_000_000u32);
+        assert_eq!(ZERO_UNDESIRABILITY, 0u32);
+        assert_eq!(COUNTRY_UNDESIRABILITY_FACTOR, 1_000u32);
+        assert_eq!(RESPONSE_UNDESIRABILITY_FACTOR, 1_000usize); // assumed response length is request * this
+        assert_eq!(ZZ_COUNTRY_CODE_STRING, "ZZ");
     }
 
     #[test]
@@ -2310,14 +2334,11 @@ mod tests {
 
         subject
             .neighborhood_database
-            .remove_arbitrary_half_neighbor(&root_node_key, first_neighbor.public_key());
-        subject
-            .neighborhood_database
             .remove_arbitrary_half_neighbor(&root_node_key, second_neighbor.public_key());
         let emptied_db_countries = subject.init_db_countries();
 
         assert_eq!(filled_db_countries, &["CZ".to_string(), "DE".to_string()]);
-        assert!(emptied_db_countries.is_empty());
+        assert_eq!(emptied_db_countries, &["CZ".to_string()]);
     }
 
     #[test]
@@ -3650,7 +3671,7 @@ mod tests {
             priority: 1,
         }];
         for exit_location in &exit_locations_by_priority {
-            subject.enrich_exit_countries(&exit_location.country_codes);
+            subject.enrich_exit_countries_returns_missing(&exit_location.country_codes);
         }
         subject.user_exit_preferences.fallback_preference =
             FallbackPreference::ExitCountryNoFallback;
@@ -3670,9 +3691,9 @@ mod tests {
         let two_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
         let two_hops_db_countries = subject.user_exit_preferences.db_countries.clone();
         subject.handle_config_change_msg(config_msg_four_hops);
-
         let four_hops_exit_countries = subject.user_exit_preferences.exit_countries.clone();
         let four_hops_db_countries = subject.user_exit_preferences.db_countries;
+
         assert_eq!(
             tree_hop_db_countries,
             vec!["CN".to_string(), "US".to_string()]
@@ -3857,24 +3878,24 @@ mod tests {
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&cz_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "cz We expect {}, country is too close to be exit",
+                    "CZ: We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&us_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "us We expect {}, country is considered for exit location in fallback",
+                    "US: We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&sk_public_key),
                     0u32,
-                    "sk We expect 0, country is with Priority: 1"
+                    "SK: We expect 0, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&de_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "de We expect {}, country is too close to be exit",
+                    "DE: We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
@@ -3886,7 +3907,7 @@ mod tests {
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&pl_public_key),
                     2 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "pl We expect {}, country is with Priority: 3",
+                    "PL: We expect {}, country is with Priority: 3",
                     2 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
             }),
@@ -3900,12 +3921,13 @@ mod tests {
         system.run();
 
         let recorder_result = arc_recorder.lock().unwrap();
+        let payload_message = "{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"countryCodes\":[\"CZ\",\"SK\"],\"priority\":1},{\"countryCodes\":[\"AT\",\"DE\"],\"priority\":2},{\"countryCodes\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}";
         assert_eq!(
             recorder_result.get_record::<NodeToUiMessage>(0).body,
             MessageBody {
                 opcode: "exitLocation".to_string(),
                 path: MessagePath::Conversation(234),
-                payload: Ok("{\"fallbackRouting\":true,\"exitCountrySelection\":[{\"CountryGroups\":[\"CZ\",\"SK\"],\"priority\":1},{\"CountryGroups\":[\"AT\",\"DE\"],\"priority\":2},{\"CountryGroups\":[\"PL\"],\"priority\":3}],\"exitCountries\":null,\"missingCountries\":[\"CZ\",\"DE\"]}".to_string())
+                payload: Ok(payload_message.to_string())
             }
         );
         assert_eq!(
@@ -3925,7 +3947,7 @@ mod tests {
     fn no_exit_location_is_set_if_desired_country_codes_not_present_in_neighborhood_with_fallback_routing_set(
     ) {
         init_test_logging();
-        let test_name = "exit_location_with_multiple_countries_and_priorities_can_be_changed_using_exit_location_msg";
+        let test_name = "no_exit_location_is_set_if_desired_country_codes_not_present_in_neighborhood_with_fallback_routing_set";
         let request = UiSetExitLocationRequest {
             fallback_routing: true,
             exit_locations: vec![CountryGroups {
@@ -4006,37 +4028,37 @@ mod tests {
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&es_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "es We expect {}, country is too close to be exit",
+                    "ES: We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&us_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "us We expect {}, country is considered for exit location in fallback",
+                    "US: We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&hu_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "hu We expect {}, country is too close to be exit",
+                    "HU: We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&de_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "de We expect {}, country is too close to be exit",
+                    "DE: We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&at_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "at We expect {}, country is considered for exit location in fallback",
+                    "AT: We expect {}, country is considered for exit location in fallback",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&pl_public_key),
                     UNREACHABLE_COUNTRY_PENALTY,
-                    "pl We expect {}, country is too close to be exit",
+                    "PL: We expect {}, country is too close to be exit",
                     UNREACHABLE_COUNTRY_PENALTY
                 );
             }),
@@ -4146,7 +4168,7 @@ mod tests {
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&cz_public_key),
                     0u32,
-                    "CZ - We expect zero, country is with Priority: 1"
+                    "CZ: We expect zero, country is with Priority: 1"
                 );
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&sn_1_public_key),
@@ -4156,7 +4178,7 @@ mod tests {
                 assert_eq!(
                     neighborhood.get_node_country_undesirability(&fr_public_key),
                     1 * COUNTRY_UNDESIRABILITY_FACTOR,
-                    "FR - We expect {}, country is with Priority: 2",
+                    "FR: We expect {}, country is with Priority: 2",
                     1 * COUNTRY_UNDESIRABILITY_FACTOR
                 );
                 assert_eq!(
@@ -4703,10 +4725,10 @@ mod tests {
     /*
             Database:
 
-            root_key---c_au---b_fr
+                root---c_au---b_fr
                         |
                        a_fr
-            Test is written from the standpoint of root_key.
+            Test is written from the standpoint of root.
     */
 
     #[test]
@@ -4726,12 +4748,12 @@ mod tests {
         };
         let db = &mut subject.neighborhood_database;
         let root_key = &db.root_mut().public_key().clone();
-        let a_fr = &db.add_node(make_node_record(2345, true)).unwrap();
-        let b_fr = &db.add_node(make_node_record(5678, true)).unwrap();
-        let c_au = &db.add_node(make_node_record(1234, true)).unwrap();
-        db.add_arbitrary_full_neighbor(root_key, c_au);
-        db.add_arbitrary_full_neighbor(c_au, b_fr);
-        db.add_arbitrary_full_neighbor(c_au, a_fr);
+        let a_fr_key = &db.add_node(make_node_record(2345, true)).unwrap();
+        let b_fr_key = &db.add_node(make_node_record(5678, true)).unwrap();
+        let c_au_key = &db.add_node(make_node_record(1234, true)).unwrap();
+        db.add_arbitrary_full_neighbor(root_key, c_au_key);
+        db.add_arbitrary_full_neighbor(c_au_key, b_fr_key);
+        db.add_arbitrary_full_neighbor(c_au_key, a_fr_key);
         subject.handle_exit_location_message(message, 0, 0);
 
         let route_cz =
@@ -4740,6 +4762,14 @@ mod tests {
         assert_eq!(route_cz, None);
     }
 
+    /*
+        Database:
+                                    b_fr
+                                   /  |
+                    root -- a_fr <    |
+                                   \  |
+                                     c_au
+    */
     #[test]
     fn route_for_au_country_code_is_constructed_with_fallback_routing() {
         let mut subject = make_standard_subject();

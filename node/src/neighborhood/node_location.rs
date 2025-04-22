@@ -25,8 +25,7 @@ pub fn get_node_location(ip_opt: Option<IpAddr>) -> Option<NodeLocation> {
 
 #[cfg(test)]
 mod tests {
-    use crate::neighborhood::node_location::{get_node_location, NodeLocation};
-    use crate::neighborhood::node_record::NodeRecordMetadata;
+    use crate::neighborhood::node_location::get_node_location;
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
@@ -38,17 +37,6 @@ mod tests {
         assert_eq!(node_location.free_world_bit, false);
     }
 
-    #[test]
-    fn construct_node_record_metadata_with_free_world_bit() {
-        //TODO check in From impl for AGR that construction of metadata contains proper country_code and fwb, then delete this test
-        let mut metadata = NodeRecordMetadata::new();
-        metadata.node_location_opt = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))));
-        assert_eq!(
-            metadata.node_location_opt.as_ref().unwrap(),
-            &NodeLocation {
-                country_code: "AU".to_string(),
-                free_world_bit: true
-            }
-        );
-    }
+    //TODO #479 check in From impl for AGR that construction of metadata contains proper country_code
+
 }

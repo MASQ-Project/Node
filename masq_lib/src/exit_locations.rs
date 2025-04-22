@@ -19,9 +19,8 @@ impl Display for ExitLocationSet {
                     exit_location.country_codes, exit_location.priority
                 )
             })
-            .collect_vec()
             .join("; ");
-        write!(f, "{}", exit_location_string)?;
+        write!(f, "{}", exit_location_string).expect("writing failed");
         Ok(())
     }
 }
