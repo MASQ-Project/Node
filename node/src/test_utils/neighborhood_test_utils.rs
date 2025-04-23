@@ -15,6 +15,7 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
 use ethereum_types::H160;
+use ip_country_lib::country_finder::COUNTRY_CODE_FINDER;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
@@ -23,41 +24,6 @@ use std::net::Ipv4Addr;
 
 pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
 pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
-
-lazy_static! {
-    pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String, bool)> = vec![
-        (
-            IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
-            "CN".to_string(),
-            false
-        ),
-        (
-            IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)),
-            "US".to_string(),
-            true
-        ),
-        (
-            IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)),
-            "FR".to_string(),
-            true
-        ),
-        (
-            IpAddr::V4(Ipv4Addr::new(3, 3, 3, 3)),
-            "AU".to_string(),
-            true
-        ),
-        (
-            IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)),
-            "AU".to_string(),
-            true
-        ),
-        (
-            IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)),
-            "FR".to_string(),
-            true
-        ),
-    ];
-}
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
@@ -85,15 +51,11 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
     let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
-    let (_ip, country_code, free_world_bit) = pick_country_code_record(n);
+    let country_opt = COUNTRY_CODE_FINDER.find_country(ip_addr);
     let location_opt = match has_ip {
-        true => match country_code.is_empty() {
-            false => Some(NodeLocation {
-                country_code,
-                free_world_bit,
-            }),
-            true => None,
-        },
+        true => country_opt.map(|country| NodeLocation {
+            country_code: country.iso3166.clone(),
+        }),
         false => None,
     };
 
@@ -107,8 +69,21 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
     )
 }
 
-pub fn pick_country_code_record(n: u16) -> (IpAddr, String, bool) {
-    COUNTRY_CODE_DIGEST[n as usize % COUNTRY_CODE_DIGEST.len()].clone()
+pub fn make_node_record_cc(n: u16, has_ip: bool, cc: &str) -> NodeRecord {
+    let (seg1, seg2, seg3, seg4) = make_segments(n);
+    let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
+    let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
+    let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
+    let location_opt = Some(NodeLocation { country_code: cc.to_string() });
+
+    NodeRecord::new_for_tests(
+        &key,
+        if has_ip { Some(&node_addr) } else { None },
+        u64::from(n),
+        true,
+        true,
+        location_opt,
+    )
 }
 
 pub fn make_node_record_f(

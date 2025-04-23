@@ -1232,10 +1232,6 @@ impl Neighborhood {
         } else {
             if let Some(node_record) = self.neighborhood_database.node_by_key(last_node_key) {
                 if let Some(country_code) = &node_record.inner.country_code_opt {
-                    println!("contains_country_code {}", self
-                        .user_exit_preferences
-                        .exit_countries
-                        .contains(country_code));
                     return self
                         .user_exit_preferences
                         .exit_countries
@@ -2210,12 +2206,7 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::neighborhood_test_utils::{
-        cryptdes_from_node_records, db_from_node, linearly_connect_nodes,
-        make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor,
-        make_node_record, make_node_record_f, make_node_records, neighborhood_from_nodes,
-        MIN_HOPS_FOR_TEST,
-    };
+    use crate::test_utils::neighborhood_test_utils::{cryptdes_from_node_records, db_from_node, linearly_connect_nodes, make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor, make_node_record, make_node_record_cc, make_node_record_f, make_node_records, neighborhood_from_nodes, MIN_HOPS_FOR_TEST};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
@@ -2345,8 +2336,8 @@ mod tests {
     fn standard_gossip_results_in_exit_node_in_database() {
         let mut subject = make_standard_subject();
         let root_node_key = subject.neighborhood_database.root_key().clone();
-        let source_node = make_node_record(1111, true); //US
-        let first_node = make_node_record(2222, true); //FR
+        let source_node = make_node_record_cc(1111, true, "US");
+        let first_node = make_node_record_cc(2222, true, "FR");
         let second_node = make_node_record(3333, false);
         subject
             .neighborhood_database
@@ -2400,8 +2391,8 @@ mod tests {
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(()));
         debut_subject.persistent_config_opt = Some(Box::new(persistent_config));
         let debut_root_key = debut_subject.neighborhood_database.root_key().clone();
-        let introducer_node = make_node_record(3333, true); //AU
-        let introducee = make_node_record(2222, true); //FR
+        let introducer_node = make_node_record_cc(3333, true, "AU"); //AU
+        let introducee = make_node_record_cc(2222, true, "FR"); //FR
         let introducer_root_key = introducer_node.public_key().clone();
         let mut introducer_db = debut_subject.neighborhood_database.clone();
         introducer_db.set_root_key(&introducer_root_key);
@@ -3633,10 +3624,10 @@ mod tests {
     fn min_hops_change_affects_db_countries_and_exit_location_settings() {
         let mut subject = make_standard_subject();
         let root_node_ch = subject.neighborhood_database.root().clone();
-        let neighbor_one_au = make_node_record(1234, true);
-        let neighbor_two_fr = make_node_record(2345, true);
-        let neighbor_three_cn = make_node_record(3456, true);
-        let neighbor_four_us = make_node_record(4567, true);
+        let neighbor_one_au = make_node_record_cc(1234, true, "AU");
+        let neighbor_two_fr = make_node_record_cc(2345, true, "FR");
+        let neighbor_three_cn = make_node_record_cc(3456, true, "CN");
+        let neighbor_four_us = make_node_record_cc(4567, true, "US");
         subject
             .neighborhood_database
             .add_node(neighbor_one_au.clone())
@@ -4137,12 +4128,10 @@ mod tests {
         let system = System::new(test_name);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         subject.logger = Logger::new(test_name);
-        let cz = &mut make_node_record(3456, true);
-        cz.inner.country_code_opt = Some("CZ".to_string());
+        let cz = &make_node_record_cc(3456, true, "CZ");
         let standard_node_1 = &make_node_record(4567, true);
-        let fr = &mut make_node_record(5678, true);
-        fr.inner.country_code_opt = Some("FR".to_string());
-        let standard_node_2 = &make_node_record(7777, true);
+        let fr = &make_node_record_cc(5678, true, "FR");
+        let standard_node_2 = &make_node_record_cc(7777, true, "US");
         let root_node = subject.neighborhood_database.root().clone();
         let db = &mut subject.neighborhood_database;
         db.add_node(cz.clone()).unwrap();
@@ -4778,10 +4767,10 @@ mod tests {
             .root_mut()
             .public_key()
             .clone();
-        let mut a_fr_node = make_node_record(2345, true);
+        let mut a_fr_node = make_node_record_cc(2345, true, "FR");
         a_fr_node.inner.rate_pack.exit_byte_rate = 1;
         a_fr_node.inner.rate_pack.exit_service_rate = 1;
-        let mut c_au_node = make_node_record(1234, true);
+        let mut c_au_node = make_node_record_cc(1234, true, "AU");
         c_au_node.inner.rate_pack.exit_byte_rate = 10;
         c_au_node.inner.rate_pack.exit_service_rate = 10;
         let a_fr_key = &subject.neighborhood_database.add_node(a_fr_node).unwrap();
@@ -4836,15 +4825,15 @@ mod tests {
             .clone();
         let a_fr = &subject
             .neighborhood_database
-            .add_node(make_node_record(2345, true))
+            .add_node(make_node_record_cc(2345, true, "FR"))
             .unwrap();
         let b_fr = &subject
             .neighborhood_database
-            .add_node(make_node_record(5678, true))
+            .add_node(make_node_record_cc(5678, true, "FR"))
             .unwrap();
         let c_au = &subject
             .neighborhood_database
-            .add_node(make_node_record(1234, true))
+            .add_node(make_node_record_cc(1234, true, "AU"))
             .unwrap();
         subject
             .neighborhood_database
@@ -5857,9 +5846,9 @@ mod tests {
             new_ip: new_public_ip,
         });
 
-        assert_eq!(
+        assert_ne!(
             subject.neighborhood_database.root().inner.country_code_opt,
-            Some("US".to_string())
+            Some("AU".to_string())
         );
         assert_eq!(
             subject.neighborhood_database.root().inner.country_code_opt,
@@ -6198,8 +6187,8 @@ mod tests {
             None,
         );
         let mut db = db_from_node(&this_node);
-        let far_neighbor = make_node_record(1324, true);
-        let gossip_neighbor = make_node_record(4657, true);
+        let far_neighbor = make_node_record_cc(1324, true, "AU");
+        let gossip_neighbor = make_node_record_cc(4657, true, "US");
         db.add_node(far_neighbor.clone()).unwrap();
         db.add_node(gossip_neighbor.clone()).unwrap();
         db.add_arbitrary_full_neighbor(this_node.public_key(), gossip_neighbor.public_key());

@@ -535,7 +535,6 @@ mod tests {
         this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
-            free_world_bit: true,
         });
         this_node.resign();
         let one_node = make_node_record(4567, true);
@@ -872,7 +871,6 @@ mod tests {
         old_node.inner.country_code_opt = Some("AU".to_string());
         old_node.metadata.node_location_opt = Some(NodeLocation {
             country_code: "AU".to_string(),
-            free_world_bit: true,
         });
         old_node.resign();
 
