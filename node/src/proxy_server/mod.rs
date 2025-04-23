@@ -1375,7 +1375,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use crate::test_utils::unshared_test_utils::{
         make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };

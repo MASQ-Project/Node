@@ -1,4 +1,4 @@
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2023, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #![cfg(test)]
 
@@ -6,16 +6,16 @@ use itertools::Itertools;
 use std::any::{Any, TypeId};
 
 pub enum StopConditions {
-    Any(Vec<StopCondition>),
-    All(Vec<StopCondition>),
+    Any(Vec<MsgIdentification>),
+    All(Vec<MsgIdentification>),
 }
 
-pub enum StopCondition {
-    StopOnType(TypeId),
-    StopOnMatch {
+pub enum MsgIdentification {
+    ByType(TypeId),
+    ByMatch {
         exemplar: BoxedMsgExpected,
     },
-    StopOnPredicate {
+    ByPredicate {
         predicate: Box<dyn Fn(RefMsgExpected) -> bool + Send>,
     },
 }
@@ -35,7 +35,7 @@ impl StopConditions {
     }
 
     fn resolve_any<T: ForcedMatchable<T> + Send + 'static>(
-        conditions: &Vec<StopCondition>,
+        conditions: &Vec<MsgIdentification>,
         msg: &T,
     ) -> bool {
         conditions
@@ -44,7 +44,7 @@ impl StopConditions {
     }
 
     fn resolve_all<T: ForcedMatchable<T> + Send + 'static>(
-        conditions: &mut Vec<StopCondition>,
+        conditions: &mut Vec<MsgIdentification>,
         msg: &T,
     ) -> bool {
         let indexes_to_remove = Self::indexes_of_matched_conditions(conditions, msg);
@@ -53,7 +53,7 @@ impl StopConditions {
     }
 
     fn indexes_of_matched_conditions<T: ForcedMatchable<T> + Send + 'static>(
-        conditions: &[StopCondition],
+        conditions: &[MsgIdentification],
         msg: &T,
     ) -> Vec<usize> {
         conditions
@@ -69,7 +69,7 @@ impl StopConditions {
     }
 
     fn remove_matched_conditions(
-        conditions: &mut Vec<StopCondition>,
+        conditions: &mut Vec<MsgIdentification>,
         indexes_to_remove: Vec<usize>,
     ) {
         if !indexes_to_remove.is_empty() {
@@ -84,43 +84,43 @@ impl StopConditions {
     }
 }
 
-impl StopCondition {
-    fn resolve_condition<T: ForcedMatchable<T> + Send + 'static>(&self, msg: &T) -> bool {
+impl MsgIdentification {
+    pub fn resolve_condition<Msg: ForcedMatchable<Msg> + Send + 'static>(&self, msg: &Msg) -> bool {
         match self {
-            StopCondition::StopOnType(type_id) => Self::matches_stop_on_type::<T>(msg, *type_id),
-            StopCondition::StopOnMatch { exemplar } => {
-                Self::matches_stop_on_match::<T>(exemplar, msg)
+            MsgIdentification::ByType(type_id) => Self::matches_by_type::<Msg>(msg, *type_id),
+            MsgIdentification::ByMatch { exemplar } => {
+                Self::matches_completely::<Msg>(exemplar, msg)
             }
-            StopCondition::StopOnPredicate { predicate } => {
-                Self::matches_stop_on_predicate(predicate.as_ref(), msg)
+            MsgIdentification::ByPredicate { predicate } => {
+                Self::matches_by_predicate(predicate.as_ref(), msg)
             }
         }
     }
 
-    fn matches_stop_on_type<T: ForcedMatchable<T>>(msg: &T, expected_type_id: TypeId) -> bool {
+    fn matches_by_type<Msg: ForcedMatchable<Msg>>(msg: &Msg, expected_type_id: TypeId) -> bool {
         let correct_msg_type_id = msg.correct_msg_type_id();
         correct_msg_type_id == expected_type_id
     }
 
-    fn matches_stop_on_match<T: ForcedMatchable<T> + 'static + Send>(
+    fn matches_completely<Msg: ForcedMatchable<Msg> + 'static + Send>(
         exemplar: &BoxedMsgExpected,
-        msg: &T,
+        msg: &Msg,
     ) -> bool {
-        if let Some(downcast_exemplar) = exemplar.downcast_ref::<T>() {
+        if let Some(downcast_exemplar) = exemplar.downcast_ref::<Msg>() {
             return downcast_exemplar == msg;
         }
         false
     }
 
-    fn matches_stop_on_predicate<T: Send + 'static>(
+    fn matches_by_predicate<Msg: Send + 'static>(
         predicate: &dyn Fn(RefMsgExpected) -> bool,
-        msg: &T,
+        msg: &Msg,
     ) -> bool {
         predicate(msg as RefMsgExpected)
     }
 }
 
-pub trait ForcedMatchable<M>: PartialEq + Send {
+pub trait ForcedMatchable<Message>: PartialEq + Send {
     fn correct_msg_type_id(&self) -> TypeId;
 }
 
@@ -139,7 +139,7 @@ where
 impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
     fn eq(&self, _other: &Self) -> bool {
         panic!(
-            r#"You requested StopCondition::StopOnMatch for message
+            r#"You requested MsgIdentification::ByMatch for message
             that does not implement PartialEq. Consider two other
             options: matching the type simply by its TypeId or using
             a predicate."#
@@ -150,7 +150,7 @@ impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
 #[macro_export]
 macro_rules! match_every_type_id{
     ($($single_message: ident),+) => {
-         StopConditions::All(vec![$(StopCondition::StopOnType(TypeId::of::<$single_message>())),+])
+         StopConditions::All(vec![$(MsgIdentification::ByType(TypeId::of::<$single_message>())),+])
     }
 }
 
@@ -159,7 +159,7 @@ mod tests {
     use crate::accountant::{ResponseSkeleton, ScanError, ScanForNewPayables};
     use crate::daemon::crash_notification::CrashNotification;
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use std::any::TypeId;
     use std::net::{IpAddr, Ipv4Addr};
     use std::vec;
@@ -167,34 +167,34 @@ mod tests {
     #[test]
     fn remove_matched_conditions_works_with_unsorted_indexes() {
         let mut conditions = vec![
-            StopCondition::StopOnType(TypeId::of::<StartMessage>()),
-            StopCondition::StopOnType(TypeId::of::<ScanForNewPayables>()),
-            StopCondition::StopOnType(TypeId::of::<ScanError>()),
+            MsgIdentification::ByType(TypeId::of::<StartMessage>()),
+            MsgIdentification::ByType(TypeId::of::<ScanForNewPayables>()),
+            MsgIdentification::ByType(TypeId::of::<ScanError>()),
         ];
         let indexes = vec![2, 0];
 
         StopConditions::remove_matched_conditions(&mut conditions, indexes);
 
         assert_eq!(conditions.len(), 1);
-        let type_id = if let StopCondition::StopOnType(type_id) = conditions[0] {
+        let type_id = if let MsgIdentification::ByType(type_id) = conditions[0] {
             type_id
         } else {
-            panic!("expected StopOnType but got a different variant")
+            panic!("expected ByType but got a different variant")
         };
         assert_eq!(type_id, TypeId::of::<ScanForNewPayables>())
     }
 
     #[test]
     fn stop_on_match_works() {
-        let mut cond1 = StopConditions::All(vec![StopCondition::StopOnMatch {
+        let mut cond1 = StopConditions::All(vec![MsgIdentification::ByMatch {
             exemplar: Box::new(StartMessage {}),
         }]);
-        let mut cond2 = StopConditions::All(vec![StopCondition::StopOnMatch {
+        let mut cond2 = StopConditions::All(vec![MsgIdentification::ByMatch {
             exemplar: Box::new(NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(1, 8, 6, 4)),
             }),
         }]);
-        let mut cond3 = StopConditions::All(vec![StopCondition::StopOnMatch {
+        let mut cond3 = StopConditions::All(vec![MsgIdentification::ByMatch {
             exemplar: Box::new(NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(44, 2, 3, 1)),
             }),
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn stop_on_predicate_works() {
-        let mut cond_set = StopConditions::All(vec![StopCondition::StopOnPredicate {
+        let mut cond_set = StopConditions::All(vec![MsgIdentification::ByPredicate {
             predicate: Box::new(|msg| {
                 let scan_err_msg: &ScanError = msg.downcast_ref().unwrap();
                 scan_err_msg.scan_type == ScanType::PendingPayables
@@ -249,8 +249,8 @@ mod tests {
     #[test]
     fn match_any_works_with_every_matching_condition_and_no_need_to_take_elements_out() {
         let mut cond_set = StopConditions::Any(vec![
-            StopCondition::StopOnType(TypeId::of::<CrashNotification>()),
-            StopCondition::StopOnMatch {
+            MsgIdentification::ByType(TypeId::of::<CrashNotification>()),
+            MsgIdentification::ByMatch {
                 exemplar: Box::new(StartMessage {}),
             },
         ]);
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn match_all_with_conditions_gradually_eliminated_until_vector_is_emptied_and_it_is_match() {
         let mut cond_set = StopConditions::All(vec![
-            StopCondition::StopOnPredicate {
+            MsgIdentification::ByPredicate {
                 predicate: Box::new(|msg| {
                     if let Some(ip_msg) = msg.downcast_ref::<NewPublicIp>() {
                         ip_msg.new_ip.is_ipv4()
@@ -300,7 +300,7 @@ mod tests {
                     }
                 }),
             },
-            StopCondition::StopOnMatch {
+            MsgIdentification::ByMatch {
                 exemplar: Box::new(ScanForNewPayables {
                     response_skeleton_opt: Some(ResponseSkeleton {
                         client_id: 1234,
@@ -308,7 +308,7 @@ mod tests {
                     }),
                 }),
             },
-            StopCondition::StopOnType(TypeId::of::<NewPublicIp>()),
+            MsgIdentification::ByType(TypeId::of::<NewPublicIp>()),
         ]);
         let tested_msg_1 = ScanForNewPayables {
             response_skeleton_opt: Some(ResponseSkeleton {
@@ -323,8 +323,8 @@ mod tests {
         match &cond_set {
             StopConditions::All(conds) => {
                 assert_eq!(conds.len(), 2);
-                assert!(matches!(conds[0], StopCondition::StopOnPredicate { .. }));
-                assert!(matches!(conds[1], StopCondition::StopOnType(_)));
+                assert!(matches!(conds[0], MsgIdentification::ByPredicate { .. }));
+                assert!(matches!(conds[1], MsgIdentification::ByType(_)));
             }
             StopConditions::Any(_) => panic!("Stage 1: expected StopConditions::All, not ...Any"),
         }

@@ -12,6 +12,7 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
+mod recorder_counter_msgs;
 pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
@@ -539,7 +540,7 @@ pub mod unshared_test_utils {
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
@@ -699,8 +700,8 @@ pub mod unshared_test_utils {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
             Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
-                StopCondition::StopOnType(type_id),
-            ])), // No need to write stop message after this
+                MsgIdentification::ByType(type_id),
+            ])), // This will take care of stopping the system
             None => recorder,
         };
         let addr = recorder.start();

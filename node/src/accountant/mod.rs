@@ -1171,7 +1171,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::test_utils::unshared_test_utils::notify_handlers::{NotifyHandleMock, NotifyLaterHandleMock};
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
