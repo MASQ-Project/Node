@@ -5,12 +5,9 @@ use ethereum_types::H256;
 use web3::types::Address;
 use masq_lib::utils::ExpectValue;
 use crate::accountant::{checked_conversion, comma_joined_stringifiable};
-use crate::accountant::db_access_objects::utils::current_unix_timestamp;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TxStatus;
 use crate::database::rusqlite_wrappers::ConnectionWrapper;
-
-const RETRY_THRESHOLD_SECS: i64 = 10 * 60; // 10 minutes
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
@@ -51,7 +48,6 @@ impl Display for RetrieveCondition {
                 write!(f, "WHERE status = 'Pending'")
             }
             RetrieveCondition::ToRetry => {
-                let threshold_timestamp = current_unix_timestamp() - RETRY_THRESHOLD_SECS;
                 write!(f, "WHERE status = 'Failed'")
             }
         }
@@ -188,7 +184,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal, Tx, RETRY_THRESHOLD_SECS};
+    use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal};
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -201,11 +197,6 @@ mod tests {
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{IsPending, ToRetry};
     use crate::accountant::db_access_objects::test_utils::TxBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(RETRY_THRESHOLD_SECS, 10 * 60);
-    }
 
     #[test]
     fn insert_new_records_works() {
