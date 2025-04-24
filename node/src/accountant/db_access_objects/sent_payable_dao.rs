@@ -52,10 +52,7 @@ impl Display for RetrieveCondition {
             }
             RetrieveCondition::ToRetry => {
                 let threshold_timestamp = current_unix_timestamp() - RETRY_THRESHOLD_SECS;
-                write!(
-                    f,
-                    "WHERE (status = 'Pending' OR status = 'Failed') AND timestamp <= {threshold_timestamp}",
-                )
+                write!(f, "WHERE status = 'Failed'")
             }
         }
     }
@@ -201,6 +198,7 @@ mod tests {
     use ethereum_types::{Address, H256};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
+    use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{IsPending, ToRetry};
     use crate::accountant::db_access_objects::test_utils::TxBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
 
@@ -418,25 +416,13 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let current_unix_timestamp = current_unix_timestamp();
-        let old_but_not_that_old = current_unix_timestamp - 60; // 1 minute old
-        let old_timestamp = current_unix_timestamp - 600; // 10 minutes old
+        let old_timestamp = current_unix_timestamp() - 60; // 1 minute old
         let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .timestamp(current_unix_timestamp)
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .timestamp(old_but_not_that_old)
-            .status(TxStatus::Pending)
-            .build();
-        let tx3 = TxBuilder::default() // this should be picked for retry
             .hash(H256::from_low_u64_le(3))
             .timestamp(old_timestamp)
             .status(TxStatus::Pending)
             .build();
-        let tx4 = TxBuilder::default()
+        let tx2 = TxBuilder::default()
             .hash(H256::from_low_u64_le(4))
             .timestamp(old_timestamp)
             .status(TxStatus::Succeeded(TransactionBlock {
@@ -444,38 +430,23 @@ mod tests {
                 block_number: Default::default(),
             }))
             .build();
-        let tx5 = TxBuilder::default()
+        let tx3 = TxBuilder::default() // this should be picked for retry
             .hash(H256::from_low_u64_le(5))
             .timestamp(old_timestamp)
             .status(TxStatus::Failed)
             .build();
         subject
-            .insert_new_records(vec![tx1, tx2, tx3.clone(), tx4, tx5.clone()])
+            .insert_new_records(vec![tx1, tx2, tx3.clone()])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
 
-        assert_eq!(result, vec![tx3, tx5]);
+        assert_eq!(result, vec![tx3]);
     }
 
     #[test]
     fn retrieve_condition_display_works() {
-        // Test IsPending
-        let is_pending = RetrieveCondition::IsPending;
-        assert_eq!(is_pending.to_string(), "WHERE status = 'Pending'");
-
-        // Test ToRetry
-        let to_retry = RetrieveCondition::ToRetry;
-        let expected_threshold = current_unix_timestamp() - RETRY_THRESHOLD_SECS;
-
-        let result = to_retry.to_string();
-
-        let parts: Vec<&str> = result.split("<=").collect();
-        let parsed_timestamp: i64 = parts[1].trim().parse().unwrap();
-        assert_eq!(
-            parts[0],
-            "WHERE (status = 'Pending' OR status = 'Failed') AND timestamp "
-        );
-        assert!((parsed_timestamp - expected_threshold).abs() <= 1); // Allow a small tolerance for time differences during test execution
+        assert_eq!(IsPending.to_string(), "WHERE status = 'Pending'");
+        assert_eq!(ToRetry.to_string(), "WHERE status = 'Failed'");
     }
 }
