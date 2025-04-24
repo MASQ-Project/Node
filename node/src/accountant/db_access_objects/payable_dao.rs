@@ -27,7 +27,10 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use itertools::Either;
+use web3::types::U256;
 use web3::types::H256;
+use rusqlite::OptionalExtension;
+use ethereum_types::BigEndianHash;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -67,7 +70,6 @@ pub trait PayableDao: Debug + Send {
 
     fn total(&self) -> u128;
 
-    #[cfg(test)]
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount>;
 }
 
@@ -258,7 +260,6 @@ impl PayableDao for PayableDaoReal {
         })
     }
 
-    #[cfg(test)]
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
         let stm = "\
             select balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid \
@@ -283,13 +284,10 @@ impl PayableDao for PayableDaoReal {
                             high_bytes, low_bytes,
                         )),
                         last_paid_timestamp: utils::from_time_t(last_paid_timestamp),
-                        pending_payable_opt: match rowid {
-                            Some(rowid) => Some(PendingPayableId::new(
-                                u64::try_from(rowid).unwrap(),
-                                H256::from_uint(&U256::from(0)), //garbage
-                            )),
-                            None => None,
-                        },
+                        pending_payable_opt: rowid.map(|row_id| PendingPayableId::new(
+                            u64::try_from(row_id).unwrap(),
+                            H256::from_uint(&U256::from(0)), //garbage
+                        )),
                     })
                 }
                 e => panic!(
