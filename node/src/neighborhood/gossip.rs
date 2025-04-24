@@ -513,9 +513,7 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use super::super::gossip::GossipBuilder;
     use super::*;
-    use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_node_record, make_node_record_f,
-    };
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, make_node_record_cc, make_node_record_f};
     use crate::test_utils::{assert_string_contains, vec_to_btset};
     use std::str::FromStr;
 
@@ -671,7 +669,7 @@ mod tests {
 
     #[test]
     fn gossip_node_record_is_debug_formatted_to_be_human_readable() {
-        let node = make_node_record(1234, true);
+        let node = make_node_record_cc(1234, true, "AU");
         let mut db = db_from_node(&node);
         db.root_mut().increment_version();
         db.root_mut().increment_version();
@@ -737,12 +735,11 @@ Length: 4 (0x4) bytes
 
     #[test]
     fn to_dot_graph_returns_gossip_in_dotgraph_format() {
-        let mut source_node = make_node_record(1234, true);
+        let mut source_node = make_node_record_cc(1234, true, "AU");
         source_node.inner.public_key = PublicKey::new(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[..]);
-        let mut target_node = make_node_record(2345, true);
+        let mut target_node = make_node_record_cc(2345, true, "FR");
         target_node.inner.public_key = PublicKey::new(&b"ZYXWVUTSRQPONMLKJIHGFEDCBA"[..]);
-        let mut neighbor = make_node_record(3456, false);
-        neighbor.inner.country_code_opt = Some("FR".to_string());
+        let neighbor = make_node_record_cc(3456, false, "FR");
         let mut db = db_from_node(&source_node);
         db.add_node(target_node.clone()).unwrap();
         db.add_node(neighbor.clone()).unwrap();

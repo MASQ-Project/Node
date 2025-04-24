@@ -389,9 +389,7 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
-    use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_node_record, make_segmented_ip, make_segments,
-    };
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, make_node_record_cc, make_segmented_ip, make_segments};
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
@@ -812,10 +810,10 @@ mod tests {
 
     #[test]
     fn database_can_be_pretty_printed_to_dot_format() {
-        let this_node = make_node_record(1234, true); // AQIDBA
-        let node_one = make_node_record(2345, true); // AgMEBQ
-        let node_two = make_node_record(3456, true); // AwQFBg
-        let node_three = make_node_record(4567, true); // BAUGBw
+        let this_node = make_node_record_cc(1234, true, "AU"); // AQIDBA
+        let node_one = make_node_record_cc(2345, true, "FR"); // AgMEBQ
+        let node_two = make_node_record_cc(3456, true, "CN"); // AwQFBg
+        let node_three = make_node_record_cc(4567, true, "US"); // BAUGBw
 
         let mut subject = db_from_node(&this_node);
 

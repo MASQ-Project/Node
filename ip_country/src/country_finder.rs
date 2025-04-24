@@ -15,7 +15,7 @@ lazy_static! {
 }
 
 pub struct CountryCodeFinder {
-    ipv4: Vec<CountryBlock>,
+    pub ipv4: Vec<CountryBlock>,
     ipv6: Vec<CountryBlock>,
 }
 
