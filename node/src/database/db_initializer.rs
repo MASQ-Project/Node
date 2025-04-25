@@ -270,8 +270,7 @@ impl DbInitializerReal {
                 timestamp integer not null,
                 gas_price_wei integer not null,
                 nonce integer not null,
-                status text not null,
-                retried integer not null
+                status text not null
             )",
             [],
         )
@@ -752,7 +751,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare("select rowid, tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei, nonce, status, retried from sent_payable").unwrap();
+        let mut stmt = conn.prepare("select rowid, tx_hash, receiver_address, amount_high_b, amount_low_b, timestamp, gas_price_wei, nonce, status from sent_payable").unwrap();
         let mut sent_payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(sent_payable_contents.next().is_none());
         assert_create_table_stm_contains_all_parts(

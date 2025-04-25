@@ -103,13 +103,13 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         let sql = format!(
             "INSERT INTO sent_payable (\
             tx_hash, receiver_address, amount_high_b, amount_low_b, \
-            timestamp, gas_price_wei, nonce, status, retried\
+            timestamp, gas_price_wei, nonce, status
             ) VALUES {}",
             comma_joined_stringifiable(&txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                 let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
                 format!(
-                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}', 0)",
+                    "('{:?}', '{:?}', {}, {}, {}, {}, {}, '{}')",
                     tx.hash,
                     tx.receiver_address,
                     high_bytes,
