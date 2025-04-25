@@ -12,7 +12,7 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
     InsertionFailed(String),
-    // UpdateFailed(String),
+    UpdateFailed(String),
     // SignConversionError(u64),
     // RecordCannotBeRead,
     // RecordDeletion(String),
@@ -179,7 +179,25 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError> {
-        todo!()
+        for (hash, status) in hash_map {
+            let sql = format!(
+                "UPDATE sent_payable SET status = '{}' WHERE tx_hash = '{:?}'",
+                status, hash
+            );
+
+            match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+                Ok(updated) if updated == 1 => continue,
+                Ok(_) => {
+                    return Err(SentPayableDaoError::UpdateFailed(format!(
+                        "Failed to update status for hash {:?}",
+                        hash
+                    )))
+                }
+                Err(e) => return Err(SentPayableDaoError::UpdateFailed(e.to_string())),
+            }
+        }
+
+        Ok(())
     }
 
     fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError> {
