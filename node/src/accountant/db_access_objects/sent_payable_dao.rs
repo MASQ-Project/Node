@@ -19,12 +19,15 @@ pub enum SentPayableDaoError {
     // ErrorMarkFailed(String),
 }
 
-type TxIdentifiers = HashMap<H256, u64>;
-type TxUpdates = HashMap<H256, TxStatus>;
+type TxHash = H256;
+type RowID = u64;
+
+type TxIdentifiers = HashMap<TxHash, RowID>;
+type TxUpdates = HashMap<TxHash, TxStatus>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
-    pub hash: H256,
+    pub hash: TxHash,
     pub receiver_address: Address,
     pub amount: u128,
     pub timestamp: i64,
@@ -33,14 +36,10 @@ pub struct Tx {
     pub status: TxStatus,
 }
 
-pub struct StatusChange {
-    new_status: TxStatus,
-}
-
 pub enum RetrieveCondition {
     IsPending,
     ToRetry,
-    ByHash(H256),
+    ByHash(TxHash),
 }
 
 impl Display for RetrieveCondition {
@@ -61,7 +60,7 @@ impl Display for RetrieveCondition {
 
 pub trait SentPayableDao {
     // Note that the order of the returned results is not guaranteed
-    fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers;
+    fn get_tx_identifiers(&self, hashes: &[TxHash]) -> TxIdentifiers;
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
@@ -81,7 +80,7 @@ impl<'a> SentPayableDaoReal<'a> {
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &[H256]) -> TxIdentifiers {
+    fn get_tx_identifiers(&self, hashes: &[TxHash]) -> TxIdentifiers {
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
