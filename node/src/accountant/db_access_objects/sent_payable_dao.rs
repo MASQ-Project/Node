@@ -13,10 +13,7 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 pub enum SentPayableDaoError {
     InsertionFailed(String),
     UpdateFailed(String),
-    // SignConversionError(u64),
-    // RecordCannotBeRead,
-    // RecordDeletion(String),
-    // ErrorMarkFailed(String),
+    DeletionFailed(String),
 }
 
 type TxHash = H256;
@@ -200,7 +197,21 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 
     fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError> {
-        todo!()
+        if hashes.is_empty() {
+            return Ok(());
+        }
+
+        let hash_strings: Vec<String> = hashes.iter().map(|h| format!("'{:?}'", h)).collect();
+        let hash_list = hash_strings.join(", ");
+
+        let sql = format!("DELETE FROM sent_payable WHERE tx_hash IN ({})", hash_list);
+
+        self.conn
+            .prepare(&sql)
+            .and_then(|mut stmt| stmt.execute([]))
+            .map_err(|e| SentPayableDaoError::DeletionFailed(e.to_string()))?;
+
+        Ok(())
     }
 }
 
@@ -561,7 +572,7 @@ mod tests {
             }))
             .build();
         subject
-            .insert_new_records(vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3.clone()])
             .unwrap();
 
         let result = subject.delete_records(&vec![tx1.hash, tx2.hash]);
