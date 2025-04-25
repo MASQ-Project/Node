@@ -64,7 +64,7 @@ pub trait SentPayableDao {
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
-    fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -199,7 +199,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn delete_records(&self, ids: &[u64]) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError> {
         todo!()
     }
 }
@@ -536,5 +536,37 @@ mod tests {
                 block_number: U64::from(1),
             })
         )
+    }
+
+    #[test]
+    fn txs_can_be_deleted() {
+        let home_dir = ensure_node_home_directory_exists("sent_payable_dao", "txs_can_be_deleted");
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .status(TxStatus::Failed)
+            .build();
+        let tx3 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .status(TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: Default::default(),
+            }))
+            .build();
+        subject
+            .insert_new_records(vec![tx1.clone(), tx2.clone()])
+            .unwrap();
+
+        let result = subject.delete_records(&vec![tx1.hash, tx2.hash]);
+
+        let remaining_records = subject.retrieve_txs(None);
+        assert_eq!(remaining_records, vec![tx3]);
     }
 }
