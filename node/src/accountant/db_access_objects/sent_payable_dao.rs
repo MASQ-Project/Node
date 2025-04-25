@@ -12,8 +12,8 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
     InsertionFailed(String),
-    UpdateFailed(String),
-    DeletionFailed(String),
+    UpdateFailed(String),   // TODO: GH-608: Test this error
+    DeletionFailed(String), // TODO: GH-608: Test this error
 }
 
 type TxHash = H256;
