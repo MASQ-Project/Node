@@ -12,7 +12,7 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
-mod recorder_counter_msgs;
+pub mod recorder_counter_msgs;
 pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
@@ -699,7 +699,7 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::AllLazily(vec![
                 MsgIdentification::ByType(type_id),
             ])), // This will take care of stopping the system
             None => recorder,
@@ -1018,7 +1018,7 @@ pub mod unshared_test_utils {
         // you've pasted in before at the other end.
         // 3) Using raw pointers to link the real memory address to your objects does not lead to good
         // results in all cases (It was found confusing and hard to be done correctly or even impossible
-        // to implement especially for references pointing to a dereferenced Box that was originally
+        // to implement, especially for references pointing to a dereferenced Box that was originally
         // supplied as an owned argument into the testing environment at the beginning, or we can
         // suspect the memory link already broken because of moves of the owned boxed instance
         // around the subjected code)

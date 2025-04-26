@@ -7,7 +7,12 @@ use std::any::{Any, TypeId};
 
 pub enum StopConditions {
     Any(Vec<MsgIdentification>),
-    All(Vec<MsgIdentification>),
+    // Msg is tested against every ID method in the vector. In every case when they match, those
+    // methods are eliminated
+    AllGreedily(Vec<MsgIdentification>),
+    // Iterating through the vector of ID methods, only the first matching method is eliminated
+    // and any other one that would've matched needs to wait for the next received msg of this type
+    AllLazily(Vec<MsgIdentification>),
 }
 
 pub enum MsgIdentification {
@@ -24,48 +29,66 @@ pub type BoxedMsgExpected = Box<dyn Any + Send>;
 pub type RefMsgExpected<'a> = &'a (dyn Any + Send);
 
 impl StopConditions {
-    pub fn resolve_stop_conditions<T: ForcedMatchable<T> + Send + 'static>(
+    pub fn resolve_stop_conditions<Msg: ForcedMatchable<Msg> + Send + 'static>(
         &mut self,
-        msg: &T,
+        msg: &Msg,
     ) -> bool {
         match self {
-            StopConditions::Any(conditions) => Self::resolve_any::<T>(conditions, msg),
-            StopConditions::All(conditions) => Self::resolve_all::<T>(conditions, msg),
+            StopConditions::Any(conditions) => Self::resolve_any::<Msg>(conditions, msg),
+            StopConditions::AllGreedily(conditions) => {
+                Self::resolve_all_greedily::<Msg>(conditions, msg)
+            }
+            StopConditions::AllLazily(conditions) => {
+                Self::resolve_all_lazily::<Msg>(conditions, msg)
+            }
         }
     }
 
-    fn resolve_any<T: ForcedMatchable<T> + Send + 'static>(
+    fn resolve_any<Msg: ForcedMatchable<Msg> + Send + 'static>(
         conditions: &Vec<MsgIdentification>,
-        msg: &T,
+        msg: &Msg,
     ) -> bool {
         conditions
             .iter()
-            .any(|condition| condition.resolve_condition::<T>(msg))
+            .any(|condition| condition.resolve_condition::<Msg>(msg))
     }
 
-    fn resolve_all<T: ForcedMatchable<T> + Send + 'static>(
+    fn resolve_all_greedily<Msg: ForcedMatchable<Msg> + Send + 'static>(
         conditions: &mut Vec<MsgIdentification>,
-        msg: &T,
+        msg: &Msg,
     ) -> bool {
         let indexes_to_remove = Self::indexes_of_matched_conditions(conditions, msg);
         Self::remove_matched_conditions(conditions, indexes_to_remove);
         conditions.is_empty()
     }
 
-    fn indexes_of_matched_conditions<T: ForcedMatchable<T> + Send + 'static>(
+    fn indexes_of_matched_conditions<Msg: ForcedMatchable<Msg> + Send + 'static>(
         conditions: &[MsgIdentification],
-        msg: &T,
+        msg: &Msg,
     ) -> Vec<usize> {
         conditions
             .iter()
             .enumerate()
             .fold(vec![], |mut acc, (idx, condition)| {
-                let matches = condition.resolve_condition::<T>(msg);
+                let matches = condition.resolve_condition::<Msg>(msg);
                 if matches {
                     acc.push(idx)
                 }
                 acc
             })
+    }
+
+    fn resolve_all_lazily<Msg: ForcedMatchable<Msg> + Send + 'static>(
+        conditions: &mut Vec<MsgIdentification>,
+        msg: &Msg,
+    ) -> bool {
+        if let Some(idx) = conditions
+            .iter()
+            .position(|condition| condition.resolve_condition::<Msg>(msg))
+        {
+            conditions.remove(idx);
+        }
+        conditions.is_empty()
     }
 
     fn remove_matched_conditions(
@@ -148,9 +171,9 @@ impl<T: Send> PartialEq for PretendedMatchableWrapper<T> {
 }
 
 #[macro_export]
-macro_rules! match_every_type_id{
+macro_rules! match_lazily_every_type_id{
     ($($single_message: ident),+) => {
-         StopConditions::All(vec![$(MsgIdentification::ByType(TypeId::of::<$single_message>())),+])
+         StopConditions::AllLazily(vec![$(MsgIdentification::ByType(TypeId::of::<$single_message>())),+])
     }
 }
 
@@ -161,7 +184,7 @@ mod tests {
     use crate::sub_lib::peer_actors::{NewPublicIp, StartMessage};
     use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use std::any::TypeId;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::vec;
 
     #[test]
@@ -186,15 +209,15 @@ mod tests {
 
     #[test]
     fn stop_on_match_works() {
-        let mut cond1 = StopConditions::All(vec![MsgIdentification::ByMatch {
+        let mut cond1 = StopConditions::AllGreedily(vec![MsgIdentification::ByMatch {
             exemplar: Box::new(StartMessage {}),
         }]);
-        let mut cond2 = StopConditions::All(vec![MsgIdentification::ByMatch {
+        let mut cond2 = StopConditions::AllGreedily(vec![MsgIdentification::ByMatch {
             exemplar: Box::new(NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(1, 8, 6, 4)),
             }),
         }]);
-        let mut cond3 = StopConditions::All(vec![MsgIdentification::ByMatch {
+        let mut cond3 = StopConditions::AllGreedily(vec![MsgIdentification::ByMatch {
             exemplar: Box::new(NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(44, 2, 3, 1)),
             }),
@@ -219,7 +242,7 @@ mod tests {
 
     #[test]
     fn stop_on_predicate_works() {
-        let mut cond_set = StopConditions::All(vec![MsgIdentification::ByPredicate {
+        let mut cond_set = StopConditions::AllGreedily(vec![MsgIdentification::ByPredicate {
             predicate: Box::new(|msg| {
                 let scan_err_msg: &ScanError = msg.downcast_ref().unwrap();
                 scan_err_msg.scan_type == ScanType::PendingPayables
@@ -265,7 +288,12 @@ mod tests {
         };
         let inspect_len_of_any = |cond_set: &StopConditions, msg_number: usize| match cond_set {
             StopConditions::Any(conditions) => conditions.len(),
-            StopConditions::All(_) => panic!("stage {}: expected Any but got All", msg_number),
+            StopConditions::AllGreedily(_) => {
+                panic!("stage {}: expected Any but got AllGreedily", msg_number)
+            }
+            StopConditions::AllLazily(_) => {
+                panic!("stage {}: expected Any but got AllLazily", msg_number)
+            }
         };
 
         assert_eq!(
@@ -289,8 +317,8 @@ mod tests {
     }
 
     #[test]
-    fn match_all_with_conditions_gradually_eliminated_until_vector_is_emptied_and_it_is_match() {
-        let mut cond_set = StopConditions::All(vec![
+    fn match_all_with_conditions_gradually_eliminated_greedily_until_empty() {
+        let mut cond_set = StopConditions::AllGreedily(vec![
             MsgIdentification::ByPredicate {
                 predicate: Box::new(|msg| {
                     if let Some(ip_msg) = msg.downcast_ref::<NewPublicIp>() {
@@ -321,12 +349,17 @@ mod tests {
 
         assert_eq!(kill_system, false);
         match &cond_set {
-            StopConditions::All(conds) => {
+            StopConditions::AllGreedily(conds) => {
                 assert_eq!(conds.len(), 2);
                 assert!(matches!(conds[0], MsgIdentification::ByPredicate { .. }));
                 assert!(matches!(conds[1], MsgIdentification::ByType(_)));
             }
-            StopConditions::Any(_) => panic!("Stage 1: expected StopConditions::All, not ...Any"),
+            StopConditions::Any(_) => {
+                panic!("Stage 1: expected StopConditions::AllGreedily, not Any")
+            }
+            StopConditions::AllLazily(_) => {
+                panic!("Stage 1: expected StopConditions::AllGreedily, not AllLazily")
+            }
         }
         let tested_msg_2 = NewPublicIp {
             new_ip: IpAddr::V4(Ipv4Addr::new(1, 2, 4, 1)),
@@ -336,10 +369,96 @@ mod tests {
 
         assert_eq!(kill_system, true);
         match cond_set {
-            StopConditions::All(conds) => {
+            StopConditions::AllGreedily(conds) => {
                 assert!(conds.is_empty())
             }
-            StopConditions::Any(_) => panic!("Stage 2: expected StopConditions::All, not ...Any"),
+            StopConditions::Any(_) => {
+                panic!("Stage 2: expected StopConditions::AllGreedily, not Any")
+            }
+            StopConditions::AllLazily(_) => {
+                panic!("Stage 2: expected StopConditions::AllGreedily, not AllLazily")
+            }
+        }
+    }
+
+    #[test]
+    fn match_all_with_conditions_gradually_eliminated_lazily_until_empty() {
+        let mut cond_set = StopConditions::AllLazily(vec![
+            MsgIdentification::ByPredicate {
+                predicate: Box::new(|msg| {
+                    if let Some(ip_msg) = msg.downcast_ref::<NewPublicIp>() {
+                        ip_msg.new_ip.is_ipv6()
+                    } else {
+                        false
+                    }
+                }),
+            },
+            MsgIdentification::ByType(TypeId::of::<NewPublicIp>()),
+            MsgIdentification::ByType(TypeId::of::<NewPublicIp>()),
+        ]);
+        let tested_msg_1 = ScanForNewPayables {
+            response_skeleton_opt: None,
+        };
+
+        let kill_system = cond_set.resolve_stop_conditions::<ScanForNewPayables>(&tested_msg_1);
+
+        assert_eq!(kill_system, false);
+        assert_on_state_after_lazily_matched(1, &cond_set, |conds| {
+            assert_eq!(conds.len(), 3);
+            assert!(matches!(conds[0], MsgIdentification::ByPredicate { .. }));
+            assert!(matches!(conds[1], MsgIdentification::ByType(_)));
+            assert!(matches!(conds[2], MsgIdentification::ByType(_)));
+        });
+        let tested_msg_2 = NewPublicIp {
+            new_ip: IpAddr::V4(Ipv4Addr::new(6, 7, 8, 9)),
+        };
+
+        let kill_system = cond_set.resolve_stop_conditions::<NewPublicIp>(&tested_msg_2);
+
+        assert_eq!(kill_system, false);
+        assert_on_state_after_lazily_matched(2, &cond_set, |conds| {
+            assert_eq!(conds.len(), 2);
+            assert!(matches!(conds[0], MsgIdentification::ByPredicate { .. }));
+            assert!(matches!(conds[1], MsgIdentification::ByType(_)));
+        });
+        let tested_msg_3 = NewPublicIp {
+            new_ip: IpAddr::V6(Ipv6Addr::new(1, 2, 4, 1, 4, 3, 2, 1)),
+        };
+
+        let kill_system = cond_set.resolve_stop_conditions::<NewPublicIp>(&tested_msg_3);
+
+        assert_eq!(kill_system, false);
+        assert_on_state_after_lazily_matched(3, &cond_set, |conds| {
+            assert_eq!(conds.len(), 1);
+            assert!(matches!(conds[0], MsgIdentification::ByType(_)))
+        });
+        let tested_msg_4 = NewPublicIp {
+            new_ip: IpAddr::V4(Ipv4Addr::new(45, 45, 45, 45)),
+        };
+
+        let kill_system = cond_set.resolve_stop_conditions::<NewPublicIp>(&tested_msg_4);
+
+        assert_eq!(kill_system, true);
+        assert_on_state_after_lazily_matched(4, &cond_set, |conds| {
+            assert!(conds.is_empty());
+        });
+    }
+
+    fn assert_on_state_after_lazily_matched(
+        stage: usize,
+        cond_set: &StopConditions,
+        assertions: fn(&[MsgIdentification]),
+    ) {
+        match &cond_set {
+            StopConditions::AllLazily(conds) => assertions(conds),
+            StopConditions::Any(_) => panic!(
+                "Stage {}: expected StopConditions::AllLazily, not Any",
+                stage
+            ),
+            StopConditions::AllGreedily(_) => panic!(
+                "Stage {}: expected StopConditions::AllLazily, not AllGreedily",
+                stage
+            ),
         }
     }
 }

@@ -4,8 +4,8 @@
 
 use crate::test_utils::recorder_stop_conditions::{ForcedMatchable, MsgIdentification};
 use actix::dev::ToEnvelope;
-use actix::{Addr, Handler, Message, Recipient};
-use std::any::{type_name, TypeId};
+use actix::{Actor, Addr, Handler, Message, Recipient};
+use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -47,45 +47,36 @@ where
     }
 }
 
-pub struct CounterMsgSetup {
+pub struct SingleCounterMsgSetup {
     // Leave them private
     trigger_msg_type_id: TypeId,
     condition: MsgIdentification,
-    msg_gear: Box<dyn CounterMsgGear>,
+    // Multiple messages sent off on reaction are allowed
+    // (Imagine a message handler whose execution goes about more than just one msg dispatch)
+    msg_gears: Vec<Box<dyn CounterMsgGear>>,
 }
 
-impl CounterMsgSetup {
-    pub fn new<Msg, Actor>(
+impl SingleCounterMsgSetup {
+    pub fn new(
         trigger_msg_type_id: TypeId,
         trigger_msg_id_method: MsgIdentification,
-        counter_msg: Msg,
-        counter_msg_actor_addr: &Addr<Actor>,
-    ) -> Self
-    where
-        Msg: Message + Send + 'static,
-        Msg::Result: Send,
-        Actor: actix::Actor + Handler<Msg>,
-        Actor::Context: ToEnvelope<Actor, Msg>,
-    {
-        let msg_gear = Box::new(SendableCounterMsgWithRecipient::new(
-            counter_msg,
-            counter_msg_actor_addr.clone().recipient(),
-        ));
+        counter_messages: Vec<Box<dyn CounterMsgGear>>,
+    ) -> Self {
         Self {
             trigger_msg_type_id,
             condition: trigger_msg_id_method,
-            msg_gear,
+            msg_gears: counter_messages,
         }
     }
 }
 
 #[derive(Default)]
 pub struct CounterMessages {
-    msgs: HashMap<TypeId, Vec<CounterMsgSetup>>,
+    msgs: HashMap<TypeId, Vec<SingleCounterMsgSetup>>,
 }
 
 impl CounterMessages {
-    pub fn search_for_msg_setup<Msg>(&mut self, msg: &Msg) -> Option<Box<dyn CounterMsgGear>>
+    pub fn search_for_msg_setup<Msg>(&mut self, msg: &Msg) -> Option<Vec<Box<dyn CounterMsgGear>>>
     where
         Msg: ForcedMatchable<Msg> + 'static,
     {
@@ -96,14 +87,14 @@ impl CounterMessages {
                 .position(|cm_setup| cm_setup.condition.resolve_condition(msg))
                 .map(|idx| {
                     let matching_counter_msg = msgs_vec.remove(idx);
-                    matching_counter_msg.msg_gear
+                    matching_counter_msg.msg_gears
                 })
         } else {
             None
         }
     }
 
-    pub fn add_msg(&mut self, counter_msg_setup: CounterMsgSetup) {
+    pub fn add_msg(&mut self, counter_msg_setup: SingleCounterMsgSetup) {
         let type_id = counter_msg_setup.trigger_msg_type_id;
         match self.msgs.entry(type_id) {
             Entry::Occupied(mut existing) => existing.get_mut().push(counter_msg_setup),
@@ -112,4 +103,42 @@ impl CounterMessages {
             }
         }
     }
+}
+
+#[macro_export]
+macro_rules! setup_for_counter_msg_triggered_via_type_id{
+    ($trigger_msg_type: ty, $($owned_counter_msg: expr, $respondent_actor_addr_ref: expr),+) => {
+
+        crate::setup_for_counter_msg_triggered_via_specific_msg_id_method!(
+            $trigger_msg_type,
+            MsgIdentification::ByType(TypeId::of::<$trigger_msg_type>()),
+            $($owned_counter_msg, $respondent_actor_addr_ref),+
+        )
+    };
+}
+
+#[macro_export]
+macro_rules! setup_for_counter_msg_triggered_via_specific_msg_id_method{
+    ($trigger_msg_type: ty, $msg_id_method: expr, $($owned_counter_msg: expr, $respondent_actor_addr_ref: expr),+) => {
+        // This macro returns a block of operations. That's why it begins with these curly brackets
+        {
+            let msg_gears: Vec<
+                Box<dyn crate::test_utils::recorder_counter_msgs::CounterMsgGear>
+            > = vec![
+                // This part can be repeated as long as there are more expression pairs suplied
+                $(Box::new(
+                    crate::test_utils::recorder_counter_msgs::SendableCounterMsgWithRecipient::new(
+                        $owned_counter_msg,
+                        $respondent_actor_addr_ref.clone().recipient()
+                    )
+                )),+
+            ];
+
+            SingleCounterMsgSetup::new(
+                TypeId::of::<$trigger_msg_type>(),
+                $msg_id_method,
+                msg_gears
+            )
+        }
+    };
 }

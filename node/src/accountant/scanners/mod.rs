@@ -48,7 +48,7 @@ use std::time::{SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::H256;
-use masq_lib::type_obfuscation::Obfuscated;
+use crate::accountant::scanners::local_test_utils::NullScanner;
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -400,9 +400,9 @@ impl InaccessibleScanner<ScanForNewPayables, QualifiedPayablesMessage> for Payab
                     "Chose {} qualified debts to pay",
                     qualified_payables.len()
                 );
-                let protected_payables = self.protect_payables(qualified_payables);
+
                 let outgoing_msg = QualifiedPayablesMessage::new(
-                    protected_payables,
+                    qualified_payables,
                     consuming_wallet.clone(),
                     response_skeleton_opt,
                 );
@@ -477,15 +477,11 @@ impl SolvencySensitivePaymentInstructor for PayableScanner {
             .payment_adjuster
             .search_for_indispensable_adjustment(&msg, logger)
         {
-            Ok(None) => {
-                let protected = msg.protected_qualified_payables;
-                let unprotected = self.expose_payables(protected);
-                Ok(Either::Left(OutboundPaymentsInstructions::new(
-                    unprotected,
-                    msg.agent,
-                    msg.response_skeleton_opt,
-                )))
-            }
+            Ok(None) => Ok(Either::Left(OutboundPaymentsInstructions::new(
+                msg.qualified_payables,
+                msg.agent,
+                msg.response_skeleton_opt,
+            ))),
             Ok(Some(adjustment)) => Ok(Either::Right(PreparedAdjustment::new(msg, adjustment))),
             Err(_e) => todo!("be implemented with GH-711"),
         }
@@ -750,14 +746,6 @@ impl PayableScanner {
         if let Some(msg) = missing_fgp_err_msg_opt {
             panic!("{}", msg)
         };
-    }
-
-    pub(super) fn protect_payables(&self, payables: Vec<PayableAccount>) -> Obfuscated {
-        Obfuscated::obfuscate_vector(payables)
-    }
-
-    pub(super) fn expose_payables(&self, obfuscated: Obfuscated) -> Vec<PayableAccount> {
-        obfuscated.expose_vector()
     }
 }
 
@@ -1288,14 +1276,14 @@ impl BeginScanError {
     }
 }
 
-// Note that this location was chosen because these mocks below need to implement a private trait
+// Note that this location was chosen because the following mocks need to implement a private trait
 // from this file
 #[cfg(test)]
 pub mod local_test_utils {
     use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::{
         AccessibleScanner, BeginScanError, InaccessibleScanner, MultistageDualPayableScanner,
-        PreparedAdjustment, PrivateScanStarter, ScanWithStarter,
+        PreparedAdjustment, PrivateScanStarter, ScanWithStarter, Scanners,
         SolvencySensitivePaymentInstructor, StartableAccessibleScanner, UiScanResult,
     };
     use crate::accountant::BlockchainAgentWithContextMessage;
@@ -1308,30 +1296,6 @@ pub mod local_test_utils {
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
-
-    macro_rules! formal_traits_for_payable_mid_scan_msg_handling {
-        ($scanner:ty) => {
-            impl MultistageDualPayableScanner<QualifiedPayablesMessage, SentPayables> for $scanner {}
-
-            impl SolvencySensitivePaymentInstructor for $scanner {
-                fn try_skipping_payment_adjustment(
-                    &self,
-                    _msg: BlockchainAgentWithContextMessage,
-                    _logger: &Logger,
-                ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
-                    intentionally_blank!()
-                }
-
-                fn perform_payment_adjustment(
-                    &self,
-                    _setup: PreparedAdjustment,
-                    _logger: &Logger,
-                ) -> OutboundPaymentsInstructions {
-                    intentionally_blank!()
-                }
-            }
-        };
-    }
 
     pub struct NullScanner {}
 
@@ -1350,7 +1314,7 @@ pub mod local_test_utils {
         StartMessage: Message,
     {
         fn scan_starter(&mut self) -> PrivateScanStarter<TriggerMessage, StartMessage> {
-            todo!()
+            unimplemented!("Not needed yet")
         }
     }
 
@@ -1378,7 +1342,25 @@ pub mod local_test_utils {
         as_any_ref_in_trait_impl!();
     }
 
-    formal_traits_for_payable_mid_scan_msg_handling!(NullScanner);
+    impl MultistageDualPayableScanner<QualifiedPayablesMessage, SentPayables> for NullScanner {}
+
+    impl SolvencySensitivePaymentInstructor for NullScanner {
+        fn try_skipping_payment_adjustment(
+            &self,
+            _msg: BlockchainAgentWithContextMessage,
+            _logger: &Logger,
+        ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
+            intentionally_blank!()
+        }
+
+        fn perform_payment_adjustment(
+            &self,
+            _setup: PreparedAdjustment,
+            _logger: &Logger,
+        ) -> OutboundPaymentsInstructions {
+            intentionally_blank!()
+        }
+    }
 
     impl<TriggerMessage, StartMessage> InaccessibleScanner<TriggerMessage, StartMessage> for NullScanner
     where
@@ -1411,8 +1393,8 @@ pub mod local_test_utils {
     pub struct ScannerMock<StartMessage, EndMessage> {
         start_scan_params: Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
         start_scan_results: RefCell<Vec<Result<StartMessage, BeginScanError>>>,
-        end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
-        end_scan_results: RefCell<Vec<UiScanResult>>,
+        finish_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+        finish_scan_results: RefCell<Vec<UiScanResult>>,
         started_at_results: RefCell<Vec<Option<SystemTime>>>,
         stop_system_after_last_message: RefCell<bool>,
     }
@@ -1473,11 +1455,11 @@ pub mod local_test_utils {
         EndMessage: Message,
     {
         fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> UiScanResult {
-            self.end_scan_params.lock().unwrap().push(message);
+            self.finish_scan_params.lock().unwrap().push(message);
             if self.is_allowed_to_stop_the_system() && self.is_last_message() {
                 System::current().stop();
             }
-            self.end_scan_results.borrow_mut().remove(0)
+            self.finish_scan_results.borrow_mut().remove(0)
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -1504,8 +1486,8 @@ pub mod local_test_utils {
             Self {
                 start_scan_params: Arc::new(Mutex::new(vec![])),
                 start_scan_results: RefCell::new(vec![]),
-                end_scan_params: Arc::new(Mutex::new(vec![])),
-                end_scan_results: RefCell::new(vec![]),
+                finish_scan_params: Arc::new(Mutex::new(vec![])),
+                finish_scan_results: RefCell::new(vec![]),
                 started_at_results: RefCell::new(vec![]),
                 stop_system_after_last_message: RefCell::new(false),
             }
@@ -1529,6 +1511,11 @@ pub mod local_test_utils {
             self
         }
 
+        pub fn finish_scan_result(self, result: UiScanResult) -> Self {
+            self.finish_scan_results.borrow_mut().push(result);
+            self
+        }
+
         pub fn stop_the_system_after_last_msg(self) -> Self {
             self.stop_system_after_last_message.replace(true);
             self
@@ -1543,15 +1530,46 @@ pub mod local_test_utils {
         }
 
         pub fn is_last_message_from_start_scan(&self) -> bool {
-            self.start_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
+            self.start_scan_results.borrow().len() == 1
+                && self.finish_scan_results.borrow().is_empty()
         }
 
         pub fn is_last_message_from_end_scan(&self) -> bool {
-            self.end_scan_results.borrow().len() == 1 && self.start_scan_results.borrow().is_empty()
+            self.finish_scan_results.borrow().len() == 1
+                && self.start_scan_results.borrow().is_empty()
         }
     }
 
-    formal_traits_for_payable_mid_scan_msg_handling!(ScannerMock<QualifiedPayablesMessage, SentPayables>);
+    impl MultistageDualPayableScanner<QualifiedPayablesMessage, SentPayables>
+        for ScannerMock<QualifiedPayablesMessage, SentPayables>
+    {
+    }
+
+    impl SolvencySensitivePaymentInstructor for ScannerMock<QualifiedPayablesMessage, SentPayables> {
+        fn try_skipping_payment_adjustment(
+            &self,
+            msg: BlockchainAgentWithContextMessage,
+            _logger: &Logger,
+        ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
+            // Always passes...
+            // It would be quite inconvenient if we had to add specialized features to the generic
+            // mock, plus this functionality can be tested better with the other components mocked,
+            // not the scanner itself.
+            Ok(Either::Left(OutboundPaymentsInstructions {
+                affordable_accounts: msg.qualified_payables,
+                agent: msg.agent,
+                response_skeleton_opt: msg.response_skeleton_opt,
+            }))
+        }
+
+        fn perform_payment_adjustment(
+            &self,
+            _setup: PreparedAdjustment,
+            _logger: &Logger,
+        ) -> OutboundPaymentsInstructions {
+            intentionally_blank!()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1564,7 +1582,6 @@ mod tests {
     use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
     use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport};
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::scanners::{AccessibleScanner, BeginScanError, InaccessibleScanner, PayableScanner, PendingPayableScanner, PrivateScanStarter, ReceivableScanner, ScanType, ScanWithStarter, ScannerCommon, Scanners};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanForNewPayables, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
@@ -1703,18 +1720,6 @@ mod tests {
     }
 
     #[test]
-    fn protected_payables_can_be_cast_from_and_back_to_vec_of_payable_accounts_by_payable_scanner()
-    {
-        let initial_unprotected = vec![make_payable_account(123), make_payable_account(456)];
-        let subject = PayableScannerBuilder::new().build();
-
-        let protected = subject.protect_payables(initial_unprotected.clone());
-        let again_unprotected: Vec<PayableAccount> = subject.expose_payables(protected);
-
-        assert_eq!(initial_unprotected, again_unprotected)
-    }
-
-    #[test]
     fn new_payable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "new_payable_scanner_can_initiate_a_scan";
@@ -1742,9 +1747,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(
-                    qualified_payable_accounts.clone()
-                ),
+                qualified_payables: qualified_payable_accounts.clone(),
                 consuming_wallet,
                 response_skeleton_opt: None,
             })
@@ -1848,9 +1851,7 @@ mod tests {
         assert_eq!(
             result,
             Ok(QualifiedPayablesMessage {
-                protected_qualified_payables: protect_payables_in_test(
-                    qualified_payable_accounts.clone()
-                ),
+                qualified_payables: qualified_payable_accounts.clone(),
                 consuming_wallet,
                 response_skeleton_opt: None,
             })

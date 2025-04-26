@@ -4,14 +4,9 @@
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::scan_schedulers::NewPayableScanDynIntervalComputer;
-use masq_lib::type_obfuscation::Obfuscated;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
-
-pub fn protect_payables_in_test(payables: Vec<PayableAccount>) -> Obfuscated {
-    Obfuscated::obfuscate_vector(payables)
-}
 
 #[derive(Default)]
 pub struct NewPayableScanDynIntervalComputerMock {

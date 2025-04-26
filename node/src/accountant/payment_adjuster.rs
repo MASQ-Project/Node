@@ -73,7 +73,6 @@ mod tests {
     use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
     use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
     use crate::accountant::scanners::payable_scanner::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::protect_payables_in_test;
     use crate::accountant::test_utils::make_payable_account;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -86,7 +85,7 @@ mod tests {
         payable.balance_wei = 100_000_000;
         let agent = BlockchainAgentMock::default();
         let setup_msg = BlockchainAgentWithContextMessage {
-            protected_qualified_payables: protect_payables_in_test(vec![payable]),
+            qualified_payables: vec![payable],
             agent: Box::new(agent),
             response_skeleton_opt: None,
         };
