@@ -253,7 +253,7 @@ where
 #[derive(Debug, PartialEq)]
 pub enum UiScanResult {
     Finished(Option<NodeToUiMessage>),
-    MultipleScanSequenceUnfinished,
+    ChainedScannersUnfinished,
 }
 
 impl UiScanResult {
@@ -1391,7 +1391,7 @@ pub mod local_test_utils {
     pub struct ScannerMock<StartMessage, EndMessage> {
         start_scan_params: Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
         start_scan_results: RefCell<Vec<Result<StartMessage, BeginScanError>>>,
-        finish_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+        finish_scan_params: Arc<Mutex<Vec<(EndMessage, Logger)>>>,
         finish_scan_results: RefCell<Vec<UiScanResult>>,
         started_at_results: RefCell<Vec<Option<SystemTime>>>,
         stop_system_after_last_message: RefCell<bool>,
@@ -1452,8 +1452,11 @@ pub mod local_test_utils {
         StartMessage: Message,
         EndMessage: Message,
     {
-        fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> UiScanResult {
-            self.finish_scan_params.lock().unwrap().push(message);
+        fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> UiScanResult {
+            self.finish_scan_params
+                .lock()
+                .unwrap()
+                .push((message, logger.clone()));
             if self.is_allowed_to_stop_the_system() && self.is_last_message() {
                 System::current().stop();
             }
@@ -1506,6 +1509,14 @@ pub mod local_test_utils {
 
         pub fn started_at_result(self, result: Option<SystemTime>) -> Self {
             self.started_at_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn finish_scan_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(EndMessage, Logger)>>>,
+        ) -> Self {
+            self.finish_scan_params = params.clone();
             self
         }
 

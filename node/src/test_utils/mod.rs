@@ -926,7 +926,9 @@ pub mod unshared_test_utils {
                     .lock()
                     .unwrap()
                     .push((msg.clone(), interval));
-                if let Some(remaining) = self.stop_system_on_count_received_opt.borrow_mut().as_mut() {
+                if let Some(remaining) =
+                    self.stop_system_on_count_received_opt.borrow_mut().as_mut()
+                {
                     if remaining == &0 {
                         System::current().stop();
                     }
@@ -952,7 +954,7 @@ pub mod unshared_test_utils {
         pub struct NotifyHandleMock<M> {
             notify_params: Arc<Mutex<Vec<M>>>,
             send_message_out: bool,
-            stop_system_on_count_received_opt: RefCell<Option<usize>>
+            stop_system_on_count_received_opt: RefCell<Option<usize>>,
         }
 
         impl<M: Message> Default for NotifyHandleMock<M> {
@@ -975,14 +977,15 @@ pub mod unshared_test_utils {
                 self.send_message_out = true;
                 self
             }
-            
-            pub fn stop_system_on_count_received(self, msg_count: usize)-> Self {
+
+            pub fn stop_system_on_count_received(self, msg_count: usize) -> Self {
                 if msg_count == 0 {
                     panic!("Should be a non-zero value")
                 }
                 let system_killer = SystemKillerActor::new(Duration::from_secs(10));
                 system_killer.start();
-                self.stop_system_on_count_received_opt.replace(Some(msg_count));
+                self.stop_system_on_count_received_opt
+                    .replace(Some(msg_count));
                 self
             }
         }
@@ -994,13 +997,15 @@ pub mod unshared_test_utils {
         {
             fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
                 self.notify_params.lock().unwrap().push(msg.clone());
-                if let Some(remaining) = self.stop_system_on_count_received_opt.borrow_mut().as_mut() {
+                if let Some(remaining) =
+                    self.stop_system_on_count_received_opt.borrow_mut().as_mut()
+                {
                     if remaining == &0 {
                         System::current().stop();
                         return;
-                    } 
+                    }
                     *remaining -= 1;
-                } 
+                }
                 if self.send_message_out {
                     ctx.notify(msg)
                 }
