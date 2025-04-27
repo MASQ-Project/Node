@@ -269,7 +269,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                 }
                 self.scan_schedulers.payable.schedule_for_new_payable(ctx)
             }
-            UiScanResult::FollowedByAnotherScan => {
+            UiScanResult::MultipleScanSequenceUnfinished => {
                 todo!();
                 self.scan_schedulers
                     .payable
@@ -307,7 +307,7 @@ impl Handler<SentPayables> for Accountant {
                 .try_send(node_to_ui_msg)
                 .expect("UIGateway is dead");
         }
-        
+
         self.scan_schedulers.pending_payable.schedule(ctx, None)
     }
 }
@@ -341,7 +341,6 @@ impl Handler<ScanError> for Accountant {
                 self.scanners.payable.mark_as_ended(&self.logger);
             }
             ScanType::PendingPayables => {
-                // TODO check if this is still tested
                 self.scanners.pending_payable.mark_as_ended(&self.logger);
             }
             ScanType::Receivables => {
@@ -3447,7 +3446,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_rowids_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
-        let system = System::new("accountant_calls_payable_dao_to_mark_pending_payable");
+        let system = System::new("accountant_processes_sent_payables_and_schedules_pending_payable_scanner");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ForPayableScanner(payable_dao)])

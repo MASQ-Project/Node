@@ -253,7 +253,7 @@ where
 #[derive(Debug, PartialEq)]
 pub enum UiScanResult {
     Finished(Option<NodeToUiMessage>),
-    FollowedByAnotherScan,
+    MultipleScanSequenceUnfinished,
 }
 
 impl UiScanResult {
@@ -835,7 +835,7 @@ impl AccessibleScanner<RequestTransactionReceipts, ReportTransactionReceipts>
                     self.process_transactions_by_reported_state(scan_report, logger);
 
                 self.mark_as_ended(&logger);
-                
+
                 if requires_payments_retry {
                     todo!()
                 } else {
