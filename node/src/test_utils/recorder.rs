@@ -791,7 +791,6 @@ mod tests {
         ));
         let respondent_addr = respondent.start();
         let msg_1 = StartMessage {};
-        let msg_1_type_id = msg_1.type_id();
         let counter_msg_1 = ScanForReceivables {
             response_skeleton_opt: None,
         };
@@ -922,7 +921,6 @@ mod tests {
             exit_code: Some(11),
             stderr: None,
         };
-        let msg_2_type_id = msg_2.type_id();
         let counter_msg_2 = ConfigChangeMsg {
             change: ConfigChange::UpdatePassword("betterPassword".to_string()),
         };
@@ -936,14 +934,12 @@ mod tests {
             exit_code: None,
             stderr: None,
         };
-        let msg_3_type_id = msg_3.type_id();
         let counter_msg_3 = ConfigChangeMsg {
             change: ConfigChange::UpdateWallets(WalletPair {
                 consuming_wallet: make_wallet("abc"),
                 earning_wallet: make_wallet("def"),
             }),
         };
-        let id_method_3 = MsgIdentification::ByType(msg_3.type_id());
         let setup_3 = setup_for_counter_msg_triggered_via_type_id!(
             CrashNotification,
             counter_msg_3,

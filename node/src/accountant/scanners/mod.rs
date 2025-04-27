@@ -48,7 +48,6 @@ use std::time::{SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::H256;
-use crate::accountant::scanners::local_test_utils::NullScanner;
 use crate::accountant::scanners::payable_scanner::{MultistageDualPayableScanner, PreparedAdjustment, SolvencySensitivePaymentInstructor};
 use crate::accountant::scanners::payable_scanner::msgs::{BlockchainAgentWithContextMessage, QualifiedPayablesMessage};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
@@ -821,12 +820,9 @@ impl AccessibleScanner<RequestTransactionReceipts, ReportTransactionReceipts>
         };
 
         match message.fingerprints_with_receipts.is_empty() {
-            // TODO changed to error log, find a place where it's gonna be tested
             true => {
-                error!(logger, "No transaction receipts found.");
-                todo!("see if the test assert on the mark_as_ended");
-                self.mark_as_ended(logger);
-                UiScanResult::Finished(construct_msg_scan_ended_to_ui())
+                debug!(logger, "No transaction receipts found.");
+                todo!("requires payments retry");
             }
             false => {
                 debug!(
@@ -838,6 +834,8 @@ impl AccessibleScanner<RequestTransactionReceipts, ReportTransactionReceipts>
                 let requires_payments_retry =
                     self.process_transactions_by_reported_state(scan_report, logger);
 
+                self.mark_as_ended(&logger);
+                
                 if requires_payments_retry {
                     todo!()
                 } else {
@@ -1283,7 +1281,7 @@ pub mod local_test_utils {
     use crate::accountant::scanners::payable_scanner::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::{
         AccessibleScanner, BeginScanError, InaccessibleScanner, MultistageDualPayableScanner,
-        PreparedAdjustment, PrivateScanStarter, ScanWithStarter, Scanners,
+        PreparedAdjustment, PrivateScanStarter, ScanWithStarter,
         SolvencySensitivePaymentInstructor, StartableAccessibleScanner, UiScanResult,
     };
     use crate::accountant::BlockchainAgentWithContextMessage;
@@ -3648,7 +3646,7 @@ mod tests {
         assert_eq!(is_scan_running, false);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
-            "DEBUG: {test_name}: No transaction receipts found."
+            "ERROR: {test_name}: No transaction receipts found."
         ));
         tlh.exists_log_matching(&format!(
             "INFO: {test_name}: The PendingPayables scan ended in \\d+ms."

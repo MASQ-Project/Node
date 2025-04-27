@@ -3,8 +3,7 @@
 #![cfg(test)]
 
 use crate::test_utils::recorder_stop_conditions::{ForcedMatchable, MsgIdentification};
-use actix::dev::ToEnvelope;
-use actix::{Actor, Addr, Handler, Message, Recipient};
+use actix::{Message, Recipient};
 use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;

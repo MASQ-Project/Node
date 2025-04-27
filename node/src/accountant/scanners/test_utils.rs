@@ -2,7 +2,6 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::scanners::scan_schedulers::NewPayableScanDynIntervalComputer;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};

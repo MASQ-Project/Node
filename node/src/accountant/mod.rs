@@ -258,7 +258,6 @@ impl Handler<ReportTransactionReceipts> for Accountant {
 
     fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton_opt = msg.response_skeleton_opt;
-
         match self.scanners.pending_payable.finish_scan(msg, &self.logger) {
             UiScanResult::Finished(ui_msg_opt) => {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
@@ -308,7 +307,7 @@ impl Handler<SentPayables> for Accountant {
                 .try_send(node_to_ui_msg)
                 .expect("UIGateway is dead");
         }
-
+        
         self.scan_schedulers.pending_payable.schedule(ctx, None)
     }
 }
@@ -638,19 +637,6 @@ impl Accountant {
             trace!(self.logger, "Ignored irrelevant message: {:?}", msg);
         }
     }
-
-    // fn schedule_next_scan(
-    //     &self,
-    //     scan_type: ScanType,
-    //     ctx: &mut Context<Self>,
-    //     response_skeleton_opt: Option<ResponseSkeleton>,
-    // ) {
-    //     self.scan_schedulers
-    //         .schedulers
-    //         .get(&scan_type)
-    //         .unwrap_or_else(|| panic!("Scan Scheduler {:?} not properly prepared", scan_type))
-    //         .schedule(ctx, response_skeleton_opt)
-    // }
 
     fn handle_report_routing_service_provided_message(
         &mut self,
@@ -1145,7 +1131,7 @@ mod tests {
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scanner::test_utils::BlockchainAgentMock;
     use crate::accountant::scanners::test_utils::{NewPayableScanDynIntervalComputerMock};
-    use crate::accountant::scanners::{AccessibleScanner, BeginScanError, PayableScanner};
+    use crate::accountant::scanners::{BeginScanError};
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
@@ -1160,7 +1146,7 @@ mod tests {
     use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
-    use crate::{match_lazily_every_type_id, setup_for_counter_msg_triggered_via_type_id, setup_for_counter_msg_triggered_via_specific_msg_id_method};
+    use crate::{match_lazily_every_type_id, setup_for_counter_msg_triggered_via_type_id};
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
@@ -2308,18 +2294,13 @@ mod tests {
             }),
         };
         let pending_payable_fingerprint = make_pending_payable_fingerprint();
-        let counter_msg_4 = ReportTransactionReceipts {
+        let counter_msg_3 = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![(
                 TransactionReceiptResult::RpcResponse(tx_receipt),
                 pending_payable_fingerprint.clone(),
             )],
             response_skeleton_opt: None,
         };
-        let blockchain_bridge =
-            blockchain_bridge.system_stop_conditions(match_lazily_every_type_id!(
-                QualifiedPayablesMessage,
-                RequestTransactionReceipts //RequestTransactionReceipts
-            ));
         let blockchain_bridge_addr = blockchain_bridge.start();
         let request_transaction_receipts = RequestTransactionReceipts {
             pending_payable: vec![pending_payable_fingerprint],
@@ -2329,7 +2310,7 @@ mod tests {
             .started_at_result(None)
             .start_scan_params(&start_scan_pending_payable_params_arc)
             .start_scan_result(Ok(request_transaction_receipts.clone()))
-            .start_scan_result(Err(BeginScanError::NothingToProcess));
+            .finish_scan_result(UiScanResult::Finished(None));
         let qualified_payables_msg = QualifiedPayablesMessage {
             qualified_payables: qualified_payable.clone(),
             consuming_wallet: consuming_wallet.clone(),
@@ -2337,11 +2318,10 @@ mod tests {
         };
         let payable_scanner = ScannerMock::new()
             .started_at_result(None)
-            // Checking on both scanners within ScanForRetryPayable
+            // Always checking also on the payable scanner when handling ScanForPendingPayable
             .started_at_result(None)
             .start_scan_params(&start_scan_payable_params_arc)
             .start_scan_result(Ok(qualified_payables_msg.clone()))
-            .start_scan_result(Err(BeginScanError::NothingToProcess))
             .finish_scan_result(UiScanResult::Finished(None));
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
@@ -2351,7 +2331,6 @@ mod tests {
             pending_payable_scan_interval: Duration::from_millis(50),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
-        let pending_payable = PendingPayable::new(make_wallet("abc"), make_tx_hash(123));
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .consuming_wallet(consuming_wallet.clone())
@@ -2368,7 +2347,8 @@ mod tests {
         subject.scan_schedulers.payable.new_payable_notify = Box::new(
             NotifyHandleMock::<ScanForNewPayables>::default()
                 .notify_params(&notify_payable_params_arc)
-                .capture_msg_and_let_it_fly_on(),
+                // This should stop the system. If anything goes wrong, the SystemKillerActor will.
+                .stop_system_on_count_received(1)
         );
         subject.qualified_payables_sub_opt = Some(blockchain_bridge_addr.clone().recipient());
         subject.outbound_payments_instructions_sub_opt =
@@ -2376,7 +2356,6 @@ mod tests {
         subject.request_transaction_receipts_sub_opt =
             Some(blockchain_bridge_addr.clone().recipient());
         let subject_addr = subject.start();
-        let subject_subs = Accountant::make_subs_from(&subject_addr);
         let set_up_counter_msgs = SetUpCounterMsgs::new(vec![
             setup_for_counter_msg_triggered_via_type_id!(
                 QualifiedPayablesMessage,
@@ -2388,6 +2367,11 @@ mod tests {
                 counter_msg_2,
                 &subject_addr
             ),
+            setup_for_counter_msg_triggered_via_type_id!(
+                RequestTransactionReceipts,
+                counter_msg_3,
+                &subject_addr
+            )
         ]);
         blockchain_bridge_addr
             .try_send(set_up_counter_msgs)
@@ -2457,12 +2441,6 @@ mod tests {
         tlh.exists_log_containing(&format!(
             "DEBUG: {test_name}: verifying pending payable scanner logger"
         ));
-        tlh.assert_logs_contain_in_order(vec![
-            &format!(
-                "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
-            ),
-            &format!("DEBUG: {test_name}: There was nothing to process during Payables scan."),
-        ]);
     }
 
     #[test]
