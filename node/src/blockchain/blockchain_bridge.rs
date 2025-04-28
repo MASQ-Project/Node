@@ -598,7 +598,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160};
     use masq_lib::constants::DEFAULT_MAX_BLOCK_COUNT;
-    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt};
+    use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, GAS_PRICE_INCREASE_PERCENTAGE};
 
     impl Handler<AssertionsMessage<Self>> for BlockchainBridge {
         type Result = ();
@@ -745,7 +745,9 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let blockchain_agent_with_context_msg_actual: &BlockchainAgentWithContextMessage =
             accountant_received_payment.get_record(0);
-        let expected_gas_price = (9395240960 * 13) / 10; // 30% increase
+        let gas_price_from_rpc = 9395240960;
+        let gas_price_increase = (gas_price_from_rpc * GAS_PRICE_INCREASE_PERCENTAGE) / 100;
+        let expected_gas_price = gas_price_from_rpc + gas_price_increase;
         assert_eq!(
             blockchain_agent_with_context_msg_actual.protected_qualified_payables,
             qualified_payables
