@@ -916,7 +916,7 @@ mod tests {
             dispatcher_record,
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
-                peer_addr: peer_addr_a,
+                client_addr: peer_addr_a,
                 reception_port,
                 last_data: false,
                 is_clandestine,
@@ -930,7 +930,7 @@ mod tests {
             dispatcher_record,
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
-                peer_addr: peer_addr_a,
+                client_addr: peer_addr_a,
                 reception_port,
                 last_data: false,
                 is_clandestine,
@@ -944,7 +944,7 @@ mod tests {
             dispatcher_record,
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
-                peer_addr: peer_addr_a,
+                client_addr: peer_addr_a,
                 reception_port,
                 last_data: false,
                 is_clandestine,
@@ -1499,7 +1499,7 @@ mod tests {
             ibcd,
             &InboundClientData {
                 timestamp: ibcd.timestamp,
-                peer_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
+                client_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
                 reception_port: Some(54321),
                 last_data: false,
                 is_clandestine: true,

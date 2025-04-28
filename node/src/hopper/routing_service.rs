@@ -63,9 +63,9 @@ impl RoutingService {
             self.logger,
             "Instructed to route {} bytes of InboundClientData ({}) from Dispatcher",
             data_size,
-            ibcd.peer_addr
+            ibcd.client_addr
         );
-        let peer_addr = ibcd.peer_addr;
+        let peer_addr = ibcd.client_addr;
         let last_data = ibcd.last_data;
         let ibcd_but_data = ibcd.clone_but_data();
 
@@ -79,7 +79,7 @@ impl RoutingService {
                     self.logger,
                     "Couldn't decode CORES package in {}-byte buffer from {}: {:?}",
                     ibcd.data.len(),
-                    ibcd.peer_addr,
+                    ibcd.client_addr,
                     e
                 );
                 return;
@@ -185,7 +185,7 @@ impl RoutingService {
         .expect("Encryption of LiveCoresPackage failed");
         let inbound_client_data = InboundClientData {
             timestamp: ibcd_but_data.timestamp,
-            peer_addr: ibcd_but_data.peer_addr,
+            client_addr: ibcd_but_data.client_addr,
             reception_port: ibcd_but_data.reception_port,
             last_data: ibcd_but_data.last_data,
             is_clandestine: ibcd_but_data.is_clandestine,
@@ -519,11 +519,11 @@ mod tests {
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::unshared_test_utils::{make_request_payload, make_response_payload};
     use crate::test_utils::{
         alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
-        make_paying_wallet, make_request_payload, make_response_payload, rate_pack_routing,
-        rate_pack_routing_byte, route_from_proxy_client, route_to_proxy_client,
-        route_to_proxy_server,
+        make_paying_wallet, rate_pack_routing, rate_pack_routing_byte, route_from_proxy_client,
+        route_to_proxy_client, route_to_proxy_server,
     };
     use actix::System;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
@@ -554,7 +554,7 @@ mod tests {
         let data_enc = encodex(cryptdes.main, &cryptdes.main.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
             last_data: false,
@@ -602,7 +602,7 @@ mod tests {
         let data_enc = encodex(cryptdes.main, &cryptdes.main.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
             last_data: false,
@@ -649,7 +649,7 @@ mod tests {
         let data_enc = encodex(main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
             last_data: false,
@@ -701,7 +701,7 @@ mod tests {
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
             last_data: false,
@@ -755,7 +755,7 @@ mod tests {
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
             last_data: true,
@@ -828,7 +828,7 @@ mod tests {
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
             last_data: true,
@@ -887,7 +887,7 @@ mod tests {
         let lcp_enc = encodex(main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: true,
@@ -968,7 +968,7 @@ mod tests {
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: true,
@@ -1044,7 +1044,7 @@ mod tests {
         let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
             is_clandestine: true,
@@ -1124,7 +1124,7 @@ mod tests {
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1220,7 +1220,7 @@ mod tests {
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1266,7 +1266,7 @@ mod tests {
             *record,
             InboundClientData {
                 timestamp: record.timestamp,
-                peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+                client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 reception_port: None,
                 last_data: true,
                 is_clandestine: true,
@@ -1306,7 +1306,7 @@ mod tests {
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1407,7 +1407,7 @@ mod tests {
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1591,7 +1591,7 @@ mod tests {
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1665,7 +1665,7 @@ mod tests {
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1712,7 +1712,7 @@ mod tests {
         init_test_logging();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1770,7 +1770,7 @@ mod tests {
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,
@@ -1840,7 +1840,7 @@ mod tests {
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: true,

@@ -471,7 +471,7 @@ mod tests {
             result,
             NodeDescriptor::try_from((
                 main_cryptde(),
-                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345"
+                "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"
             ))
             .unwrap()
         );
@@ -486,7 +486,7 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@:")).unwrap()
+            NodeDescriptor::try_from((main_cryptde(), "masq://base-sepolia:AQIDBA@:")).unwrap()
         );
     }
 

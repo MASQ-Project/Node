@@ -43,11 +43,8 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
         };
         let data = PlainData::new(&ibcd.data);
         let target_host = protocol_pack.find_host(&data);
-        let (target_hostname, target_port) = match target_host {
-            Some(host) => match host.port {
-                Some(port) => (Some(host.name), port),
-                None => (Some(host.name), protocol_pack.standard_port()),
-            },
+        let (target_hostname_opt, target_port) = match target_host {
+            Some(host) => (Some(host.name), host.port),
             None => (None, protocol_pack.standard_port()),
         };
         Some(ClientRequestPayload_0v1 {
@@ -57,7 +54,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
                 sequence_number,
                 last_data: ibcd.last_data,
             },
-            target_hostname,
+            target_hostname: target_hostname_opt,
             target_port,
             protocol: protocol_pack.proxy_protocol(),
             originator_public_key: cryptde.public_key().clone(),
@@ -88,7 +85,7 @@ mod tests {
         let data = PlainData::new(&b"GET http://borkoed.com:2345/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
             last_data: false,
@@ -125,7 +122,7 @@ mod tests {
         let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
             last_data: false,
@@ -180,7 +177,7 @@ mod tests {
         ]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             sequence_number: Some(0),
             reception_port: Some(443),
             last_data: false,
@@ -230,7 +227,7 @@ mod tests {
         ]);
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(443),
             last_data: true,
             is_clandestine: false,
@@ -267,7 +264,7 @@ mod tests {
         let test_name = "makes_no_payload_if_origin_port_is_not_specified";
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             sequence_number: Some(0),
             reception_port: None,
             last_data: false,
@@ -293,7 +290,7 @@ mod tests {
         let test_name = "makes_no_payload_if_origin_port_is_unknown";
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(1234),
             sequence_number: Some(0),
             last_data: false,
@@ -315,7 +312,7 @@ mod tests {
     fn use_sequence_from_inbound_client_data_in_client_request_payload() {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
             last_data: false,
@@ -344,7 +341,7 @@ mod tests {
         let test_name = "makes_no_payload_if_sequence_number_is_unknown";
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             reception_port: Some(HTTP_PORT),
             last_data: false,
             is_clandestine: false,
