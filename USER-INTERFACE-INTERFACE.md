@@ -620,9 +620,9 @@ ignored.
 
 In case 2. we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
 
-The fallbackRouting parameter determines whether we want to block exit for a particular country. If this country is no 
-longer available, the route to exit will fail during construction. If fallbackRouting is set to true, we can exit through 
-any available country if none of our specified exitLocations are accessible.
+The `fallbackRouting` parameter is defaulted as `false`, if not provided. Determines whether we want to block exit for a particular 
+country. If parameter is `false` and requested country is no longer available, the route to exit will fail during construction. 
+If is set to `true`, we can exit through any available country if none of our specified exitLocations are accessible.
 
 Priorities are used to determine the preferred exit countries. Priority 1 is the highest, while higher numbers indicate 
 lower priority. For example, if we specify DE with priority 1 and FR with priority 2, then an exit through France will 

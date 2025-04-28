@@ -511,9 +511,10 @@ pub mod tests {
         );
         assert!(
             result.contains(expected_one) || result.contains(expected_two),
-            "result was not containing neither of those {:?}, nor {:?}",
+            "result should have contained either {:?}, nor {:?}, but was instead {:?}",
             expected_one,
             expected_two,
+            result
         );
     }
 
@@ -538,9 +539,10 @@ pub mod tests {
         );
         assert!(
             result.contains(expected_one) || result.contains(expected_two),
-            "result was not containing neither of those {:?}, nor {:?}",
+            "result should have contained either {:?}, nor {:?}, but was instead {:?}",
             expected_one,
             expected_two,
+            result
         );
     }
 }
