@@ -491,8 +491,9 @@ pub mod tests {
 
     #[test]
     fn providing_show_countries_with_country_codes_fails() {
-        let result_expected = "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
-        
+        let result_expected =
+            "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--show-countries".to_string(),
@@ -511,14 +512,15 @@ pub mod tests {
 
     #[test]
     fn providing_show_countries_with_fallback_routing_fails() {
-        let result_expected = "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        let result_expected =
+            "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
 
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--show-countries".to_string(),
             "--fallback-routing".to_string(),
         ])
-            .unwrap_err();
+        .unwrap_err();
 
         assert!(
             result.contains(result_expected),

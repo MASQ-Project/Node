@@ -513,7 +513,9 @@ pub fn regenerate_signed_gossip(
 mod tests {
     use super::super::gossip::GossipBuilder;
     use super::*;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, make_node_record_cc, make_node_record_f};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_node_record_cc, make_node_record_f,
+    };
     use crate::test_utils::{assert_string_contains, vec_to_btset};
     use std::str::FromStr;
 

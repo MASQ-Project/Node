@@ -295,6 +295,7 @@ impl NodeRecord {
     }
 }
 
+//TODO #479 check constructed metadata contains proper country_code
 impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
         let ip_add_opt = agr

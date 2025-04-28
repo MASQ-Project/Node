@@ -31,9 +31,6 @@ mod tests {
         let node_location =
             get_node_location(Some(IpAddr::V4(Ipv4Addr::new(125, 125, 125, 1)))).unwrap();
 
-        assert_eq!(node_location.country_code, "CN");   
+        assert_eq!(node_location.country_code, "CN");
     }
-
-    //TODO #479 check in From impl for AGR that construction of metadata contains proper country_code
-
 }

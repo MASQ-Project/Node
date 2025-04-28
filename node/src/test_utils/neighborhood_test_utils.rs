@@ -108,7 +108,9 @@ pub fn make_node_record_cc(n: u16, has_ip: bool, cc: &str) -> NodeRecord {
     let key = PublicKey::new(&[seg1, seg2, seg3, seg4]);
     let ip_addr = make_segmented_ip(seg1, seg2, seg3, seg4);
     let node_addr = NodeAddr::new(&ip_addr, &[n % 10000]);
-    let location_opt = Some(NodeLocation { country_code: cc.to_string() });
+    let location_opt = Some(NodeLocation {
+        country_code: cc.to_string(),
+    });
 
     NodeRecord::new_for_tests(
         &key,

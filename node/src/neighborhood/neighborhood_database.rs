@@ -389,7 +389,9 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, make_node_record_cc, make_segmented_ip, make_segments};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_node_record_cc, make_segmented_ip, make_segments,
+    };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
