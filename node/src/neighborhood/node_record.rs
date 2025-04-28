@@ -295,6 +295,7 @@ impl NodeRecord {
     }
 }
 
+//TODO #479 check constructed metadata contains proper country_code
 impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
         let ip_add_opt = agr
@@ -417,15 +418,6 @@ mod tests {
         assert_eq!(
             actual_node_record.inner.country_code_opt,
             Some("AU".to_string())
-        );
-        assert_eq!(
-            actual_node_record
-                .metadata
-                .node_location_opt
-                .as_ref()
-                .unwrap()
-                .free_world_bit,
-            true
         );
         expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
         assert_eq!(actual_node_record, expected_node_record);

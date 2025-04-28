@@ -615,7 +615,7 @@ This command can be used in two ways which can't be combined:
 1. If we use the command with showCountries set to true.
 2. If we want to set an exit location.
 
-In case 1. it retrieves information about the available countries in our neighborhood. In this case, other parameters are 
+In case 1. it retrieves information about the available countries in our neighborhood. Other parameters are 
 ignored.
 
 In case 2. we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.

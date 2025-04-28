@@ -1429,8 +1429,8 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
-        make_meaningless_db, make_node_record, make_node_record_f, make_node_records,
-        public_keys_from_node_records, DB_PATCH_SIZE_FOR_TEST,
+        make_meaningless_db, make_node_record, make_node_record_cc, make_node_record_f,
+        make_node_records, public_keys_from_node_records, DB_PATCH_SIZE_FOR_TEST,
     };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
@@ -1751,11 +1751,9 @@ mod tests {
             .unwrap();
 
         let (dest_public_key, dest_node_addr) = match counter_debut {
-            GossipAcceptanceResult::Reply(
-                _,
-                ref dest_public_key,
-                ref dest_node_addr,
-            ) => (dest_public_key, dest_node_addr),
+            GossipAcceptanceResult::Reply(_, ref dest_public_key, ref dest_node_addr) => {
+                (dest_public_key, dest_node_addr)
+            }
             x => panic!("Expected Reply, got {:?}", x),
         };
         assert_eq!(dest_public_key, new_debutant.public_key());
@@ -2442,8 +2440,8 @@ mod tests {
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a_fr = make_node_record(5678, true);
-        let node_b_us = make_node_record(4567, true);
+        let node_a_fr = make_node_record_cc(5678, true, "FR");
+        let node_b_us = make_node_record_cc(4567, true, "US");
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
