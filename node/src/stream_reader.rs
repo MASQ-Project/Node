@@ -161,7 +161,7 @@ impl StreamReaderReal {
                     };
                     let msg = dispatcher::InboundClientData {
                         timestamp: SystemTime::now(),
-                        peer_addr: self.peer_addr,
+                        client_addr: self.peer_addr,
                         reception_port: self.reception_port,
                         last_data: false,
                         is_clandestine: self.is_clandestine,
@@ -169,7 +169,7 @@ impl StreamReaderReal {
                         data: unmasked_chunk.chunk.clone(),
                     };
                     debug!(self.logger, "Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
-                                              unmasked_chunk.chunk.len(), msg.peer_addr);
+                                              unmasked_chunk.chunk.len(), msg.client_addr);
                     self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
@@ -510,7 +510,7 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr,
+                client_addr: peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
@@ -631,7 +631,7 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr: peer_addr,
+                client_addr: peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: false,
@@ -646,7 +646,7 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr: peer_addr,
+                client_addr: peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: false,
@@ -662,7 +662,7 @@ mod tests {
         let system = System::new("test");
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
@@ -687,7 +687,7 @@ mod tests {
             dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
-            peer_addr,
+            client_addr,
             local_addr,
         );
         let before = SystemTime::now();
@@ -705,7 +705,7 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr,
+                client_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
                 is_clandestine: true,
