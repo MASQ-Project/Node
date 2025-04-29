@@ -45,6 +45,7 @@ use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, MailboxError};
 use actix::{Addr, AsyncContext};
+use masq_lib::constants::TLS_PORT;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::MutabilityConflictHelper;
@@ -311,13 +312,14 @@ impl ProxyServer {
         retry: DNSFailureRetry,
         client_addr: SocketAddr,
     ) -> DNSFailureRetry {
-        let args = TryTransmitToHopperArgs::new(
+        let args = TransmitToHopperArgs::new(
             self,
             retry.unsuccessful_request.clone(),
             client_addr,
             SystemTime::now(),
             false,
         );
+        let add_return_route_sub = self.out_subs("ProxyServer").add_return_route.clone();
         let route_source = self.out_subs("Neighborhood").route_source.clone();
         let proxy_server_sub = self.out_subs("ProxyServer").route_result_sub.clone();
         let inbound_client_data_helper = self
@@ -325,7 +327,12 @@ impl ProxyServer {
             .as_ref()
             .expect("IBCDHelper uninitialized");
 
-        inbound_client_data_helper.request_route_and_transmit(args, route_source, proxy_server_sub);
+        inbound_client_data_helper.request_route_and_transmit(
+            args,
+            add_return_route_sub,
+            route_source,
+            proxy_server_sub,
+        );
         retry
     }
 
@@ -470,7 +477,7 @@ impl ProxyServer {
         let duration_since = SystemTime::now()
             .duration_since(*old_timestamp)
             .expect("time calculation error");
-        warning!(
+        debug!(
             self.logger,
             "Straggling packet of length {} received for a stream key {:?} after a delay of {:?}",
             packet_len,
@@ -521,42 +528,43 @@ impl ProxyServer {
         }
         if let Some(old_timestamp) = self.stream_key_ttl.get(&stream_key) {
             self.log_straggling_packet(&stream_key, payload_data_len, old_timestamp)
-        }
-        match self.keys_and_addrs.a_to_b(&stream_key) {
-            Some(socket_addr) => {
-                let last_data = response.sequenced_packet.last_data;
-                let sequence_number = Some(
-                    response.sequenced_packet.sequence_number
-                        + self.browser_proxy_sequence_offset as u64,
-                );
-                self.subs
-                    .as_ref()
-                    .expect("Dispatcher unbound in ProxyServer")
-                    .dispatcher
-                    .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(socket_addr),
-                        last_data,
-                        sequence_number,
-                        data: response.sequenced_packet.data,
-                    })
-                    .expect("Dispatcher is dead");
-                if last_data {
-                    self.purge_stream_key(&stream_key, "last data received from the exit node");
+        } else {
+            match self.keys_and_addrs.a_to_b(&stream_key) {
+                Some(socket_addr) => {
+                    let last_data = response.sequenced_packet.last_data;
+                    let sequence_number = Some(
+                        response.sequenced_packet.sequence_number
+                            + self.browser_proxy_sequence_offset as u64,
+                    );
+                    self.subs
+                        .as_ref()
+                        .expect("Dispatcher unbound in ProxyServer")
+                        .dispatcher
+                        .try_send(TransmitDataMsg {
+                            endpoint: Endpoint::Socket(socket_addr),
+                            last_data,
+                            sequence_number,
+                            data: response.sequenced_packet.data,
+                        })
+                        .expect("Dispatcher is dead");
+                    if last_data {
+                        self.purge_stream_key(&stream_key, "last data received from the exit node");
+                    }
                 }
-            }
-            None => {
-                // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
-                // back to the ProxyClient (and the distant server) so that the server could shut down
-                // its stream, since the browser has shut down _its_ stream and no more data will
-                // ever be accepted from the server on that stream; but we don't have enough information
-                // to do so, since our stream key has been purged and all the information it keyed
-                // is gone. Sorry, server!
-                warning!(self.logger,
-                    "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
-                    response.sequenced_packet.data.len(),
-                    response.sequenced_packet.sequence_number,
-                    response.stream_key,
-                )
+                None => {
+                    // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
+                    // back to the ProxyClient (and the distant server) so that the server could shut down
+                    // its stream, since the browser has shut down _its_ stream and no more data will
+                    // ever be accepted from the server on that stream; but we don't have enough information
+                    // to do so, since our stream key has been purged and all the information it keyed
+                    // is gone. Sorry, server!
+                    warning!(self.logger,
+                        "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
+                        response.sequenced_packet.data.len(),
+                        response.sequenced_packet.sequence_number,
+                        response.stream_key,
+                    )
+                }
             }
         }
     }
@@ -564,7 +572,7 @@ impl ProxyServer {
     fn tls_connect(&mut self, msg: &InboundClientData) {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
-            Some(ref host) if host.port == Some(443) => {
+            Some(ref host) if host.port == TLS_PORT => {
                 let stream_key = self.find_or_generate_stream_key(msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
@@ -572,7 +580,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(msg.peer_addr),
+                        endpoint: Endpoint::Socket(msg.client_addr),
                         last_data: false,
                         sequence_number: msg.sequence_number,
                         data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
@@ -585,7 +593,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(msg.peer_addr),
+                        endpoint: Endpoint::Socket(msg.client_addr),
                         last_data: true,
                         sequence_number: msg.sequence_number,
                         data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
@@ -627,7 +635,7 @@ impl ProxyServer {
             );
             let ibcd = InboundClientData {
                 timestamp: SystemTime::now(),
-                peer_addr: msg.peer_addr,
+                client_addr: msg.peer_addr,
                 reception_port: Some(nca.reception_port),
                 last_data: true,
                 is_clandestine: false,
@@ -643,22 +651,26 @@ impl ProxyServer {
     }
 
     fn find_or_generate_stream_key(&mut self, ibcd: &InboundClientData) -> StreamKey {
-        match self.keys_and_addrs.b_to_a(&ibcd.peer_addr) {
+        match self.keys_and_addrs.b_to_a(&ibcd.client_addr) {
             Some(stream_key) => {
                 debug!(
                     self.logger,
-                    "make_stream_key() retrieved existing key {} for {}",
+                    "find_or_generate_stream_key() retrieved existing key {} for {}",
                     &stream_key,
-                    ibcd.peer_addr
+                    ibcd.client_addr
                 );
                 stream_key
             }
             None => {
-                let stream_key = self.stream_key_factory.make();
-                self.keys_and_addrs.insert(stream_key, ibcd.peer_addr);
+                let stream_key = self
+                    .stream_key_factory
+                    .make(self.main_cryptde.public_key(), ibcd.client_addr);
+                self.keys_and_addrs.insert(stream_key, ibcd.client_addr);
                 debug!(
                     self.logger,
-                    "make_stream_key() inserted new key {} for {}", &stream_key, ibcd.peer_addr
+                    "find_or_generate_stream_key() inserted new key {} for {}",
+                    &stream_key,
+                    ibcd.client_addr
                 );
                 stream_key
             }
@@ -707,7 +719,8 @@ impl ProxyServer {
     }
 
     fn try_transmit_to_hopper(
-        args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_query_response: RouteQueryResponse,
     ) -> Result<(), String> {
         match route_query_response.expected_services {
@@ -722,23 +735,10 @@ impl ProxyServer {
                     args.logger,
                     "Adding expectant return route info: {:?}", return_route_info
                 );
-                args.add_return_route_sub
+                add_return_route_sub
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
-                ProxyServer::transmit_to_hopper(
-                    args.main_cryptde,
-                    &args.hopper_sub,
-                    args.timestamp,
-                    args.payload,
-                    route_query_response.route,
-                    over,
-                    &args.logger,
-                    args.client_addr,
-                    &args.dispatcher_sub,
-                    &args.accountant_sub,
-                    args.retire_stream_key_sub_opt.as_ref(),
-                    args.is_decentralized,
-                )
+                ProxyServer::transmit_to_hopper(args, route_query_response.route, over)
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
         }
@@ -806,37 +806,28 @@ impl ProxyServer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn transmit_to_hopper(
-        main_cryptde: &'static dyn CryptDE,
-        hopper: &Recipient<IncipientCoresPackage>,
-        timestamp: SystemTime,
-        payload: ClientRequestPayload_0v1,
+        args: TransmitToHopperArgs,
         route: Route,
         expected_services: Vec<ExpectedService>,
-        logger: &Logger,
-        source_addr: SocketAddr,
-        dispatcher: &Recipient<TransmitDataMsg>,
-        accountant_sub: &Recipient<ReportServicesConsumedMessage>,
-        retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
-        is_decentralized: bool,
     ) -> Result<(), String> {
-        let destination_key_opt = if is_decentralized {
+        let logger = args.logger;
+        let destination_key_opt = if args.is_decentralized {
             expected_services.iter().find_map(|service| match service {
                 ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
                 _ => None,
             })
         } else {
             // In Zero Hop Mode the exit node public key is the same as this public key
-            Some(main_cryptde.public_key().clone())
+            Some(args.main_cryptde.public_key().clone())
         };
         match destination_key_opt {
             None => {
                 // Route not found
                 Err(ProxyServer::handle_route_failure(
-                    payload,
-                    source_addr,
-                    dispatcher,
+                    args.payload,
+                    args.client_addr,
+                    &args.dispatcher_sub,
                 ))
             }
             Some(payload_destination_key) => {
@@ -845,38 +836,39 @@ impl ProxyServer {
                     logger,
                     "transmit to hopper with destination key {:?}", payload_destination_key
                 );
+                let payload = args.payload;
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
-                    main_cryptde,
+                    args.main_cryptde,
                     route,
                     payload.into(),
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
-                if is_decentralized {
+                if args.is_decentralized {
                     let exit =
                         ProxyServer::report_on_exit_service(&expected_services, payload_size);
                     let routing =
-                        ProxyServer::report_on_routing_services(expected_services, logger);
-                    accountant_sub
+                        ProxyServer::report_on_routing_services(expected_services, &logger);
+                    args.accountant_sub
                         .try_send(ReportServicesConsumedMessage {
-                            timestamp,
+                            timestamp: args.timestamp,
                             exit,
                             routing_payload_size: pkg.payload.len(),
                             routing,
                         })
                         .expect("Accountant is dead");
                 }
-                hopper.try_send(pkg).expect("Hopper is dead");
-                if let Some(shutdown_sub) = retire_stream_key_via {
+                args.hopper_sub.try_send(pkg).expect("Hopper is dead");
+                if let Some(shutdown_sub) = args.retire_stream_key_sub_opt {
                     debug!(
                         logger,
                         "Last data is on the way; directing shutdown of stream {}", stream_key
                     );
                     shutdown_sub
                         .try_send(StreamShutdownMsg {
-                            peer_addr: source_addr,
+                            peer_addr: args.client_addr,
                             stream_type: RemovedStreamType::NonClandestine(
                                 NonClandestineAttributes {
                                     // No report to counterpart; these are irrelevant
@@ -1034,7 +1026,8 @@ pub trait IBCDHelper {
 
     fn request_route_and_transmit(
         &self,
-        tth_args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         route_source: Recipient<RouteQueryMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
     );
@@ -1043,7 +1036,8 @@ pub trait IBCDHelper {
 trait RouteQueryResponseResolver: Send {
     fn resolve_message(
         &self,
-        args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     );
@@ -1053,14 +1047,19 @@ struct RouteQueryResponseResolverReal {}
 impl RouteQueryResponseResolver for RouteQueryResponseResolverReal {
     fn resolve_message(
         &self,
-        args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
         route_result_opt: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
         let stream_key = args.payload.stream_key;
         let result = match route_result_opt {
             Ok(Some(route_query_response)) => {
-                match ProxyServer::try_transmit_to_hopper(args, route_query_response.clone()) {
+                match ProxyServer::try_transmit_to_hopper(
+                    args,
+                    add_return_route_sub,
+                    route_query_response.clone(),
+                ) {
                     Ok(()) => Ok(route_query_response),
                     Err(e) => Err(e),
                 }
@@ -1109,7 +1108,7 @@ impl IBCDHelper for IBCDHelperReal {
         msg: InboundClientData,
         retire_stream_key: bool,
     ) -> Result<(), String> {
-        let source_addr = msg.peer_addr;
+        let client_addr = msg.client_addr;
         if proxy.consuming_wallet_balance.is_none() && proxy.is_decentralized {
             let protocol_pack = match from_ibcd(&msg) {
                 Err(e) => return Err(e),
@@ -1119,7 +1118,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .server_impersonator()
                 .consuming_wallet_absent();
             let msg = TransmitDataMsg {
-                endpoint: Endpoint::Socket(source_addr),
+                endpoint: Endpoint::Socket(client_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data,
@@ -1156,9 +1155,10 @@ impl IBCDHelper for IBCDHelperReal {
                 .dns_failure_retries
                 .insert(stream_key, dns_failure_retry);
         }
-        let tth_args =
-            TryTransmitToHopperArgs::new(proxy, payload, source_addr, timestamp, retire_stream_key);
-        let pld = &tth_args.payload;
+        let args =
+            TransmitToHopperArgs::new(proxy, payload, client_addr, timestamp, retire_stream_key);
+        let add_return_route_sub = proxy.out_subs("ProxysServer").add_return_route.clone();
+        let pld = &args.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
                 proxy.logger,
@@ -1168,24 +1168,30 @@ impl IBCDHelper for IBCDHelperReal {
                 pld.sequenced_packet.data.len()
             );
             let route_query_response = route_query_response.clone();
-            ProxyServer::try_transmit_to_hopper(tth_args, route_query_response)
+            ProxyServer::try_transmit_to_hopper(args, add_return_route_sub, route_query_response)
         } else {
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let proxy_server_sub = proxy.out_subs("ProxyServer").route_result_sub.clone();
-            self.request_route_and_transmit(tth_args, route_source, proxy_server_sub);
+            self.request_route_and_transmit(
+                args,
+                add_return_route_sub,
+                route_source,
+                proxy_server_sub,
+            );
             Ok(())
         }
     }
 
     fn request_route_and_transmit(
         &self,
-        tth_args: TryTransmitToHopperArgs,
+        args: TransmitToHopperArgs,
+        add_return_route_sub: Recipient<AddReturnRouteMessage>,
         neighborhood_sub: Recipient<RouteQueryMessage>,
         proxy_server_sub: Recipient<AddRouteResultMessage>,
     ) {
-        let pld = &tth_args.payload;
+        let pld = &args.payload;
         let hostname_opt = pld.target_hostname.clone();
-        let logger = tth_args.logger.clone();
+        let logger = args.logger.clone();
         debug!(
             logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
@@ -1203,14 +1209,19 @@ impl IBCDHelper for IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    message_resolver.resolve_message(tth_args, proxy_server_sub, route_result);
+                    message_resolver.resolve_message(
+                        args,
+                        add_return_route_sub,
+                        proxy_server_sub,
+                        route_result,
+                    );
                     Ok(())
                 }),
         );
     }
 }
 
-pub struct TryTransmitToHopperArgs {
+pub struct TransmitToHopperArgs {
     pub main_cryptde: &'static dyn CryptDE,
     pub payload: ClientRequestPayload_0v1,
     pub client_addr: SocketAddr,
@@ -1221,10 +1232,9 @@ pub struct TryTransmitToHopperArgs {
     pub hopper_sub: Recipient<IncipientCoresPackage>,
     pub dispatcher_sub: Recipient<TransmitDataMsg>,
     pub accountant_sub: Recipient<ReportServicesConsumedMessage>,
-    pub add_return_route_sub: Recipient<AddReturnRouteMessage>,
 }
 
-impl TryTransmitToHopperArgs {
+impl TransmitToHopperArgs {
     pub fn new(
         proxy_server: &ProxyServer,
         payload: ClientRequestPayload_0v1,
@@ -1252,10 +1262,6 @@ impl TryTransmitToHopperArgs {
             hopper_sub: proxy_server.out_subs("Hopper").hopper.clone(),
             dispatcher_sub: proxy_server.out_subs("Dispatcher").dispatcher.clone(),
             accountant_sub: proxy_server.out_subs("Accountant").accountant.clone(),
-            add_return_route_sub: proxy_server
-                .out_subs("ProxyServer")
-                .add_return_route
-                .clone(),
             is_decentralized: proxy_server.is_decentralized,
         }
     }
@@ -1267,14 +1273,14 @@ enum ExitServiceSearch {
 }
 
 trait StreamKeyFactory: Send {
-    fn make(&self) -> StreamKey;
+    fn make(&self, public_key: &PublicKey, client_addr: SocketAddr) -> StreamKey;
 }
 
 struct StreamKeyFactoryReal {}
 
 impl StreamKeyFactory for StreamKeyFactoryReal {
-    fn make(&self) -> StreamKey {
-        StreamKey::new()
+    fn make(&self, public_key: &PublicKey, client_addr: SocketAddr) -> StreamKey {
+        StreamKey::new(public_key, client_addr)
     }
 }
 
@@ -1370,14 +1376,13 @@ mod tests {
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::make_paying_wallet;
-    use crate::test_utils::make_request_payload;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::{
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        make_request_payload, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -1436,7 +1441,7 @@ mod tests {
         resolve_message_params: Arc<
             Mutex<
                 Vec<(
-                    TryTransmitToHopperArgs,
+                    TransmitToHopperArgs,
                     Result<Option<RouteQueryResponse>, MailboxError>,
                 )>,
             >,
@@ -1446,7 +1451,8 @@ mod tests {
     impl RouteQueryResponseResolver for RouteQueryResponseResolverMock {
         fn resolve_message(
             &self,
-            args: TryTransmitToHopperArgs,
+            args: TransmitToHopperArgs,
+            _add_return_route_sub: Recipient<AddReturnRouteMessage>,
             _proxy_server_sub: Recipient<AddRouteResultMessage>,
             route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         ) {
@@ -1463,7 +1469,7 @@ mod tests {
             param: &Arc<
                 Mutex<
                     Vec<(
-                        TryTransmitToHopperArgs,
+                        TransmitToHopperArgs,
                         Result<Option<RouteQueryResponse>, MailboxError>,
                     )>,
                 >,
@@ -1499,13 +1505,16 @@ mod tests {
     }
 
     struct StreamKeyFactoryMock {
-        make_parameters: Arc<Mutex<Vec<()>>>,
+        make_parameters: Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
         make_results: RefCell<Vec<StreamKey>>,
     }
 
     impl StreamKeyFactory for StreamKeyFactoryMock {
-        fn make(&self) -> StreamKey {
-            self.make_parameters.lock().unwrap().push(());
+        fn make(&self, public_key: &PublicKey, client_addr: SocketAddr) -> StreamKey {
+            self.make_parameters
+                .lock()
+                .unwrap()
+                .push((public_key.clone(), client_addr));
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1518,7 +1527,10 @@ mod tests {
             }
         }
 
-        fn make_parameters(mut self, params: &Arc<Mutex<Vec<()>>>) -> StreamKeyFactoryMock {
+        fn make_parameters(
+            mut self,
+            params: &Arc<Mutex<Vec<(PublicKey, SocketAddr)>>>,
+        ) -> StreamKeyFactoryMock {
             self.make_parameters = params.clone();
             self
         }
@@ -1579,7 +1591,8 @@ mod tests {
 
         fn request_route_and_transmit(
             &self,
-            _tth_args: TryTransmitToHopperArgs,
+            _args: TransmitToHopperArgs,
+            _add_return_route_sub: Recipient<AddReturnRouteMessage>,
             _route_source: Recipient<RouteQueryMessage>,
             _proxy_server_sub: Recipient<AddRouteResultMessage>,
         ) {
@@ -1629,7 +1642,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr,
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -1693,7 +1706,10 @@ mod tests {
         let record = recording.get_record::<IncipientCoresPackage>(0);
         assert_eq!(record, &expected_pkg);
         let mut make_parameters = make_parameters_arc_a.lock().unwrap();
-        assert_eq!(make_parameters.remove(0), ());
+        assert_eq!(
+            make_parameters.remove(0),
+            (main_cryptde.public_key().clone(), socket_addr)
+        );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
@@ -1731,7 +1747,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -1740,7 +1756,7 @@ mod tests {
         };
         let tunnelled_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr,
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -1748,7 +1764,7 @@ mod tests {
             data: b"client hello".to_vec(),
         };
         let expected_tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr.clone()),
+            endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             sequence_number: Some(0),
             data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
@@ -1809,7 +1825,10 @@ mod tests {
         let dispatcher_record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(dispatcher_record, &expected_tdm);
         let mut make_parameters = make_parameters_arc.lock().unwrap();
-        assert_eq!(make_parameters.remove(0), ());
+        assert_eq!(
+            make_parameters.remove(0),
+            (main_cryptde.public_key().clone(), socket_addr)
+        );
 
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let hopper_record = hopper_recording.get_record::<IncipientCoresPackage>(0);
@@ -1860,7 +1879,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr,
+            client_addr: socket_addr,
             reception_port: Some(443),
             last_data: false,
             is_clandestine: false,
@@ -1921,7 +1940,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -1993,7 +2012,7 @@ mod tests {
         let request_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(8443),
             sequence_number: Some(0),
             last_data: false,
@@ -2061,7 +2080,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2120,7 +2139,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2183,7 +2202,7 @@ mod tests {
             let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
             let msg_from_dispatcher = InboundClientData {
                 timestamp: SystemTime::now(),
-                peer_addr: socket_addr.clone(),
+                client_addr: socket_addr.clone(),
                 reception_port: Some(HTTP_PORT),
                 sequence_number: Some(0),
                 last_data: true,
@@ -2263,7 +2282,7 @@ mod tests {
             let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
             let msg_from_dispatcher = InboundClientData {
                 timestamp: SystemTime::now(),
-                peer_addr: socket_addr.clone(),
+                client_addr: socket_addr.clone(),
                 reception_port: Some(TLS_PORT),
                 sequence_number: Some(0),
                 last_data: true,
@@ -2348,7 +2367,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2468,7 +2487,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2557,7 +2576,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2619,7 +2638,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2673,7 +2692,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2724,7 +2743,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -2857,7 +2876,7 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: source_addr,
@@ -2867,11 +2886,14 @@ mod tests {
             hopper_sub: peer_actors.hopper.from_hopper_client,
             dispatcher_sub: peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: peer_actors.accountant.report_services_consumed,
-            add_return_route_sub: peer_actors.proxy_server.add_return_route,
             retire_stream_key_sub_opt: None,
         };
 
-        let result = ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
+        let result = ProxyServer::try_transmit_to_hopper(
+            args,
+            peer_actors.proxy_server.add_return_route,
+            route_query_response,
+        );
 
         System::current().stop();
         system.run();
@@ -2942,7 +2964,7 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: source_addr,
@@ -2952,11 +2974,14 @@ mod tests {
             hopper_sub: peer_actors.hopper.from_hopper_client,
             dispatcher_sub: peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: peer_actors.accountant.report_services_consumed,
-            add_return_route_sub: peer_actors.proxy_server.add_return_route,
             retire_stream_key_sub_opt: Some(peer_actors.proxy_server.stream_shutdown_sub),
         };
 
-        let result = ProxyServer::try_transmit_to_hopper(tth_args, route_query_response);
+        let result = ProxyServer::try_transmit_to_hopper(
+            args,
+            peer_actors.proxy_server.add_return_route,
+            route_query_response,
+        );
 
         System::current().stop();
         system.run();
@@ -3010,7 +3035,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3132,7 +3157,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3228,7 +3253,7 @@ mod tests {
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: source_addr,
@@ -3238,11 +3263,14 @@ mod tests {
             hopper_sub: peer_actors.hopper.from_hopper_client,
             dispatcher_sub: peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: peer_actors.accountant.report_services_consumed,
-            add_return_route_sub: peer_actors.proxy_server.add_return_route,
             retire_stream_key_sub_opt: None,
         };
 
-        let _result = ProxyServer::try_transmit_to_hopper(tth_args, route_result);
+        let _result = ProxyServer::try_transmit_to_hopper(
+            args,
+            peer_actors.proxy_server.add_return_route,
+            route_result,
+        );
     }
 
     #[test]
@@ -3309,7 +3337,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3405,7 +3433,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: false,
@@ -3491,7 +3519,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: false,
@@ -3576,7 +3604,7 @@ mod tests {
         let expected_data = tls_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: client_addr,
+            client_addr: client_addr,
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -3667,7 +3695,7 @@ mod tests {
         let stream_key = StreamKey::make_meaningless_stream_key();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(TLS_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -4011,9 +4039,9 @@ mod tests {
     }
 
     #[test]
-    fn straggling_packets_are_logged() {
+    fn straggling_packets_are_charged_and_dropped_as_the_browser_stopped_awaiting_them_anyway() {
         init_test_logging();
-        let test_name = "straggling_packets_are_logged";
+        let test_name = "straggling_packets_are_charged_and_dropped_as_the_browser_stopped_awaiting_them_anyway";
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -4040,34 +4068,42 @@ mod tests {
         subject
             .tunneled_hosts
             .insert(stream_key.clone(), "hostname".to_string());
+        let exit_key = PublicKey::new(&b"blah"[..]);
+        let exit_wallet = make_wallet("abc");
+        let exit_rates = RatePack {
+            routing_byte_rate: 0,
+            routing_service_rate: 0,
+            exit_byte_rate: 100,
+            exit_service_rate: 60000,
+        };
         subject.route_ids_to_return_routes.insert(
             1234,
             AddReturnRouteMessage {
                 return_route_id: 1234,
-                expected_services: vec![],
+                expected_services: vec![ExpectedService::Exit(
+                    exit_key,
+                    exit_wallet.clone(),
+                    exit_rates.clone(),
+                )],
                 protocol: ProxyProtocol::HTTP,
                 hostname_opt: None,
             },
         );
+        subject
+            .stream_key_ttl
+            .insert(stream_key.clone(), SystemTime::now());
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let proxy_server_addr = subject.start();
-        let schedule_stream_key_purge_sub = proxy_server_addr.clone().recipient();
-        let mut peer_actors = peer_actors_builder().build();
-        peer_actors.proxy_server.schedule_stream_key_purge = schedule_stream_key_purge_sub;
-
+        let peer_actors = peer_actors_builder()
+            .accountant(accountant)
+            .dispatcher(dispatcher)
+            .build();
         let system = System::new(test_name);
-        let bind_msg = BindMessage { peer_actors };
-        proxy_server_addr.try_send(bind_msg).unwrap();
-        let stream_shutdown_msg = StreamShutdownMsg {
-            peer_addr: socket_addr,
-            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                reception_port: 0,
-                sequence_number: 0,
-            }),
-            report_to_counterpart: true,
-        };
+        let response_data = vec![0; 30];
         let client_response_payload = ClientResponsePayload_0v1 {
             stream_key: stream_key.clone(),
-            sequenced_packet: SequencedPacket::new(vec![], 1, true),
+            sequenced_packet: SequencedPacket::new(response_data.clone(), 1, true),
         };
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
@@ -4075,16 +4111,32 @@ mod tests {
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 client_response_payload.into(),
-                0,
+                5432,
             );
-        proxy_server_addr.try_send(stream_shutdown_msg).unwrap();
+        let bind_msg = BindMessage { peer_actors };
+        proxy_server_addr.try_send(bind_msg).unwrap();
 
         proxy_server_addr.try_send(expired_cores_package).unwrap();
 
         System::current().stop();
         system.run();
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let msg = accountant_recording.get_record::<ReportServicesConsumedMessage>(0);
+        assert_eq!(
+            &msg.exit,
+            &ExitServiceConsumed {
+                earning_wallet: exit_wallet,
+                payload_size: response_data.len(),
+                service_rate: exit_rates.exit_service_rate,
+                byte_rate: exit_rates.exit_byte_rate,
+            }
+        );
+        assert_eq!(msg.routing_payload_size, 5432);
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let len = dispatcher_recording.len();
+        assert_eq!(len, 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Straggling packet of length 0 received for a \
+            "DEBUG: {test_name}: Straggling packet of length 5432 received for a \
             stream key {:?} after a delay of",
             stream_key
         ));
@@ -5318,7 +5370,11 @@ mod tests {
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: While handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for the stream_key: AAAAAAAAAAAAAAAAAAAAAAAAAAA"));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: While \
+        handling ExpiredCoresPackage: No entry found inside dns_failure_retries hashmap for \
+        the stream_key: AAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        ));
     }
 
     #[test]
@@ -5507,7 +5563,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(80),
             sequence_number: Some(0),
             last_data: false,
@@ -6042,7 +6098,7 @@ mod tests {
         let handle_normal_client_data =
             help_to_handle_normal_client_data_params_arc.lock().unwrap();
         let (inbound_client_data_msg, retire_stream_key) = &handle_normal_client_data[0];
-        assert_eq!(inbound_client_data_msg.peer_addr, socket_addr);
+        assert_eq!(inbound_client_data_msg.client_addr, socket_addr);
         assert_eq!(inbound_client_data_msg.data, Vec::<u8>::new());
         assert_eq!(inbound_client_data_msg.last_data, true);
         assert_eq!(inbound_client_data_msg.is_clandestine, false);
@@ -6058,7 +6114,7 @@ mod tests {
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
             reception_port: None,
             last_data: true,
             is_clandestine: false,
@@ -6086,7 +6142,7 @@ mod tests {
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let addr = proxy_server.start();
         let proxy_server_sub = recipient!(&addr, AddRouteResultMessage);
-        let tth_args = TryTransmitToHopperArgs {
+        let args = TransmitToHopperArgs {
             main_cryptde: cryptde,
             payload,
             client_addr: SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -6096,13 +6152,18 @@ mod tests {
             hopper_sub: recipient!(&addr, IncipientCoresPackage),
             dispatcher_sub: recipient!(&addr, TransmitDataMsg),
             accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
-            add_return_route_sub: recipient!(&addr, AddReturnRouteMessage),
             retire_stream_key_sub_opt: None,
         };
+        let add_return_route_sub = recipient!(&addr, AddReturnRouteMessage);
         let subject = RouteQueryResponseResolverReal {};
         let system = System::new("resolve_message_handles_mailbox_error_from_neighborhood");
 
-        subject.resolve_message(tth_args, proxy_server_sub, Err(MailboxError::Timeout));
+        subject.resolve_message(
+            args,
+            add_return_route_sub,
+            proxy_server_sub,
+            Err(MailboxError::Timeout),
+        );
 
         System::current().stop();
         system.run();
@@ -6157,7 +6218,7 @@ mod tests {
             Box::new(ClientRequestPayloadFactoryMock::default().make_result(None));
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
             reception_port: Some(568),
             last_data: true,
             is_clandestine: false,
@@ -6197,7 +6258,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -6266,7 +6327,7 @@ mod tests {
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: socket_addr.clone(),
+            client_addr: socket_addr.clone(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(0),
             last_data: true,
@@ -6392,7 +6453,7 @@ mod tests {
         proxy_server.subs = Some(make_proxy_server_out_subs());
         let inbound_client_data_msg = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            client_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
             reception_port: Some(80),
             last_data: true,
             is_clandestine: false,
@@ -6442,6 +6503,57 @@ mod tests {
             ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, true, false);
 
         prove_that_crash_request_handler_is_hooked_up(proxy_server, CRASH_KEY);
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_prioritizes_existing_stream_key_first() {
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key(), socket_addr);
+        let mut subject =
+            ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false, false);
+        subject.keys_and_addrs.insert(stream_key, socket_addr);
+        let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
+            client_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: b"GET /index.html HTTP/1.1\r\nHost: header.com:3333\r\n\r\n".to_vec(),
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd);
+
+        assert_eq!(result, stream_key);
+        assert_eq!(
+            subject.keys_and_addrs.a_to_b(&stream_key),
+            Some(socket_addr)
+        );
+    }
+
+    #[test]
+    fn find_or_generate_stream_key_creates_stream_key_if_necessary() {
+        let socket_addr = SocketAddr::from_str("1.2.3.4:4321").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key(), socket_addr);
+        let mut subject =
+            ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false, false);
+        let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
+            client_addr: socket_addr,
+            reception_port: Some(2222),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(333),
+            data: b"GET /index.html HTTP/1.1\r\nHost: header.com:4444\r\n\r\n".to_vec(),
+        };
+
+        let result = subject.find_or_generate_stream_key(&ibcd);
+
+        assert_eq!(result, stream_key);
+        assert_eq!(
+            subject.keys_and_addrs.a_to_b(&stream_key),
+            Some(socket_addr)
+        );
     }
 
     fn make_exit_service_from_key(public_key: PublicKey) -> ExpectedService {

@@ -26,22 +26,17 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
-use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, RatePack};
-use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
-use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
-use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rand::RngCore;
 use regex::Regex;
@@ -58,6 +53,9 @@ use std::io::Read;
 use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
 
+use crate::sub_lib::hopper::MessageType;
+use crate::sub_lib::proxy_client::DnsResolveFailure_0v1;
+use crate::sub_lib::stream_key::StreamKey;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -176,10 +174,6 @@ impl Waiter {
     }
 }
 
-pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
-}
-
 pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
     Route::one_way(
         RouteSegment::new(public_keys, Component::ProxyClient),
@@ -274,28 +268,6 @@ pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
     let mut data = vec![0; bytes];
     rand::thread_rng().fill_bytes(&mut data);
     data
-}
-
-pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
-    ClientRequestPayload_0v1 {
-        stream_key: StreamKey::make_meaningful_stream_key("request"),
-        sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
-        target_hostname: Some("example.com".to_string()),
-        target_port: HTTP_PORT,
-        protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key().clone(),
-    }
-}
-
-pub fn make_response_payload(bytes: usize) -> ClientResponsePayload_0v1 {
-    ClientResponsePayload_0v1 {
-        stream_key: StreamKey::make_meaningful_stream_key("response"),
-        sequenced_packet: SequencedPacket {
-            data: make_garbage_data(bytes),
-            sequence_number: 0,
-            last_data: false,
-        },
-    }
 }
 
 pub fn make_send_error() -> SendError<SequencedPacket> {
@@ -476,6 +448,10 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
+pub fn make_meaningless_message_type() -> MessageType {
+    DnsResolveFailure_0v1::new(StreamKey::make_meaningless_stream_key()).into()
+}
+
 pub fn handle_connection_error(stream: TcpStream) {
     let _ = stream.shutdown(Shutdown::Both).is_ok();
     thread::sleep(Duration::from_millis(5000));
@@ -549,11 +525,17 @@ pub mod unshared_test_utils {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
+    use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
+    use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
+    use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
+    use crate::sub_lib::sequence_buffer::SequencedPacket;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
+    use crate::test_utils::make_garbage_data;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
@@ -564,6 +546,7 @@ pub mod unshared_test_utils {
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
     use lazy_static::lazy_static;
+    use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     #[cfg(not(feature = "no_test_share"))]
@@ -724,6 +707,28 @@ pub mod unshared_test_utils {
         let recipient = addr.recipient::<M>();
 
         (recipient, recording_arc)
+    }
+
+    pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
+        ClientRequestPayload_0v1 {
+            stream_key: StreamKey::make_meaningful_stream_key("request"),
+            sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
+            target_hostname: Some("example.com".to_string()),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: cryptde.public_key().clone(),
+        }
+    }
+
+    pub fn make_response_payload(bytes: usize) -> ClientResponsePayload_0v1 {
+        ClientResponsePayload_0v1 {
+            stream_key: StreamKey::make_meaningful_stream_key("response"),
+            sequenced_packet: SequencedPacket {
+                data: make_garbage_data(bytes),
+                sequence_number: 0,
+                last_data: false,
+            },
+        }
     }
 
     pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {

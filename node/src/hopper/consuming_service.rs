@@ -95,7 +95,7 @@ impl ConsumingService {
     fn zero_hop(&self, encrypted_package: CryptData) {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
+            client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
             reception_port: None,
             last_data: false,
             is_clandestine: true,
@@ -302,7 +302,7 @@ mod tests {
             *record,
             InboundClientData {
                 timestamp: record.timestamp,
-                peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
+                client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
                 reception_port: None,
                 last_data: false,
                 is_clandestine: true,
