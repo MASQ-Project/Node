@@ -11,7 +11,7 @@ use crate::db_config::typed_config_layer::{
     TypedConfigLayerError,
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::neighborhood::{Hops, NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
@@ -23,6 +23,10 @@ use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
 use websocket::url::Url;
+use masq_lib::blockchains::chains::Chain;
+use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PersistentConfigError {
@@ -105,6 +109,8 @@ pub trait PersistentConfiguration {
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError>;
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
+    fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError>;
+    fn set_cryptde(&mut self, cryptde: &dyn CryptDE, db_password: &str) -> Result<(), PersistentConfigError>;
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
@@ -290,6 +296,61 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(self
             .dao
             .set("clandestine_port", encode_u64(Some(u64::from(port)))?)?)
+    }
+
+    fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError> {
+        let record = match self.get_record("last_cryptde") {
+            Ok(record) => record,
+            Err(ConfigDaoError::NotPresent) => return Err(PersistentConfigError::NotPresent),
+            Err(e) => {
+                return Err(PersistentConfigError::DatabaseError(format!(
+                    "Can't continue; last_cryptde is inaccessible: {:?}",
+                    e
+                )))
+            }
+        };
+        let cryptde_text = self.scl.decrypt(
+            record,
+            Some(db_password.to_string()),
+            &self.dao
+        )?.expect("Can't be None here, or we would have gotten NotPresent above");
+        let chain_name = self.chain_name();
+        let chain = Chain::from(chain_name.as_str());
+        if cryptde_text.contains(",") {
+            match CryptDEReal::new(chain).make_from_str(cryptde_text.as_str(), chain) {
+                Ok(c) => Ok(c),
+                Err(e) => {
+                    Err(PersistentConfigError::BadCoupledParamsFormat(format!(
+                        "CryptDEReal string '{}' is not valid: {:?}",
+                        cryptde_text, e
+                    )))
+                }
+            }
+        }
+        else {
+            match CryptDENull::new(chain).make_from_str(cryptde_text.as_str(), chain) {
+                Ok(c) => Ok(c),
+                Err(e) => {
+                    Err(PersistentConfigError::BadCoupledParamsFormat(format!(
+                        "CryptDENull string '{}' is not valid: {:?}",
+                        cryptde_text, e
+                    )))
+                }
+            }
+        }
+    }
+
+    fn set_cryptde(&mut self, cryptde: &dyn CryptDE, db_password: &str) -> Result<(), PersistentConfigError> {
+        let cryptde_text = cryptde.to_string();
+
+        let cryptde_crypt = self.scl.encrypt(
+            "last_cryptde",
+            Some(cryptde_text),
+            Some(db_password.to_string()),
+            &self.dao,
+        )?.expect("Can't be None here: both cryptde_text and db_password are supplied");
+        self.dao.set("last_cryptde", Some(cryptde_crypt))?;
+        Ok(())
     }
 
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -622,7 +683,13 @@ mod tests {
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use itertools::Itertools;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use masq_lib::blockchains::chains::Chain;
+    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+    use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
+    use crate::sub_lib::cryptde_null::CryptDENull;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
 
     lazy_static! {
         static ref CONFIG_TABLE_PARAMETERS: Vec<String> = list_of_config_parameters();
@@ -986,6 +1053,167 @@ mod tests {
             *set_params,
             vec![("clandestine_port".to_string(), Some("4747".to_string()))]
         );
+    }
+
+    #[test]
+    fn cryptde_null_success() {
+        let db_password = "bellybutton".to_string();
+        let cryptde = CryptDEReal::new(Chain::Dev);
+        let cryptde_string = cryptde.to_string();
+        let cryptde_crypt =
+            DbEncryptionLayer::encrypt_value(&Some(cryptde_string), &Some(db_password.clone()), "last_cryptde")
+                .unwrap()
+                .unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "last_cryptde",
+                Some(&cryptde_crypt),
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(cryptde_crypt.as_str()), // just has to be something encrypted with the same password
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new("chain_name", Some("dev"), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.cryptde("bellybutton").unwrap();
+
+        assert_eq!(result.public_key(), cryptde.public_key());
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec!["last_cryptde", "example_encrypted", "chain_name"]
+                .into_iter().map(|s| s.to_string()).collect_vec()
+        );
+    }
+
+    #[test]
+    fn cryptde_real_success() {
+        let db_password = "bellybutton".to_string();
+        let cryptde = CryptDEReal::new(Chain::Dev);
+        let cryptde_string = cryptde.to_string();
+        let cryptde_crypt =
+            DbEncryptionLayer::encrypt_value(&Some(cryptde_string), &Some(db_password.clone()), "last_cryptde")
+                .unwrap()
+                .unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                "last_cryptde",
+                Some(cryptde_crypt.as_str()),
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(cryptde_crypt.as_str()), // just has to be something encrypted with the same password
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new("chain_name", Some("dev"), false)));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.cryptde(db_password.as_str()).unwrap();
+
+        assert_eq!(result.public_key(), cryptde.public_key());
+        let get_params = get_params_arc.lock().unwrap();
+        assert_eq!(
+            *get_params,
+            vec!["last_cryptde", "example_encrypted", "chain_name"]
+                .into_iter().map(|s| s.to_string()).collect_vec()
+        );
+    }
+
+    #[test]
+    fn cryptde_failure_not_present() {
+        let db_password = "bellybutton".to_string();
+        let example_encrypted =
+            DbEncryptionLayer::encrypt_value(&Some("Example plaintext".to_string()), &Some(db_password.clone()), EXAMPLE_ENCRYPTED)
+                .unwrap()
+                .unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Err(ConfigDaoError::NotPresent))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(example_encrypted.as_str()),
+                true,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.cryptde(db_password.as_str());
+
+        assert_eq!(result.err().unwrap(), PersistentConfigError::NotPresent);
+    }
+
+    #[test]
+    fn cryptde_failure_other() {
+        let db_password = "bellybutton".to_string();
+        let example_encrypted =
+            DbEncryptionLayer::encrypt_value(&Some("Example plaintext".to_string()), &Some(db_password.clone()), EXAMPLE_ENCRYPTED)
+                .unwrap()
+                .unwrap();
+        let get_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .get_params(&get_params_arc)
+            .get_result(Err(ConfigDaoError::DatabaseError("The database is itchy".to_string())))
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(example_encrypted.as_str()),
+                true,
+            )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = subject.cryptde(db_password.as_str());
+
+        assert_eq!(
+            result.err().unwrap(),
+            PersistentConfigError::DatabaseError("Can't continue; last_cryptde is inaccessible: DatabaseError(\"The database is itchy\")".to_string())
+        );
+    }
+
+    #[test]
+    fn set_cryptde_success() {
+        // We need two tests for cryptde(), because the code path for Null is different from the
+        // code path for Real. However, the code path for Null and Real is the same for
+        // set_cryptde(); so we only need one test.
+        let db_password = "bellybutton".to_string();
+        let expected_cryptde = CryptDEReal::new(Chain::Dev);
+        let cryptde_string = expected_cryptde.to_string();
+        let cryptde_crypt =
+            DbEncryptionLayer::encrypt_value(&Some(cryptde_string), &Some(db_password.clone()), "last_cryptde")
+                .unwrap()
+                .unwrap();
+        let set_params_arc = Arc::new(Mutex::new(vec![]));
+        let config_dao = ConfigDaoMock::new()
+            .set_params(&set_params_arc)
+            .get_result(Ok(ConfigDaoRecord::new(
+                EXAMPLE_ENCRYPTED,
+                Some(cryptde_crypt.as_str()), // just has to be something encrypted with the same password
+                true,
+            )))
+            .get_result(Ok(ConfigDaoRecord::new(
+                "last_cryptde",
+                Some(cryptde_crypt.as_str()),
+                true,
+            )))
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.set_cryptde(&expected_cryptde, db_password.as_str()).unwrap();
+
+        let mut set_params = set_params_arc.lock().unwrap();
+        let (name, crypt_text_opt) = set_params.remove(0);
+        let plain_text = DbEncryptionLayer::decrypt_value(&crypt_text_opt, &Some(db_password.clone()), "last_cryptde")
+            .unwrap()
+            .unwrap();
+        let actual_cryptde = expected_cryptde.make_from_str(plain_text.as_str(), Chain::Dev).unwrap();
+        assert_eq!(actual_cryptde.public_key(), expected_cryptde.public_key());
+        assert_eq!(set_params.len(), 0);
     }
 
     #[test]

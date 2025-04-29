@@ -14,9 +14,10 @@ use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::u64;
+use crate::sub_lib::cryptde::CryptDE;
 
 #[allow(clippy::type_complexity)]
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct PersistentConfigurationMock {
     blockchain_service_url_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_blockchain_service_url_params: Arc<Mutex<Vec<String>>>,
@@ -31,6 +32,10 @@ pub struct PersistentConfigurationMock {
     clandestine_port_results: RefCell<Vec<Result<u16, PersistentConfigError>>>,
     set_clandestine_port_params: Arc<Mutex<Vec<u16>>>,
     set_clandestine_port_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
+    cryptde_params: Arc<Mutex<Vec<String>>>,
+    cryptde_results: RefCell<Vec<Result<Box<dyn CryptDE>, PersistentConfigError>>>,
+    set_cryptde_params: Arc<Mutex<Vec<(Box<dyn CryptDE>, String)>>>,
+    set_cryptde_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     gas_price_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
     set_gas_price_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
@@ -77,6 +82,78 @@ pub struct PersistentConfigurationMock {
     set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
     set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+}
+
+impl Clone for PersistentConfigurationMock {
+    fn clone(&self) -> Self {
+        Self {
+            blockchain_service_url_results: self.blockchain_service_url_results.clone(),
+            set_blockchain_service_url_params: self.set_blockchain_service_url_params.clone(),
+            set_blockchain_service_url_results: self.set_blockchain_service_url_results.clone(),
+            current_schema_version_results: self.current_schema_version_results.clone(),
+            chain_name_params: self.chain_name_params.clone(),
+            chain_name_results: self.chain_name_results.clone(),
+            check_password_params: self.check_password_params.clone(),
+            check_password_results: self.check_password_results.clone(),
+            change_password_params: self.change_password_params.clone(),
+            change_password_results: self.change_password_results.clone(),
+            clandestine_port_results: self.clandestine_port_results.clone(),
+            set_clandestine_port_params: self.set_clandestine_port_params.clone(),
+            set_clandestine_port_results: self.set_clandestine_port_results.clone(),
+            cryptde_results: RefCell::new(self.cryptde_results.borrow().iter().map(|x| {
+                x.as_ref()
+                    .map(|cryptde| cryptde.dup())
+                    .map_err(|e| e.clone())
+            }).collect()),
+            set_cryptde_params: self.set_cryptde_params.clone(),
+            set_cryptde_results: self.set_cryptde_results.clone(),
+            gas_price_results: self.gas_price_results.clone(),
+            set_gas_price_params: self.set_gas_price_params.clone(),
+            set_gas_price_results: self.set_gas_price_results.clone(),
+            consuming_wallet_params: self.consuming_wallet_params.clone(),
+            consuming_wallet_results: self.consuming_wallet_results.clone(),
+            consuming_wallet_private_key_params: self.consuming_wallet_private_key_params.clone(),
+            consuming_wallet_private_key_results:
+                self.consuming_wallet_private_key_results.clone(),
+            earning_wallet_results: self.earning_wallet_results.clone(),
+            earning_wallet_address_results: self.earning_wallet_address_results.clone(),
+            set_wallet_info_params: self.set_wallet_info_params.clone(),
+            set_wallet_info_results: self.set_wallet_info_results.clone(),
+            mapping_protocol_results: self.mapping_protocol_results.clone(),
+            set_mapping_protocol_params: self.set_mapping_protocol_params.clone(),
+            set_mapping_protocol_results: self.set_mapping_protocol_results.clone(),
+            min_hops_results: self.min_hops_results.clone(),
+            set_min_hops_params: self.set_min_hops_params.clone(),
+            set_min_hops_results: self.set_min_hops_results.clone(),
+            neighborhood_mode_results: self.neighborhood_mode_results.clone(),
+            set_neighborhood_mode_params: self.set_neighborhood_mode_params.clone(),
+            set_neighborhood_mode_results: self.set_neighborhood_mode_results.clone(),
+            past_neighbors_params: self.past_neighbors_params.clone(),
+            past_neighbors_results: self.past_neighbors_results.clone(),
+            set_past_neighbors_params: self.set_past_neighbors_params.clone(),
+            set_past_neighbors_results: self.set_past_neighbors_results.clone(),
+            start_block_params: self.start_block_params.clone(),
+            start_block_results: self.start_block_results.clone(),
+            set_start_block_params: self.set_start_block_params.clone(),
+            set_start_block_results: self.set_start_block_results.clone(),
+            max_block_count_params: self.max_block_count_params.clone(),
+            max_block_count_results: self.max_block_count_results.clone(),
+            set_max_block_count_params: self.set_max_block_count_params.clone(),
+            set_max_block_count_results: self.set_max_block_count_results.clone(),
+            set_start_block_from_txn_params: self.set_start_block_from_txn_params.clone(),
+            set_start_block_from_txn_results: self.set_start_block_from_txn_results.clone(),
+            payment_thresholds_results: self.payment_thresholds_results.clone(),
+            set_payment_thresholds_params: self.set_payment_thresholds_params.clone(),
+            set_payment_thresholds_results: self.set_payment_thresholds_results.clone(),
+            rate_pack_results: self.rate_pack_results.clone(),
+            set_rate_pack_params: self.set_rate_pack_params.clone(),
+            set_rate_pack_results: self.set_rate_pack_results.clone(),
+            scan_intervals_results: self.scan_intervals_results.clone(),
+            set_scan_intervals_params: self.set_scan_intervals_params.clone(),
+            set_scan_intervals_results: self.set_scan_intervals_results.clone(),
+            arbitrary_id_stamp_opt: self.arbitrary_id_stamp_opt.clone(),
+        }
+    }
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -152,6 +229,16 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
         self.set_clandestine_port_params.lock().unwrap().push(port);
         self.set_clandestine_port_results.borrow_mut().remove(0)
+    }
+
+    fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError> {
+        self.cryptde_params.lock().unwrap().push(db_password.to_string());
+        self.cryptde_results.borrow_mut().remove(0)
+    }
+
+    fn set_cryptde(&mut self, cryptde: &dyn CryptDE, db_password: &str) -> Result<(), PersistentConfigError> {
+        self.set_cryptde_params.lock().unwrap().push((cryptde.dup(), db_password.to_string()));
+        self.set_cryptde_results.borrow_mut().remove(0)
     }
 
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -478,6 +565,26 @@ impl PersistentConfigurationMock {
 
     pub fn set_wallet_info_result(self, result: Result<(), PersistentConfigError>) -> Self {
         self.set_wallet_info_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn cryptde_params(mut self, params: &Arc<Mutex<Vec<String>>>) -> Self {
+        self.cryptde_params = params.clone();
+        self
+    }
+
+    pub fn cryptde_result(self, result: Result<Box<dyn CryptDE>, PersistentConfigError>) -> Self {
+        self.cryptde_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn set_cryptde_params(mut self, params: &Arc<Mutex<Vec<(Box<dyn CryptDE>, String)>>>) -> Self {
+        self.set_cryptde_params = params.clone();
+        self
+    }
+
+    pub fn set_cryptde_result(self, result: Result<(), PersistentConfigError>) -> Self {
+        self.set_cryptde_results.borrow_mut().push(result);
         self
     }
 

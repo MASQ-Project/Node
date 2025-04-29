@@ -11,6 +11,7 @@ use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
+use masq_lib::blockchains::chains::Chain;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
@@ -555,6 +556,8 @@ pub trait CryptDE: Send + Sync {
         descriptor_fragment: &str,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
+    fn make_from_str(&self, value: &str, chain: Chain) -> Result<Box<dyn CryptDE>, String>;
+    fn to_string(&self) -> String;
     fn as_any(&self) -> &dyn Any;
 }
 

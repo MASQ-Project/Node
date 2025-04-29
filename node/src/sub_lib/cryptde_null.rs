@@ -148,6 +148,36 @@ impl CryptDE for CryptDENull {
     fn digest(&self) -> [u8; 32] {
         self.digest
     }
+
+    fn make_from_str(&self, value: &str, chain: Chain) -> Result<Box<dyn CryptDE>, String> {
+        let decoded = match base64::decode_config(value, base64::URL_SAFE_NO_PAD) {
+            Ok(d) => d,
+            Err(_) => {
+                return Err(format!(
+                    "Serialized CryptDE must have valid Base64, not '{}'",
+                    value
+                ))
+            }
+        };
+        let private_key = PrivateKey::new(decoded.as_slice());
+        let public_key = Self::public_from_private(&private_key);
+        let digest = cryptde::create_digest(&public_key, &chain.rec().contract);
+        let next_symmetric_key_seed = self.next_symmetric_key_seed.clone();
+        Ok(Box::new(Self {
+            private_key,
+            public_key,
+            digest,
+            next_symmetric_key_seed,
+        }))
+    }
+
+    fn to_string(&self) -> String {
+        format!(
+            "{}",
+            base64::encode_config(self.private_key.as_slice(), base64::URL_SAFE_NO_PAD)
+        )
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -267,6 +297,51 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    #[test]
+    fn to_string_works() {
+        let subject = CryptDENull::new(Chain::Dev);
+        let private_key_data = subject.private_key.as_slice().to_vec();
+
+        let actual_string: String = subject.to_string();
+
+        let expected_string = format!(
+            "{}",
+            base64::encode_config(&private_key_data, base64::URL_SAFE_NO_PAD)
+        );
+        assert_eq!(actual_string, expected_string);
+    }
+
+    #[test]
+    fn make_from_str_can_fail_on_base64_syntax() {
+        let subject = CryptDENull::new(Chain::Dev);
+        let string = "/ / / /"; // invalid
+
+        let result = subject.make_from_str(string, Chain::Dev);
+
+        assert_eq!(result.err().unwrap(), "Serialized CryptDE must have valid Base64, not '/ / / /'".to_string());
+    }
+
+    #[test]
+    fn make_from_str_can_succeed() {
+        let subject = CryptDENull::new(Chain::BaseSepolia);
+        let private_key_data = subject.private_key.as_slice().to_vec();
+        let string = format!("{}", base64::encode_config(private_key_data, base64::URL_SAFE_NO_PAD));
+
+        let boxed_result = subject.make_from_str(string.as_str(), Chain::BaseSepolia).unwrap();
+
+        let result = boxed_result.as_ref().as_any().downcast_ref::<CryptDENull>().unwrap();
+        assert_eq!(result.public_key, subject.public_key);
+        assert_eq!(result.private_key, subject.private_key);
+        assert_eq!(result.digest, subject.digest);
+        let subject_next_seed_lock = subject.next_symmetric_key_seed.lock().unwrap();
+        let subject_next_seed = *subject_next_seed_lock.deref();
+        drop(subject_next_seed_lock);
+        let result_next_seed_lock = result.next_symmetric_key_seed.lock().unwrap();
+        let result_next_seed = *result_next_seed_lock.deref();
+        drop(result_next_seed_lock);
+        assert_eq!(result_next_seed, subject_next_seed);
+    }
 
     #[test]
     fn encode_with_empty_key() {

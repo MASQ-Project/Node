@@ -11,6 +11,7 @@ use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7
 use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8;
 use crate::database::db_migrations::migrations::migration_8_to_9::Migrate_8_to_9;
 use crate::database::db_migrations::migrations::migration_9_to_10::Migrate_9_to_10;
+use crate::database::db_migrations::migrations::migration_10_to_11::Migrate_10_to_11;
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
@@ -80,6 +81,7 @@ impl DbMigratorReal {
             &Migrate_7_to_8,
             &Migrate_8_to_9,
             &Migrate_9_to_10,
+            &Migrate_10_to_11,
         ]
     }
 
