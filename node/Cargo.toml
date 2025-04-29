@@ -101,8 +101,5 @@ path = "src/main_win.rs"
 name = "node_lib"
 path = "src/lib.rs"
 
-[features]
-expose_test_privates = []
-
 #[profile.release]
 #opt-level = 0

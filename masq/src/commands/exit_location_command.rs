@@ -323,15 +323,15 @@ pub mod tests {
                 fallback_routing: true,
                 exit_country_selection: vec![
                     ExitLocation {
-                        country_codes: vec!["AO".to_string(), "AS".to_string()],
+                        country_codes: vec!["CZ".to_string(), "SK".to_string()],
                         priority: 1,
                     },
                     ExitLocation {
-                        country_codes: vec!["AD".to_string(), "AS".to_string()],
+                        country_codes: vec!["AT".to_string(), "DE".to_string()],
                         priority: 2,
                     },
                     ExitLocation {
-                        country_codes: vec!["AS".to_string()],
+                        country_codes: vec!["PL".to_string()],
                         priority: 3,
                     },
                 ],
@@ -344,7 +344,7 @@ pub mod tests {
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--country-codes".to_string(),
-            "AO,AS|AD,AS|AS".to_string(),
+            "CZ,SK|AT,DE|PL".to_string(),
             "--fallback-routing".to_string(),
         ])
         .unwrap();
@@ -356,15 +356,15 @@ pub mod tests {
             fallback_routing: true,
             exit_locations: vec![
                 CountryGroups {
-                    country_codes: vec!["AO".to_string(), "AS".to_string()],
+                    country_codes: vec!["CZ".to_string(), "SK".to_string()],
                     priority: 1,
                 },
                 CountryGroups {
-                    country_codes: vec!["AD".to_string(), "AS".to_string()],
+                    country_codes: vec!["AT".to_string(), "DE".to_string()],
                     priority: 2,
                 },
                 CountryGroups {
-                    country_codes: vec!["AS".to_string()],
+                    country_codes: vec!["PL".to_string()],
                     priority: 3,
                 },
             ],
@@ -377,7 +377,7 @@ pub mod tests {
             &[(expected_message_body, STANDARD_COMMAND_TIMEOUT_MILLIS)]
         );
         let stdout = stdout_arc.lock().unwrap();
-        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location set: Country Codes: [\"AO\", \"AS\"] - Priority: 1; Country Codes: [\"AD\", \"AS\"] - Priority: 2; Country Codes: [\"AS\"] - Priority: 3\n");
+        assert_eq!(&stdout.get_string(), "Fallback Routing is set.\nExit location set: Country Codes: [\"CZ\", \"SK\"] - Priority: 1; Country Codes: [\"AT\", \"DE\"] - Priority: 2; Country Codes: [\"PL\"] - Priority: 3\n");
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(&stderr.get_string(), "");
     }
@@ -390,7 +390,7 @@ pub mod tests {
             .transact_result(Ok(UiSetExitLocationResponse {
                 fallback_routing: false,
                 exit_country_selection: vec![ExitLocation {
-                    country_codes: vec!["AO".to_string()],
+                    country_codes: vec!["CZ".to_string()],
                     priority: 1,
                 }],
                 exit_countries: None,
@@ -402,7 +402,7 @@ pub mod tests {
         let subject = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--country-codes".to_string(),
-            "AO".to_string(),
+            "CZ".to_string(),
         ])
         .unwrap();
 
@@ -412,7 +412,7 @@ pub mod tests {
         let expected_request = UiSetExitLocationRequest {
             fallback_routing: false,
             exit_locations: vec![CountryGroups {
-                country_codes: vec!["AO".to_string()],
+                country_codes: vec!["CZ".to_string()],
                 priority: 1,
             }],
             show_countries: false,
@@ -427,7 +427,7 @@ pub mod tests {
         let stderr = stderr_arc.lock().unwrap();
         assert_eq!(
             &stdout.get_string(),
-            "Fallback Routing NOT set.\nExit location set: Country Codes: [\"AO\"] - Priority: 1\n"
+            "Fallback Routing NOT set.\nExit location set: Country Codes: [\"CZ\"] - Priority: 1\n"
         );
         assert_eq!(&stderr.get_string(), "");
     }
@@ -447,7 +447,7 @@ pub mod tests {
     }
 
     #[test]
-    fn providing_show_countries_flag_cause_request_for_list_of_countries() {
+    fn providing_show_countries_flag_causes_request_for_list_of_countries() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -490,23 +490,59 @@ pub mod tests {
     }
 
     #[test]
-    fn providing_show_countries_with_other_argument_fails() {
-        let result_expected =
-            "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
-
+    fn providing_show_countries_with_country_codes_fails() {
         let result = SetExitLocationCommand::new(&[
             "exit-location".to_string(),
             "--show-countries".to_string(),
             "--country-codes".to_string(),
-            "AO".to_string(),
+            "CZ".to_string(),
         ])
         .unwrap_err();
 
+        let result_expected =
+            "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        let expected_one = "show-countries";
+        let expected_two = "country-codes";
         assert!(
             result.contains(result_expected),
             "result was {:?}, but expected {:?}",
             result,
             result_expected,
+        );
+        assert!(
+            result.contains(expected_one) || result.contains(expected_two),
+            "result should have contained either {:?}, or {:?}, but was instead {:?}",
+            expected_one,
+            expected_two,
+            result
+        );
+    }
+
+    #[test]
+    fn providing_show_countries_with_fallback_routing_fails() {
+        let result = SetExitLocationCommand::new(&[
+            "exit-location".to_string(),
+            "--show-countries".to_string(),
+            "--fallback-routing".to_string(),
+        ])
+        .unwrap_err();
+
+        let result_expected =
+            "cannot be used with one or more of the other specified arguments\n\nUSAGE:\n";
+        let expected_one = "show-countries";
+        let expected_two = "fallback-routing";
+        assert!(
+            result.contains(result_expected),
+            "result was {:?}, but expected {:?}",
+            result,
+            result_expected,
+        );
+        assert!(
+            result.contains(expected_one) || result.contains(expected_two),
+            "result should have contained either {:?}, or {:?}, but was instead {:?}",
+            expected_one,
+            expected_two,
+            result
         );
     }
 }

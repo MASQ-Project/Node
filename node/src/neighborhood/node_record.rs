@@ -295,6 +295,7 @@ impl NodeRecord {
     }
 }
 
+//TODO #479 check constructed metadata contains proper country_code
 impl From<AccessibleGossipRecord> for NodeRecord {
     fn from(agr: AccessibleGossipRecord) -> Self {
         let ip_add_opt = agr
@@ -353,7 +354,7 @@ pub struct NodeRecordMetadata {
     // Therefore, we use a value of 0 for exit nodes in countries that are not considered for exit.
     pub country_undesirability: u32,
     //TODO introduce scores for latency #582 and reliability #583
-    //TODO introduce check for node_location_opt, to verify full neighbors country code (we know his IP, so we can verify it)
+    //TODO #479 introduce check for node_location_opt, to verify full neighbors country code (we know his IP, so we can verify it)
 }
 
 impl NodeRecordMetadata {
@@ -416,7 +417,7 @@ mod tests {
         );
         assert_eq!(
             actual_node_record.inner.country_code_opt,
-            Some("AD".to_string())
+            Some("AU".to_string())
         );
         expected_node_record.metadata.last_update = actual_node_record.metadata.last_update;
         assert_eq!(actual_node_record, expected_node_record);
@@ -470,7 +471,7 @@ mod tests {
             result,
             NodeDescriptor::try_from((
                 main_cryptde(),
-                "masq://eth-ropsten:AQIDBA@1.2.3.4:1234/2345"
+                "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"
             ))
             .unwrap()
         );
@@ -485,7 +486,7 @@ mod tests {
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@:")).unwrap()
+            NodeDescriptor::try_from((main_cryptde(), "masq://base-sepolia:AQIDBA@:")).unwrap()
         );
     }
 

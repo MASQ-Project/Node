@@ -2,12 +2,13 @@
 use crate::masq_node::MASQNode;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use node_lib::neighborhood::gossip::{AccessibleGossipRecord, GossipNodeRecord, Gossip_0v1};
+use node_lib::neighborhood::gossip::AccessibleGossipRecord;
+use node_lib::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::test_utils::vec_to_set;
 use std::collections::HashSet;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;
 
 #[derive(PartialEq, Eq, Clone, Debug)]

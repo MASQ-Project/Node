@@ -25,20 +25,6 @@ use std::net::Ipv4Addr;
 pub const MIN_HOPS_FOR_TEST: Hops = DEFAULT_MIN_HOPS;
 pub const DB_PATCH_SIZE_FOR_TEST: u8 = DEFAULT_MIN_HOPS as u8;
 
-// lazy_static! {
-//     pub static ref COUNTRY_CODE_DIGEST: Vec<(IpAddr, String)> = vec![
-//         (
-//             IpAddr::V4(Ipv4Addr::new(123, 123, 123, 123)),
-//             "CN".to_string(),
-//         ),
-//         (IpAddr::V4(Ipv4Addr::new(0, 0, 0, 123)), "US".to_string(),),
-//         (IpAddr::V4(Ipv4Addr::new(99, 99, 99, 99)), "FR".to_string(),),
-//         (IpAddr::V4(Ipv4Addr::new(3, 3, 3, 3)), "AU".to_string(),),
-//         (IpAddr::V4(Ipv4Addr::new(101, 0, 0, 255)), "AU".to_string(),),
-//         (IpAddr::V4(Ipv4Addr::new(255, 0, 0, 220)), "FR".to_string(),),
-//     ];
-// }
-
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
         (database, public_key, reveal_node_addr): (&NeighborhoodDatabase, &PublicKey, bool),
@@ -81,6 +67,12 @@ pub fn make_node_record(n: u16, has_ip: bool) -> NodeRecord {
         true,
         location_opt,
     )
+}
+
+pub fn make_node_record_cc(n: u16, has_ip: bool, cc: &str) -> NodeRecord {
+    let mut result = make_node_record(n, has_ip);
+    result.inner.country_code_opt = Some(cc.to_string());
+    result
 }
 
 pub fn make_node_record_f(

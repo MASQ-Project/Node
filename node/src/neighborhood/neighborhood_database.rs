@@ -390,7 +390,7 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_node_record, make_segmented_ip, make_segments,
+        db_from_node, make_node_record, make_node_record_cc, make_segmented_ip, make_segments,
     };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -532,9 +532,9 @@ mod tests {
     #[test]
     fn node_by_ip_works() {
         let mut this_node = make_node_record(1234, true);
-        this_node.inner.country_code_opt = Some("AD".to_string());
+        this_node.inner.country_code_opt = Some("AU".to_string());
         this_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AD".to_string(),
+            country_code: "AU".to_string(),
         });
         this_node.resign();
         let one_node = make_node_record(4567, true);
@@ -812,10 +812,10 @@ mod tests {
 
     #[test]
     fn database_can_be_pretty_printed_to_dot_format() {
-        let this_node = make_node_record(1234, true); // AQIDBA
-        let node_one = make_node_record(2345, true); // AgMEBQ
-        let node_two = make_node_record(3456, true); // AwQFBg
-        let node_three = make_node_record(4567, true); // BAUGBw
+        let this_node = make_node_record_cc(1234, true, "AU"); // AQIDBA
+        let node_one = make_node_record_cc(2345, true, "FR"); // AgMEBQ
+        let node_two = make_node_record_cc(3456, true, "CN"); // AwQFBg
+        let node_three = make_node_record_cc(4567, true, "US"); // BAUGBw
 
         let mut subject = db_from_node(&this_node);
 
@@ -840,19 +840,19 @@ mod tests {
         assert_eq!(result.matches("->").count(), 8);
         assert_string_contains(
             &result,
-            "\"AQIDBA\" [label=\"AR v1 AD\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
+            "\"AQIDBA\" [label=\"AR v1 AU\\nAQIDBA\\n1.2.3.4:1234\"] [style=filled];",
         );
         assert_string_contains(
             &result,
-            "\"AgMEBQ\" [label=\"AR v0 AO\\nAgMEBQ\\n2.3.4.5:2345\"];",
+            "\"AgMEBQ\" [label=\"AR v0 FR\\nAgMEBQ\\n2.3.4.5:2345\"];",
         );
         assert_string_contains(
             &result,
-            "\"AwQFBg\" [label=\"AR v0 AO\\nAwQFBg\\n3.4.5.6:3456\"];",
+            "\"AwQFBg\" [label=\"AR v0 CN\\nAwQFBg\\n3.4.5.6:3456\"];",
         );
         assert_string_contains(
             &result,
-            "\"BAUGBw\" [label=\"AR v0 AO\\nBAUGBw\\n4.5.6.7:4567\"];",
+            "\"BAUGBw\" [label=\"AR v0 US\\nBAUGBw\\n4.5.6.7:4567\"];",
         );
         assert_string_contains(&result, "\"AQIDBA\" -> \"AgMEBQ\";");
         assert_string_contains(&result, "\"AgMEBQ\" -> \"AQIDBA\";");
@@ -868,9 +868,9 @@ mod tests {
     fn new_public_ip_replaces_ip_address_and_nothing_else() {
         let this_node = make_node_record(1234, true);
         let mut old_node = this_node.clone();
-        old_node.inner.country_code_opt = Some("AD".to_string());
+        old_node.inner.country_code_opt = Some("AU".to_string());
         old_node.metadata.node_location_opt = Some(NodeLocation {
-            country_code: "AD".to_string(),
+            country_code: "AU".to_string(),
         });
         old_node.resign();
 

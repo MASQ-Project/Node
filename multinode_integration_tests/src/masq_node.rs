@@ -304,8 +304,8 @@ impl MASQNodeUtils {
     }
 
     pub fn derive_country_code_opt(node_addr: &NodeAddr) -> Option<String> {
-        let country_code = get_node_location(Some(node_addr.ip_addr()));
-        if let Some(cc) = country_code {
+        let country_code_opt = get_node_location(Some(node_addr.ip_addr()));
+        if let Some(cc) = country_code_opt {
             Some(cc.country_code)
         } else {
             None

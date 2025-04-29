@@ -23,27 +23,14 @@ pub fn get_node_location(ip_opt: Option<IpAddr>) -> Option<NodeLocation> {
 
 #[cfg(test)]
 mod tests {
-    use crate::neighborhood::node_location::{get_node_location, NodeLocation};
-    use crate::neighborhood::node_record::NodeRecordMetadata;
+    use crate::neighborhood::node_location::get_node_location;
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_node_location() {
-        let node_location = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)))).unwrap();
+        let node_location =
+            get_node_location(Some(IpAddr::V4(Ipv4Addr::new(125, 125, 125, 1)))).unwrap();
 
-        assert_eq!(node_location.country_code, "AD");
-    }
-
-    #[test]
-    fn construct_node_record_metadata_with_free_world_bit() {
-        //TODO check in From impl for AGR that construction of metadata contains proper country_code and fwb, then delete this test
-        let mut metadata = NodeRecordMetadata::new();
-        metadata.node_location_opt = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))));
-        assert_eq!(
-            metadata.node_location_opt.as_ref().unwrap(),
-            &NodeLocation {
-                country_code: "AD".to_string(),
-            }
-        );
+        assert_eq!(node_location.country_code, "CN");
     }
 }
