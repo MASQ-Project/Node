@@ -187,9 +187,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                     return Err(SentPayableDaoError::UpdateFailed(format!(
                         "Failed to update status for hash {:?}",
                         hash
-                    )))
+                    )));
                 }
-                Err(e) => return Err(SentPayableDaoError::UpdateFailed(e.to_string())),
+                Err(e) => {
+                    return Err(SentPayableDaoError::UpdateFailed(e.to_string()));
+                }
             }
         }
 
@@ -579,5 +581,98 @@ mod tests {
 
         let remaining_records = subject.retrieve_txs(None);
         assert_eq!(remaining_records, vec![tx3]);
+    }
+
+    #[test]
+    fn change_statuses_returns_update_failed_error_when_update_fails() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "change_statuses_returns_update_failed_error_when_update_fails",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx = TxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .status(TxStatus::Pending)
+            .build();
+        subject.insert_new_records(vec![tx.clone()]).unwrap();
+
+        // Create a hash that doesn't exist in the database
+        let non_existent_hash = H256::from_low_u64_le(999);
+        let hash_map = HashMap::from([(non_existent_hash, TxStatus::Failed)]);
+
+        let result = subject.change_statuses(&hash_map);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::UpdateFailed(format!(
+                "Failed to update status for hash {:?}",
+                non_existent_hash
+            )))
+        );
+    }
+
+    #[test]
+    fn change_statuses_returns_update_failed_error_when_an_error_occurs_in_sql() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "change_statuses_can_throw_error",
+        );
+        {
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap();
+        }
+        let read_only_conn = Connection::open_with_flags(
+            home_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+
+        let hash = H256::from_low_u64_le(1);
+        let hash_map = HashMap::from([(hash, TxStatus::Failed)]);
+
+        let result = subject.change_statuses(&hash_map);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::UpdateFailed(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn delete_records_returns_deletion_failed_error_when_delete_fails() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "delete_records_returns_deletion_failed_error_when_delete_fails",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let mut subject = SentPayableDaoReal::new(wrapped_conn);
+
+        // Replace the connection with a mock that always fails
+        let failing_conn =
+            ConnectionWrapperMock::default().prepare_result(Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(1),
+                Some("Mock deletion error".to_string()),
+            )));
+        subject.conn = Box::new(failing_conn);
+
+        let hash = H256::from_low_u64_le(1);
+        let result = subject.delete_records(&[hash]);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::DeletionFailed(
+                "Mock deletion error".to_string()
+            ))
+        );
     }
 }
