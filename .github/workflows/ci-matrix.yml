@@ -7,40 +7,7 @@ on:
       - master
 
 jobs:
-  generate-dbip:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Generate dbip file
-        run: |
-          chmod +x ip_country/ci/download_dbip.sh
-          cd ip_country
-          ci/download_dbip.sh || exit 1
-          cargo run --bin generate_dbip || exit 1
-  
-      - name: Verify generated file
-        run: |
-          if [ ! -f /tmp/ip_country_gen/dbip_country.rs ]; then
-            echo "Error: dbip_country.rs was not generated"
-            exit 1
-          fi
-          cat /tmp/ip_country_gen/dbip_country.rs | head -n 1
-          if ! grep -q "// This file is generated automatically" /tmp/ip_country_gen/dbip_country.rs; then
-            echo "Error: Generated file appears to be invalid"
-            exit 1
-          fi
-
-      - name: Upload File
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbip_country
-          path: /tmp/ip_country_gen/dbip_country.rs
-  
   build:
-    needs: generate-dbip
     if: github.event.pull_request.draft == false
     strategy:
       fail-fast: true
@@ -97,6 +64,8 @@ jobs:
 
       - name: Build ${{ matrix.target.os }}
         run: |
+          git fetch
+          git checkout origin/generated-source -- ip_country/src/dbip_country.rs
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
