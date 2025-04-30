@@ -12,8 +12,9 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
     InsertionFailed(String),
-    UpdateFailed(String),   // TODO: GH-608: Test this error
-    DeletionFailed(String), // TODO: GH-608: Test this error
+    UpdateFailed(String),
+    DeletionFailed(String),
+    SqlExecutionError(String),
 }
 
 type TxHash = H256;
@@ -125,8 +126,8 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
             Ok(x) if x == txs.len() => Ok(()),
-            Ok(x) => panic!("expected {} changed rows but got {}", txs.len(), x),
-            Err(e) => Err(SentPayableDaoError::InsertionFailed(e.to_string())),
+            Ok(x) => panic!("expected {} changed rows but got {}", txs.len(), x), // TODO: GH-608: This should be an error
+            Err(e) => Err(SentPayableDaoError::InsertionFailed(e.to_string())), // TODO: THis should be a panic
         }
     }
 
@@ -188,9 +189,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                         "Failed to update status for hash {:?}",
                         hash
                     )));
+                    // TODO: GH-608: This should be inside if else
                 }
                 Err(e) => {
                     return Err(SentPayableDaoError::UpdateFailed(e.to_string()));
+                    // TODO: GH-608: This should be a panic
                 }
             }
         }
@@ -200,7 +203,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
-            return Ok(());
+            return Ok(()); // TDOD: GH-608: Test this, it should be an error
         }
 
         let hash_strings: Vec<String> = hashes.iter().map(|h| format!("'{:?}'", h)).collect();
@@ -208,12 +211,20 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         let sql = format!("DELETE FROM sent_payable WHERE tx_hash IN ({})", hash_list);
 
-        self.conn
-            .prepare(&sql)
-            .and_then(|mut stmt| stmt.execute([]))
-            .map_err(|e| SentPayableDaoError::DeletionFailed(e.to_string()))?;
-
-        Ok(())
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(deleted_rows) => {
+                if deleted_rows >= 1 {
+                    Ok(())
+                } else {
+                    Err(SentPayableDaoError::DeletionFailed(
+                        "No records were deleted for the given hashes".to_string(),
+                    ))
+                }
+            }
+            Err(e) => {
+                panic!("SQL execution failed on record deletion: {}", e);
+            }
+        }
     }
 }
 
@@ -552,38 +563,6 @@ mod tests {
     }
 
     #[test]
-    fn txs_can_be_deleted() {
-        let home_dir = ensure_node_home_directory_exists("sent_payable_dao", "txs_can_be_deleted");
-        let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, DbInitializationConfig::test_default())
-            .unwrap();
-        let subject = SentPayableDaoReal::new(wrapped_conn);
-        let tx1 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
-            .status(TxStatus::Pending)
-            .build();
-        let tx2 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Failed)
-            .build();
-        let tx3 = TxBuilder::default()
-            .hash(H256::from_low_u64_le(3))
-            .status(TxStatus::Succeeded(TransactionBlock {
-                block_hash: Default::default(),
-                block_number: Default::default(),
-            }))
-            .build();
-        subject
-            .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3.clone()])
-            .unwrap();
-
-        let result = subject.delete_records(&vec![tx1.hash, tx2.hash]);
-
-        let remaining_records = subject.retrieve_txs(None);
-        assert_eq!(remaining_records, vec![tx3]);
-    }
-
-    #[test]
     fn change_statuses_returns_update_failed_error_when_update_fails() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
@@ -647,32 +626,80 @@ mod tests {
     }
 
     #[test]
-    fn delete_records_returns_deletion_failed_error_when_delete_fails() {
+    fn txs_can_be_deleted() {
+        let home_dir = ensure_node_home_directory_exists("sent_payable_dao", "txs_can_be_deleted");
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .status(TxStatus::Failed)
+            .build();
+        let tx3 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .status(TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: Default::default(),
+            }))
+            .build();
+        subject
+            .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .unwrap();
+
+        let result = subject.delete_records(&vec![tx1.hash, tx2.hash]);
+
+        let remaining_records = subject.retrieve_txs(None);
+        assert_eq!(remaining_records, vec![tx3]);
+    }
+
+    #[test]
+    fn delete_records_returns_error_when_no_records_are_deleted() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "delete_records_returns_deletion_failed_error_when_delete_fails",
+            "delete_records_returns_error_when_no_records_are_deleted",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let mut subject = SentPayableDaoReal::new(wrapped_conn);
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let non_existent_hash = H256::from_low_u64_le(999);
 
-        // Replace the connection with a mock that always fails
-        let failing_conn =
-            ConnectionWrapperMock::default().prepare_result(Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(1),
-                Some("Mock deletion error".to_string()),
-            )));
-        subject.conn = Box::new(failing_conn);
-
-        let hash = H256::from_low_u64_le(1);
-        let result = subject.delete_records(&[hash]);
+        let result = subject.delete_records(&[non_existent_hash]);
 
         assert_eq!(
             result,
             Err(SentPayableDaoError::DeletionFailed(
-                "Mock deletion error".to_string()
+                "No records were deleted for the given hashes".to_string()
             ))
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "SQL execution failed on record deletion: attempt to write a readonly database"
+    )]
+    fn delete_records_returns_deletion_failed_error_when_an_error_occurs_in_sql() {
+        let home_dir =
+            ensure_node_home_directory_exists("sent_payable_dao", "delete_records_can_throw_error");
+        {
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap();
+        }
+        let read_only_conn = Connection::open_with_flags(
+            home_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
+        let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
+        let hashes = vec![H256::from_low_u64_le(1)];
+
+        let _ = subject.delete_records(&hashes);
     }
 }
