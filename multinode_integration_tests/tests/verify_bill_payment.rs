@@ -3,7 +3,7 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
-use masq_lib::messages::{CommendableScanType, ToMessageBody, UiScanRequest};
+use masq_lib::messages::{ScanType, ToMessageBody, UiScanRequest};
 use masq_lib::test_utils::utils::UrlHolder;
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
@@ -394,7 +394,7 @@ fn verify_pending_payables() {
     let ui_client = real_consuming_node.make_ui(ui_port);
     ui_client.send_request(
         UiScanRequest {
-            scan_type: CommendableScanType::Payables,
+            scan_type: ScanType::Payables,
         }
         .tmb(0),
     );
@@ -432,7 +432,7 @@ fn verify_pending_payables() {
     );
     ui_client.send_request(
         UiScanRequest {
-            scan_type: CommendableScanType::Payables,
+            scan_type: ScanType::Payables,
         }
         .tmb(0),
     );

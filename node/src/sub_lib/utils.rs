@@ -139,7 +139,7 @@ fn crash_request_analyzer(
     }
 }
 
-pub trait NotifyLaterHandle<M, A>
+pub trait NotifyLaterHandle<M, A>: Send
 where
     A: Actor<Context = Context<A>>,
 {
@@ -167,7 +167,7 @@ impl<T> NotifyLaterHandleReal<T> {
 
 impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleReal<M>
 where
-    M: Message + 'static,
+    M: Message + 'static + Send,
     A: Actor<Context = Context<A>> + Handler<M>,
 {
     fn notify_later(

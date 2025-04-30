@@ -14,8 +14,8 @@ use crate::accountant::db_access_objects::receivable_dao::{
 };
 use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payment_adjuster::{Adjustment, AnalysisError, PaymentAdjuster};
-use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::payable_scanner::PreparedAdjustment;
+use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+use crate::accountant::scanners::payable_scanner_extension::PreparedAdjustment;
 use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};

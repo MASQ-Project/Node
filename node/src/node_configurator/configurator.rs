@@ -614,6 +614,7 @@ impl Configurator {
         let routing_service_rate = rate_pack.routing_service_rate;
         let exit_byte_rate = rate_pack.exit_byte_rate;
         let exit_service_rate = rate_pack.exit_service_rate;
+        let pending_payable_sec = scan_intervals.pending_payable_scan_interval.as_secs();
         let payable_sec = scan_intervals.payable_scan_interval.as_secs();
         let receivable_sec = scan_intervals.receivable_scan_interval.as_secs();
         let threshold_interval_sec = payment_thresholds.threshold_interval_sec;
@@ -652,6 +653,7 @@ impl Configurator {
             start_block_opt,
             scan_intervals: UiScanIntervals {
                 payable_sec,
+                pending_payable_sec,
                 receivable_sec,
             },
         };
@@ -2590,6 +2592,7 @@ mod tests {
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
                     payable_sec: 125,
+                    pending_payable_sec: 122,
                     receivable_sec: 128
                 }
             }
@@ -2608,7 +2611,7 @@ mod tests {
             }))
             .scan_intervals_result(Ok(ScanIntervals {
                 payable_scan_interval: Duration::from_secs(125),
-                pending_payable_scan_interval: Duration::from_secs(30),
+                pending_payable_scan_interval: Duration::from_secs(122),
                 receivable_scan_interval: Duration::from_secs(128),
             }))
             .payment_thresholds_result(Ok(PaymentThresholds {
@@ -2720,6 +2723,7 @@ mod tests {
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
                     payable_sec: 125,
+                    pending_payable_sec: 122,
                     receivable_sec: 128
                 }
             }
@@ -2812,6 +2816,7 @@ mod tests {
                 start_block_opt: Some(3456),
                 scan_intervals: UiScanIntervals {
                     payable_sec: 0,
+                    pending_payable_sec: 0,
                     receivable_sec: 0
                 }
             }

@@ -913,7 +913,7 @@ pub mod unshared_test_utils {
 
         impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
         where
-            M: Message + 'static + Clone,
+            M: Message + 'static + Clone + Send,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify_later<'a>(

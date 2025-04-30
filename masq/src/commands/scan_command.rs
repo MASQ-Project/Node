@@ -3,7 +3,7 @@
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, Arg, SubCommand};
-use masq_lib::messages::{CommendableScanType, UiScanRequest, UiScanResponse};
+use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use std::fmt::Debug;
 use std::str::FromStr;
 
@@ -34,7 +34,7 @@ pub fn scan_subcommand() -> App<'static, 'static> {
 impl Command for ScanCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiScanRequest {
-            scan_type: match CommendableScanType::from_str(&self.name) {
+            scan_type: match ScanType::from_str(&self.name) {
                 Ok(st) => st,
                 Err(s) => panic!("clap schema does not restrict scan type properly: {}", s),
             },
@@ -102,12 +102,12 @@ mod tests {
 
     #[test]
     fn scan_command_works() {
-        scan_command_for_name("payables", CommendableScanType::Payables);
-        scan_command_for_name("receivables", CommendableScanType::Receivables);
-        scan_command_for_name("pendingpayables", CommendableScanType::PendingPayables);
+        scan_command_for_name("payables", ScanType::Payables);
+        scan_command_for_name("receivables", ScanType::Receivables);
+        scan_command_for_name("pendingpayables", ScanType::PendingPayables);
     }
 
-    fn scan_command_for_name(name: &str, scan_type: CommendableScanType) {
+    fn scan_command_for_name(name: &str, scan_type: ScanType) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)

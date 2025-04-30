@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::scanners::payable_scanner::msgs::{
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
 use crate::accountant::{
@@ -44,9 +44,9 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use ethabi::Hash;
 use web3::types::H256;
+use masq_lib::messages::ScanType;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner::blockchain_agent::BlockchainAgent;
-use crate::accountant::scanners::ScanType;
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionReceiptResult, TxStatus};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
@@ -549,8 +549,8 @@ mod tests {
     use crate::accountant::db_access_objects::payable_dao::PayableAccount;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::accountant::db_access_objects::utils::from_time_t;
-    use crate::accountant::scanners::payable_scanner::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
-    use crate::accountant::scanners::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::payable_scanner_extension::agent_web3::WEB3_MAXIMAL_GAS_LIMIT_MARGIN;
+    use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
     use crate::accountant::test_utils::{make_payable_account, make_pending_payable_fingerprint};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::BlockchainInterfaceWeb3;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError::TransactionID;

@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
-use crate::accountant::scanners::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::payable_scanner_extension::blockchain_agent::BlockchainAgent;
 use crate::accountant::{ResponseSkeleton, SkeletonOptHolder};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -58,8 +58,8 @@ impl BlockchainAgentWithContextMessage {
 #[cfg(test)]
 mod tests {
 
-    use crate::accountant::scanners::payable_scanner::msgs::BlockchainAgentWithContextMessage;
-    use crate::accountant::scanners::payable_scanner::test_utils::BlockchainAgentMock;
+    use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
+    use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
 
     impl Clone for BlockchainAgentWithContextMessage {
         fn clone(&self) -> Self {
