@@ -14,7 +14,10 @@ pub enum SentPayableDaoError {
     InsertionFailed(String),
     UpdateFailed(String),
     DeletionFailed(String),
-    SqlExecutionError(String),
+    SqlExecutionFailed(String),
+    // InvalidInput(String),
+    // PartialExecution(String),
+    // NoChange(String), // TODO: GH-608: Introduce the commented variants, and remove the first three
 }
 
 type TxHash = H256;
@@ -75,6 +78,9 @@ impl<'a> SentPayableDaoReal<'a> {
         // TODO: GH-608: You'll need to write a mock to test this, do that wisely
         Self { conn }
     }
+
+    // TODO: GH-608: There should be a function for executing SQL
+    // TODO: GH-608: There should be a function for handling database errors
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
@@ -213,17 +219,22 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
             Ok(deleted_rows) => {
-                if deleted_rows >= 1 {
+                if deleted_rows == hashes.len() {
                     Ok(())
-                } else {
+                } else if deleted_rows == 0 {
                     Err(SentPayableDaoError::DeletionFailed(
                         "No records were deleted for the given hashes".to_string(),
                     ))
+                } else {
+                    todo!("test me");
+                    // Err(SentPayableDaoError::PartialDeletion(format!(
+                    //     "Expected to delete {} records, but only {} were deleted",
+                    //     hashes.len(),
+                    //     deleted_rows
+                    // )))
                 }
             }
-            Err(e) => {
-                panic!("SQL execution failed on record deletion: {}", e);
-            }
+            Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
     }
 }
@@ -680,9 +691,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "SQL execution failed on record deletion: attempt to write a readonly database"
-    )]
     fn delete_records_returns_deletion_failed_error_when_an_error_occurs_in_sql() {
         let home_dir =
             ensure_node_home_directory_exists("sent_payable_dao", "delete_records_can_throw_error");
@@ -700,6 +708,13 @@ mod tests {
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hashes = vec![H256::from_low_u64_le(1)];
 
-        let _ = subject.delete_records(&hashes);
+        let result = subject.delete_records(&hashes);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::SqlExecutionFailed(
+                "attempt to write a readonly database".to_string()
+            ))
+        )
     }
 }
