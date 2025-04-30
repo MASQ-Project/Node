@@ -68,11 +68,11 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         &self,
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
-        persistent_config: Box<dyn PersistentConfiguration>,
+        mut persistent_config: Box<dyn PersistentConfiguration>,
     ) -> StreamHandlerPoolSubs {
         self.tools
             .validate_database_chain(&*persistent_config, config.blockchain_bridge_config.chain);
-        let cryptdes = self.tools.cryptdes();
+        let cryptdes = self.tools.cryptdes(persistent_config.as_mut(), "Test-drive me");
         self.tools
             .prepare_initial_messages(cryptdes, config, persistent_config, actor_factory)
     }
@@ -92,7 +92,7 @@ pub trait ActorSystemFactoryTools {
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs;
-    fn cryptdes(&self) -> CryptDEPair;
+    fn cryptdes(&self, persistent_config: &mut dyn PersistentConfiguration, db_password: &str) -> CryptDEPair;
     fn validate_database_chain(
         &self,
         persistent_config: &dyn PersistentConfiguration,
@@ -221,7 +221,10 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         stream_handler_pool_subs
     }
 
-    fn cryptdes(&self) -> CryptDEPair {
+    fn cryptdes(&self, persistent_config: &mut dyn PersistentConfiguration, db_password: &str) -> CryptDEPair {
+        // Possibly we could change the values of MAIN_CRYPTDE_BOX_OPT and ALIAS_CRYPTDE_BOX_OPT here,
+        // but I'd rather modify the code that initially sets those values. The problem is that
+        // that code doesn't have a PersistentConfiguration.
         CryptDEPair::default()
     }
 
@@ -652,7 +655,7 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
-    use crate::sub_lib::neighborhood::NeighborhoodMode;
+    use crate::sub_lib::neighborhood::{Hops, NeighborhoodMode};
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -708,6 +711,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::db_config::persistent_configuration::PersistentConfigError;
 
     struct LogRecipientSetterNull {}
 
@@ -735,6 +739,7 @@ mod tests {
             >,
         >,
         prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
+        cryptdes_params: Arc<Mutex<Vec<(Hops, String)>>>, // I can't clone a PersistentConfiguration, so I'm just storing the Hops
         cryptdes_results: RefCell<Vec<CryptDEPair>>,
         validate_database_chain_params: Arc<Mutex<Vec<(ArbitraryIdStamp, Chain)>>>,
     }
@@ -757,7 +762,8 @@ mod tests {
             self.prepare_initial_messages_results.borrow_mut().remove(0)
         }
 
-        fn cryptdes(&self) -> CryptDEPair {
+        fn cryptdes(&self, persistent_config: &mut dyn PersistentConfiguration, db_password: &str) -> CryptDEPair {
+            self.cryptdes_params.lock().unwrap().push((persistent_config.min_hops().unwrap(), db_password.to_string()));
             self.cryptdes_results.borrow_mut().remove(0)
         }
 
@@ -1774,6 +1780,26 @@ mod tests {
         system.run();
         let (_, bootstrapper_config) = Parameters::get(parameters.proxy_server_params);
         assert_eq!(bootstrapper_config.consuming_wallet_opt, None);
+    }
+
+    #[test]
+    fn cryptdes_handles_empty_database() {
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .cryptde_result(Err(PersistentConfigError::NotPresent))
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+        let subject = make_subject_with_null_setter();
+
+        let result = subject.cryptdes(&mut persistent_config, "db_password");
+
+        let returned_main_public_key = result.main.public_key().clone();
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(*set_cryptde_params, vec![(returned_main_public_key, "db_password".to_string())]);
     }
 
     #[test]

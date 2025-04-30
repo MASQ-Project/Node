@@ -14,7 +14,7 @@ use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::u64;
-use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
@@ -33,8 +33,8 @@ pub struct PersistentConfigurationMock {
     set_clandestine_port_params: Arc<Mutex<Vec<u16>>>,
     set_clandestine_port_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     cryptde_params: Arc<Mutex<Vec<String>>>,
-    cryptde_results: RefCell<Vec<Result<Box<dyn CryptDE>, PersistentConfigError>>>,
-    set_cryptde_params: Arc<Mutex<Vec<(Box<dyn CryptDE>, String)>>>,
+    cryptde_results: RefCell<Option<Result<Box<dyn CryptDE>, PersistentConfigError>>>,
+    set_cryptde_params: Arc<Mutex<Vec<(PublicKey, String)>>>,
     set_cryptde_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
     gas_price_results: RefCell<Vec<Result<u64, PersistentConfigError>>>,
     set_gas_price_params: Arc<Mutex<Vec<u64>>>,
@@ -100,11 +100,12 @@ impl Clone for PersistentConfigurationMock {
             clandestine_port_results: self.clandestine_port_results.clone(),
             set_clandestine_port_params: self.set_clandestine_port_params.clone(),
             set_clandestine_port_results: self.set_clandestine_port_results.clone(),
-            cryptde_results: RefCell::new(self.cryptde_results.borrow().iter().map(|x| {
+            cryptde_params: self.cryptde_params.clone(),
+            cryptde_results: RefCell::new(self.cryptde_results.borrow().as_ref().map(|x| {
                 x.as_ref()
                     .map(|cryptde| cryptde.dup())
                     .map_err(|e| e.clone())
-            }).collect()),
+            })),
             set_cryptde_params: self.set_cryptde_params.clone(),
             set_cryptde_results: self.set_cryptde_results.clone(),
             gas_price_results: self.gas_price_results.clone(),
@@ -233,11 +234,14 @@ impl PersistentConfiguration for PersistentConfigurationMock {
 
     fn cryptde(&self, db_password: &str) -> Result<Box<dyn CryptDE>, PersistentConfigError> {
         self.cryptde_params.lock().unwrap().push(db_password.to_string());
-        self.cryptde_results.borrow_mut().remove(0)
+        let cryptde_result_opt_ref = self.cryptde_results.borrow();
+        let cryptde_result_ref = cryptde_result_opt_ref.as_ref().unwrap();
+        let cryptde_box = cryptde_result_ref.as_ref().unwrap().dup();
+        Ok(cryptde_box)
     }
 
     fn set_cryptde(&mut self, cryptde: &dyn CryptDE, db_password: &str) -> Result<(), PersistentConfigError> {
-        self.set_cryptde_params.lock().unwrap().push((cryptde.dup(), db_password.to_string()));
+        self.set_cryptde_params.lock().unwrap().push((cryptde.public_key().clone(), db_password.to_string()));
         self.set_cryptde_results.borrow_mut().remove(0)
     }
 
@@ -574,11 +578,17 @@ impl PersistentConfigurationMock {
     }
 
     pub fn cryptde_result(self, result: Result<Box<dyn CryptDE>, PersistentConfigError>) -> Self {
-        self.cryptde_results.borrow_mut().push(result);
+        let mut results = self.cryptde_results.borrow_mut();
+        if results.is_none() {
+            *results = Some(result);
+        } else {
+            panic!("cryptde_result must be called only once");
+        }
+        drop(results);
         self
     }
 
-    pub fn set_cryptde_params(mut self, params: &Arc<Mutex<Vec<(Box<dyn CryptDE>, String)>>>) -> Self {
+    pub fn set_cryptde_params(mut self, params: &Arc<Mutex<Vec<(PublicKey, String)>>>) -> Self {
         self.set_cryptde_params = params.clone();
         self
     }
