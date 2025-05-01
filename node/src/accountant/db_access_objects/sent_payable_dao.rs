@@ -133,7 +133,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
             Ok(x) if x == txs.len() => Ok(()),
             Ok(x) => panic!("expected {} changed rows but got {}", txs.len(), x), // TODO: GH-608: This should be an error
-            Err(e) => Err(SentPayableDaoError::InsertionFailed(e.to_string())), // TODO: THis should be a panic
+            Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
     }
 
@@ -198,8 +198,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                     // TODO: GH-608: This should be inside if else
                 }
                 Err(e) => {
-                    return Err(SentPayableDaoError::UpdateFailed(e.to_string()));
-                    // TODO: GH-608: This should be a panic
+                    return Err(SentPayableDaoError::SqlExecutionFailed(e.to_string()));
                 }
             }
         }
@@ -314,7 +313,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::InsertionFailed(
+            Err(SentPayableDaoError::SqlExecutionFailed(
                 "UNIQUE constraint failed: sent_payable.tx_hash".to_string()
             ))
         );
@@ -346,7 +345,7 @@ mod tests {
         assert_eq!(initial_insertion_result, Ok(()));
         assert_eq!(
             result,
-            Err(SentPayableDaoError::InsertionFailed(
+            Err(SentPayableDaoError::SqlExecutionFailed(
                 "UNIQUE constraint failed: sent_payable.tx_hash".to_string()
             ))
         );
@@ -394,7 +393,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::InsertionFailed(
+            Err(SentPayableDaoError::SqlExecutionFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
@@ -605,10 +604,10 @@ mod tests {
     }
 
     #[test]
-    fn change_statuses_returns_update_failed_error_when_an_error_occurs_in_sql() {
+    fn change_statuses_returns_error_when_an_error_occurs_while_executing_sql() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "change_statuses_can_throw_error",
+            "change_statuses_returns_error_when_an_error_occurs_while_executing_sql",
         );
         {
             DbInitializerReal::default()
@@ -630,7 +629,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::UpdateFailed(
+            Err(SentPayableDaoError::SqlExecutionFailed(
                 "attempt to write a readonly database".to_string()
             ))
         )
