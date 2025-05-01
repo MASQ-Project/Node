@@ -11,13 +11,14 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
+    // TODO: GH-608: Remove the first three
     InsertionFailed(String),
     UpdateFailed(String),
     DeletionFailed(String),
     SqlExecutionFailed(String),
-    // InvalidInput(String),
-    // PartialExecution(String),
-    // NoChange(String), // TODO: GH-608: Introduce the commented variants, and remove the first three
+    InvalidInput(String),
+    PartialExecution(String),
+    NoChange(String),
 }
 
 type TxHash = H256;
@@ -208,8 +209,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
-            return Ok(()); // TDOD: GH-608: Test this, it should be an error
+            return Err(SentPayableDaoError::InvalidInput(
+                "No hashes were given.".to_string(),
+            ));
         }
+        // TODO: GH-608: Should we check for unique hashes before deletion, or should we use a hashset instead? I think prevention is better than cure
 
         let hash_strings: Vec<String> = hashes.iter().map(|h| format!("'{:?}'", h)).collect();
         let hash_list = hash_strings.join(", ");
@@ -221,16 +225,15 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 if deleted_rows == hashes.len() {
                     Ok(())
                 } else if deleted_rows == 0 {
-                    Err(SentPayableDaoError::DeletionFailed(
-                        "No records were deleted for the given hashes".to_string(),
+                    Err(SentPayableDaoError::NoChange(
+                        "No records were deleted for the specified hashes.".to_string(),
                     ))
                 } else {
-                    todo!("test me");
-                    // Err(SentPayableDaoError::PartialDeletion(format!(
-                    //     "Expected to delete {} records, but only {} were deleted",
-                    //     hashes.len(),
-                    //     deleted_rows
-                    // )))
+                    Err(SentPayableDaoError::PartialExecution(format!(
+                        "Only {} of the {} hashes has been deleted.",
+                        deleted_rows,
+                        hashes.len(),
+                    )))
                 }
             }
             Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
@@ -668,6 +671,27 @@ mod tests {
     }
 
     #[test]
+    fn delete_records_returns_error_when_input_records_are_invalid() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "delete_records_returns_error_when_input_records_are_invalid",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+
+        let result = subject.delete_records(&[]);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::InvalidInput(
+                "No hashes were given.".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn delete_records_returns_error_when_no_records_are_deleted() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
@@ -683,9 +707,37 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::DeletionFailed(
-                "No records were deleted for the given hashes".to_string()
+            Err(SentPayableDaoError::NoChange(
+                "No records were deleted for the specified hashes.".to_string()
             ))
+        );
+    }
+
+    #[test]
+    fn delete_records_returns_error_when_not_all_input_records_were_deleted() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "delete_records_returns_error_when_not_all_input_records_were_deleted",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let present_hash = H256::from_low_u64_le(1);
+        let absent_hash = H256::from_low_u64_le(1);
+        let tx = TxBuilder::default()
+            .hash(present_hash)
+            .status(TxStatus::Failed)
+            .build();
+        subject.insert_new_records(vec![tx]);
+
+        let result = subject.delete_records(&[present_hash, absent_hash]);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::PartialExecution(format!(
+                "Only 1 of the 2 hashes has been deleted."
+            )))
         );
     }
 
