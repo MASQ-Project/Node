@@ -11,6 +11,7 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
+    EmptyInput,
     SqlExecutionFailed(String),
     InvalidInput(String),
     PartialExecution(String),
@@ -189,9 +190,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError> {
         if hash_map.is_empty() {
-            return Err(SentPayableDaoError::InvalidInput(
-                "Input is empty".to_string(),
-            ));
+            return Err(SentPayableDaoError::EmptyInput);
         }
 
         for (hash, status) in hash_map {
@@ -222,9 +221,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
     fn delete_records(&self, hashes: HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
-            return Err(SentPayableDaoError::InvalidInput(
-                "No hashes were given.".to_string(),
-            ));
+            return Err(SentPayableDaoError::EmptyInput);
         }
 
         let hash_strings: Vec<String> = hashes.iter().map(|h| format!("'{:?}'", h)).collect();
@@ -612,12 +609,7 @@ mod tests {
 
         let result = subject.change_statuses(&hash_map);
 
-        assert_eq!(
-            result,
-            Err(SentPayableDaoError::InvalidInput(
-                "Input is empty".to_string()
-            ))
-        );
+        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
     }
 
     #[test]
@@ -731,12 +723,7 @@ mod tests {
 
         let result = subject.delete_records(HashSet::new());
 
-        assert_eq!(
-            result,
-            Err(SentPayableDaoError::InvalidInput(
-                "No hashes were given.".to_string()
-            ))
-        );
+        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
     }
 
     #[test]
