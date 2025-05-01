@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use ethereum_types::H256;
@@ -66,7 +66,7 @@ pub trait SentPayableDao {
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
-    fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, hashes: HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -207,13 +207,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn delete_records(&self, hashes: &[TxHash]) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::InvalidInput(
                 "No hashes were given.".to_string(),
             ));
         }
-        // TODO: GH-608: Should we check for unique hashes before deletion, or should we use a hashset instead? I think prevention is better than cure
 
         let hash_strings: Vec<String> = hashes.iter().map(|h| format!("'{:?}'", h)).collect();
         let hash_list = hash_strings.join(", ");
@@ -243,7 +242,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use crate::accountant::db_access_objects::sent_payable_dao::{RetrieveCondition, SentPayableDao, SentPayableDaoError, SentPayableDaoReal};
     use crate::accountant::db_access_objects::utils::current_unix_timestamp;
     use crate::database::db_initializer::{
@@ -663,8 +662,9 @@ mod tests {
         subject
             .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3.clone()])
             .unwrap();
+        let hashset = HashSet::from([tx1.hash, tx2.hash]);
 
-        let result = subject.delete_records(&vec![tx1.hash, tx2.hash]);
+        let result = subject.delete_records(hashset);
 
         let remaining_records = subject.retrieve_txs(None);
         assert_eq!(remaining_records, vec![tx3]);
@@ -681,7 +681,7 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.delete_records(&[]);
+        let result = subject.delete_records(HashSet::new());
 
         assert_eq!(
             result,
@@ -702,8 +702,9 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let non_existent_hash = H256::from_low_u64_le(999);
+        let hashset = HashSet::from([non_existent_hash]);
 
-        let result = subject.delete_records(&[non_existent_hash]);
+        let result = subject.delete_records(hashset);
 
         assert_eq!(
             result,
@@ -724,14 +725,15 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let present_hash = H256::from_low_u64_le(1);
-        let absent_hash = H256::from_low_u64_le(1);
+        let absent_hash = H256::from_low_u64_le(2);
         let tx = TxBuilder::default()
             .hash(present_hash)
             .status(TxStatus::Failed)
             .build();
         subject.insert_new_records(vec![tx]);
+        let hashset = HashSet::from([present_hash, absent_hash]);
 
-        let result = subject.delete_records(&[present_hash, absent_hash]);
+        let result = subject.delete_records(hashset);
 
         assert_eq!(
             result,
@@ -757,9 +759,9 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
-        let hashes = vec![H256::from_low_u64_le(1)];
+        let hashes = HashSet::from([H256::from_low_u64_le(1)]);
 
-        let result = subject.delete_records(&hashes);
+        let result = subject.delete_records(hashes);
 
         assert_eq!(
             result,
