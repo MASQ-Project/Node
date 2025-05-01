@@ -11,10 +11,6 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
-    // TODO: GH-608: Remove the first three
-    InsertionFailed(String),
-    UpdateFailed(String),
-    DeletionFailed(String),
     SqlExecutionFailed(String),
     InvalidInput(String),
     PartialExecution(String),
@@ -132,8 +128,17 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-            Ok(x) if x == txs.len() => Ok(()),
-            Ok(x) => panic!("expected {} changed rows but got {}", txs.len(), x), // TODO: GH-608: This should be an error
+            Ok(inserted_rows) => {
+                if inserted_rows == txs.len() {
+                    Ok(())
+                } else {
+                    Err(SentPayableDaoError::PartialExecution(format!(
+                        "Only {} out of {} records inserted",
+                        inserted_rows,
+                        txs.len()
+                    )))
+                }
+            }
             Err(e) => Err(SentPayableDaoError::SqlExecutionFailed(e.to_string())),
         }
     }
@@ -183,6 +188,12 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError> {
+        if hash_map.is_empty() {
+            return Err(SentPayableDaoError::InvalidInput(
+                "Input is empty".to_string(),
+            ));
+        }
+
         for (hash, status) in hash_map {
             let sql = format!(
                 "UPDATE sent_payable SET status = '{}' WHERE tx_hash = '{:?}'",
@@ -190,13 +201,15 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             );
 
             match self.conn.prepare(&sql).expect("Internal error").execute([]) {
-                Ok(updated) if updated == 1 => continue,
-                Ok(_) => {
-                    return Err(SentPayableDaoError::UpdateFailed(format!(
-                        "Failed to update status for hash {:?}",
-                        hash
-                    )));
-                    // TODO: GH-608: This should be inside if else
+                Ok(updated_rows) => {
+                    if updated_rows == 1 {
+                        continue;
+                    } else {
+                        return Err(SentPayableDaoError::PartialExecution(format!(
+                            "Failed to update status for hash {:?}",
+                            hash
+                        )));
+                    }
                 }
                 Err(e) => {
                     return Err(SentPayableDaoError::SqlExecutionFailed(e.to_string()));
@@ -250,10 +263,9 @@ mod tests {
     };
     use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::database::test_utils::ConnectionWrapperMock;
-    use ethereum_types::{Address, H256, U64};
+    use ethereum_types::{ H256, U64};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
-    use web3::types::U256;
     use crate::accountant::db_access_objects::sent_payable_dao::RetrieveCondition::{ByHash, IsPending, ToRetry};
     use crate::accountant::db_access_objects::test_utils::TxBuilder;
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxStatus};
@@ -354,8 +366,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "expected 1 changed rows but got 0")]
-    fn insert_new_records_can_panic() {
+    fn insert_new_records_returns_err_if_partially_executed() {
         let setup_conn = Connection::open_in_memory().unwrap();
         // Inject a deliberately failing statement into the mocked connection.
         let failing_stmt = {
@@ -368,7 +379,14 @@ mod tests {
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let _ = subject.insert_new_records(vec![tx]);
+        let result = subject.insert_new_records(vec![tx]);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::PartialExecution(
+                "Only 0 out of 1 records inserted".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -575,30 +593,60 @@ mod tests {
     }
 
     #[test]
-    fn change_statuses_returns_update_failed_error_when_update_fails() {
+    fn change_statuses_returns_error_when_input_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "change_statuses_returns_update_failed_error_when_update_fails",
+            "change_statuses_returns_error_when_input_is_empty",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
+        let existent_hash = H256::from_low_u64_le(1);
         let tx = TxBuilder::default()
-            .hash(H256::from_low_u64_le(1))
+            .hash(existent_hash)
             .status(TxStatus::Pending)
             .build();
         subject.insert_new_records(vec![tx.clone()]).unwrap();
-
-        // Create a hash that doesn't exist in the database
-        let non_existent_hash = H256::from_low_u64_le(999);
-        let hash_map = HashMap::from([(non_existent_hash, TxStatus::Failed)]);
+        let hash_map = HashMap::new();
 
         let result = subject.change_statuses(&hash_map);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::UpdateFailed(format!(
+            Err(SentPayableDaoError::InvalidInput(
+                "Input is empty".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn change_statuses_returns_error_during_partial_execution() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "change_statuses_returns_error_during_partial_execution",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let existent_hash = H256::from_low_u64_le(1);
+        let non_existent_hash = H256::from_low_u64_le(999);
+        let tx = TxBuilder::default()
+            .hash(existent_hash)
+            .status(TxStatus::Pending)
+            .build();
+        subject.insert_new_records(vec![tx.clone()]).unwrap();
+        let hash_map = HashMap::from([
+            (existent_hash, TxStatus::Failed),
+            (non_existent_hash, TxStatus::Failed),
+        ]);
+
+        let result = subject.change_statuses(&hash_map);
+
+        assert_eq!(
+            result,
+            Err(SentPayableDaoError::PartialExecution(format!(
                 "Failed to update status for hash {:?}",
                 non_existent_hash
             )))
