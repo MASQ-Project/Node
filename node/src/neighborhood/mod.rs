@@ -5863,7 +5863,7 @@ mod tests {
             .root_mut()
             .inner
             .country_code_opt = Some("AU".to_string());
-        let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
+        let new_public_ip = IpAddr::from_str("5.6.7.8").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
             new_ip: new_public_ip,
@@ -5899,7 +5899,7 @@ mod tests {
             new_public_ip
         );
         TestLogHandler::new()
-            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
+            .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 5.6.7.8");
     }
 
     #[test]
