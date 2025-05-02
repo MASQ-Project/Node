@@ -24,28 +24,8 @@ impl TxBuilder {
         self
     }
 
-    pub fn receiver_address(mut self, receiver_address: Address) -> Self {
-        self.receiver_address_opt = Some(receiver_address);
-        self
-    }
-
-    pub fn amount(mut self, amount: u128) -> Self {
-        self.amount_opt = Some(amount);
-        self
-    }
-
     pub fn timestamp(mut self, timestamp: i64) -> Self {
         self.timestamp_opt = Some(timestamp);
-        self
-    }
-
-    pub fn gas_price_wei(mut self, gas_price_wei: u64) -> Self {
-        self.gas_price_wei_opt = Some(gas_price_wei);
-        self
-    }
-
-    pub fn nonce(mut self, nonce: u32) -> Self {
-        self.nonce_opt = Some(nonce);
         self
     }
 

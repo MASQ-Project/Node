@@ -58,12 +58,11 @@ impl Display for RetrieveCondition {
 }
 
 pub trait SentPayableDao {
-    // Note that the order of the returned results is not guaranteed
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
-    fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
+    fn insert_new_records(&self, txs: &Vec<Tx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
-    fn delete_records(&self, hashes: HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
 }
 
 #[derive(Debug)]
@@ -102,7 +101,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError> {
+    fn insert_new_records(&self, txs: &Vec<Tx>) -> Result<(), SentPayableDaoError> {
         if txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -233,7 +232,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         Ok(())
     }
 
-    fn delete_records(&self, hashes: HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
+    fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError> {
         if hashes.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -304,7 +303,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let txs = vec![tx1, tx2, tx3];
 
-        let result = subject.insert_new_records(txs.clone());
+        let result = subject.insert_new_records(&txs);
 
         let retrieved_txs = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
@@ -324,7 +323,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(wrapped_conn);
         let empty_input = vec![];
 
-        let result = subject.insert_new_records(empty_input.clone());
+        let result = subject.insert_new_records(&empty_input);
 
         assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
     }
@@ -349,7 +348,7 @@ mod tests {
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.insert_new_records(vec![tx1, tx2]);
+        let result = subject.insert_new_records(&vec![tx1, tx2]);
 
         assert_eq!(
             result,
@@ -378,9 +377,9 @@ mod tests {
             .status(TxStatus::Failed)
             .build();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let initial_insertion_result = subject.insert_new_records(vec![tx1]);
+        let initial_insertion_result = subject.insert_new_records(&vec![tx1]);
 
-        let result = subject.insert_new_records(vec![tx2]);
+        let result = subject.insert_new_records(&vec![tx2]);
 
         assert_eq!(initial_insertion_result, Ok(()));
         assert_eq!(
@@ -413,7 +412,7 @@ mod tests {
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_records(vec![tx]);
+        let result = subject.insert_new_records(&vec![tx]);
 
         assert_eq!(
             result,
@@ -443,7 +442,7 @@ mod tests {
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_records(vec![tx]);
+        let result = subject.insert_new_records(&vec![tx]);
 
         assert_eq!(
             result,
@@ -467,7 +466,7 @@ mod tests {
         let hashset = HashSet::from([hash1, hash2, hash3]);
         let tx1 = TxBuilder::default().hash(hash1).build();
         let tx2 = TxBuilder::default().hash(hash2).build();
-        subject.insert_new_records(vec![tx1, tx2]).unwrap();
+        subject.insert_new_records(&vec![tx1, tx2]).unwrap();
 
         let result = subject.get_tx_identifiers(&hashset);
 
@@ -504,7 +503,7 @@ mod tests {
             }))
             .build();
         subject
-            .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3, tx4])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3, tx4])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::IsPending));
@@ -540,7 +539,7 @@ mod tests {
             .status(TxStatus::Failed)
             .build();
         subject
-            .insert_new_records(vec![tx1, tx2, tx3.clone()])
+            .insert_new_records(&vec![tx1, tx2, tx3.clone()])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
@@ -575,7 +574,7 @@ mod tests {
             .status(TxStatus::Failed)
             .build();
         subject
-            .insert_new_records(vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(ByHash(tx1.hash)));
@@ -600,7 +599,7 @@ mod tests {
             .status(TxStatus::Pending)
             .build();
         subject
-            .insert_new_records(vec![tx1.clone(), tx2.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
         let hash_map = HashMap::from([
             (tx1.hash, TxStatus::Failed),
@@ -617,6 +616,7 @@ mod tests {
 
         let tx1_updated = subject.retrieve_txs(Some(ByHash(tx1.hash))).pop().unwrap();
         let tx2_updated = subject.retrieve_txs(Some(ByHash(tx2.hash))).pop().unwrap();
+        assert_eq!(result, Ok(()));
         assert_eq!(tx1_updated.status, TxStatus::Failed);
         assert_eq!(
             tx2_updated.status,
@@ -642,7 +642,7 @@ mod tests {
             .hash(existent_hash)
             .status(TxStatus::Pending)
             .build();
-        subject.insert_new_records(vec![tx.clone()]).unwrap();
+        subject.insert_new_records(&vec![tx.clone()]).unwrap();
         let hash_map = HashMap::new();
 
         let result = subject.change_statuses(&hash_map);
@@ -666,7 +666,7 @@ mod tests {
             .hash(existent_hash)
             .status(TxStatus::Pending)
             .build();
-        subject.insert_new_records(vec![tx.clone()]).unwrap();
+        subject.insert_new_records(&vec![tx.clone()]).unwrap();
         let hash_map = HashMap::from([
             (existent_hash, TxStatus::Failed),
             (non_existent_hash, TxStatus::Failed),
@@ -738,13 +738,14 @@ mod tests {
             }))
             .build();
         subject
-            .insert_new_records(vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
             .unwrap();
         let hashset = HashSet::from([tx1.hash, tx2.hash]);
 
-        let result = subject.delete_records(hashset);
+        let result = subject.delete_records(&hashset);
 
         let remaining_records = subject.retrieve_txs(None);
+        assert_eq!(result, Ok(()));
         assert_eq!(remaining_records, vec![tx3]);
     }
 
@@ -759,7 +760,7 @@ mod tests {
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
 
-        let result = subject.delete_records(HashSet::new());
+        let result = subject.delete_records(&HashSet::new());
 
         assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
     }
@@ -777,7 +778,7 @@ mod tests {
         let non_existent_hash = H256::from_low_u64_le(999);
         let hashset = HashSet::from([non_existent_hash]);
 
-        let result = subject.delete_records(hashset);
+        let result = subject.delete_records(&hashset);
 
         assert_eq!(result, Err(SentPayableDaoError::NoChange));
     }
@@ -798,16 +799,16 @@ mod tests {
             .hash(present_hash)
             .status(TxStatus::Failed)
             .build();
-        subject.insert_new_records(vec![tx]);
+        subject.insert_new_records(&vec![tx]).unwrap();
         let hashset = HashSet::from([present_hash, absent_hash]);
 
-        let result = subject.delete_records(hashset);
+        let result = subject.delete_records(&hashset);
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::PartialExecution(format!(
-                "Only 1 of the 2 hashes has been deleted."
-            )))
+            Err(SentPayableDaoError::PartialExecution(
+                "Only 1 of the 2 hashes has been deleted.".to_string()
+            ))
         );
     }
 
@@ -829,7 +830,7 @@ mod tests {
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
         let hashes = HashSet::from([H256::from_low_u64_le(1)]);
 
-        let result = subject.delete_records(hashes);
+        let result = subject.delete_records(&hashes);
 
         assert_eq!(
             result,
