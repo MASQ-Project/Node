@@ -73,12 +73,8 @@ pub struct SentPayableDaoReal<'a> {
 
 impl<'a> SentPayableDaoReal<'a> {
     pub fn new(conn: Box<dyn ConnectionWrapper + 'a>) -> Self {
-        // TODO: GH-608: You'll need to write a mock to test this, do that wisely
         Self { conn }
     }
-
-    // TODO: GH-608: There should be a function for executing SQL
-    // TODO: GH-608: There should be a function for handling database errors
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
