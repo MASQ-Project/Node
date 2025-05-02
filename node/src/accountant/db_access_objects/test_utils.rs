@@ -1,3 +1,6 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(test)]
+
 use web3::types::{Address, H256};
 use crate::accountant::db_access_objects::sent_payable_dao::Tx;
 use crate::accountant::db_access_objects::utils::current_unix_timestamp;

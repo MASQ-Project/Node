@@ -1,3 +1,5 @@
+// Copyright (c) 2025, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -59,7 +61,7 @@ impl Display for RetrieveCondition {
 
 pub trait SentPayableDao {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
-    fn insert_new_records(&self, txs: &Vec<Tx>) -> Result<(), SentPayableDaoError>;
+    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
     fn delete_records(&self, hashes: &HashSet<TxHash>) -> Result<(), SentPayableDaoError>;
@@ -78,7 +80,7 @@ impl<'a> SentPayableDaoReal<'a> {
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
     fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
-        let hashes_vec: Vec<TxHash> = hashes.into_iter().copied().collect();
+        let hashes_vec: Vec<TxHash> = hashes.iter().copied().collect();
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
             comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
@@ -101,7 +103,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_records(&self, txs: &Vec<Tx>) -> Result<(), SentPayableDaoError> {
+    fn insert_new_records(&self, txs: &[Tx]) -> Result<(), SentPayableDaoError> {
         if txs.is_empty() {
             return Err(SentPayableDaoError::EmptyInput);
         }
@@ -124,7 +126,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             tx_hash, receiver_address, amount_high_b, amount_low_b, \
             timestamp, gas_price_wei, nonce, status
             ) VALUES {}",
-            comma_joined_stringifiable(&txs, |tx| {
+            comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                 let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
                 format!(
