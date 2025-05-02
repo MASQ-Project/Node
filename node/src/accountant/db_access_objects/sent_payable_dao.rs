@@ -12,10 +12,10 @@ use crate::database::rusqlite_wrappers::ConnectionWrapper;
 #[derive(Debug, PartialEq, Eq)]
 pub enum SentPayableDaoError {
     EmptyInput,
-    SqlExecutionFailed(String),
+    NoChange,
     InvalidInput(String),
     PartialExecution(String),
-    NoChange(String),
+    SqlExecutionFailed(String),
 }
 
 type TxHash = H256;
@@ -106,6 +106,19 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
     }
 
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError> {
+        if txs.is_empty() {
+            return Err(SentPayableDaoError::EmptyInput);
+        }
+
+        let unique_hashes: HashSet<_> = txs.iter().map(|tx| tx.hash).collect();
+        if unique_hashes.len() != txs.len() {
+            return Err(SentPayableDaoError::InvalidInput(
+                "Duplicate hashes found".to_string(),
+            ));
+        }
+
+        // TODO: GH-608: Validate the inputs is not already in the database
+
         let sql = format!(
             "INSERT INTO sent_payable (\
             tx_hash, receiver_address, amount_high_b, amount_low_b, \
@@ -234,9 +247,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
                 if deleted_rows == hashes.len() {
                     Ok(())
                 } else if deleted_rows == 0 {
-                    Err(SentPayableDaoError::NoChange(
-                        "No records were deleted for the specified hashes.".to_string(),
-                    ))
+                    Err(SentPayableDaoError::NoChange)
                 } else {
                     Err(SentPayableDaoError::PartialExecution(format!(
                         "Only {} of the {} hashes has been deleted.",
@@ -301,6 +312,23 @@ mod tests {
     }
 
     #[test]
+    fn insert_new_records_throws_err_for_empty_input() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "insert_new_records_throws_err_for_empty_input",
+        );
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let empty_input = vec![];
+
+        let result = subject.insert_new_records(empty_input.clone());
+
+        assert_eq!(result, Err(SentPayableDaoError::EmptyInput));
+    }
+
+    #[test]
     fn insert_new_records_throws_error_when_two_txs_with_same_hash_are_inserted() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
@@ -324,8 +352,8 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SentPayableDaoError::SqlExecutionFailed(
-                "UNIQUE constraint failed: sent_payable.tx_hash".to_string()
+            Err(SentPayableDaoError::InvalidInput(
+                "Duplicate hashes found".to_string()
             ))
         );
     }
@@ -741,12 +769,7 @@ mod tests {
 
         let result = subject.delete_records(hashset);
 
-        assert_eq!(
-            result,
-            Err(SentPayableDaoError::NoChange(
-                "No records were deleted for the specified hashes.".to_string()
-            ))
-        );
+        assert_eq!(result, Err(SentPayableDaoError::NoChange));
     }
 
     #[test]
