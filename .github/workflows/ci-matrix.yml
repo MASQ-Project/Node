@@ -52,8 +52,6 @@ jobs:
 
       - name: Build ${{ matrix.target.os }}
         run: |
-#          git fetch
-#          git checkout origin/generated-source -- ip_country/src/dbip_country.rs
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
