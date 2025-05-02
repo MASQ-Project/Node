@@ -59,7 +59,7 @@ impl Display for RetrieveCondition {
 
 pub trait SentPayableDao {
     // Note that the order of the returned results is not guaranteed
-    fn get_tx_identifiers(&self, hashes: &[TxHash]) -> TxIdentifiers;
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers;
     fn insert_new_records(&self, txs: Vec<Tx>) -> Result<(), SentPayableDaoError>;
     fn retrieve_txs(&self, condition: Option<RetrieveCondition>) -> Vec<Tx>;
     fn change_statuses(&self, hash_map: &TxUpdates) -> Result<(), SentPayableDaoError>;
@@ -82,10 +82,11 @@ impl<'a> SentPayableDaoReal<'a> {
 }
 
 impl SentPayableDao for SentPayableDaoReal<'_> {
-    fn get_tx_identifiers(&self, hashes: &[TxHash]) -> TxIdentifiers {
+    fn get_tx_identifiers(&self, hashes: &HashSet<TxHash>) -> TxIdentifiers {
+        let hashes_vec: Vec<TxHash> = hashes.into_iter().copied().collect();
         let sql = format!(
             "SELECT tx_hash, rowid FROM sent_payable WHERE tx_hash IN ({})",
-            comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
+            comma_joined_stringifiable(&hashes_vec, |hash| format!("'{:?}'", hash))
         );
 
         let mut stmt = self
@@ -110,14 +111,18 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let unique_hashes: HashSet<_> = txs.iter().map(|tx| tx.hash).collect();
+        let unique_hashes: HashSet<TxHash> = txs.iter().map(|tx| tx.hash).collect();
         if unique_hashes.len() != txs.len() {
             return Err(SentPayableDaoError::InvalidInput(
-                "Duplicate hashes found".to_string(),
+                "Duplicate hashes found in the input".to_string(),
             ));
         }
 
-        // TODO: GH-608: Validate the inputs is not already in the database
+        if !self.get_tx_identifiers(&unique_hashes).is_empty() {
+            return Err(SentPayableDaoError::InvalidInput(
+                "Input hash is already present in the database".to_string(),
+            ));
+        }
 
         let sql = format!(
             "INSERT INTO sent_payable (\
@@ -329,10 +334,10 @@ mod tests {
     }
 
     #[test]
-    fn insert_new_records_throws_error_when_two_txs_with_same_hash_are_inserted() {
+    fn insert_new_records_throws_error_when_two_txs_with_same_hash_are_present_in_the_input() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "insert_new_records_throws_error_when_two_txs_with_same_hash_are_inserted",
+            "insert_new_records_throws_error_when_two_txs_with_same_hash_are_present_in_the_input",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -353,16 +358,16 @@ mod tests {
         assert_eq!(
             result,
             Err(SentPayableDaoError::InvalidInput(
-                "Duplicate hashes found".to_string()
+                "Duplicate hashes found in the input".to_string()
             ))
         );
     }
 
     #[test]
-    fn insert_new_records_throws_error_when_txs_with_an_already_present_hash_is_inserted() {
+    fn insert_new_records_throws_error_when_input_tx_hash_is_already_present_in_the_db() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "insert_new_records_throws_error_when_txs_with_an_already_present_hash_is_inserted",
+            "insert_new_records_throws_error_when_input_tx_hash_is_already_present_in_the_db",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -384,8 +389,8 @@ mod tests {
         assert_eq!(initial_insertion_result, Ok(()));
         assert_eq!(
             result,
-            Err(SentPayableDaoError::SqlExecutionFailed(
-                "UNIQUE constraint failed: sent_payable.tx_hash".to_string()
+            Err(SentPayableDaoError::InvalidInput(
+                "Input hash is already present in the database".to_string()
             ))
         );
     }
@@ -400,7 +405,15 @@ mod tests {
                 .unwrap();
             setup_conn.prepare("SELECT id FROM example").unwrap()
         };
-        let wrapped_conn = ConnectionWrapperMock::default().prepare_result(Ok(failing_stmt));
+        let failing_stmt_2 = {
+            setup_conn
+                .execute("CREATE TABLE example2 (id integer)", [])
+                .unwrap();
+            setup_conn.prepare("SELECT id FROM example2").unwrap()
+        };
+        let wrapped_conn = ConnectionWrapperMock::default()
+            .prepare_result(Ok(failing_stmt))
+            .prepare_result(Ok(failing_stmt_2));
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
@@ -455,11 +468,12 @@ mod tests {
         let hash1 = H256::from_low_u64_le(1);
         let hash2 = H256::from_low_u64_le(2);
         let hash3 = H256::from_low_u64_le(3); // not present in the database
+        let hashset = HashSet::from([hash1, hash2, hash3]);
         let tx1 = TxBuilder::default().hash(hash1).build();
         let tx2 = TxBuilder::default().hash(hash2).build();
         subject.insert_new_records(vec![tx1, tx2]).unwrap();
 
-        let result = subject.get_tx_identifiers(&vec![hash1, hash2, hash3]);
+        let result = subject.get_tx_identifiers(&hashset);
 
         assert_eq!(result.get(&hash1), Some(&1u64));
         assert_eq!(result.get(&hash2), Some(&2u64));
