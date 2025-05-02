@@ -55,16 +55,23 @@ use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use lazy_static::lazy_static;
+use parking_lot::ReentrantMutex;
+
+lazy_static! {
+    static ref CRYPTDE_BOX_WRITE_GUARD: ReentrantMutex<bool> = ReentrantMutex::new(false);
+}
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
+pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
             .as_ref()
@@ -73,12 +80,53 @@ fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
+pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
             .as_ref()
             .expect("Internal error: Alias CryptDE uninitialized")
             .as_ref()
+    }
+}
+
+pub fn initialize_cryptdes(
+    main_cryptde_null_opt: &Option<&dyn CryptDE>,
+    alias_cryptde_null_opt: &Option<&dyn CryptDE>,
+    chain: Chain,
+) -> CryptDEPair {
+    let _guard = CRYPTDE_BOX_WRITE_GUARD.lock();
+    unsafe {
+        initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
+    };
+    unsafe {
+        initialize_single_cryptde(
+            alias_cryptde_null_opt,
+            &mut ALIAS_CRYPTDE_BOX_OPT,
+            chain,
+        )
+    }
+    CryptDEPair::default()
+}
+
+pub fn set_main_cryptde(cryptde: &dyn CryptDE) {
+    let _guard = CRYPTDE_BOX_WRITE_GUARD.lock();
+    unsafe {
+        MAIN_CRYPTDE_BOX_OPT = Some(cryptde.dup());
+    }
+}
+
+fn initialize_single_cryptde(
+    cryptde_null_opt: &Option<&dyn CryptDE>,
+    boxed_cryptde: &mut Option<Box<dyn CryptDE>>,
+    chain: Chain,
+) {
+    match cryptde_null_opt {
+        Some(cryptde) => {
+            let _ = boxed_cryptde.replace(Box::new(<&CryptDENull>::from(*cryptde).clone()));
+        }
+        None => {
+            let _ = boxed_cryptde.replace(Box::new(CryptDEReal::new(chain)));
+        }
     }
 }
 
@@ -500,7 +548,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
         let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
-        let cryptdes = Bootstrapper::initialize_cryptdes(
+        let cryptdes = initialize_cryptdes(
             &main_cryptde_null_opt,
             &alias_cryptde_null_opt,
             self.config.blockchain_bridge_config.chain,
@@ -546,44 +594,11 @@ impl Bootstrapper {
         main_cryptde_null_opt: &Option<&dyn CryptDE>,
         alias_cryptde_null_opt: &Option<&dyn CryptDE>,
     ) -> CryptDEPair {
-        Self::initialize_cryptdes(
+        initialize_cryptdes(
             main_cryptde_null_opt,
             alias_cryptde_null_opt,
             masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN,
         )
-    }
-
-    fn initialize_cryptdes(
-        main_cryptde_null_opt: &Option<&dyn CryptDE>,
-        alias_cryptde_null_opt: &Option<&dyn CryptDE>,
-        chain: Chain,
-    ) -> CryptDEPair {
-        unsafe {
-            Self::initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
-        };
-        unsafe {
-            Self::initialize_single_cryptde(
-                alias_cryptde_null_opt,
-                &mut ALIAS_CRYPTDE_BOX_OPT,
-                chain,
-            )
-        }
-        CryptDEPair::default()
-    }
-
-    fn initialize_single_cryptde(
-        cryptde_null_opt: &Option<&dyn CryptDE>,
-        boxed_cryptde: &mut Option<Box<dyn CryptDE>>,
-        chain: Chain,
-    ) {
-        match cryptde_null_opt {
-            Some(cryptde) => {
-                let _ = boxed_cryptde.replace(Box::new(<&CryptDENull>::from(*cryptde).clone()));
-            }
-            None => {
-                let _ = boxed_cryptde.replace(Box::new(CryptDEReal::new(chain)));
-            }
-        }
     }
 
     fn make_local_descriptor(
@@ -709,6 +724,7 @@ impl Bootstrapper {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
@@ -1530,7 +1546,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_without_cryptde_null_uses_cryptde_real() {
         let _lock = INITIALIZATION.lock();
-        let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+        let cryptdes = initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
 
         assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
         // Brittle assertion: this may not be true forever
@@ -1545,7 +1561,7 @@ mod tests {
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
         let cryptdes =
-            Bootstrapper::initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
+            initialize_cryptdes(&Some(cryptde_null), &None, TEST_DEFAULT_CHAIN);
 
         assert_eq!(cryptdes.main.public_key(), &cryptde_null_public_key);
         assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());
@@ -1560,7 +1576,7 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            let cryptdes = initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor = Bootstrapper::make_local_descriptor(
                 cryptdes.main,
                 Some(node_addr),
@@ -1603,7 +1619,7 @@ mod tests {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let cryptdes = {
-            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
+            let cryptdes = initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor =
                 Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
             Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);

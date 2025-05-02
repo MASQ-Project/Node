@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use std::fmt::{Display, Formatter};
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
     BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_CHAIN,
@@ -44,6 +45,21 @@ impl From<&str> for Chain {
         } else {
             panic!("Clap let in a wrong value for chain: '{}'; if this happens we need to track down the slit", str)
         }
+    }
+}
+
+impl Display for Chain {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        let chain_name = match self {
+            Chain::EthMainnet => ETH_MAINNET_FULL_IDENTIFIER,
+            Chain::EthRopsten => ETH_ROPSTEN_FULL_IDENTIFIER,
+            Chain::PolyMainnet => POLYGON_MAINNET_FULL_IDENTIFIER,
+            Chain::PolyAmoy => POLYGON_AMOY_FULL_IDENTIFIER,
+            Chain::BaseMainnet => BASE_MAINNET_FULL_IDENTIFIER,
+            Chain::BaseSepolia => BASE_SEPOLIA_FULL_IDENTIFIER,
+            Chain::Dev => DEV_CHAIN_FULL_IDENTIFIER,
+        };
+        write!(f, "{}", chain_name)
     }
 }
 

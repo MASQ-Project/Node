@@ -236,8 +236,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.cryptde_params.lock().unwrap().push(db_password.to_string());
         let cryptde_result_opt_ref = self.cryptde_results.borrow();
         let cryptde_result_ref = cryptde_result_opt_ref.as_ref().unwrap();
-        let cryptde_box = cryptde_result_ref.as_ref().unwrap().dup();
-        Ok(cryptde_box)
+        match cryptde_result_ref {
+            Ok(cryptde) => Ok(cryptde.dup()),
+            Err(e) => Err(e.clone()),
+        }
     }
 
     fn set_cryptde(&mut self, cryptde: &dyn CryptDE, db_password: &str) -> Result<(), PersistentConfigError> {
