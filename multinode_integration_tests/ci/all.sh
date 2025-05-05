@@ -14,11 +14,6 @@ export RUST_BACKTRACE=full
 # executable they need will not be in your filesystem but in your (and their) parent's filesystem.  If that's the
 # case, make sure you pass in as parameter 1 the path to the directory just above the 'node' module directory,
 # IN THE CONTEXT OF THE PARENT (host) FILESYSTEM.
-export HOST_NODE_PARENT_DIR="$1"
-
-if [ "HOST_NODE_PARENT_DIR" == "" ]; then
-    export HOST_NODE_PARENT_DIR="$CI_DIR/../.."
-fi
 
 pushd "$CI_DIR/../../port_exposer"
 ci/all.sh "$TOOLCHAIN_HOME"
