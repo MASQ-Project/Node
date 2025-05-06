@@ -57,31 +57,31 @@ use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use crate::sub_lib::stream_key::StreamKey;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
-    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref MAIN_CRYPTDE_NULL: RwLock<Box<dyn CryptDE + 'static>> =
+        RwLock::new(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)));
+    static ref ALIAS_CRYPTDE_NULL: RwLock<Box<dyn CryptDE + 'static>> =
+        RwLock::new(Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN)));
 }
 
-pub fn main_cryptde() -> &'static dyn CryptDE {
-    MAIN_CRYPTDE_NULL.as_ref()
+pub fn main_cryptde() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
+    MAIN_CRYPTDE_NULL.read().unwrap()
 }
 
-pub fn alias_cryptde() -> &'static dyn CryptDE {
-    ALIAS_CRYPTDE_NULL.as_ref()
+pub fn alias_cryptde() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
+    ALIAS_CRYPTDE_NULL.read().unwrap()
 }
 
 pub fn make_cryptde_pair() -> CryptDEPair {
     CryptDEPair {
-        main: main_cryptde(),
-        alias: alias_cryptde(),
+        main: main_cryptde().as_ref(),
+        alias: alias_cryptde().as_ref(),
     }
 }
 
@@ -177,7 +177,7 @@ impl Waiter {
 pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
     Route::one_way(
         RouteSegment::new(public_keys, Component::ProxyClient),
-        main_cryptde(),
+        main_cryptde().as_ref(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
@@ -193,7 +193,7 @@ pub fn make_meaningless_route() -> Route {
             ],
             Component::ProxyClient,
         ),
-        main_cryptde(),
+        main_cryptde().as_ref(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
@@ -1243,7 +1243,7 @@ mod tests {
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let key = cryptde.public_key();
 
         let subject = zero_hop_route_response(&key, cryptde);
@@ -1275,7 +1275,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_client(&key, cryptde);
@@ -1299,7 +1299,7 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let key = cryptde.public_key();
 
         let subject = route_from_proxy_client(&key, cryptde);
@@ -1323,7 +1323,7 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let key = cryptde.public_key();
 
         let subject = route_to_proxy_server(&key, cryptde);

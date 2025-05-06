@@ -282,12 +282,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            main_cryptde().as_ref(),
                             "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            main_cryptde().as_ref(),
                             "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -442,12 +442,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            main_cryptde().as_ref(),
                             "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            main_cryptde().as_ref(),
                             "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -546,12 +546,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            main_cryptde().as_ref(),
                             "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            main_cryptde().as_ref(),
                             "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -635,7 +635,7 @@ mod tests {
         let cryptde = main_cryptde();
         let data = PlainData::new(&[192, 193]);
 
-        let _ = translate_bytes("pastNeighbors", data, cryptde);
+        let _ = translate_bytes("pastNeighbors", data, cryptde.as_ref());
     }
 
     #[test]
@@ -644,7 +644,7 @@ mod tests {
         let cryptde = main_cryptde();
         let data = PlainData::new(b"invalid hex");
 
-        let _ = translate_bytes("pastNeighbors", data, cryptde);
+        let _ = translate_bytes("pastNeighbors", data, cryptde.as_ref());
     }
 
     #[test]
@@ -653,7 +653,7 @@ mod tests {
         let cryptde = main_cryptde();
         let data = PlainData::new(b"AABBCC");
 
-        let _ = translate_bytes("pastNeighbors", data, cryptde);
+        let _ = translate_bytes("pastNeighbors", data, cryptde.as_ref());
     }
 
     fn assert_value(key: &str, expected_value: &str, map: &Map<String, Value>) {

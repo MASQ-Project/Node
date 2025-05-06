@@ -244,7 +244,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                     set_main_cryptde(last_main_cryptde.as_ref());
                 },
                 Err(PersistentConfigError::NotPresent) => {
-                    persistent_config.set_cryptde(main_cryptde_ref(), db_password)
+                    persistent_config.set_cryptde(main_cryptde_ref().as_ref(), db_password)
                         .expect("Failed to set cryptde");
                 },
                 Err(e) => panic!("Could not read last_cryptde from database: {:?}", e),
@@ -1093,8 +1093,8 @@ mod tests {
         let validate_database_chain_params_arc = Arc::new(Mutex::new(vec![]));
         let prepare_initial_messages_params_arc = Arc::new(Mutex::new(vec![]));
         let (stream_handler_pool, _, stream_handler_pool_recording_arc) = make_recorder();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let cryptde_pair = CryptDEPair {
             main: main_cryptde,
             alias: alias_cryptde,
@@ -1232,8 +1232,8 @@ mod tests {
             .chain_name_result("base-sepolia".to_string())
             .set_min_hops_result(Ok(()));
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde()),
-            &Some(alias_cryptde()),
+            &Some(main_cryptde().as_ref()),
+            &Some(alias_cryptde().as_ref()),
         );
         let mut tools = make_subject_with_null_setter();
         tools.automap_control_factory = Box::new(
@@ -1287,7 +1287,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
+            node_descriptor: NodeDescriptor::try_from((main_cryptde().as_ref(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: Some(AutomapProtocol::Igdp),
@@ -1388,7 +1388,7 @@ mod tests {
         let dispatcher_param = Parameters::get(parameters.dispatcher_params);
         assert_eq!(
             dispatcher_param.node_descriptor,
-            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
+            NodeDescriptor::try_from((main_cryptde().as_ref(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap()
         );
         let blockchain_bridge_param = Parameters::get(parameters.blockchain_bridge_params);
         assert_eq!(
@@ -1697,7 +1697,7 @@ mod tests {
             earning_wallet: make_wallet("earning"),
             consuming_wallet_opt: Some(make_wallet("consuming")),
             data_directory: PathBuf::new(),
-            node_descriptor: NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
+            node_descriptor: NodeDescriptor::try_from((main_cryptde().as_ref(), "masq://polygon-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@172.50.48.6:9342")).unwrap(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
@@ -1932,7 +1932,7 @@ mod tests {
     fn proxy_client_drags_down_the_whole_system_due_to_local_panic() {
         let closure = || {
             let proxy_cl_config = ProxyClientConfig {
-                cryptde: main_cryptde(),
+                cryptde: main_cryptde().as_ref(),
                 dns_servers: vec![SocketAddr::V4(
                     SocketAddrV4::from_str("1.1.1.1:45").unwrap(),
                 )],
@@ -2100,8 +2100,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone()),
+            &Some(main_cryptde().dup().as_ref()),
+            &Some(alias_cryptde().dup().as_ref()),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(ActorSystemFactoryToolsReal::new()));
 

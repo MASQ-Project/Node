@@ -889,7 +889,7 @@ mod tests {
             NeighborhoodMode::OriginateOnly(
                 vec![
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        main_cryptde().as_ref(),
                         format!(
                             "masq://{}:QmlsbA@1.2.3.4:1234/2345",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -898,7 +898,7 @@ mod tests {
                     ))
                     .unwrap(),
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        main_cryptde().as_ref(),
                         format!(
                             "masq://{}:VGVk@2.3.4.5:3456/4567",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -964,7 +964,7 @@ mod tests {
             result.unwrap().mode,
             NeighborhoodMode::ConsumeOnly(vec![
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     format!(
                         "masq://{}:QmlsbA@1.2.3.4:1234/2345",
                         DEFAULT_CHAIN.rec().literal_identifier
@@ -973,7 +973,7 @@ mod tests {
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     format!(
                         "masq://{}:VGVk@2.3.4.5:3456/4567",
                         DEFAULT_CHAIN.rec().literal_identifier
@@ -1371,7 +1371,7 @@ mod tests {
             *set_past_neighbors_params,
             vec![(
                 Some(vec![NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345"
                 ))
                 .unwrap()]),
@@ -1417,7 +1417,7 @@ mod tests {
         let mut persistent_config = PersistentConfigurationMock::new();
         //no results prepared for set_past_neighbors() and no panic so it was not called
         let descriptor_list = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            main_cryptde().as_ref(),
             "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
         ))
         .unwrap()];
@@ -1441,7 +1441,7 @@ mod tests {
             Err(PersistentConfigError::DatabaseError("Oh yeah".to_string())),
         );
         let descriptor_list = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            main_cryptde().as_ref(),
             "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
         ))
         .unwrap()];
@@ -1566,7 +1566,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
                 vec![
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        main_cryptde().as_ref(),
                         format!(
                             "masq://{}:QmlsbA@1.2.3.4:1234/2345",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -1575,7 +1575,7 @@ mod tests {
                     ))
                     .unwrap(),
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        main_cryptde().as_ref(),
                         format!(
                             "masq://{}:VGVk@2.3.4.5:3456/4567",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -1682,12 +1682,12 @@ mod tests {
             config.neighborhood_config.mode.neighbor_configs(),
             &[
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
                 ))
                 .unwrap(),
@@ -2642,7 +2642,7 @@ mod tests {
             (Some(past_neighbors), Some(_)) => Ok(Some(
                 past_neighbors
                     .split(",")
-                    .map(|s| NodeDescriptor::try_from((main_cryptde(), s)).unwrap())
+                    .map(|s| NodeDescriptor::try_from((main_cryptde().as_ref(), s)).unwrap())
                     .collect::<Vec<NodeDescriptor>>(),
             )),
             _ => Ok(None),

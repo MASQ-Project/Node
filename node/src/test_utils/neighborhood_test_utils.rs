@@ -86,7 +86,7 @@ pub fn neighborhood_from_nodes(
     root: &NodeRecord,
     neighbor_opt: Option<&NodeRecord>,
 ) -> Neighborhood {
-    let cryptde: &dyn CryptDE = main_cryptde();
+    let cryptde: &dyn CryptDE = main_cryptde().as_ref();
     if root.public_key() != cryptde.public_key() {
         panic!("Neighborhood must be built on root node with public key from cryptde()");
     }

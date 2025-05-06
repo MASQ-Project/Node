@@ -92,7 +92,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let stream_key = StreamKey::make_meaningless_stream_key();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -129,7 +129,7 @@ mod tests {
             is_clandestine: false,
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -185,7 +185,7 @@ mod tests {
             data: data.clone().into(),
         };
         let stream_key = StreamKey::make_meaningless_stream_key();
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -234,7 +234,7 @@ mod tests {
             sequence_number: Some(0),
             data: data.clone().into(),
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -271,7 +271,7 @@ mod tests {
             is_clandestine: false,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -297,7 +297,7 @@ mod tests {
             is_clandestine: true,
             data: vec![0x10, 0x11, 0x12],
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
@@ -319,7 +319,7 @@ mod tests {
             data: vec![0x10, 0x11, 0x12],
             is_clandestine: false,
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new("test");
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
@@ -348,7 +348,7 @@ mod tests {
             sequence_number: None,
             data: vec![1, 3, 5, 7],
         };
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let logger = Logger::new(test_name);
         let stream_key = StreamKey::make_meaningful_stream_key(test_name);
         let subject = Box::new(ClientRequestPayloadFactoryReal::new());

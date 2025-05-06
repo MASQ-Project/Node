@@ -594,7 +594,7 @@ impl Configurator {
                         None => vec![],
                         Some(pns) => pns
                             .into_iter()
-                            .map(|nd| nd.to_string(main_cryptde()))
+                            .map(|nd| nd.to_string(main_cryptde().as_ref()))
                             .collect::<Vec<String>>(),
                     };
                     (
@@ -2531,7 +2531,7 @@ mod tests {
             &public_key,
             &node_addr,
             Chain::EthRopsten,
-            main_cryptde() as &dyn CryptDE,
+            main_cryptde().as_ref(),
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
@@ -2660,7 +2660,7 @@ mod tests {
             &public_key,
             &node_addr,
             Chain::EthRopsten,
-            main_cryptde() as &dyn CryptDE,
+            main_cryptde().as_ref(),
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
@@ -2705,7 +2705,7 @@ mod tests {
                 consuming_wallet_address_opt: Some(consuming_wallet_address),
                 earning_wallet_address_opt: Some(earning_wallet_address),
                 port_mapping_protocol_opt: Some(AutomapProtocol::Igdp.to_string()),
-                past_neighbors: vec![node_descriptor.to_string(main_cryptde())],
+                past_neighbors: vec![node_descriptor.to_string(main_cryptde().as_ref())],
                 payment_thresholds: UiPaymentThresholds {
                     threshold_interval_sec: 10_000,
                     debt_threshold_gwei: 5_000_000,

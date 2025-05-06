@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_present() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let mut subject = make_node_record(1234, true);
         subject.metadata.node_addr_opt = Some(NodeAddr::new(
             &subject.metadata.node_addr_opt.unwrap().ip_addr(),
@@ -408,7 +408,7 @@ mod tests {
         assert_eq!(
             result,
             NodeDescriptor::try_from((
-                main_cryptde(),
+                main_cryptde().as_ref(),
                 "masq://base-sepolia:AQIDBA@1.2.3.4:1234/2345"
             ))
             .unwrap()
@@ -417,14 +417,14 @@ mod tests {
 
     #[test]
     fn node_descriptor_works_when_node_addr_is_not_present() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = main_cryptde().as_ref();
         let subject: NodeRecord = make_node_record(1234, false);
 
         let result = subject.node_descriptor(TEST_DEFAULT_CHAIN, cryptde);
 
         assert_eq!(
             result,
-            NodeDescriptor::try_from((main_cryptde(), "masq://base-sepolia:AQIDBA@:")).unwrap()
+            NodeDescriptor::try_from((main_cryptde().as_ref(), "masq://base-sepolia:AQIDBA@:")).unwrap()
         );
     }
 
@@ -590,7 +590,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let duplicate = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -599,7 +599,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let mut with_neighbor = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -608,7 +608,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let mod_key = NodeRecord::new(
             &PublicKey::new(&b"kope"[..]),
@@ -617,7 +617,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         with_neighbor
             .add_half_neighbor_key(mod_key.public_key().clone())
@@ -629,7 +629,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         mod_node_addr
             .set_node_addr(&NodeAddr::new(
@@ -644,7 +644,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let mod_rate_pack = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -653,7 +653,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let mod_accepts_connections = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -662,7 +662,7 @@ mod tests {
             false,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let mod_routes_data = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -671,7 +671,7 @@ mod tests {
             true,
             false,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         let mut mod_signed_gossip = NodeRecord::new(
             &PublicKey::new(&b"poke"[..]),
@@ -680,7 +680,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         mod_signed_gossip.signed_gossip = mod_rate_pack.signed_gossip.clone();
         let mut mod_signature = NodeRecord::new(
@@ -690,7 +690,7 @@ mod tests {
             true,
             true,
             0,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
         mod_signature.signature = CryptData::new(&[]);
         let mod_version = NodeRecord::new(
@@ -700,7 +700,7 @@ mod tests {
             true,
             true,
             1,
-            main_cryptde(),
+            main_cryptde().as_ref(),
         );
 
         assert_eq!(exemplar, exemplar);

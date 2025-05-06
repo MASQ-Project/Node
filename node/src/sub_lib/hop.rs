@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn decode_can_handle_errors() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let encrypted = CryptData::new(&[0]);
 
         let result = LiveHop::decode(cryptde, &encrypted);
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn encode_decode() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
         let contract_address = &TEST_DEFAULT_CHAIN.rec().contract.clone();

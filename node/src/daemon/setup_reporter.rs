@@ -980,7 +980,7 @@ impl ValueRetriever for NeighborhoodMode {
 fn node_descriptors_to_neighbors(node_descriptors: Vec<NodeDescriptor>) -> String {
     node_descriptors
         .into_iter()
-        .map(|nd| nd.to_string(main_cryptde()))
+        .map(|nd| nd.to_string(main_cryptde().as_ref()))
         .collect_vec()
         .join(",")
 }
@@ -3212,12 +3212,12 @@ mod tests {
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    main_cryptde().as_ref(),
                     "masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
                 ))
                 .unwrap(),

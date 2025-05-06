@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use std::ops::Deref;
 use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
@@ -26,7 +27,7 @@ use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
-use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde::{CryptDE, NULL_CRYPTDE};
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -55,78 +56,109 @@ use std::fmt::{Debug, Display, Error, Formatter};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::vec::Vec;
 use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
 use lazy_static::lazy_static;
-use parking_lot::ReentrantMutex;
 
 lazy_static! {
-    static ref CRYPTDE_BOX_WRITE_GUARD: ReentrantMutex<bool> = ReentrantMutex::new(false);
+    pub static ref CDE: &'static SynchronizedCryptDEPair = unsafe {&CDE_WRT};
 }
 
-static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
-static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
+static mut CDE_WRT: SynchronizedCryptDEPair = SynchronizedCryptDEPair::new();
 
-pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
-    unsafe {
-        MAIN_CRYPTDE_BOX_OPT
-            .as_ref()
-            .expect("Internal error: Main CryptDE uninitialized")
-            .as_ref()
+struct CryptDERef {
+    delegate: Arc<RwLock<Box<dyn CryptDE>>>
+}
+
+impl Deref for CryptDERef {
+    type Target = RwLockReadGuard<dyn CryptDE>;
+
+    fn deref(&self) -> &RwLockReadGuard<dyn CryptDE> {
+        &*self.delegate.read().expect("CryptDE poisoned")
     }
 }
 
-pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
-    unsafe {
-        ALIAS_CRYPTDE_BOX_OPT
-            .as_ref()
-            .expect("Internal error: Alias CryptDE uninitialized")
-            .as_ref()
+struct SynchronizedCryptDEPair {
+    main_cryptde: Arc<RwLock<Box<dyn CryptDE>>>,
+    alias_cryptde: Arc<RwLock<Box<dyn CryptDE>>>,
+}
+
+impl SynchronizedCryptDEPair {
+    fn new() -> Self {
+        Self {
+            main_cryptde: RwLock::new(NULL_CRYPTDE.dup()),
+            alias_cryptde: RwLock::new(NULL_CRYPTDE.dup()),
+        }
     }
+
+    pub fn initialize_cryptdes(&mut self,
+        main_cryptde_opt: &Option<&dyn CryptDE>,
+        alias_cryptde_opt: &Option<&dyn CryptDE>,
+        chain: Chain,
+    ) {
+        let defaulter = |input: &Option<&dyn CryptDE>| {
+            match input {
+                Some(cryptde) => {
+                    cryptde.dup()
+                }
+                None => {
+                    Box::new(CryptDEReal::new(chain)) as Box<dyn CryptDE>
+                }
+            }
+        };
+        let main = defaulter(main_cryptde_opt);
+        self.set_main_cryptde(main.as_ref());
+        let alias = defaulter(alias_cryptde_opt);
+        self.set_alias_cryptde(alias.as_ref());
+    }
+
+    pub fn set_main_cryptde(&mut self, cryptde: &dyn CryptDE) {
+        let mut write_lock = self.main_cryptde.write()
+            .expect("Main CryptDE poisoned");
+        *write_lock = cryptde.dup();
+    }
+
+    pub fn set_alias_cryptde(&mut self, cryptde: &dyn CryptDE) {
+        let mut write_lock = self.alias_cryptde.write()
+            .expect("Alias CryptDE poisoned");
+        *write_lock = cryptde.dup();
+    }
+
+    pub fn main_cryptde_ref(&self) -> RwLockReadGuard<Box<dyn CryptDE>> {
+        self.main_cryptde.read().expect("Main CryptDE poisoned")
+    }
+
+    pub fn alias_cryptde_ref(&self) -> RwLockReadGuard<Box<dyn CryptDE>> {
+        self.alias_cryptde.read().expect("Main CryptDE poisoned")
+    }
+}
+
+pub fn main_cryptde_ref() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
+    CDE.main_cryptde_ref()
+}
+
+pub fn alias_cryptde_ref() -> RwLockReadGuard<'static, Box<dyn CryptDE>> {
+    CDE.alias_cryptde_ref()
 }
 
 pub fn initialize_cryptdes(
-    main_cryptde_null_opt: &Option<&dyn CryptDE>,
-    alias_cryptde_null_opt: &Option<&dyn CryptDE>,
+    main_cryptde_opt: &Option<&dyn CryptDE>,
+    alias_cryptde_opt: &Option<&dyn CryptDE>,
     chain: Chain,
 ) -> CryptDEPair {
-    let _guard = CRYPTDE_BOX_WRITE_GUARD.lock();
     unsafe {
-        initialize_single_cryptde(main_cryptde_null_opt, &mut MAIN_CRYPTDE_BOX_OPT, chain)
-    };
-    unsafe {
-        initialize_single_cryptde(
-            alias_cryptde_null_opt,
-            &mut ALIAS_CRYPTDE_BOX_OPT,
-            chain,
-        )
+        CDE_WRT.initialize_cryptdes(main_cryptde_opt, alias_cryptde_opt, chain);
     }
     CryptDEPair::default()
 }
 
 pub fn set_main_cryptde(cryptde: &dyn CryptDE) {
-    let _guard = CRYPTDE_BOX_WRITE_GUARD.lock();
     unsafe {
-        MAIN_CRYPTDE_BOX_OPT = Some(cryptde.dup());
-    }
-}
-
-fn initialize_single_cryptde(
-    cryptde_null_opt: &Option<&dyn CryptDE>,
-    boxed_cryptde: &mut Option<Box<dyn CryptDE>>,
-    chain: Chain,
-) {
-    match cryptde_null_opt {
-        Some(cryptde) => {
-            let _ = boxed_cryptde.replace(Box::new(<&CryptDENull>::from(*cryptde).clone()));
-        }
-        None => {
-            let _ = boxed_cryptde.replace(Box::new(CryptDEReal::new(chain)));
-        }
+        CDE_WRT.set_main_cryptde(cryptde);
     }
 }
 
@@ -143,6 +175,7 @@ impl Clone for CryptDEPair {
 pub struct CryptDEPair {
     // This has the public key by which this Node is known to other Nodes on the network
     pub main: &'static dyn CryptDE,
+    // pub main: RwLockReadGuard<'static, Box<(dyn CryptDE)>>,
     // This has the public key with which this Node instructs exit Nodes to encrypt responses.
     // In production, it is unrelated to the main public key to prevent the exit Node from
     // identifying the originating Node. In tests using --fake-public-key, the alias public key
@@ -153,8 +186,8 @@ pub struct CryptDEPair {
 impl Default for CryptDEPair {
     fn default() -> Self {
         CryptDEPair {
-            main: main_cryptde_ref(),
-            alias: alias_cryptde_ref(),
+            main: main_cryptde_ref().as_ref(),
+            alias: alias_cryptde_ref().as_ref(),
         }
     }
 }
@@ -957,6 +990,35 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "not implemented: NullCryptDE doesn't do this")]
+    fn original_main_cryptde_is_null_cryptde() {
+        let subject = SynchronizedCryptDEPair::new();
+
+        subject.main_cryptde_ref().public_key();
+    }
+
+    #[test]
+    #[should_panic(expected = "not implemented: NullCryptDE doesn't do this")]
+    fn original_alias_cryptde_is_null_cryptde() {
+        let subject = SynchronizedCryptDEPair::new();
+
+        subject.alias_cryptde_ref().public_key();
+    }
+
+    #[test]
+    fn can_set_and_read_cryptdes() {
+        let main = CryptDEReal::new(Chain::EthMainnet);
+        let alias = CryptDEReal::new(Chain::EthMainnet);
+        let mut subject = SynchronizedCryptDEPair::new();
+
+        subject.set_main_cryptde(&main);
+        subject.set_alias_cryptde(&alias);
+
+        assert_eq!(subject.main_cryptde_ref().public_key(), main.public_key());
+        assert_eq!(subject.alias_cryptde_ref().public_key(), alias.public_key());
+    }
+
+    #[test]
     fn real_user_from_blank() {
         let result = RealUser::from_str("").err().unwrap();
 
@@ -1223,7 +1285,7 @@ mod tests {
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::BaseSepolia,
-                main_cryptde_ref()
+                main_cryptde_ref().as_ref()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
@@ -1339,7 +1401,7 @@ mod tests {
                 main_cryptde_ref().public_key(),
                 &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
                 Chain::BaseSepolia,
-                main_cryptde_ref()
+                main_cryptde_ref().as_ref()
             ))
         );
         TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
@@ -1557,7 +1619,7 @@ mod tests {
     #[test]
     fn initialize_cryptde_with_cryptde_null_uses_cryptde_null() {
         let _lock = INITIALIZATION.lock();
-        let cryptde_null = main_cryptde().clone();
+        let cryptde_null = main_cryptde().as_ref().clone();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
         let cryptdes =

@@ -399,7 +399,7 @@ mod tests {
             "node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real",
         );
         let neighbor = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            main_cryptde().as_ref(),
             "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
         ))
         .unwrap()];
@@ -1449,7 +1449,7 @@ mod tests {
         config.blockchain_bridge_config.gas_price = gas_price;
         config.neighborhood_config.mode =
             NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
-                main_cryptde(),
+                main_cryptde().as_ref(),
                 format!(
                     "masq://{}:AQIDBA@1.2.3.4:1234/2345",
                     TEST_DEFAULT_CHAIN.rec().literal_identifier

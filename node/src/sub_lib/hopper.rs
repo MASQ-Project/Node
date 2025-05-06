@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1, 2, 3, 4]);
         let payload = make_meaningless_message_type();
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let result = NoLookupIncipientCoresPackage::new(
             cryptde,
             &PublicKey::new(&[]),
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let result = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
@@ -290,7 +290,7 @@ mod tests {
         let immediate_neighbor = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),

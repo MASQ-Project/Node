@@ -178,7 +178,7 @@ mod tests {
             ];
 
             let subject = StreamEstablisher {
-                cryptde: main_cryptde(),
+                cryptde: main_cryptde().as_ref(),
                 stream_adder_tx,
                 stream_killer_tx,
                 stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"

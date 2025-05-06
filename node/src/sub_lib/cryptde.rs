@@ -561,6 +561,100 @@ pub trait CryptDE: Send + Sync + Any {
     fn as_any(&self) -> &dyn Any;
 }
 
+pub struct NullCryptDE;
+
+impl CryptDE for NullCryptDE {
+    fn encode(&self, _public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn decode(&self, data: &CryptData) -> Result<PlainData, CryptdecError> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn encode_sym(
+        &self,
+        _key: &SymmetricKey,
+        data: &PlainData,
+    ) -> Result<CryptData, CryptdecError> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn decode_sym(
+        &self,
+        _key: &SymmetricKey,
+        data: &CryptData,
+    ) -> Result<PlainData, CryptdecError> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn gen_key_sym(&self) -> SymmetricKey {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn random(&self, _dest: &mut [u8]) {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn private_key(&self) -> &PrivateKey {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn dup(&self) -> Box<dyn CryptDE> {
+        Box::new(NullCryptDE{})
+    }
+
+    fn sign(&self, data: &PlainData) -> Result<CryptData, CryptdecError> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn verify_signature(
+        &self,
+        _data: &PlainData,
+        _signature: &CryptData,
+        _public_key: &PublicKey,
+    ) -> bool {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn hash(&self, data: &PlainData) -> CryptData {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn public_key_to_descriptor_fragment(&self, _public_key: &PublicKey) -> String {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn descriptor_fragment_to_first_contact_public_key(
+        &self,
+        _descriptor_fragment: &str,
+    ) -> Result<PublicKey, String> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn digest(&self) -> [u8; 32] {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn make_from_str(&self, value: &str, chain: Chain) -> Result<Box<dyn CryptDE>, String> {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn to_string(&self) -> String {
+        unimplemented!("NullCryptDE doesn't do this")
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+pub const NULL_CRYPTDE: NullCryptDE = NullCryptDE{};
+
 pub struct SerdeCborError {
     pub delegate: serde_cbor::error::Error,
 }
@@ -1011,7 +1105,7 @@ mod tests {
 
     #[test]
     fn encodex_and_decodex_communicate() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let start = TestStruct::make();
 
         let intermediate = encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -1022,7 +1116,7 @@ mod tests {
 
     #[test]
     fn encodex_produces_expected_data() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let start = TestStruct::make();
 
         let intermediate = super::encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -1035,7 +1129,7 @@ mod tests {
 
     #[test]
     fn decodex_produces_expected_structure() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
         let encrypted = cryptde
             .encode(&cryptde.public_key(), &PlainData::from(serialized))
@@ -1048,7 +1142,7 @@ mod tests {
 
     #[test]
     fn encodex_handles_encryption_error() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let item = TestStruct::make();
 
         let result = encodex(cryptde, &PublicKey::new(&[]), &item);
@@ -1096,7 +1190,7 @@ mod tests {
 
     #[test]
     fn encodex_handles_serialization_error() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let item = BadSerStruct { flag: true };
 
         let result = encodex(cryptde, &cryptde.public_key(), &item);
@@ -1110,7 +1204,7 @@ mod tests {
 
     #[test]
     fn decodex_handles_deserialization_error() {
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let data = cryptde
             .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
             .unwrap();

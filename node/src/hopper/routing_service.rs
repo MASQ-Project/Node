@@ -86,7 +86,7 @@ impl RoutingService {
             }
         };
 
-        let next_hop = match live_package.route.next_hop(self.cryptdes.main.borrow()) {
+        let next_hop = match live_package.route.next_hop(self.cryptdes.main) {
             Ok(hop) => hop,
             Err(e) => {
                 error!(
@@ -468,7 +468,7 @@ impl RoutingService {
         last_data: bool,
     ) -> Result<TransmitDataMsg, CryptdecError> {
         let (next_hop, next_live_package) =
-            match live_package.into_next_live(self.cryptdes.main.borrow()) {
+            match live_package.into_next_live(self.cryptdes.main) {
                 Err(e) => {
                     let msg = format!(
                         "Couldn't get next hop and outgoing LCP from incoming LCP: {:?}",
@@ -685,8 +685,8 @@ mod tests {
     #[test]
     fn logs_and_ignores_message_that_had_invalid_destination() {
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let route = route_from_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = GossipBuilder::empty();
         let lcp = LiveCoresPackage::new(
@@ -734,8 +734,8 @@ mod tests {
     fn converts_live_message_to_expired_for_existing_proxy_client() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let (component, _, component_recording_arc) = make_recorder();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = make_request_payload(0, main_cryptde);
@@ -809,8 +809,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         init_test_logging();
         BAN_CACHE.clear();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
         let payload = make_request_payload(0, main_cryptde);
         let lcp = LiveCoresPackage::new(
@@ -869,8 +869,8 @@ mod tests {
     fn converts_live_message_to_expired_for_proxy_server() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
         let payload = make_response_payload(0);
@@ -940,8 +940,8 @@ mod tests {
     fn converts_live_gossip_message_to_expired_for_neighborhood() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
@@ -1020,7 +1020,7 @@ mod tests {
     fn converts_live_gossip_failure_message_to_expired_for_neighborhood() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let cryptde = main_cryptde();
+        let cryptde = main_cryptde().as_ref();
         let (component, _, component_recording_arc) = make_recorder();
         let mut route = Route::one_way(
             RouteSegment::new(
@@ -1057,8 +1057,8 @@ mod tests {
         let peer_actors = peer_actors_builder().neighborhood(component).build();
         let subject = RoutingService::new(
             CryptDEPair {
-                main: cryptde,
-                alias: alias_cryptde(),
+                main: main_cryptde().as_ref(),
+                alias: alias_cryptde().as_ref(),
             },
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1097,8 +1097,8 @@ mod tests {
     fn passes_on_inbound_client_data_not_meant_for_this_node() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let m_cryptde = main_cryptde().as_ref();
+        let a_cryptde = alias_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let address_paying_wallet = Wallet::from(paying_wallet.address());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -1107,20 +1107,20 @@ mod tests {
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&main_cryptde.public_key(), &next_key],
+                vec![&m_cryptde.public_key(), &next_key],
                 Component::Neighborhood,
             ),
-            main_cryptde,
+            m_cryptde,
             Some(paying_wallet.clone()),
             Some(contract_address.clone()),
         )
         .unwrap();
         let payload = PlainData::new(&b"abcd"[..]);
-        let lcp = LiveCoresPackage::new(route, main_cryptde.encode(&next_key, &payload).unwrap());
+        let lcp = LiveCoresPackage::new(route, m_cryptde.encode(&next_key, &payload).unwrap());
         let lcp_a = lcp.clone();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
-        let data_enc = main_cryptde
-            .encode(&main_cryptde.public_key(), &data_ser)
+        let data_enc = m_cryptde
+            .encode(&m_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
@@ -1139,8 +1139,8 @@ mod tests {
             .build();
         let subject = RoutingService::new(
             CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
+                main: main_cryptde().as_ref(),
+                alias: alias_cryptde().as_ref(),
             },
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1163,9 +1163,9 @@ mod tests {
         let after = SystemTime::now();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        let expected_lcp = lcp_a.into_next_live(main_cryptde).unwrap().1;
+        let expected_lcp = lcp_a.into_next_live(m_cryptde).unwrap().1;
         let expected_lcp_ser = PlainData::new(&serde_cbor::ser::to_vec(&expected_lcp).unwrap());
-        let expected_lcp_enc = main_cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
+        let expected_lcp_enc = m_cryptde.encode(&next_key, &expected_lcp_ser).unwrap();
         assert_eq!(
             *record,
             TransmitDataMsg {
@@ -1195,16 +1195,16 @@ mod tests {
     fn reprocesses_inbound_client_data_meant_for_this_node_and_destined_for_hopper() {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let m_cryptde = main_cryptde().as_ref();
+        let a_cryptde = alias_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let route = Route::one_way(
             RouteSegment::new(
-                vec![&main_cryptde.public_key(), &main_cryptde.public_key()],
+                vec![&m_cryptde.public_key(), &m_cryptde.public_key()],
                 Component::Neighborhood,
             ),
-            main_cryptde,
+            m_cryptde,
             Some(paying_wallet.clone()),
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
@@ -1212,12 +1212,12 @@ mod tests {
         let payload = PlainData::new(&b"abcd"[..]);
         let lcp = LiveCoresPackage::new(
             route,
-            main_cryptde
-                .encode(&main_cryptde.public_key(), &payload)
+            m_cryptde
+                .encode(&m_cryptde.public_key(), &payload)
                 .unwrap(),
         );
         let lcp_a = lcp.clone();
-        let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
+        let data_enc = encodex(m_cryptde, &m_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             client_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
@@ -1234,8 +1234,8 @@ mod tests {
         let peer_actors = peer_actors_builder().hopper(hopper).build();
         let subject = RoutingService::new(
             CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
+                main: main_cryptde().as_ref(),
+                alias: alias_cryptde().as_ref(),
             },
             RoutingServiceSubs {
                 proxy_client_subs_opt: peer_actors.proxy_client_opt,
@@ -1259,9 +1259,9 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
         check_timestamp(before, record.timestamp, after);
-        let expected_lcp = lcp_a.into_next_live(main_cryptde).unwrap().1;
+        let expected_lcp = lcp_a.into_next_live(m_cryptde).unwrap().1;
         let expected_lcp_enc =
-            encodex(main_cryptde, &main_cryptde.public_key(), &expected_lcp).unwrap();
+            encodex(m_cryptde, &m_cryptde.public_key(), &expected_lcp).unwrap();
         assert_eq!(
             *record,
             InboundClientData {
@@ -1281,8 +1281,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let origin_key = PublicKey::new(&[1, 2]);
         let origin_cryptde = CryptDENull::from(&origin_key, TEST_DEFAULT_CHAIN);
         let destination_key = PublicKey::new(&[3, 4]);
@@ -1366,8 +1366,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let public_key = main_cryptde.public_key();
         let payload = ClientRequest(VersionedData::new(
             &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
@@ -1467,8 +1467,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let current_key = main_cryptde.public_key();
         let origin_key = PublicKey::new(&[1, 2]);
         let destination_key = PublicKey::new(&[5, 6]);
@@ -1568,8 +1568,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let contract_address = TEST_DEFAULT_CHAIN.rec().contract;
         BAN_CACHE.insert(paying_wallet.clone());
@@ -1638,8 +1638,8 @@ mod tests {
         let _eg = EnvironmentGuard::new();
         BAN_CACHE.clear();
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         BAN_CACHE.insert(paying_wallet.clone());
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -1761,8 +1761,8 @@ mod tests {
     #[test]
     fn route_logs_and_ignores_invalid_live_cores_package() {
         init_test_logging();
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = main_cryptde().as_ref();
+        let alias_cryptde = alias_cryptde().as_ref();
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = main_cryptde
