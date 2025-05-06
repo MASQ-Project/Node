@@ -504,12 +504,12 @@ fn configure_accountant_config(
         |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
         |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
     )?;
-    let suppress_initial_scans =
+    let automatic_scans_enabled =
         value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
-    config.suppress_initial_scans = suppress_initial_scans;
+    config.automatic_scans_enabled = automatic_scans_enabled;
     config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
@@ -1872,7 +1872,7 @@ mod tests {
             Some(expected_payment_thresholds)
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
-        assert_eq!(config.suppress_initial_scans, false);
+        assert_eq!(config.automatic_scans_enabled, true);
         assert_eq!(
             config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
@@ -1939,7 +1939,7 @@ mod tests {
             pending_payable_scan_interval: Duration::from_secs(15),
             receivable_scan_interval: Duration::from_secs(130),
         };
-        let expected_suppress_initial_scans = false;
+        let expected_automatic_scans_enabled = true;
         let expected_when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         assert_eq!(
             config.payment_thresholds_opt,
@@ -1947,8 +1947,8 @@ mod tests {
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
         assert_eq!(
-            config.suppress_initial_scans,
-            expected_suppress_initial_scans
+            config.automatic_scans_enabled,
+            expected_automatic_scans_enabled
         );
         assert_eq!(
             config.when_pending_too_long_sec,
@@ -2578,7 +2578,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, true);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, false);
     }
 
     #[test]
@@ -2599,7 +2599,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     #[test]
@@ -2620,7 +2620,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     fn make_persistent_config(

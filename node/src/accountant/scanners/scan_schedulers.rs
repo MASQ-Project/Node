@@ -19,32 +19,24 @@ pub struct ScanSchedulers {
     pub payable: PayableScanScheduler<Accountant>,
     pub pending_payable: SimplePeriodicalScanScheduler<ScanForPendingPayables, Accountant>,
     pub receivable: SimplePeriodicalScanScheduler<ScanForReceivables, Accountant>,
-    pub scan_schedulers_flags: Rc<RefCell<ScanSchedulersFlags>>,
+    pub pending_payable_sequence_in_process: bool,
+    pub automatic_scans_enabled: bool
 }
 
 impl ScanSchedulers {
-    pub fn new(scan_intervals: ScanIntervals) -> (Self, Rc<RefCell<ScanSchedulersFlags>>) {
-        let scan_schedulers_flags = Rc::new(RefCell::new(ScanSchedulersFlags::default()));
-
-        (
-            Self {
-                payable: PayableScanScheduler::new(scan_intervals.payable_scan_interval),
-                pending_payable: SimplePeriodicalScanScheduler::new(
-                    scan_intervals.pending_payable_scan_interval,
-                ),
-                receivable: SimplePeriodicalScanScheduler::new(
-                    scan_intervals.receivable_scan_interval,
-                ),
-                scan_schedulers_flags: Rc::clone(&scan_schedulers_flags),
-            },
-            scan_schedulers_flags,
-        )
+    pub fn new(scan_intervals: ScanIntervals, automatic_scans_enabled: bool) -> Self {
+        Self {
+            payable: PayableScanScheduler::new(scan_intervals.payable_scan_interval),
+            pending_payable: SimplePeriodicalScanScheduler::new(
+                scan_intervals.pending_payable_scan_interval,
+            ),
+            receivable: SimplePeriodicalScanScheduler::new(
+                scan_intervals.receivable_scan_interval,
+            ),
+            pending_payable_sequence_in_process: false,
+            automatic_scans_enabled,
+        }
     }
-}
-
-#[derive(Default)]
-pub struct ScanSchedulersFlags {
-    pub pending_payable_sequence_is_ongoing: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -277,8 +269,9 @@ mod tests {
             pending_payable_scan_interval: Duration::from_secs(2),
             receivable_scan_interval: Duration::from_secs(7),
         };
+        let automatic_scans_enabled = true;
 
-        let (schedulers, schedulers_flags) = ScanSchedulers::new(scan_intervals);
+        let schedulers = ScanSchedulers::new(scan_intervals, automatic_scans_enabled);
 
         assert_eq!(
             schedulers.payable.nominal_interval,
@@ -317,27 +310,10 @@ mod tests {
         );
         assert_eq!(
             schedulers
-                .scan_schedulers_flags
-                .borrow()
-                .pending_payable_sequence_is_ongoing,
+                .pending_payable_sequence_in_process,
             false
         );
-        assert_eq!(
-            schedulers_flags
-                .borrow()
-                .pending_payable_sequence_is_ongoing,
-            false
-        );
-        schedulers
-            .scan_schedulers_flags
-            .borrow_mut()
-            .pending_payable_sequence_is_ongoing = true;
-        assert_eq!(
-            schedulers_flags
-                .borrow()
-                .pending_payable_sequence_is_ongoing,
-            true
-        );
+        assert_eq!(schedulers.automatic_scans_enabled, true)
     }
 
     #[test]

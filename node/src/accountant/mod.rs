@@ -76,14 +76,13 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
 use web3::types::H256;
-use crate::accountant::scanners::scan_schedulers::ScanSchedulers;
+use crate::accountant::scanners::scan_schedulers::{AutomaticSchedulingAwareScanner, ScanSchedulers};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::TransactionReceiptResult;
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
-    suppress_initial_scans: bool,
     consuming_wallet_opt: Option<Wallet>,
     earning_wallet: Wallet,
     payable_dao: Box<dyn PayableDao>,
@@ -195,12 +194,7 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        if self.suppress_initial_scans {
-            info!(
-                &self.logger,
-                "Started with --scans off; declining to begin database and blockchain scans"
-            );
-        } else {
+        if self.scan_schedulers.automatic_scans_enabled {
             debug!(
                 &self.logger,
                 "Started with --scans on; starting database and blockchain scans"
@@ -211,6 +205,11 @@ impl Handler<StartMessage> for Accountant {
             ctx.notify(ScanForReceivables {
                 response_skeleton_opt: None,
             });
+        } else {
+            info!(
+                &self.logger,
+                "Started with --scans off; declining to begin database and blockchain scans"
+            );
         }
     }
 }
@@ -220,11 +219,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton_opt = msg.response_skeleton_opt;
-        if self.handle_request_of_scan_for_pending_payable(response_skeleton_opt) {
-            self.scan_schedulers
-                .payable
-                .schedule_for_new_payable(ctx, response_skeleton_opt)
-        }
+        self.handle_request_of_scan_for_pending_payable(response_skeleton_opt)
     }
 }
 
@@ -233,9 +228,7 @@ impl Handler<ScanForNewPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForNewPayables, _ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton = msg.response_skeleton_opt;
-        if self.handle_request_of_scan_for_new_payable(response_skeleton) {
-            todo!()
-        };
+        self.handle_request_of_scan_for_new_payable(response_skeleton)
     }
 }
 
@@ -253,7 +246,6 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
-        self.scan_schedulers.receivable.schedule(ctx, None);
     }
 }
 
@@ -269,11 +261,16 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                         .as_ref()
                         .expect("UIGateway is not bound")
                         .try_send(node_to_ui_msg)
-                        .expect("UIGateway is dead")
+                        .expect("UIGateway is dead");
+                    todo!();
+                    // Externally triggered scans are not allowed to unwind beyond their own scope; 
+                    // only the very action of the specified scan is performed. 
+                } else {
+                    todo!();
+                    self.scan_schedulers
+                        .payable
+                        .schedule_for_new_payable(ctx, response_skeleton_opt)
                 }
-                self.scan_schedulers
-                    .payable
-                    .schedule_for_new_payable(ctx, response_skeleton_opt)
             }
             UiScanResult::ChainedScannersUnfinished => self
                 .scan_schedulers
@@ -299,20 +296,37 @@ impl Handler<SentPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayables, ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self
+        match  self
             .scanners
             .payable
             .finish_scan(msg, &self.logger)
-            .finished()
-        {
-            self.ui_message_sub_opt
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(node_to_ui_msg)
-                .expect("UIGateway is dead");
+            .finished() {
+            None => {todo!()//self.scan_schedulers.pending_payable.schedule(ctx, None)
+            }
+            // TODO merge after tested in and out
+            Some(node_to_ui_msg) if self.scan_schedulers.automatic_scans_enabled => {
+                todo!();
+                self.ui_message_sub_opt
+                    .as_ref()
+                    .expect("UIGateway is not bound")
+                    .try_send(node_to_ui_msg)
+                    .expect("UIGateway is dead");
+            }
+         
+            Some(node_to_ui_msg)  => {
+                
+                todo!("Test externally triggered msgs don't chain it up...if not...");
+                self.ui_message_sub_opt
+                    .as_ref()
+                    .expect("UIGateway is not bound")
+                    .try_send(node_to_ui_msg)
+                    .expect("UIGateway is dead");
+                
+                // Externally triggered scans should not provoke a sequence spread by intervals, that is
+                // exclusive to automatic (scheduled respectively) scanning processes.
+            }
+   
         }
-
-        self.scan_schedulers.pending_payable.schedule(ctx, None)
     }
 }
 
@@ -470,17 +484,15 @@ impl Accountant {
         let payable_dao = dao_factories.payable_dao_factory.make();
         let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
         let receivable_dao = dao_factories.receivable_dao_factory.make();
-        let (scan_schedulers, scan_schedulers_flags) = ScanSchedulers::new(scan_intervals);
+        let scan_schedulers= ScanSchedulers::new(scan_intervals, config.automatic_scans_enabled);
         let scanners = Scanners::new(
             dao_factories,
             Rc::new(payment_thresholds),
             config.when_pending_too_long_sec,
             Rc::clone(&financial_statistics),
-            scan_schedulers_flags,
         );
 
         Accountant {
-            suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
             earning_wallet,
             payable_dao,
@@ -877,7 +889,7 @@ impl Accountant {
     fn handle_request_of_scan_for_new_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> bool {
+    ) {
         let result: Result<QualifiedPayablesMessage, BeginScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_new_payable_scan_guarded(
@@ -885,6 +897,7 @@ impl Accountant {
                     SystemTime::now(),
                     response_skeleton_opt,
                     &self.logger,
+                    self.scan_schedulers.pending_payable_sequence_in_process,
                 ),
                 None => Err(BeginScanError::NoConsumingWalletFound),
             };
@@ -896,7 +909,6 @@ impl Accountant {
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
-                false
             }
             Err(e) => {
                 e.handle_error(
@@ -906,10 +918,10 @@ impl Accountant {
                 );
 
                 //TODO simplify after having been properly tested
-                if e == BeginScanError::NothingToProcess {
-                    todo!()
+                if e == BeginScanError::NothingToProcess && response_skeleton_opt.is_none() {
+                    todo!("schedule new scan...")
                 } else {
-                    false
+                    todo!("Just hit me up")
                 }
             }
         }
@@ -950,7 +962,7 @@ impl Accountant {
     fn handle_request_of_scan_for_pending_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
-    ) -> bool {
+    ) {
         let result: Result<RequestTransactionReceipts, BeginScanError> =
             match self.consuming_wallet_opt.as_ref() {
                 Some(consuming_wallet) => self.scanners.start_pending_payable_scan_guarded(
@@ -958,6 +970,7 @@ impl Accountant {
                     SystemTime::now(),
                     response_skeleton_opt,
                     &self.logger,
+                    self.scan_schedulers.pending_payable_sequence_in_process
                 ),
                 None => Err(BeginScanError::NoConsumingWalletFound),
             };
@@ -969,8 +982,6 @@ impl Accountant {
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
-
-                false
             }
             Err(e) => {
                 e.handle_error(
@@ -979,7 +990,12 @@ impl Accountant {
                     response_skeleton_opt.is_some(),
                 );
 
-                e == BeginScanError::NothingToProcess
+                // TODO hang on!! this can happen only with external triggers (if we get up here it
+                // means this was preceded by the NewPayable or the RetryPayable scans, both always
+                // producing at least one payment)
+                if e == BeginScanError::NothingToProcess {
+                   todo!()
+                }
             }
         }
     }
@@ -1003,12 +1019,18 @@ impl Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
-            Err(e) => e.handle_error(
-                &self.logger,
-                ScanType::Receivables,
-                response_skeleton_opt.is_some(),
-            ),
-        };
+            Err(e) => {
+                e.handle_error(
+                    &self.logger,
+                    ScanType::Receivables,
+                    response_skeleton_opt.is_some(),
+                );
+            }
+        }
+        
+        if response_skeleton_opt.is_some(){
+            todo!("schedule")
+        }
     }
 
     fn handle_externally_triggered_scan(
@@ -1019,14 +1041,10 @@ impl Accountant {
     ) {
         match scan_type {
             ScanType::Payables => {
-                if self.handle_request_of_scan_for_new_payable(Some(response_skeleton)) {
-                    todo!()
-                }
+                self.handle_request_of_scan_for_new_payable(Some(response_skeleton))
             }
             ScanType::PendingPayables => {
-                if self.handle_request_of_scan_for_pending_payable(Some(response_skeleton)) {
-                    todo!()
-                }
+                self.handle_request_of_scan_for_pending_payable(Some(response_skeleton))
             }
             ScanType::Receivables => {
                 self.handle_request_of_scan_for_receivable(Some(response_skeleton))
@@ -1330,9 +1348,9 @@ mod tests {
             result.scan_schedulers.receivable.interval,
             default_scan_intervals.receivable_scan_interval,
         );
+        assert_eq!(result.scan_schedulers.automatic_scans_enabled, true);
         assert_eq!(result.consuming_wallet_opt, None);
         assert_eq!(result.earning_wallet, *DEFAULT_EARNING_WALLET);
-        assert_eq!(result.suppress_initial_scans, false);
         result
             .message_id_generator
             .as_any()
@@ -1460,7 +1478,7 @@ mod tests {
             pending_payable_scan_interval: Duration::from_millis(2_000),
             receivable_scan_interval: Duration::from_millis(10_000),
         });
-        config.suppress_initial_scans = true;
+        config.automatic_scans_enabled = false;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .config_dao(
@@ -1553,7 +1571,7 @@ mod tests {
     fn external_scan_payables_request_does_not_schedule_scan_for_new_payables_if_payables_empty() {
         todo!("write me up");
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans = true;
+        config.automatic_scans_enabled = false;
         let fingerprint = PendingPayableFingerprint {
             rowid: 1234,
             timestamp: SystemTime::now(),
@@ -1852,7 +1870,7 @@ mod tests {
     #[test]
     fn externally_triggered_scan_pending_payables_request() {
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans = true;
+        config.automatic_scans_enabled = false;
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
             receivable_scan_interval: Duration::from_millis(10_000),
@@ -1911,7 +1929,7 @@ mod tests {
         let test_name =
             "externally_triggered_scan_is_not_handled_in_case_the_scan_is_already_running";
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans = true;
+        config.automatic_scans_enabled = false;
         let fingerprint = PendingPayableFingerprint {
             rowid: 1234,
             timestamp: SystemTime::now(),
@@ -2672,7 +2690,7 @@ mod tests {
             pending_payable_scan_interval: Duration::from_millis(50),
             receivable_scan_interval: Duration::from_millis(100),
         });
-        config.suppress_initial_scans = true;
+        config.automatic_scans_enabled = false;
         let peer_actors = peer_actors_builder().build();
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -2693,7 +2711,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
+    fn scan_for_new_payables_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
         let consuming_wallet = make_paying_wallet(b"consuming wallet");
         let payment_thresholds = PaymentThresholds {
@@ -2746,7 +2764,7 @@ mod tests {
             .non_pending_payables_result(vec![]);
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system = System::new(
-            "scan_for_payable_message_does_not_trigger_payment_for_balances_below_the_curve",
+            "scan_for_new_payables_does_not_trigger_payment_for_balances_below_the_curve",
         );
         let blockchain_bridge_addr: Addr<Recorder> = blockchain_bridge.start();
         let outbound_payments_instructions_sub =
@@ -2762,6 +2780,7 @@ mod tests {
             SystemTime::now(),
             None,
             &subject.logger,
+            false
         );
 
         System::current().stop();

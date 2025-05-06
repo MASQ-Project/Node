@@ -313,6 +313,7 @@ pub mod pending_payable_scanner_utils {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
     use std::time::SystemTime;
+    use masq_lib::ui_gateway::NodeToUiMessage;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
     pub struct PendingPayableScanReport {
@@ -325,6 +326,11 @@ pub mod pending_payable_scanner_utils {
         pub fn requires_payments_retry(&self) -> bool {
             !self.still_pending.is_empty() || !self.failures.is_empty()
         }
+    }
+    
+    pub enum PendingPayableScanResult {
+        PendingPayablesFinished(Option<NodeToUiMessage>),
+        PaymentRetryRequired
     }
 
     pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {

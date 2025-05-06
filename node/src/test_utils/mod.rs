@@ -683,7 +683,7 @@ pub mod unshared_test_utils {
     pub fn make_bc_with_defaults() -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
         config.scan_intervals_opt = Some(ScanIntervals::default());
-        config.suppress_initial_scans = false;
+        config.automatic_scans_enabled = true;
         config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
