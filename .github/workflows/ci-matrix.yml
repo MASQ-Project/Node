@@ -55,10 +55,6 @@ jobs:
 
       - name: Build ${{ matrix.target.os }}
         run: |
-          git remote add experiment https://github.com/MASQ-Project/DBIP-Experiment.git
-          git fetch experiment
-          git checkout experiment/generated-source -- ip_country/src/dbip_country.rs
-          git remote remove experiment
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
