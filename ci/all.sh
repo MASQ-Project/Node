@@ -15,6 +15,9 @@ if [[ "$GITHUB_ACTIONS" == "true" || "$ARGV_1" == "dbip" ]]; then
   git remote remove experiment
   echo "chekout $ARGV_1"
 fi
+if [[ "$GITHUB_ACTIONS" != "true" && "$ARGV_1" == "dbip" ]]; then
+  bash ./install-hooks.sh
+fi
 # Remove these two lines to slow down the build
 which sccache || cargo install --version 0.4.1 sccache || echo "Skipping sccache installation"  # Should do significant work only once
 #export CARGO_TARGET_DIR="$CI_DIR/../cargo-cache"
