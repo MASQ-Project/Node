@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# File to check (relative to repo root)
+FILENAME="ip_country/src/dbip_country.rs"
+
+# Exit early if file is not part of the commit
+if ! git diff --cached --name-only | grep -q "^$FILENAME$"; then
+  exit 0
+fi
+
+# Fetch latest remote version of the file
+git fetch origin > /dev/null 2>&1
+
+# Get remote file blob SHA
+REMOTE_BLOB=$(git ls-tree origin/HEAD "$FILENAME" | awk '{print $3}')
+
+if [ -z "$REMOTE_BLOB" ]; then
+  echo "⚠️  Remote version of $FILENAME not found in origin/HEAD."
+  exit 1
+fi
+
+# Get remote file size
+REMOTE_SIZE=$(git cat-file -s "$REMOTE_BLOB")
+
+# Get local file size (staged version, not working copy)
+LOCAL_SIZE=$(git ls-files --stage | grep "$FILENAME" | awk '{print $2}' | xargs git cat-file -s)
+
+if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
+  echo "❌ Commit blocked: $FILENAME size mismatch with origin."
+  echo "   Remote size: $REMOTE_SIZE bytes"
+  echo "   Local size:  $LOCAL_SIZE bytes"
+  echo "   Please sync the file with the remote before committing."
+  exit 1
+fi
+
+# All good
+exit 0

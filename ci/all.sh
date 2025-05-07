@@ -7,7 +7,7 @@ export ARGV_1="$1"
 
 export RUST_BACKTRACE=1
 #if github checkout fails, you can download csv database from db-ip.com and convert it locally by cargo run ip_country
-if [[ "$GITHUB_ACTIONS" == "" && "$ARGV_1" != "dbip" ]]; then
+if [[ "$GITHUB_ACTIONS" == "true" || "$ARGV_1" == "dbip" ]]; then
   ls
   git remote add experiment https://github.com/MASQ-Project/DBIP-Experiment.git
   git fetch experiment
