@@ -7,22 +7,23 @@ pub mod msgs;
 pub mod test_utils;
 
 use crate::accountant::payment_adjuster::Adjustment;
-use crate::accountant::scanners::payable_scanner_extension::msgs::BlockchainAgentWithContextMessage;
-use crate::accountant::scanners::{AccessibleScanner, ScanWithStarter};
-use crate::accountant::{ScanForNewPayables, ScanForRetryPayables};
+use crate::accountant::scanners::payable_scanner_extension::msgs::{
+    BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
+};
+use crate::accountant::scanners::{
+    PrivateScannerWithAccessToken, PrivateStartableScannerWithAccessToken, Scanner,
+};
+use crate::accountant::{ScanForNewPayables, ScanForRetryPayables, SentPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
 
-pub trait MultistageDualPayableScanner<StartMessage, EndMessage>:
-    ScanWithStarter<ScanForNewPayables, StartMessage>
-    + ScanWithStarter<ScanForRetryPayables, StartMessage>
-    + AccessibleScanner<StartMessage, EndMessage>
+pub trait MultistageDualPayableScanner:
+    PrivateStartableScannerWithAccessToken<ScanForNewPayables, QualifiedPayablesMessage>
+    + PrivateStartableScannerWithAccessToken<ScanForRetryPayables, QualifiedPayablesMessage>
+    + PrivateScannerWithAccessToken<SentPayables>
     + SolvencySensitivePaymentInstructor
-where
-    StartMessage: Message,
-    EndMessage: Message,
 {
 }
 

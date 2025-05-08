@@ -20,7 +20,7 @@ pub struct ScanSchedulers {
     pub pending_payable: SimplePeriodicalScanScheduler<ScanForPendingPayables, Accountant>,
     pub receivable: SimplePeriodicalScanScheduler<ScanForReceivables, Accountant>,
     pub pending_payable_sequence_in_process: bool,
-    pub automatic_scans_enabled: bool
+    pub automatic_scans_enabled: bool,
 }
 
 impl ScanSchedulers {
@@ -30,9 +30,7 @@ impl ScanSchedulers {
             pending_payable: SimplePeriodicalScanScheduler::new(
                 scan_intervals.pending_payable_scan_interval,
             ),
-            receivable: SimplePeriodicalScanScheduler::new(
-                scan_intervals.receivable_scan_interval,
-            ),
+            receivable: SimplePeriodicalScanScheduler::new(scan_intervals.receivable_scan_interval),
             pending_payable_sequence_in_process: false,
             automatic_scans_enabled,
         }
@@ -308,11 +306,7 @@ mod tests {
                 .borrow(),
             false
         );
-        assert_eq!(
-            schedulers
-                .pending_payable_sequence_in_process,
-            false
-        );
+        assert_eq!(schedulers.pending_payable_sequence_in_process, false);
         assert_eq!(schedulers.automatic_scans_enabled, true)
     }
 
