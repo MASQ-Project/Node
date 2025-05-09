@@ -33,7 +33,7 @@ impl FromStr for TxStatus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Pending" => Ok(TxStatus::Pending),
-            "Failed" => Ok(TxStatus::Failed),
+            "Failed" => Ok(TxStatus::Failed), // TODO: GH-631: This should be changed to "Retry"
             s if s.starts_with("Succeeded") => {
                 // The format is "Succeeded(block_number, block_hash)"
                 let parts: Vec<&str> = s[10..s.len() - 1].split(',').collect();

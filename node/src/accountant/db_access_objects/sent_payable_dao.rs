@@ -21,9 +21,9 @@ pub enum SentPayableDaoError {
 }
 
 type TxHash = H256;
-type RowID = u64;
+type RowId = u64;
 
-type TxIdentifiers = HashMap<TxHash, RowID>;
+type TxIdentifiers = HashMap<TxHash, RowId>;
 type TxUpdates = HashMap<TxHash, TxStatus>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,7 +40,7 @@ pub struct Tx {
 pub enum RetrieveCondition {
     IsPending,
     ToRetry,
-    ByHash(TxHash),
+    ByHash(Vec<TxHash>),
 }
 
 impl Display for RetrieveCondition {
@@ -52,8 +52,12 @@ impl Display for RetrieveCondition {
             RetrieveCondition::ToRetry => {
                 write!(f, "WHERE status = 'Failed'")
             }
-            RetrieveCondition::ByHash(tx_hash) => {
-                write!(f, "WHERE tx_hash = '{:?}'", tx_hash)
+            RetrieveCondition::ByHash(tx_hashes) => {
+                write!(
+                    f,
+                    "WHERE tx_hash IN ({})",
+                    comma_joined_stringifiable(&tx_hashes, |hash| format!("'{:?}'", hash))
+                )
             }
         }
     }
@@ -123,9 +127,9 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
 
         let sql = format!(
             "INSERT INTO sent_payable (\
-            tx_hash, receiver_address, amount_high_b, amount_low_b, \
-            timestamp, gas_price_wei, nonce, status
-            ) VALUES {}",
+             tx_hash, receiver_address, amount_high_b, amount_low_b, \
+             timestamp, gas_price_wei, nonce, status
+             ) VALUES {}",
             comma_joined_stringifiable(txs, |tx| {
                 let amount_checked = checked_conversion::<u128, i128>(tx.amount);
                 let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
@@ -176,7 +180,7 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
         stmt.query_map([], |row| {
             let tx_hash_str: String = row.get(0).expectv("tx_hash");
             let hash = H256::from_str(&tx_hash_str[2..]).expect("Failed to parse H256");
-            let receiver_address_str: String = row.get(1).expectv("row_id");
+            let receiver_address_str: String = row.get(1).expectv("receivable_address");
             let receiver_address =
                 Address::from_str(&receiver_address_str[2..]).expect("Failed to parse H160");
             let amount_high_b = row.get(2).expectv("amount_high_b");
@@ -239,10 +243,11 @@ impl SentPayableDao for SentPayableDaoReal<'_> {
             return Err(SentPayableDaoError::EmptyInput);
         }
 
-        let hash_strings: Vec<String> = hashes.iter().map(|h| format!("'{:?}'", h)).collect();
-        let hash_list = hash_strings.join(", ");
-
-        let sql = format!("DELETE FROM sent_payable WHERE tx_hash IN ({})", hash_list);
+        let hashes_vec: Vec<TxHash> = hashes.iter().cloned().collect();
+        let sql = format!(
+            "DELETE FROM sent_payable WHERE tx_hash IN ({})",
+            comma_joined_stringifiable(&hashes_vec, |hash| { format!("'{:?}'", hash) })
+        );
 
         match self.conn.prepare(&sql).expect("Internal error").execute([]) {
             Ok(deleted_rows) => {
@@ -395,22 +400,14 @@ mod tests {
     #[test]
     fn insert_new_records_returns_err_if_partially_executed() {
         let setup_conn = Connection::open_in_memory().unwrap();
-        // Inject a deliberately failing statement into the mocked connection.
-        let failing_stmt = {
-            setup_conn
-                .execute("CREATE TABLE example (id integer)", [])
-                .unwrap();
-            setup_conn.prepare("SELECT id FROM example").unwrap()
-        };
-        let failing_stmt_2 = {
-            setup_conn
-                .execute("CREATE TABLE example2 (id integer)", [])
-                .unwrap();
-            setup_conn.prepare("SELECT id FROM example2").unwrap()
-        };
+        setup_conn
+            .execute("CREATE TABLE example (id integer)", [])
+            .unwrap();
+        let pre_insert_stmt = setup_conn.prepare("SELECT id FROM example").unwrap();
+        let faulty_insert_stmt = { setup_conn.prepare("SELECT id FROM example").unwrap() };
         let wrapped_conn = ConnectionWrapperMock::default()
-            .prepare_result(Ok(failing_stmt))
-            .prepare_result(Ok(failing_stmt_2));
+            .prepare_result(Ok(pre_insert_stmt))
+            .prepare_result(Ok(faulty_insert_stmt));
         let tx = TxBuilder::default().build();
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
 
@@ -462,19 +459,83 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = SentPayableDaoReal::new(wrapped_conn);
-        let hash1 = H256::from_low_u64_le(1);
-        let hash2 = H256::from_low_u64_le(2);
-        let hash3 = H256::from_low_u64_le(3); // not present in the database
-        let hashset = HashSet::from([hash1, hash2, hash3]);
-        let tx1 = TxBuilder::default().hash(hash1).build();
-        let tx2 = TxBuilder::default().hash(hash2).build();
-        subject.insert_new_records(&vec![tx1, tx2]).unwrap();
+        let present_hash = H256::from_low_u64_le(1);
+        let absent_hash = H256::from_low_u64_le(2);
+        let another_present_hash = H256::from_low_u64_le(3);
+        let hashset = HashSet::from([present_hash, absent_hash, another_present_hash]);
+        let present_tx = TxBuilder::default().hash(present_hash).build();
+        let another_present_tx = TxBuilder::default().hash(another_present_hash).build();
+        subject
+            .insert_new_records(&vec![present_tx, another_present_tx])
+            .unwrap();
 
         let result = subject.get_tx_identifiers(&hashset);
 
-        assert_eq!(result.get(&hash1), Some(&1u64));
-        assert_eq!(result.get(&hash2), Some(&2u64));
-        assert_eq!(result.get(&hash3), None);
+        assert_eq!(result.get(&present_hash), Some(&1u64));
+        assert_eq!(result.get(&absent_hash), None);
+        assert_eq!(result.get(&another_present_hash), Some(&2u64));
+    }
+
+    #[test]
+    fn retrieve_condition_display_works() {
+        assert_eq!(IsPending.to_string(), "WHERE status = 'Pending'");
+        assert_eq!(ToRetry.to_string(), "WHERE status = 'Failed'");
+        assert_eq!(
+            ByHash(vec![
+                H256::from_low_u64_be(0x123456789),
+                H256::from_low_u64_be(0x987654321),
+            ])
+            .to_string(),
+            "WHERE tx_hash IN (\
+            '0x0000000000000000000000000000000000000000000000000000000123456789', \
+            '0x0000000000000000000000000000000000000000000000000000000987654321'\
+            )"
+            .to_string()
+        );
+    }
+
+    #[test]
+    fn can_retrieve_all_txs() {
+        let home_dir =
+            ensure_node_home_directory_exists("sent_payable_dao", "can_retrieve_all_txs");
+        let wrapped_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = SentPayableDaoReal::new(wrapped_conn);
+        let tx1 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(1))
+            .status(TxStatus::Pending)
+            .build();
+        let tx2 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(2))
+            .status(TxStatus::Failed)
+            .build();
+        let tx3 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(3))
+            .status(TxStatus::Succeeded(TransactionBlock {
+                block_hash: Default::default(),
+                block_number: Default::default(),
+            }))
+            .build();
+        let tx4 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(4))
+            .status(TxStatus::Pending)
+            .build();
+        let tx5 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(5))
+            .status(TxStatus::Failed)
+            .build();
+        subject
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .unwrap();
+        subject
+            .insert_new_records(&vec![tx4.clone(), tx5.clone()])
+            .unwrap();
+
+        let result = subject.retrieve_txs(None);
+
+        assert_eq!(result.len(), 5);
+        assert_eq!(result, vec![tx1, tx2, tx3, tx4, tx5]);
     }
 
     #[test]
@@ -540,23 +601,22 @@ mod tests {
             .timestamp(old_timestamp)
             .status(TxStatus::Failed)
             .build();
+        let tx4 = TxBuilder::default() // this should be picked for retry
+            .hash(H256::from_low_u64_le(6))
+            .status(TxStatus::Failed)
+            .build();
+        let tx5 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(7))
+            .timestamp(old_timestamp)
+            .status(TxStatus::Pending)
+            .build();
         subject
-            .insert_new_records(&vec![tx1, tx2, tx3.clone()])
+            .insert_new_records(&vec![tx1, tx2, tx3.clone(), tx4.clone(), tx5])
             .unwrap();
 
         let result = subject.retrieve_txs(Some(RetrieveCondition::ToRetry));
 
-        assert_eq!(result, vec![tx3]);
-    }
-
-    #[test]
-    fn retrieve_condition_display_works() {
-        assert_eq!(IsPending.to_string(), "WHERE status = 'Pending'");
-        assert_eq!(ToRetry.to_string(), "WHERE status = 'Failed'");
-        assert_eq!(
-            ByHash(H256::default()).to_string(),
-            format!("WHERE tx_hash = '{:?}'", H256::default())
-        );
+        assert_eq!(result, vec![tx3, tx4]);
     }
 
     #[test]
@@ -579,7 +639,7 @@ mod tests {
             .insert_new_records(&vec![tx1.clone(), tx2.clone()])
             .unwrap();
 
-        let result = subject.retrieve_txs(Some(ByHash(tx1.hash)));
+        let result = subject.retrieve_txs(Some(ByHash(vec![tx1.hash])));
 
         assert_eq!(result, vec![tx1]);
     }
@@ -616,12 +676,11 @@ mod tests {
 
         let result = subject.change_statuses(&hash_map);
 
-        let tx1_updated = subject.retrieve_txs(Some(ByHash(tx1.hash))).pop().unwrap();
-        let tx2_updated = subject.retrieve_txs(Some(ByHash(tx2.hash))).pop().unwrap();
+        let updated_txs = subject.retrieve_txs(Some(ByHash(vec![tx1.hash, tx2.hash])));
         assert_eq!(result, Ok(()));
-        assert_eq!(tx1_updated.status, TxStatus::Failed);
+        assert_eq!(updated_txs[0].status, TxStatus::Failed);
         assert_eq!(
-            tx2_updated.status,
+            updated_txs[1].status,
             TxStatus::Succeeded(TransactionBlock {
                 block_hash: H256::from_low_u64_le(3),
                 block_number: U64::from(1),
@@ -644,7 +703,7 @@ mod tests {
             .hash(existent_hash)
             .status(TxStatus::Pending)
             .build();
-        subject.insert_new_records(&vec![tx.clone()]).unwrap();
+        subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::new();
 
         let result = subject.change_statuses(&hash_map);
@@ -668,7 +727,7 @@ mod tests {
             .hash(existent_hash)
             .status(TxStatus::Pending)
             .build();
-        subject.insert_new_records(&vec![tx.clone()]).unwrap();
+        subject.insert_new_records(&vec![tx]).unwrap();
         let hash_map = HashMap::from([
             (existent_hash, TxStatus::Failed),
             (non_existent_hash, TxStatus::Failed),
@@ -703,7 +762,6 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(read_only_conn);
         let subject = SentPayableDaoReal::new(Box::new(wrapped_conn));
-
         let hash = H256::from_low_u64_le(1);
         let hash_map = HashMap::from([(hash, TxStatus::Failed)]);
 
@@ -730,32 +788,36 @@ mod tests {
             .build();
         let tx2 = TxBuilder::default()
             .hash(H256::from_low_u64_le(2))
-            .status(TxStatus::Failed)
+            .status(TxStatus::Pending)
             .build();
         let tx3 = TxBuilder::default()
             .hash(H256::from_low_u64_le(3))
+            .status(TxStatus::Failed)
+            .build();
+        let tx4 = TxBuilder::default()
+            .hash(H256::from_low_u64_le(4))
             .status(TxStatus::Succeeded(TransactionBlock {
                 block_hash: Default::default(),
                 block_number: Default::default(),
             }))
             .build();
         subject
-            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone()])
+            .insert_new_records(&vec![tx1.clone(), tx2.clone(), tx3.clone(), tx4.clone()])
             .unwrap();
-        let hashset = HashSet::from([tx1.hash, tx2.hash]);
+        let hashset = HashSet::from([tx1.hash, tx3.hash]);
 
         let result = subject.delete_records(&hashset);
 
         let remaining_records = subject.retrieve_txs(None);
         assert_eq!(result, Ok(()));
-        assert_eq!(remaining_records, vec![tx3]);
+        assert_eq!(remaining_records, vec![tx2, tx4]);
     }
 
     #[test]
-    fn delete_records_returns_error_when_input_records_are_invalid() {
+    fn delete_records_returns_error_when_input_is_empty() {
         let home_dir = ensure_node_home_directory_exists(
             "sent_payable_dao",
-            "delete_records_returns_error_when_input_records_are_invalid",
+            "delete_records_returns_error_when_input_is_empty",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -815,9 +877,11 @@ mod tests {
     }
 
     #[test]
-    fn delete_records_returns_deletion_failed_error_when_an_error_occurs_in_sql() {
-        let home_dir =
-            ensure_node_home_directory_exists("sent_payable_dao", "delete_records_can_throw_error");
+    fn delete_records_returns_a_general_error_from_sql() {
+        let home_dir = ensure_node_home_directory_exists(
+            "sent_payable_dao",
+            "delete_records_returns_a_general_error_from_sql",
+        );
         {
             DbInitializerReal::default()
                 .initialize(&home_dir, DbInitializationConfig::test_default())
