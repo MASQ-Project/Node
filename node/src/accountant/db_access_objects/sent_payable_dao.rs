@@ -56,7 +56,7 @@ impl Display for RetrieveCondition {
                 write!(
                     f,
                     "WHERE tx_hash IN ({})",
-                    comma_joined_stringifiable(&tx_hashes, |hash| format!("'{:?}'", hash))
+                    comma_joined_stringifiable(tx_hashes, |hash| format!("'{:?}'", hash))
                 )
             }
         }
