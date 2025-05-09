@@ -328,8 +328,9 @@ pub mod pending_payable_scanner_utils {
         }
     }
 
+    #[derive(Debug, PartialEq)]
     pub enum PendingPayableScanResult {
-        PendingPayablesFinished(Option<NodeToUiMessage>),
+        NoPendingPayablesLeft(Option<NodeToUiMessage>),
         PaymentRetryRequired,
     }
 

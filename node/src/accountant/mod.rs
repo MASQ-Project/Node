@@ -25,7 +25,7 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::{BeginScanError, Scanners, UiScanResult};
+use crate::accountant::scanners::{BeginScanError, Scanners};
 use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::blockchain_interface_web3::HashAndAmount;
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
@@ -256,7 +256,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
         let response_skeleton_opt = msg.response_skeleton_opt;
         match self.scanners.finish_pending_payable_scan(msg, &self.logger) {
-            PendingPayableScanResult::PendingPayablesFinished(ui_msg_opt) => {
+            PendingPayableScanResult::NoPendingPayablesLeft(ui_msg_opt) => {
                 if let Some(node_to_ui_msg) = ui_msg_opt {
                     self.ui_message_sub_opt
                         .as_ref()
@@ -730,15 +730,13 @@ impl Accountant {
     fn handle_payable_payment_setup(&mut self, msg: BlockchainAgentWithContextMessage) {
         let blockchain_bridge_instructions = match self
             .scanners
-            .payable
-            .try_skipping_payment_adjustment(msg, &self.logger)
+            .try_skipping_payable_adjustment(msg, &self.logger)
         {
             Ok(Either::Left(finalized_msg)) => finalized_msg,
             Ok(Either::Right(unaccepted_msg)) => {
                 //TODO we will eventually query info from Neighborhood before the adjustment, according to GH-699
                 self.scanners
-                    .payable
-                    .perform_payment_adjustment(unaccepted_msg, &self.logger)
+                    .perform_payable_adjustment(unaccepted_msg, &self.logger)
             }
             Err(_e) => todo!("be completed by GH-711"),
         };
@@ -1151,8 +1149,8 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t, CustomQuery};
     use crate::accountant::payment_adjuster::Adjustment;
     use crate::accountant::scanners::payable_scanner_extension::test_utils::BlockchainAgentMock;
-    use crate::accountant::scanners::test_utils::{NewPayableScanDynIntervalComputerMock};
-    use crate::accountant::scanners::{BeginScanError};
+    use crate::accountant::scanners::test_utils::{MarkScanner, NewPayableScanDynIntervalComputerMock, ReplacementType, ScannerReplacement};
+    use crate::accountant::scanners::{BeginScanError, ReceivableScanner};
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
@@ -1675,7 +1673,11 @@ mod tests {
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
-        subject.scanners.payable = Box::new(payable_scanner);
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Real(
+                payable_scanner,
+            )));
         subject.outbound_payments_instructions_sub_opt = Some(instructions_recipient);
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
@@ -1804,7 +1806,11 @@ mod tests {
         let payable_scanner = PayableScannerBuilder::new()
             .payment_adjuster(payment_adjuster)
             .build();
-        subject.scanners.payable = Box::new(payable_scanner);
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Real(
+                payable_scanner,
+            )));
         subject.outbound_payments_instructions_sub_opt = Some(report_recipient);
         subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
@@ -2041,8 +2047,12 @@ mod tests {
             .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner::new());
-        subject.scanners.receivable = Box::new(NullScanner::new());
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Null));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Null));
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2092,9 +2102,17 @@ mod tests {
             .started_at_result(None)
             .start_scan_params(&start_scan_params_arc)
             .start_scan_result(Ok(qualified_payables_msg.clone()));
-        subject.scanners.payable = Box::new(payable_scanner_mock);
-        subject.scanners.pending_payable = Box::new(NullScanner::new());
-        subject.scanners.receivable = Box::new(NullScanner::new());
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
+                payable_scanner_mock,
+            )));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Null));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Null));
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 789,
             context_id: 111,
@@ -2148,8 +2166,12 @@ mod tests {
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
             .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner::new());
-        subject.scanners.payable = Box::new(NullScanner::new());
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Null));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Null));
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2374,9 +2396,17 @@ mod tests {
             .bootstrapper_config(config)
             .logger(Logger::new(test_name))
             .build();
-        subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
-        subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
-        subject.scanners.receivable = Box::new(receivable_scanner);
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Null)); // Skipping
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Null)); // Skipping
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Mock(
+                receivable_scanner,
+            )));
         subject.scan_schedulers.receivable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
@@ -2504,7 +2534,7 @@ mod tests {
             .started_at_result(None)
             .start_scan_params(&start_scan_pending_payable_params_arc)
             .start_scan_result(Ok(request_transaction_receipts.clone()))
-            .finish_scan_result(UiScanResult::Finished(None));
+            .finish_scan_result(PendingPayableScanResult::NoPendingPayablesLeft(None));
         let qualified_payables_msg = QualifiedPayablesMessage {
             qualified_payables: qualified_payable.clone(),
             consuming_wallet: consuming_wallet.clone(),
@@ -2516,7 +2546,7 @@ mod tests {
             .started_at_result(None)
             .start_scan_params(&start_scan_payable_params_arc)
             .start_scan_result(Ok(qualified_payables_msg.clone()))
-            .finish_scan_result(UiScanResult::Finished(None));
+            .finish_scan_result(None);
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             // This simply means that we're gonna surplus this value (it abides by how many pending
@@ -2530,9 +2560,19 @@ mod tests {
             .consuming_wallet(consuming_wallet.clone())
             .logger(Logger::new(test_name))
             .build();
-        subject.scanners.pending_payable = Box::new(pending_payable_scanner);
-        subject.scanners.payable = Box::new(payable_scanner);
-        subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
+                pending_payable_scanner,
+            )));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Payable(ReplacementType::Mock(
+                payable_scanner,
+            )));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Null)); //skipping
         subject.scan_schedulers.pending_payable.handle = Box::new(
             NotifyLaterHandleMock::<ScanForPendingPayables>::default()
                 .notify_later_params(&notify_later_pending_payables_params_arc)
@@ -2647,7 +2687,10 @@ mod tests {
 
         subject.handle_request_of_scan_for_new_payable(None);
 
-        let has_scan_started = subject.scanners.payable.scan_started_at().is_some();
+        let has_scan_started = subject
+            .scanners
+            .scan_started_at(ScanType::Payables)
+            .is_some();
         assert_eq!(has_scan_started, false);
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Cannot initiate Payables scan because no consuming wallet was found."
@@ -2664,7 +2707,10 @@ mod tests {
 
         subject.handle_request_of_scan_for_pending_payable(None);
 
-        let has_scan_started = subject.scanners.pending_payable.scan_started_at().is_some();
+        let has_scan_started = subject
+            .scanners
+            .scan_started_at(ScanType::PendingPayables)
+            .is_some();
         assert_eq!(has_scan_started, false);
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: Cannot initiate PendingPayables scan because no consuming wallet was found."
@@ -2831,8 +2877,12 @@ mod tests {
             .consuming_wallet(consuming_wallet.clone())
             .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner::new());
-        subject.scanners.receivable = Box::new(NullScanner::new());
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Null));
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::Receivable(ReplacementType::Null));
         subject.qualified_payables_sub_opt = Some(blockchain_bridge_addr.recipient());
         let response_skeleton_opt = Some(ResponseSkeleton {
             client_id: 31,
@@ -3699,8 +3749,12 @@ mod tests {
             .build();
         let pending_payable_scanner = ScannerMock::new()
             .finish_scan_params(&finish_scan_params_arc)
-            .finish_scan_result(UiScanResult::ChainedScannersUnfinished);
-        subject.scanners.pending_payable = Box::new(pending_payable_scanner);
+            .finish_scan_result(PendingPayableScanResult::PaymentRetryRequired);
+        subject
+            .scanners
+            .replace_scanner(ScannerReplacement::PendingPayable(ReplacementType::Mock(
+                pending_payable_scanner,
+            )));
         subject.scan_schedulers.payable.retry_payable_notify =
             Box::new(NotifyHandleMock::default().notify_params(&retry_payable_notify_params_arc));
         let system = System::new(test_name);
@@ -4907,17 +4961,9 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
             .build();
-        match message.scan_type {
-            ScanType::Payables => subject.scanners.payable.mark_as_started(SystemTime::now()),
-            ScanType::PendingPayables => subject
-                .scanners
-                .pending_payable
-                .mark_as_started(SystemTime::now()),
-            ScanType::Receivables => subject
-                .scanners
-                .receivable
-                .mark_as_started(SystemTime::now()),
-        }
+        subject
+            .scanners
+            .reset_scan_started(message.scan_type, MarkScanner::Started(SystemTime::now()));
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -4928,13 +4974,7 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |actor: &mut Accountant| {
-                    let scan_started_at_opt = match message.scan_type {
-                        ScanType::Payables => actor.scanners.payable.scan_started_at(),
-                        ScanType::PendingPayables => {
-                            actor.scanners.pending_payable.scan_started_at()
-                        }
-                        ScanType::Receivables => actor.scanners.receivable.scan_started_at(),
-                    };
+                    let scan_started_at_opt = actor.scanners.scan_started_at(message.scan_type);
                     assert_eq!(scan_started_at_opt, None);
                 }),
             })

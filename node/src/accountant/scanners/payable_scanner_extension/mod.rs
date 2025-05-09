@@ -10,24 +10,23 @@ use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
-use crate::accountant::scanners::{
-    PrivateScannerWithAccessToken, PrivateStartableScannerWithAccessToken, Scanner,
-};
+use crate::accountant::scanners::{Scanner, StartableScanner};
 use crate::accountant::{ScanForNewPayables, ScanForRetryPayables, SentPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
+use masq_lib::ui_gateway::NodeToUiMessage;
 
-pub trait MultistageDualPayableScanner:
-    PrivateStartableScannerWithAccessToken<ScanForNewPayables, QualifiedPayablesMessage>
-    + PrivateStartableScannerWithAccessToken<ScanForRetryPayables, QualifiedPayablesMessage>
-    + PrivateScannerWithAccessToken<SentPayables>
+pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
+    StartableScanner<ScanForNewPayables, QualifiedPayablesMessage>
+    + StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage>
     + SolvencySensitivePaymentInstructor
+    + Scanner<SentPayables, Option<NodeToUiMessage>>
 {
 }
 
-pub trait SolvencySensitivePaymentInstructor {
+pub(in crate::accountant::scanners) trait SolvencySensitivePaymentInstructor {
     fn try_skipping_payment_adjustment(
         &self,
         msg: BlockchainAgentWithContextMessage,

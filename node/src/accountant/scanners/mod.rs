@@ -57,7 +57,7 @@ use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_le
 use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
 use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
 
-// Keep the individual scanner objects private!
+// Leave the individual scanner objects private!
 pub struct Scanners {
     payable: Box<dyn MultistageDualPayableScanner>,
     pending_payable: Box<
@@ -65,9 +65,17 @@ pub struct Scanners {
             ScanForPendingPayables,
             RequestTransactionReceipts,
             ReportTransactionReceipts,
+            PendingPayableScanResult,
         >,
     >,
-    receivable: Box<dyn PrivateScanner<ScanForReceivables, RetrieveTransactions, ReceivedPayments>>,
+    receivable: Box<
+        dyn PrivateScanner<
+            ScanForReceivables,
+            RetrieveTransactions,
+            ReceivedPayments,
+            Option<NodeToUiMessage>,
+        >,
+    >,
 }
 
 impl Scanners {
@@ -127,23 +135,20 @@ impl Scanners {
             todo!() // ManualTriggerError
         }
 
-        let scanner = self.payable.access_scanner().scanner;
-
-        if let Some(started_at) = scanner.scan_started_at() {
+        if let Some(started_at) = self.payable.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning {
                 pertinent_scanner: ScanType::Payables,
                 started_at,
             });
         }
 
-        let starter: PrivateStartableScannerAccessToken<
-            ScanForNewPayables,
-            QualifiedPayablesMessage,
-        > = self.payable.access_startable_scanner();
-
-        starter
-            .scanner
-            .start_scan(wallet, timestamp, response_skeleton_opt, logger)
+        Self::start_correct_payable_scanner::<ScanForNewPayables>(
+            &mut *self.payable,
+            wallet,
+            timestamp,
+            response_skeleton_opt,
+            logger,
+        )
     }
 
     // Note: This scanner cannot be started on its own, it always comes after the pending payable
@@ -155,8 +160,7 @@ impl Scanners {
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
     ) -> Result<QualifiedPayablesMessage, BeginScanError> {
-        let scanner = self.payable.access_scanner().scanner;
-        if let Some(started_at) = scanner.scan_started_at() {
+        if let Some(started_at) = self.payable.scan_started_at() {
             unreachable!(
                 "Guards should ensure that no payable scanner can run if the pending payable \
                  repetitive sequence is still ongoing. However, some other payable scan intruded \
@@ -166,14 +170,13 @@ impl Scanners {
             )
         }
 
-        let starter: PrivateStartableScannerAccessToken<
-            ScanForRetryPayables,
-            QualifiedPayablesMessage,
-        > = self.payable.access_startable_scanner();
-
-        starter
-            .scanner
-            .start_scan(wallet, timestamp, response_skeleton_opt, logger)
+        Self::start_correct_payable_scanner::<ScanForRetryPayables>(
+            &mut *self.payable,
+            wallet,
+            timestamp,
+            response_skeleton_opt,
+            logger,
+        )
     }
 
     pub fn start_pending_payable_scan_guarded(
@@ -189,11 +192,9 @@ impl Scanners {
             todo!() // ManualTriggerError
         }
 
-        let pending_payable_scanner = self.pending_payable.access_scanner().scanner;
-        let payable_scanner = self.payable.access_scanner().scanner;
         match (
-            pending_payable_scanner.scan_started_at(),
-            payable_scanner.scan_started_at(),
+            self.pending_payable.scan_started_at(),
+            self.payable.scan_started_at(),
         ) {
             (Some(pp_timestamp), Some(p_timestamp)) =>
             // If you're wondering, then yes, this should be sacre in the relationship between
@@ -221,8 +222,6 @@ impl Scanners {
             (None, None) => (),
         }
         self.pending_payable
-            .access_startable_scanner()
-            .scanner
             .start_scan(wallet, timestamp, response_skeleton_opt, logger)
     }
 
@@ -233,16 +232,13 @@ impl Scanners {
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
     ) -> Result<RetrieveTransactions, BeginScanError> {
-        let scanner = self.receivable.access_scanner().scanner;
-        if let Some(started_at) = scanner.scan_started_at() {
+        if let Some(started_at) = self.receivable.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning {
                 pertinent_scanner: ScanType::Receivables,
                 started_at,
             });
         }
         self.receivable
-            .access_startable_scanner()
-            .scanner
             .start_scan(wallet, timestamp, response_skeleton_opt, logger)
     }
 
@@ -276,7 +272,7 @@ impl Scanners {
 
     pub fn try_skipping_payable_adjustment(
         &self,
-        msg: &BlockchainAgentWithContextMessage,
+        msg: BlockchainAgentWithContextMessage,
         logger: &Logger,
     ) -> Result<Either<OutboundPaymentsInstructions, PreparedAdjustment>, String> {
         todo!()
@@ -289,11 +285,28 @@ impl Scanners {
     ) -> OutboundPaymentsInstructions {
         todo!()
     }
+
+    fn start_correct_payable_scanner<'a, TriggerMessage>(
+        scanner: &'a mut (dyn MultistageDualPayableScanner + 'a),
+        wallet: &Wallet,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
+    ) -> Result<QualifiedPayablesMessage, BeginScanError>
+    where
+        TriggerMessage: Message,
+        (dyn MultistageDualPayableScanner + 'a):
+            StartableScanner<TriggerMessage, QualifiedPayablesMessage>,
+    {
+        <(dyn MultistageDualPayableScanner + 'a) as StartableScanner<
+            TriggerMessage,
+            QualifiedPayablesMessage,
+        >>::start_scan(scanner, wallet, timestamp, response_skeleton_opt, logger)
+    }
 }
 
-trait PrivateScanner<TriggerMessage, StartMessage, EndMessage>:
-    PrivateStartableScannerWithAccessToken<TriggerMessage, StartMessage>
-    + PrivateScannerWithAccessToken<EndMessage>
+trait PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult>:
+    StartableScanner<TriggerMessage, StartMessage> + Scanner<EndMessage, ScanResult>
 where
     TriggerMessage: Message,
     StartMessage: Message,
@@ -301,77 +314,6 @@ where
 {
 }
 
-pub trait PrivateStartableScannerWithAccessToken<TriggerMessage, StartMessage> {
-    fn access_startable_scanner(
-        &mut self,
-    ) -> PrivateStartableScannerAccessToken<TriggerMessage, StartMessage>;
-}
-
-pub trait PrivateScannerWithAccessToken<EndMessage> {
-    fn access_scanner(&mut self) -> PrivateScannerAccessToken<EndMessage>;
-}
-
-trait Scanner<EndMessage>
-where
-    EndMessage: Message,
-{
-    //TODO this is an old initiative, should go away
-    // fn access_scanner(starter: &mut dyn StartableScanner<StartMessage>) -> PrivateScannerAccessToken<StartMessage> where Self: Sized;
-    fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> UiScanResult;
-    fn scan_started_at(&self) -> Option<SystemTime>;
-    fn mark_as_started(&mut self, timestamp: SystemTime);
-    fn mark_as_ended(&mut self, logger: &Logger);
-
-    as_any_ref_in_trait!();
-    as_any_mut_in_trait!();
-}
-
-//TODO replace me with a generic possibly different for each scanner
-#[derive(Debug, PartialEq)]
-pub enum UiScanResult {
-    Finished(Option<NodeToUiMessage>),
-    ChainedScannersUnfinished,
-}
-
-impl UiScanResult {
-    pub fn finished(self) -> Option<NodeToUiMessage> {
-        if let UiScanResult::Finished(ui_msg_opt) = self {
-            ui_msg_opt
-        } else {
-            todo!("test drive a panic...")
-        }
-    }
-}
-
-pub struct PrivateStartableScannerAccessToken<'s, TriggerMessage, StartMessage> {
-    // Strictly private
-    scanner: &'s mut dyn StartableScanner<TriggerMessage, StartMessage>,
-}
-
-impl<'s, TriggerMessage, StartMessage>
-    PrivateStartableScannerAccessToken<'s, TriggerMessage, StartMessage>
-{
-    fn new(
-        scanner: &'s mut dyn StartableScanner<TriggerMessage, StartMessage>,
-    ) -> PrivateStartableScannerAccessToken<'s, TriggerMessage, StartMessage> {
-        Self { scanner }
-    }
-}
-
-// Using this access token to screen away the private interface from its public counterpart, because
-// Rust doesn't allow selective private methods within a public trait
-pub struct PrivateScannerAccessToken<'s, EndMessage> {
-    // Strictly private
-    scanner: &'s mut dyn Scanner<EndMessage>,
-}
-
-impl<'s, EndMessage> PrivateScannerAccessToken<'s, EndMessage> {
-    fn new(scanner: &'s mut dyn Scanner<EndMessage>) -> PrivateScannerAccessToken<'s, EndMessage> {
-        Self { scanner }
-    }
-}
-
-// Strictly private
 trait StartableScanner<TriggerMessage, StartMessage>
 where
     TriggerMessage: Message,
@@ -384,6 +326,21 @@ where
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
     ) -> Result<StartMessage, BeginScanError>;
+}
+
+trait Scanner<EndMessage, ScanResult>
+where
+    EndMessage: Message,
+{
+    //TODO this is an old initiative, should go away
+    // fn access_scanner(starter: &mut dyn StartableScanner<StartMessage>) -> PrivateScannerAccessToken<StartMessage> where Self: Sized;
+    fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> ScanResult;
+    fn scan_started_at(&self) -> Option<SystemTime>;
+    fn mark_as_started(&mut self, timestamp: SystemTime);
+    fn mark_as_ended(&mut self, logger: &Logger);
+
+    as_any_ref_in_trait!();
+    as_any_mut_in_trait!();
 }
 
 pub struct ScannerCommon {
@@ -509,36 +466,8 @@ impl StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage> for Payabl
     }
 }
 
-impl PrivateStartableScannerWithAccessToken<ScanForNewPayables, QualifiedPayablesMessage>
-    for PayableScanner
-{
-    fn access_startable_scanner(
-        &mut self,
-    ) -> PrivateStartableScannerAccessToken<ScanForNewPayables, QualifiedPayablesMessage> {
-        todo!();
-        PrivateStartableScannerAccessToken::new(self)
-    }
-}
-
-impl PrivateStartableScannerWithAccessToken<ScanForRetryPayables, QualifiedPayablesMessage>
-    for PayableScanner
-{
-    fn access_startable_scanner(
-        &mut self,
-    ) -> PrivateStartableScannerAccessToken<ScanForRetryPayables, QualifiedPayablesMessage> {
-        PrivateStartableScannerAccessToken::new(self)
-    }
-}
-
-impl PrivateScannerWithAccessToken<SentPayables> for PayableScanner {
-    fn access_scanner(&mut self) -> PrivateScannerAccessToken<SentPayables> {
-        todo!();
-        PrivateScannerAccessToken::new(self)
-    }
-}
-
-impl Scanner<SentPayables> for PayableScanner {
-    fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> UiScanResult {
+impl Scanner<SentPayables, Option<NodeToUiMessage>> for PayableScanner {
+    fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> Option<NodeToUiMessage> {
         let (sent_payables, err_opt) = separate_errors(&message, logger);
         debug!(
             logger,
@@ -553,12 +482,12 @@ impl Scanner<SentPayables> for PayableScanner {
 
         self.mark_as_ended(logger);
 
-        UiScanResult::Finished(message.response_skeleton_opt.map(|response_skeleton| {
-            NodeToUiMessage {
+        message
+            .response_skeleton_opt
+            .map(|response_skeleton| NodeToUiMessage {
                 target: MessageTarget::ClientId(response_skeleton.client_id),
                 body: UiScanResponse {}.tmb(response_skeleton.context_id),
-            }
-        }))
+            })
     }
 
     time_marking_methods!(Payables);
@@ -856,28 +785,14 @@ pub struct PendingPayableScanner {
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
 
-impl PrivateScanner<ScanForPendingPayables, RequestTransactionReceipts, ReportTransactionReceipts>
-    for PendingPayableScanner
+impl
+    PrivateScanner<
+        ScanForPendingPayables,
+        RequestTransactionReceipts,
+        ReportTransactionReceipts,
+        PendingPayableScanResult,
+    > for PendingPayableScanner
 {
-}
-
-impl PrivateStartableScannerWithAccessToken<ScanForPendingPayables, RequestTransactionReceipts>
-    for PendingPayableScanner
-{
-    fn access_startable_scanner(
-        &mut self,
-    ) -> PrivateStartableScannerAccessToken<ScanForPendingPayables, RequestTransactionReceipts>
-    {
-        todo!();
-        PrivateStartableScannerAccessToken::new(self)
-    }
-}
-
-impl PrivateScannerWithAccessToken<ReportTransactionReceipts> for PendingPayableScanner {
-    fn access_scanner(&mut self) -> PrivateScannerAccessToken<ReportTransactionReceipts> {
-        todo!();
-        PrivateScannerAccessToken::new(self)
-    }
 }
 
 impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
@@ -913,8 +828,12 @@ impl StartableScanner<ScanForPendingPayables, RequestTransactionReceipts>
     }
 }
 
-impl Scanner<ReportTransactionReceipts> for PendingPayableScanner {
-    fn finish_scan(&mut self, message: ReportTransactionReceipts, logger: &Logger) -> UiScanResult {
+impl Scanner<ReportTransactionReceipts, PendingPayableScanResult> for PendingPayableScanner {
+    fn finish_scan(
+        &mut self,
+        message: ReportTransactionReceipts,
+        logger: &Logger,
+    ) -> PendingPayableScanResult {
         let construct_msg_scan_ended_to_ui = move || {
             message
                 .response_skeleton_opt
@@ -947,7 +866,7 @@ impl Scanner<ReportTransactionReceipts> for PendingPayableScanner {
                 if requires_payments_retry {
                     todo!()
                 } else {
-                    UiScanResult::Finished(construct_msg_scan_ended_to_ui())
+                    PendingPayableScanResult::NoPendingPayablesLeft(construct_msg_scan_ended_to_ui())
                 }
             }
         }
@@ -1124,27 +1043,14 @@ pub struct ReceivableScanner {
     pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
 }
 
-impl PrivateScanner<ScanForReceivables, RetrieveTransactions, ReceivedPayments>
-    for ReceivableScanner
+impl
+    PrivateScanner<
+        ScanForReceivables,
+        RetrieveTransactions,
+        ReceivedPayments,
+        Option<NodeToUiMessage>,
+    > for ReceivableScanner
 {
-}
-
-impl PrivateStartableScannerWithAccessToken<ScanForReceivables, RetrieveTransactions>
-    for ReceivableScanner
-{
-    fn access_startable_scanner(
-        &mut self,
-    ) -> PrivateStartableScannerAccessToken<ScanForReceivables, RetrieveTransactions> {
-        todo!();
-        PrivateStartableScannerAccessToken::new(self)
-    }
-}
-
-impl PrivateScannerWithAccessToken<ReceivedPayments> for ReceivableScanner {
-    fn access_scanner(&mut self) -> PrivateScannerAccessToken<ReceivedPayments> {
-        todo!();
-        PrivateScannerAccessToken::new(self)
-    }
 }
 
 impl StartableScanner<ScanForReceivables, RetrieveTransactions> for ReceivableScanner {
@@ -1166,7 +1072,7 @@ impl StartableScanner<ScanForReceivables, RetrieveTransactions> for ReceivableSc
     }
 }
 
-impl Scanner<ReceivedPayments> for ReceivableScanner {
+impl Scanner<ReceivedPayments, Option<NodeToUiMessage>> for ReceivableScanner {
     // fn start_scan(
     //     &mut self,
     //     earning_wallet: Wallet,
@@ -1187,17 +1093,15 @@ impl Scanner<ReceivedPayments> for ReceivableScanner {
     //     })
     // }
 
-    fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> UiScanResult {
+    fn finish_scan(&mut self, msg: ReceivedPayments, logger: &Logger) -> Option<NodeToUiMessage> {
         self.handle_new_received_payments(&msg, logger);
         self.mark_as_ended(logger);
 
-        UiScanResult::Finished(
-            msg.response_skeleton_opt
-                .map(|response_skeleton| NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                }),
-        )
+        msg.response_skeleton_opt
+            .map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            })
     }
 
     time_marking_methods!(Receivables);
@@ -1402,10 +1306,8 @@ impl BeginScanError {
 pub mod local_test_utils {
     use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::{
-        BeginScanError, MultistageDualPayableScanner, PreparedAdjustment, PrivateScanner,
-        PrivateScannerAccessToken, PrivateScannerWithAccessToken,
-        PrivateStartableScannerAccessToken, PrivateStartableScannerWithAccessToken, Scanner,
-        SolvencySensitivePaymentInstructor, StartableScanner, UiScanResult,
+        BeginScanError, MultistageDualPayableScanner, PreparedAdjustment, PrivateScanner, Scanner,
+        SolvencySensitivePaymentInstructor, StartableScanner,
     };
     use crate::accountant::OutboundPaymentsInstructions;
     use crate::accountant::{
@@ -1416,14 +1318,16 @@ pub mod local_test_utils {
     use actix::{Message, System};
     use itertools::Either;
     use masq_lib::logger::Logger;
+    use masq_lib::ui_gateway::NodeToUiMessage;
+    use rand::distributions::Standard;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
     pub struct NullScanner {}
 
-    impl<TriggerMessage, StartMessage, EndMessage>
-        PrivateScanner<TriggerMessage, StartMessage, EndMessage> for NullScanner
+    impl<TriggerMessage, StartMessage, EndMessage, ScanResult>
+        PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult> for NullScanner
     where
         TriggerMessage: Message,
         StartMessage: Message,
@@ -1431,33 +1335,27 @@ pub mod local_test_utils {
     {
     }
 
-    impl<TriggerMessage, StartMessage>
-        PrivateStartableScannerWithAccessToken<TriggerMessage, StartMessage> for NullScanner
+    impl<TriggerMessage, StartMessage> StartableScanner<TriggerMessage, StartMessage> for NullScanner
     where
         TriggerMessage: Message,
         StartMessage: Message,
     {
-        fn access_startable_scanner(
+        fn start_scan(
             &mut self,
-        ) -> PrivateStartableScannerAccessToken<TriggerMessage, StartMessage> {
-            unimplemented!("Not needed yet")
+            _wallet: &Wallet,
+            _timestamp: SystemTime,
+            _response_skeleton_opt: Option<ResponseSkeleton>,
+            _logger: &Logger,
+        ) -> Result<StartMessage, BeginScanError> {
+            Err(BeginScanError::CalledFromNullScanner)
         }
     }
 
-    impl<EndMessage> PrivateScannerWithAccessToken<EndMessage> for NullScanner
+    impl<EndMessage, ScanResult> Scanner<EndMessage, ScanResult> for NullScanner
     where
         EndMessage: Message,
     {
-        fn access_scanner(&mut self) -> PrivateScannerAccessToken<EndMessage> {
-            unimplemented!("Not needed yet")
-        }
-    }
-
-    impl<EndMessage> Scanner<EndMessage> for NullScanner
-    where
-        EndMessage: Message,
-    {
-        fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> UiScanResult {
+        fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> ScanResult {
             panic!("Called finish_scan() from NullScanner");
         }
 
@@ -1496,22 +1394,6 @@ pub mod local_test_utils {
         }
     }
 
-    impl<TriggerMessage, StartMessage> StartableScanner<TriggerMessage, StartMessage> for NullScanner
-    where
-        TriggerMessage: Message,
-        StartMessage: Message,
-    {
-        fn start_scan(
-            &mut self,
-            _wallet: &Wallet,
-            _timestamp: SystemTime,
-            _response_skeleton_opt: Option<ResponseSkeleton>,
-            _logger: &Logger,
-        ) -> Result<StartMessage, BeginScanError> {
-            Err(BeginScanError::CalledFromNullScanner)
-        }
-    }
-
     impl Default for NullScanner {
         fn default() -> Self {
             Self::new()
@@ -1524,28 +1406,28 @@ pub mod local_test_utils {
         }
     }
 
-    pub struct ScannerMock<StartMessage, EndMessage> {
+    pub struct ScannerMock<StartMessage, EndMessage, ScanResult> {
         start_scan_params: Arc<Mutex<Vec<(Wallet, SystemTime, Option<ResponseSkeleton>, Logger)>>>,
         start_scan_results: RefCell<Vec<Result<StartMessage, BeginScanError>>>,
         finish_scan_params: Arc<Mutex<Vec<(EndMessage, Logger)>>>,
-        finish_scan_results: RefCell<Vec<UiScanResult>>,
+        finish_scan_results: RefCell<Vec<ScanResult>>,
         started_at_results: RefCell<Vec<Option<SystemTime>>>,
         stop_system_after_last_message: RefCell<bool>,
     }
 
-    impl<StartMessage, EndMessage> PrivateScannerWithAccessToken<EndMessage>
-        for ScannerMock<StartMessage, EndMessage>
+    impl<TriggerMessage, StartMessage, EndMessage, ScanResult>
+        PrivateScanner<TriggerMessage, StartMessage, EndMessage, ScanResult>
+        for ScannerMock<StartMessage, EndMessage, ScanResult>
     where
+        TriggerMessage: Message,
         StartMessage: Message,
         EndMessage: Message,
     {
-        fn access_scanner(&mut self) -> PrivateScannerAccessToken<EndMessage> {
-            PrivateScannerAccessToken::new(self)
-        }
     }
 
-    impl<TriggerMessage, StartMessage, EndMessage> StartableScanner<TriggerMessage, StartMessage>
-        for ScannerMock<StartMessage, EndMessage>
+    impl<TriggerMessage, StartMessage, EndMessage, ScanResult>
+        StartableScanner<TriggerMessage, StartMessage>
+        for ScannerMock<StartMessage, EndMessage, ScanResult>
     where
         TriggerMessage: Message,
         StartMessage: Message,
@@ -1571,12 +1453,13 @@ pub mod local_test_utils {
         }
     }
 
-    impl<StartMessage, EndMessage> Scanner<EndMessage> for ScannerMock<StartMessage, EndMessage>
+    impl<StartMessage, EndMessage, ScanResult> Scanner<EndMessage, ScanResult>
+        for ScannerMock<StartMessage, EndMessage, ScanResult>
     where
         StartMessage: Message,
         EndMessage: Message,
     {
-        fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> UiScanResult {
+        fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> ScanResult {
             self.finish_scan_params
                 .lock()
                 .unwrap()
@@ -1600,13 +1483,15 @@ pub mod local_test_utils {
         }
     }
 
-    impl<StartMessage, EndMessage> Default for ScannerMock<StartMessage, EndMessage> {
+    impl<StartMessage, EndMessage, ScanResult> Default
+        for ScannerMock<StartMessage, EndMessage, ScanResult>
+    {
         fn default() -> Self {
             Self::new()
         }
     }
 
-    impl<StartMessage, EndMessage> ScannerMock<StartMessage, EndMessage> {
+    impl<StartMessage, EndMessage, ScanResult> ScannerMock<StartMessage, EndMessage, ScanResult> {
         pub fn new() -> Self {
             Self {
                 start_scan_params: Arc::new(Mutex::new(vec![])),
@@ -1644,7 +1529,7 @@ pub mod local_test_utils {
             self
         }
 
-        pub fn finish_scan_result(self, result: UiScanResult) -> Self {
+        pub fn finish_scan_result(self, result: ScanResult) -> Self {
             self.finish_scan_results.borrow_mut().push(result);
             self
         }
@@ -1673,31 +1558,14 @@ pub mod local_test_utils {
         }
     }
 
-    impl PrivateStartableScannerWithAccessToken<ScanForNewPayables, QualifiedPayablesMessage>
-        for ScannerMock<QualifiedPayablesMessage, SentPayables>
+    impl MultistageDualPayableScanner
+        for ScannerMock<QualifiedPayablesMessage, SentPayables, Option<NodeToUiMessage>>
     {
-        fn access_startable_scanner(
-            &mut self,
-        ) -> PrivateStartableScannerAccessToken<ScanForNewPayables, QualifiedPayablesMessage>
-        {
-            todo!()
-        }
     }
 
-    impl PrivateStartableScannerWithAccessToken<ScanForRetryPayables, QualifiedPayablesMessage>
-        for ScannerMock<QualifiedPayablesMessage, SentPayables>
+    impl SolvencySensitivePaymentInstructor
+        for ScannerMock<QualifiedPayablesMessage, SentPayables, Option<NodeToUiMessage>>
     {
-        fn access_startable_scanner(
-            &mut self,
-        ) -> PrivateStartableScannerAccessToken<ScanForRetryPayables, QualifiedPayablesMessage>
-        {
-            todo!()
-        }
-    }
-
-    impl MultistageDualPayableScanner for ScannerMock<QualifiedPayablesMessage, SentPayables> {}
-
-    impl SolvencySensitivePaymentInstructor for ScannerMock<QualifiedPayablesMessage, SentPayables> {
         fn try_skipping_payment_adjustment(
             &self,
             msg: BlockchainAgentWithContextMessage,
@@ -1733,8 +1601,8 @@ mod tests {
     use crate::accountant::db_access_objects::utils::{from_time_t, to_time_t};
     use crate::accountant::scanners::payable_scanner_extension::msgs::QualifiedPayablesMessage;
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PendingPayableMetadata;
-    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport};
-    use crate::accountant::scanners::{Scanner, BeginScanError, StartableScanner, PayableScanner, PendingPayableScanner, PrivateScannerAccessToken, ReceivableScanner, PrivateScannerWithAccessToken, ScannerCommon, Scanners};
+    use crate::accountant::scanners::scanners_utils::pending_payable_scanner_utils::{handle_none_status, handle_status_with_failure, PendingPayableScanReport, PendingPayableScanResult};
+    use crate::accountant::scanners::{Scanner, BeginScanError, StartableScanner, PayableScanner, PendingPayableScanner, ReceivableScanner, ScannerCommon, Scanners, PrivateScanner};
     use crate::accountant::test_utils::{make_custom_payment_thresholds, make_payable_account, make_qualified_and_unqualified_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, ConfigDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder, PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock, ReceivableScannerBuilder};
     use crate::accountant::{gwei_to_wei, PendingPayableId, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, ScanForNewPayables, ScanForRetryPayables, SentPayables, DEFAULT_PENDING_TOO_LONG_SEC};
     use crate::blockchain::blockchain_bridge::{BlockMarker, PendingPayableFingerprint, RetrieveTransactions};
@@ -1768,64 +1636,80 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex, RwLock};
     use std::time::{Duration, SystemTime};
+    use itertools::Either;
     use web3::types::{TransactionReceipt, H256};
     use web3::Error;
     use masq_lib::messages::ScanType;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::scanners::local_test_utils::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::test_utils::{MarkScanner, ReplacementType, ScannerReplacement};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TransactionReceiptResult, TxReceipt, TxStatus};
-
-    enum ScannerReplacement {
-        Payable(ScannerMock<QualifiedPayablesMessage, SentPayables>),
-        PendingPayable(ScannerMock<RequestTransactionReceipts, ReportTransactionReceipts>),
-        Receivable(ScannerMock<RetrieveTransactions, ReceivedPayments>),
-    }
 
     impl Scanners {
         pub fn replace_scanner(&mut self, replacement: ScannerReplacement) {
             match replacement {
-                ScannerReplacement::Payable(scanner) => self.payable = Box::new(scanner),
-                ScannerReplacement::PendingPayable(scanner) => {
+                ScannerReplacement::Payable(ReplacementType::Real(scanner)) => {
+                    self.payable = Box::new(scanner)
+                }
+                ScannerReplacement::Payable(ReplacementType::Mock(scanner)) => {
+                    self.payable = Box::new(scanner)
+                }
+                ScannerReplacement::Payable(ReplacementType::Null) => {
+                    self.payable = Box::new(NullScanner::default())
+                }
+                ScannerReplacement::PendingPayable(ReplacementType::Real(scanner)) => {
                     self.pending_payable = Box::new(scanner)
                 }
-                ScannerReplacement::Receivable(scanner) => self.receivable = Box::new(scanner),
+                ScannerReplacement::PendingPayable(ReplacementType::Mock(scanner)) => {
+                    self.pending_payable = Box::new(scanner)
+                }
+                ScannerReplacement::PendingPayable(ReplacementType::Null) => {
+                    self.pending_payable = Box::new(NullScanner::default())
+                }
+                ScannerReplacement::Receivable(ReplacementType::Real(scanner)) => {
+                    self.receivable = Box::new(scanner)
+                }
+                ScannerReplacement::Receivable(ReplacementType::Mock(scanner)) => {
+                    self.receivable = Box::new(scanner)
+                }
+                ScannerReplacement::Receivable(ReplacementType::Null) => {
+                    self.pending_payable = Box::new(NullScanner::default())
+                }
             }
         }
 
-        pub fn reset_scan_started(
-            &mut self,
-            scan_type: ScanType,
-            value_opt: Option<SystemTime>,
-            logger: &Logger,
-        ) {
+        pub fn reset_scan_started(&mut self, scan_type: ScanType, value: MarkScanner) {
             match scan_type {
-                ScanType::Payables => Self::scanner_timestamp_treatment(
-                    self.payable.access_scanner().scanner,
-                    value_opt,
-                    logger,
-                ),
-                ScanType::PendingPayables => Self::scanner_timestamp_treatment(
-                    self.pending_payable.access_scanner().scanner,
-                    value_opt,
-                    logger,
-                ),
-                ScanType::Receivables => Self::scanner_timestamp_treatment(
-                    self.receivable.access_scanner().scanner,
-                    value_opt,
-                    logger,
-                ),
+                ScanType::Payables => {
+                    Self::simple_scanner_timestamp_treatment(&mut *self.payable, value)
+                }
+                ScanType::PendingPayables => {
+                    Self::simple_scanner_timestamp_treatment(&mut *self.pending_payable, value)
+                }
+                ScanType::Receivables => {
+                    Self::simple_scanner_timestamp_treatment(&mut *self.receivable, value)
+                }
             }
         }
 
-        fn scanner_timestamp_treatment<Message>(
-            scanner: &mut dyn Scanner<Message>,
-            value_opt: Option<SystemTime>,
-            logger: &Logger,
+        fn simple_scanner_timestamp_treatment<Scanner, EndMessage, ScanResult>(
+            scanner: &mut Scanner,
+            value: MarkScanner,
         ) where
-            Message: actix::Message,
+            Scanner: self::Scanner<EndMessage, ScanResult> + ?Sized,
+            EndMessage: actix::Message,
         {
-            match value_opt {
-                None => scanner.mark_as_ended(logger),
-                Some(timestamp) => scanner.mark_as_started(timestamp),
+            match value {
+                MarkScanner::Ended(logger) => scanner.mark_as_ended(logger),
+                MarkScanner::Started(timestamp) => scanner.mark_as_started(timestamp),
+            }
+        }
+
+        pub fn scan_started_at(&self, scan_type: ScanType) -> Option<SystemTime> {
+            match scan_type {
+                ScanType::Payables => self.payable.scan_started_at(),
+                ScanType::PendingPayables => self.pending_payable.scan_started_at(),
+                ScanType::Receivables => self.receivable.scan_started_at(),
             }
         }
     }
@@ -2024,11 +1908,14 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
             .build();
-        let starter: PrivateScannerAccessToken<ScanForNewPayables, _> = subject.access_scanner();
 
-        let result = starter
-            .scanner
-            .start_scan(&consuming_wallet, now, None, &Logger::new("test"));
+        let result = Scanners::start_correct_payable_scanner::<ScanForNewPayables>(
+            &mut subject,
+            &consuming_wallet,
+            now,
+            None,
+            &Logger::new("test"),
+        );
 
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(is_scan_running, false);
@@ -2170,11 +2057,14 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .payable_dao(payable_dao)
             .build();
-        let starter: PrivateScannerAccessToken<ScanForRetryPayables, _> = subject.access_scanner();
 
-        let _ = starter
-            .scanner
-            .start_scan(&consuming_wallet, now, None, &Logger::new("test"));
+        let _ = Scanners::start_correct_payable_scanner::<ScanForRetryPayables>(
+            &mut subject,
+            &consuming_wallet,
+            now,
+            None,
+            &Logger::new("test"),
+        );
     }
 
     #[test]
@@ -2238,10 +2128,9 @@ mod tests {
         };
         subject.mark_as_started(SystemTime::now());
 
-        let result = subject.finish_scan(sent_payable, &logger);
+        let ui_msg_opt = subject.finish_scan(sent_payable, &logger);
 
         let is_scan_running = subject.scan_started_at().is_some();
-        let ui_msg_opt = result.finished();
         assert_eq!(ui_msg_opt, None);
         assert_eq!(is_scan_running, false);
         let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
@@ -2623,11 +2512,10 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.finish_scan(sent_payable, &logger);
+        let ui_msg_opt = subject.finish_scan(sent_payable, &logger);
 
         System::current().stop();
         system.run();
-        let ui_msg_opt = result.finished();
         assert_eq!(ui_msg_opt, None);
         let fingerprints_rowids_params = fingerprints_rowids_params_arc.lock().unwrap();
         assert_eq!(
@@ -3834,8 +3722,10 @@ mod tests {
         let result = subject.finish_scan(msg, &Logger::new(test_name));
 
         let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
-        let ui_msg_opt = result.finished();
-        assert_eq!(ui_msg_opt, None);
+        assert_eq!(
+            result,
+            PendingPayableScanResult::NoPendingPayablesLeft(None)
+        );
         assert_eq!(
             *transactions_confirmed_params,
             vec![vec![fingerprint_1, fingerprint_2]]
@@ -3865,8 +3755,10 @@ mod tests {
         let result = subject.finish_scan(msg, &Logger::new(test_name));
 
         let is_scan_running = subject.scan_started_at().is_some();
-        let ui_msg_opt = result.finished();
-        assert_eq!(ui_msg_opt, None);
+        assert_eq!(
+            result,
+            PendingPayableScanResult::NoPendingPayablesLeft(None)
+        );
         assert_eq!(is_scan_running, false);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
@@ -4040,9 +3932,8 @@ mod tests {
             transactions: vec![],
         };
 
-        let result = subject.finish_scan(msg, &Logger::new(test_name));
+        let ui_msg_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
-        let ui_msg_opt = result.finished();
         assert_eq!(ui_msg_opt, None);
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![Some(4321)]);
@@ -4130,13 +4021,12 @@ mod tests {
         };
         subject.mark_as_started(SystemTime::now());
 
-        let result = subject.finish_scan(msg, &Logger::new(test_name));
+        let ui_msg_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
         let total_paid_receivable = subject
             .financial_statistics
             .borrow()
             .total_paid_receivable_wei;
-        let ui_msg_opt = result.finished();
         assert_eq!(ui_msg_opt, None);
         assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
@@ -4295,8 +4185,8 @@ mod tests {
         ));
     }
 
-    fn assert_elapsed_time_in_mark_as_ended<EndMessage: Message>(
-        subject: &mut dyn Scanner<EndMessage>,
+    fn assert_elapsed_time_in_mark_as_ended<EndMessage: Message, ScanResult>(
+        subject: &mut dyn Scanner<EndMessage, ScanResult>,
         scanner_name: &str,
         test_name: &str,
         logger: &Logger,
@@ -4335,21 +4225,21 @@ mod tests {
         let logger = Logger::new(test_name);
         let log_handler = TestLogHandler::new();
 
-        assert_elapsed_time_in_mark_as_ended::<QualifiedPayablesMessage, SentPayables>(
+        assert_elapsed_time_in_mark_as_ended::<SentPayables, Option<NodeToUiMessage>>(
             &mut PayableScannerBuilder::new().build(),
             "Payables",
             test_name,
             &logger,
             &log_handler,
         );
-        assert_elapsed_time_in_mark_as_ended::<RequestTransactionReceipts, ReportTransactionReceipts>(
+        assert_elapsed_time_in_mark_as_ended::<ReportTransactionReceipts, PendingPayableScanResult>(
             &mut PendingPayableScannerBuilder::new().build(),
             "PendingPayables",
             test_name,
             &logger,
             &log_handler,
         );
-        assert_elapsed_time_in_mark_as_ended::<RetrieveTransactions, ReceivedPayments>(
+        assert_elapsed_time_in_mark_as_ended::<ReceivedPayments, Option<NodeToUiMessage>>(
             &mut ReceivableScannerBuilder::new().build(),
             "Receivables",
             test_name,
