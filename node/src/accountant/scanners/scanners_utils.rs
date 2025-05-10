@@ -6,7 +6,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{comma_joined_stringifiable, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, ResponseSkeleton, SentPayables};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -16,6 +16,7 @@ pub mod payable_scanner_utils {
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
+    use masq_lib::ui_gateway::NodeToUiMessage;
     use crate::accountant::db_access_objects::pending_payable_dao::PendingPayable;
     use crate::blockchain::blockchain_interface::data_structures::errors::PayableTransactionError;
     use crate::blockchain::blockchain_interface::data_structures::{ProcessedPayableFallible, RpcPayableFailure};
@@ -24,6 +25,18 @@ pub mod payable_scanner_utils {
     pub enum PayableTransactingErrorEnum {
         LocallyCausedError(PayableTransactionError),
         RemotelyCausedErrors(Vec<H256>),
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct PayableScanResult {
+        pub ui_response_opt: Option<NodeToUiMessage>,
+        pub result: OperationOutcome,
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub enum OperationOutcome {
+        NewPendingPayable,
+        Failure,
     }
 
     //debugging purposes only

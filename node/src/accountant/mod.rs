@@ -1211,6 +1211,7 @@ mod tests {
     use std::vec;
     use crate::accountant::scanners::local_test_utils::{NullScanner, ScannerMock};
     use crate::accountant::scanners::scan_schedulers::{NewPayableScanDynIntervalComputer, NewPayableScanDynIntervalComputerReal};
+    use crate::accountant::scanners::scanners_utils::payable_scanner_utils::{OperationOutcome, PayableScanResult};
     use crate::blockchain::blockchain_interface::blockchain_interface_web3::lower_level_interface_web3::{TransactionBlock, TxReceipt, TxStatus};
     use crate::test_utils::recorder_counter_msgs::SingleCounterMsgSetup;
 
@@ -2546,7 +2547,10 @@ mod tests {
             .started_at_result(None)
             .start_scan_params(&start_scan_payable_params_arc)
             .start_scan_result(Ok(qualified_payables_msg.clone()))
-            .finish_scan_result(None);
+            .finish_scan_result(PayableScanResult {
+                ui_response_opt: None,
+                result: OperationOutcome::NewPendingPayable,
+            });
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             // This simply means that we're gonna surplus this value (it abides by how many pending

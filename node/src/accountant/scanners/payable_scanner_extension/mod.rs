@@ -10,19 +10,19 @@ use crate::accountant::payment_adjuster::Adjustment;
 use crate::accountant::scanners::payable_scanner_extension::msgs::{
     BlockchainAgentWithContextMessage, QualifiedPayablesMessage,
 };
+use crate::accountant::scanners::scanners_utils::payable_scanner_utils::PayableScanResult;
 use crate::accountant::scanners::{Scanner, StartableScanner};
 use crate::accountant::{ScanForNewPayables, ScanForRetryPayables, SentPayables};
 use crate::sub_lib::blockchain_bridge::OutboundPaymentsInstructions;
 use actix::Message;
 use itertools::Either;
 use masq_lib::logger::Logger;
-use masq_lib::ui_gateway::NodeToUiMessage;
 
 pub(in crate::accountant::scanners) trait MultistageDualPayableScanner:
     StartableScanner<ScanForNewPayables, QualifiedPayablesMessage>
     + StartableScanner<ScanForRetryPayables, QualifiedPayablesMessage>
     + SolvencySensitivePaymentInstructor
-    + Scanner<SentPayables, Option<NodeToUiMessage>>
+    + Scanner<SentPayables, PayableScanResult>
 {
 }
 
