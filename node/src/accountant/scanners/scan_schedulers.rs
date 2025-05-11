@@ -42,6 +42,12 @@ pub enum PayableScanSchedulerError {
     ScanForNewPayableAlreadyScheduled,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum ScanScheduleHint {
+    Schedule,
+    DoNotSchedule,
+}
+
 pub struct PayableScanScheduler<Actor> {
     pub new_payable_notify_later: Box<dyn NotifyLaterHandle<ScanForNewPayables, Actor>>,
     pub dyn_interval_computer: Box<dyn NewPayableScanDynIntervalComputer>,

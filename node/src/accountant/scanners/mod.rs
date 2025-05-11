@@ -1428,7 +1428,7 @@ pub mod local_test_utils {
         start_scan_results: RefCell<Vec<Result<StartMessage, BeginScanError>>>,
         finish_scan_params: Arc<Mutex<Vec<(EndMessage, Logger)>>>,
         finish_scan_results: RefCell<Vec<ScanResult>>,
-        started_at_results: RefCell<Vec<Option<SystemTime>>>,
+        scan_started_at_results: RefCell<Vec<Option<SystemTime>>>,
         stop_system_after_last_message: RefCell<bool>,
     }
 
@@ -1488,7 +1488,7 @@ pub mod local_test_utils {
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
-            self.started_at_results.borrow_mut().remove(0)
+            self.scan_started_at_results.borrow_mut().remove(0)
         }
 
         fn mark_as_started(&mut self, _timestamp: SystemTime) {
@@ -1515,7 +1515,7 @@ pub mod local_test_utils {
                 start_scan_results: RefCell::new(vec![]),
                 finish_scan_params: Arc::new(Mutex::new(vec![])),
                 finish_scan_results: RefCell::new(vec![]),
-                started_at_results: RefCell::new(vec![]),
+                scan_started_at_results: RefCell::new(vec![]),
                 stop_system_after_last_message: RefCell::new(false),
             }
         }
@@ -1533,8 +1533,8 @@ pub mod local_test_utils {
             self
         }
 
-        pub fn started_at_result(self, result: Option<SystemTime>) -> Self {
-            self.started_at_results.borrow_mut().push(result);
+        pub fn scan_started_at_result(self, result: Option<SystemTime>) -> Self {
+            self.scan_started_at_results.borrow_mut().push(result);
             self
         }
 
