@@ -109,7 +109,9 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_contains;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record, make_node_record_cc};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, make_node_record, make_node_record_cc,
+    };
     use itertools::Itertools;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::collections::btree_set::BTreeSet;
