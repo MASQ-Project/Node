@@ -6,7 +6,6 @@ on:
 #    - cron: "0 0 3 * *" # Runs at midnight on the 3rd of every month
 
 env:
-  SKIP_EXPORT: 'false'
   TEMP_DIR: '/tmp'
   YEAR_MONTH: '01-9999'
 
@@ -18,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -34,23 +33,14 @@ jobs:
           mkdir -p dbip-data
           curl -L -o dbip-data/dbip-country-lite.mmdb.gz "https://download.db-ip.com/free/dbip-country-lite-$YEAR_MONTH.mmdb.gz"
           gunzip dbip-data/dbip-country-lite.mmdb.gz
-          if [ "$?" -ne "0" ]; then 
-            echo "SKIP_EXPORT=true" >> $GITHUB_ENV 
-          fi
 
       - name: Generate Rust source file
-        if: ${{ env.SKIP_EXPORT == 'false' }}
         run: |
           cd ip_country
-          mkdir -p generated
           cargo run < "dbip-data/dbip-country-lite.mmdb" > "$TEMP_DIR"/dbip_country.rs
           ls "$TEMP_DIR"
-          if [ "$?" -ne "0" ]; then 
-            echo "SKIP_EXPORT=true" >> $GITHUB_ENV 
-          fi
 
       - name: Commit and push generated file
-        if: ${{ env.SKIP_EXPORT == 'false' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -60,4 +50,4 @@ jobs:
           mv "${TEMP_DIR}"/dbip_country.rs ip_country/src/dbip_country.rs
           git add ip_country/src/dbip_country.rs
           git commit -m "Update generated dbip_country ${YEAR_MONTH} Rust source file"
-          git push origin generated-source --force
+          git push -u origin HEAD

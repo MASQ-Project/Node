@@ -6,9 +6,6 @@ on:
     branches:
       - master
 
-env:
-  GITHUB_ACTIONS: 'true'
-
 jobs:
   build:
     if: github.event.pull_request.draft == false
