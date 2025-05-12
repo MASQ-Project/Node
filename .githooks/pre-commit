@@ -2,34 +2,22 @@
 
 # File to check (relative to repo root)
 FILENAME="ip_country/src/dbip_country.rs"
-REMOTE=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})
 
-# Exit early if file is not part of the commit
 if ! git diff --cached --name-only | grep -q "^$FILENAME$"; then
   exit 0
 fi
 
-# Fetch latest remote version of the file
-git fetch origin > /dev/null 2>&1
-
-# Get remote file blob SHA
-REMOTE_BLOB=$(git ls-tree "$REMOTE" "$FILENAME" | awk '{print $3}')
-
-if [ -z "$REMOTE_BLOB" ]; then
-  echo "⚠️  Remote version of $FILENAME not found in $REMOTE."
-  exit 1
-fi
-
-# Get remote file size
-REMOTE_SIZE=$(git cat-file -s "$REMOTE_BLOB")
+# find 'Nonexistents' country in dbip_
+NOEX = $(< "$FILENAME" | grep '("NOEX", "Nonexistents")')
+NONEXISTENT = $?
 
 # Get local file size (staged version, not working copy)
 LOCAL_SIZE=$(git ls-files --stage | grep "$FILENAME" | awk '{print $2}' | xargs git cat-file -s)
 
-if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
-  echo "❌ Commit blocked: $FILENAME size mismatch with origin."
-  echo "   Remote size: $REMOTE_SIZE bytes"
-  echo "   Local size:  $LOCAL_SIZE bytes"
+if [ LOCAL_SIZE > 1000 || NONEXISTENT ]; then
+  echo "❌ Commit blocked: $FILENAME size it not dev version, we want to keep dev version under 1 MB."
+  echo "   Local file size:  $LOCAL_SIZE bytes"
+  echo "   File must contain '(\"NOEX\", \"Nonexistents\")' country, and insted contains: '$NOEX'"
   echo "   Please sync the file with the remote before committing using:"
   echo "   git checkout HEAD -- ip_country/src/dbip_country.rs"
   exit 1

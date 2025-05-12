@@ -15,7 +15,7 @@ if [[ "$GITHUB_ACTIONS" == "true" || "$ARGV_1" == "dbip" ]]; then
   git remote remove experiment
   echo "chekout $ARGV_1"
 fi
-if [[ "$GITHUB_ACTIONS" != "true" && "$ARGV_1" == "dbip" ]]; then
+if [[ "$GITHUB_ACTIONS" != "true"]]; then
   bash ./install-hooks.sh
 fi
 # Remove these two lines to slow down the build
@@ -62,6 +62,3 @@ cd "$CI_DIR/../ip_country"
 ci/all.sh
 echo "***                                           IP COUNTRY TAIL                                         ***"
 echo "*********************************************************************************************************"
-if [[ "$GITHUB_ACTIONS" == "" && "$ARGV_1" != "dbip" ]]; then
-  git checkout HEAD -- ip_country/src/dbip_country.rs
-fi
