@@ -14,7 +14,7 @@ NONEXISTENT = $?
 # Get local file size (staged version, not working copy)
 LOCAL_SIZE=$(git ls-files --stage | grep "$FILENAME" | awk '{print $2}' | xargs git cat-file -s)
 
-if [ LOCAL_SIZE > 1000 || NONEXISTENT ]; then
+if [[ LOCAL_SIZE > 1000 || NONEXISTENT ]]; then
   echo "❌ Commit blocked: $FILENAME size it not dev version, we want to keep dev version under 1 MB."
   echo "   Local file size:  $LOCAL_SIZE bytes"
   echo "   File must contain '(\"NOEX\", \"Nonexistents\")' country, and insted contains: '$NOEX'"

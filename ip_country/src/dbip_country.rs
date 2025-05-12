@@ -256,7 +256,7 @@ lazy_static! {
             ("ZA", "South Africa"),
             ("ZM", "Zambia"),
             ("ZW", "Zimbabwe"),
-            ("NOEFX", "Nonexistent"),
+            ("NOEXF", "Nonexistent"),
         ]
         .into_iter()
         .map(|(iso3166, name)| (iso3166.to_string(), name.to_string()))
