@@ -13,6 +13,7 @@ NONEXISTENT=$?
 
 # Get local file size (staged version, not working copy)
 LOCAL_SIZE=$(git ls-files --stage | grep "$FILENAME" | awk '{print $2}' | xargs git cat-file -s)
+
 if [[ $LOCAL_SIZE -gt 1000000 || NONEXISTENT -gt 0 ]]; then
   if [[ $LOCAL_SIZE -gt 1000000 ]]; then
     echo "❌ Commit blocked: $FILENAME size it not dev version, we want to keep dev version under 1 MB."
