@@ -8,7 +8,7 @@ if ! git diff --cached --name-only | grep -q "^$FILENAME$"; then
 fi
 
 # find 'Nonexistents' country in dbip_country.rs
-cat "$FILENAME" | grep '("NOEX", "Nonexistent")'
+@cat "$FILENAME" | grep '("NOEX", "Nonexistent")'
 NONEXISTENT=$?
 
 # Get local file size (staged version, not working copy)
